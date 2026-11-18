@@ -395,6 +395,8 @@ function worksRuntime(sim: Sim, mapId: string, map: ParsedMap, typeOf: ReadonlyM
     },
     markers: map.markers,
     zones: map.zones,
+    // C-R4: every runtime is handed the map's roads (a works-only one never routes a convoy, so it reads none).
+    roadMask: roadMaskOf(map),
     economy: { logisticsStart: [FIELD_WORKS_LOGISTICS, FIELD_WORKS_LOGISTICS], logisticsRatePerMin: [0, 0] },
     worksOnly: true,
   };

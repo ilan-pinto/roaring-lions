@@ -326,7 +326,7 @@
   "versus.host.side.note": "KDF against Sarim is played on Tel Marum, Wadi Tarfan and Wadi Tarfan (large) only",
   "versus.host.kit": "Bring your brigade",
   "versus.host.fieldWorks": "Field works",
-  "versus.host.fieldWorks.hint": "{on, select, true {Each player starts with {logistics} logistics and no income, and raises outposts, aid posts and the like with an engineer or the D9} other {No field works: the forces you start with}}",
+  "versus.host.fieldWorks.hint": "{on, select, true {Each player starts with {logistics} logistics and no income, and raises outposts, aid posts and the like with the D9 bulldozer} other {No field works: the forces you start with}}",
   "versus.host.win.pick": "How to win",
   "versus.win.annihilation": "Annihilation",
   "versus.win.annihilation.hint": "Destroy every enemy combat unit",

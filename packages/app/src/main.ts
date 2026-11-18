@@ -4966,7 +4966,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // unavailable, which `ProductionOptions.credits`' doc comment says is
       // the one state with no number to show.
       // Not in a room: the brigade's credits are no currency of a match.
-      credits: roomMenu === null && ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
+      // Versus field works: a field-works room's dock is a room's too, so it shows no brigade credits either.
+      credits: roomMenu === null && roomWorksDock === null && ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       // N3 Task 6: the side this dock commands -- every order carries it -- and no fire
       // support in a versus room (LD5).
       side: me,

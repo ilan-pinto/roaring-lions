@@ -15,6 +15,9 @@
  *
  * A constant and a number: no column, no hash, no tuning. The golden hashes do not move.
  */
-export const SIM_EPOCH_RECORD = { epoch: 1, fingerprint: 1875494945 } as const;
+// The fingerprint was 1875494945. Versus field works (the lead's ruling, 18 Nov 2026) ADDED a pin (`VERSUS_WORKS_WORLD_PIN`, a new
+// works-only world) and moved none: every world a save can be made in plays byte for byte as before, so the epoch stays 1 and only
+// the fingerprint follows the pin list. A moved pin would bump the epoch as well.
+export const SIM_EPOCH_RECORD = { epoch: 1, fingerprint: 462779276 } as const;
 
 export const SIM_EPOCH: number = SIM_EPOCH_RECORD.epoch;

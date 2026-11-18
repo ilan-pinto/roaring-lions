@@ -2049,9 +2049,10 @@ export class MissionRuntime {
    * starts is discarded (R-3). A command for a side no human holds is refused
    * (`Sim.isHumanHeld`: side 0 always; side 1 in a room both seats hold, N3 Task 4),
    * and so is any side outside 0 and 1. The four production kinds run on the
-   * command's own side; `support`, `raiseWorks` and `cancelWorks` have no side
-   * parameter (they act for side 0), so they refuse any other side outright (LD5:
-   * fire support stays off in versus; field works are KDF's). Returns how many
+   * command's own side; `support` has no side parameter (it acts for side 0), so it
+   * refuses any other side outright (LD5: fire support stays off in versus).
+   * `raiseWorks` and `cancelWorks` act for side 0, and for side 1 only in a
+   * works-only runtime (versus field works, `ctx.worksOnly`). Returns how many
    * were accepted.
    */
   applyQueued(): number {

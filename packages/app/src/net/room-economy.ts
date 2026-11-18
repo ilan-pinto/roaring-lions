@@ -36,7 +36,7 @@ export type RoomEconomyRuntime = Pick<
 /** The dock's runtime for `side`: every read and pre-check the side's own. The
  *  orders the dock dispatches carry the side too (`ProductionOptions.side`):
  *  this view only answers questions. Intel is 0 and there are no field works:
- *  a versus room has neither (LD5). */
+ *  an economy room has neither (LD5; a field-works room is KDF v KDF, `room-works.ts`). */
 export function roomDockRuntime(rt: RoomEconomyRuntime, side: 0 | 1): ProductionRuntime {
   return {
     get logistics() {

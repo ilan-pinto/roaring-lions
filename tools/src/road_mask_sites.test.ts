@@ -32,6 +32,8 @@ const SYNTHETIC = new Set([
   'packages/sim/src/runtime-sink-world.test-helper.ts',
   // The forward-camp world (GH-277): a 48x32 synthetic mission, no map and no road.
   'packages/sim/src/runtime-forward-world.test-helper.ts',
+  // The versus works world (versus field works): a 48x32 synthetic works-only runtime, no map and no road.
+  'packages/sim/src/runtime-versus-works-world.test-helper.ts',
 ]);
 
 describe('the road mask reaches every mission runtime (C-R4)', () => {
@@ -40,7 +42,7 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the fifteen sites are the ones on the tree', () => {
+  it('the sixteen sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
       // N3 Task 3: a KDF-v-Sarim room's economy runtime.
@@ -51,6 +53,8 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
       'packages/sim/src/runtime-forward-world.test-helper.ts',
       // Net snapshot S2 Task 3: the sink world, a small synthetic mission with its own hand-laid road (no map).
       'packages/sim/src/runtime-sink-world.test-helper.ts',
+      // Versus field works: the works-only world (synthetic, no map, no road).
+      'packages/sim/src/runtime-versus-works-world.test-helper.ts',
       'tools/src/backtest/enemy-production-probe.ts',
       'tools/src/backtest/fl_ladder.ts',
       'tools/src/backtest/playtest-run.ts',

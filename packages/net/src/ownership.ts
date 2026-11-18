@@ -25,7 +25,8 @@ export interface SeatWorld {
    *  (#559 F1): the same answer on both machines, from the shared config.
    *  `support` (N2) is priced only by the runtime too, and drops in versus
    *  for the same reason (LD5: fire support stays off in versus), as do field
-   *  works' `raiseWorks` and `cancelWorks` (GH-277). */
+   *  works' `raiseWorks` and `cancelWorks` (GH-277) -- except in a field-works
+   *  room (`fieldWorks`, below), whose works-only runtime prices them. */
   readonly versus: boolean;
   /** A room on the skirmish economy (`economyRoom(config)`, N3 Task 4): a
    *  versus room whose seats field different factions, which runs a
