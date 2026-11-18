@@ -1,104 +1,124 @@
-# Age-rating questionnaire: pre-filled draft
+**DRAFT for the lead and his lawyer. Not legal advice.**
 
-**DRAFT. NOT LEGAL ADVICE. A starting point for the lead and the lawyer; not submitted to any rating body.** Written 15 Nov 2026 from the repository at `main` v0.133.10.
+# Age-rating questionnaire: prepared answers (draft)
 
-The usual rating questionnaires (IARC, which several storefronts use, and each board's own) ask about the same themes. I do not have any form's exact wording or current question list, so the answers below are organised by theme, in plain words, to be copied across onto whichever form a storefront shows. Every answer says what the game does, the repository fact behind it, and a confidence mark:
+Not submitted to any rating body or storefront. Written 18 Nov 2026 by an AI coding assistant from the repository at `origin/dev` `e1845a77e`. It replaces the draft of 15 Nov (PR 1475).
 
-- **FACT**: read straight from a file I cite.
-- **CHECKED**: I searched for evidence and found none; weaker than a proof of absence.
-- **JUDGEMENT**: a classification a rater makes (how "realistic" violence is); the facts are listed, the label is theirs.
+**What this is.** Storefronts that use IARC, and the rating boards, ask about the same themes: violence, fear, sex, language, drugs, gambling, discrimination, and the interactive elements (players talk to each other, location is shared, things can be bought, the open web can be reached). I do not have any form's current wording. So the questions below are in plain words, grouped by theme, to be matched by hand to whatever form the store shows. **I do not predict a rating.**
 
-Answers describe the game **as built today**. Where a planned feature would change an answer, it says so.
+**The certainty column:**
+
+- **FACT**: read straight from the file in the source column.
+- **CHECKED**: I searched for it and found nothing. That is weaker than proof that it is absent.
+- **JUDGEMENT**: the facts are given; the label (how realistic, how strong) is the rater's.
+- **UNCERTAIN**: I could not settle it from the repository. Someone must check before a form is filed. Every one of these is also listed in section 10.
+
+Answers describe the game **as built on `dev` today**. "Open PR" marks an answer that changes when that pull request lands.
 
 ---
 
-## 0. One-paragraph description (for the form's free text)
+## 0. A short description for the form's free text
 
-Roaring Lions is a real-time strategy game set in a fictional region, played in a browser or through a store build. The player commands a modern-style army brigade (infantry, tanks, drones, air and artillery support) in missions that mix fighting with protecting civilians. Enemies are defined by their tactics, never by ethnicity, nationality or faith. Combat is resolved realistically but is shown without blood or gore. There is an optional online one-versus-one mode with text chat, an optional account, and a free in-game currency that cannot currently be bought.
+Roaring Lions is a real-time strategy game, played in a web browser, set in an invented region. The player commands a modern army brigade (infantry, tanks, drones, aircraft, artillery) from a high, fixed camera. Missions mix combat with protecting civilians, and harming civilians costs the player. Enemies are defined by their tactics, never by ethnicity, nationality or faith. There is no blood or gore. There is an optional one-against-one online mode with text chat, an optional account, and a free in-game currency that cannot be bought with money.
 
-*Basis:* `docs/GDD.md` section 2 (fiction; doctrine not ethnicity); `README.md`.
+*Source:* `docs/GDD.md` section 2 and 5.5a; `README.md`; `packages/economy/src/wallet.ts` (`PURCHASES_OPEN`).
 
 ---
 
 ## 1. Violence
 
-| Question | Draft answer | Basis | Mark |
-|---|---|---|---|
-| Does the game depict violence against humans? | **Yes.** Soldiers and, in some missions, civilians are units that can be killed. Combat is firepower from a distance (rifles, tanks, missiles, artillery, air strikes), seen from above at a strategic zoom. | Units have hit points and die (`data/units/*`); civilians are a unit type with 200 hp (`data/units/civilians.json`); the camera is a fixed dimetric view (`CLAUDE.md`, "dimetric RTS") | FACT |
-| Is it realistic or fantasy? | **Realistic military setting** (modern-style weapons, a fictional country), stylised and distant. | GDD sections 2 and 5 | JUDGEMENT |
-| Is there blood or gore? | **No.** There is no blood and no gore: infantry that fall leave a subdued prone form, and the art pipeline's palette gate would reject red-spectrum additions; the store catalogue rules bar "blood, or any mark that counts or celebrates killing". | `docs/superpowers/specs/2026-08-04-unit-animation-design.md` ("No gore, no blood decals"); `docs/superpowers/specs/2026-10-11-monetisation-content-plan.md` line 214; a search of `data/`, `docs/GDD.md` and the render/app source found "blood" only in a palette note about skin tone **(CHECKED)** | FACT + CHECKED |
-| Dismemberment, graphic injury, torture? | **No.** | Same sources. A wounded infantryman is a one-man entity with a bleed timer who crawls to cover and can be rescued; it is a game state, not a graphic depiction (`docs/superpowers/specs/2026-10-22-wounded-rescue-design.md`, section 1: `bleed_s`, `crawl_tiles_s`). | FACT; the depiction itself is JUDGEMENT |
-| Physics-driven falling bodies? | A dying infantry figure may fall as a linked-body "ragdoll" (presentation only). It is **off in every shipped quality preset today**; the plan is to switch it on at the higher presets. | `docs/superpowers/specs/2026-11-10-presentation-physics-design.md`; `GH-1400` brief (`physics.ragdolls` is 0 on every preset in `packages/render/src/quality.ts`). **Re-answer if it ships.** | FACT |
-| Does the game encourage violence against civilians? | **No: it penalises it.** Harm to protected people and places costs the player a rules-of-engagement score that can fail a mission; restraint is rewarded, and a routed enemy that is approached surrenders and becomes a prisoner, which scores credit where kills score nothing. | `docs/GDD.md` sections 5.5a and the ROE rule ("you always know what a shot will cost before taking it"); mission `roe` block in `data/schemas/mission.schema.json` (`no_collateral_above`, `fail_below`) | FACT |
-| Are real people, places or events depicted? | The setting is **entirely fictional**: no real name, place, date, flag, faith or people. **One point for the lawyer:** the lead's structural reference for the opening mission is a real event, "transposed entirely into the fiction" (`docs/campaign/storyline.md`, D12); that mission shows 11 civilians outside a wire and counts 2 in, with a briefing saying nobody is coming back for the rest. | `docs/GDD.md` section 2; `docs/campaign/storyline.md` D12 and the "atrocity" row for the mission `beit_sahwan_breach` | FACT; whether a board treats that as "based on real events" is the lawyer's |
-| Violence in text or story? | The story contains war, loss and the aftermath of an attack on civilians, told in briefings and radio lines; the atrocity is **not shown** on screen as an event. | `data/missions/*`; the generated text catalogue `data/locales/en/missions.json` (631 strings) | FACT; the "not shown" is based on the mission data and design, not a playthrough **(not verified in play)** |
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 1.1 | Does the game show violence against people? | **Yes.** Soldiers fight with rifles, machine guns, rockets, tanks, missiles, mortars, artillery, drones and air strikes. Soldiers can be killed. Civilians can be killed or wounded by area fire and strikes. | units and weapons in `data/units/**`; civilians are a unit with 200 hp in 25 of the 35 mission files (`data/units/civilians.json`, `data/missions/*.json`); strikes shake "everyone nearby ... including civilians" (`packages/sim/src/sim.ts`, `stepStrikes`) | FACT |
+| 1.2 | Can the player target civilians directly? | **No.** An order to attack a civilian is refused. Civilians are hurt only as collateral, and that is charged to the player. | `canFocus` refuses a civilian target (`packages/sim/src/sim.ts`; test "attack on a civilian ... is refused" in `packages/sim/src/focus.test.ts`) | FACT |
+| 1.3 | Is harming civilians rewarded or punished? | **Punished.** A rules-of-engagement (ROE) score falls with harm to civilians and protected buildings, and a mission can fail on it. Routed enemies who are approached, not shot, surrender and become prisoners. Prisoners score where kills score nothing. | `docs/GDD.md` 5.5a; mission `roe` block (`data/schemas/mission.schema.json`, `no_collateral_above`, `fail_below`); civic-hall `m` tiles on nine maps (`CLAUDE.md`, "ROE") | FACT |
+| 1.4 | How close and how detailed is it? | **Distant and small.** A fixed high (dimetric) camera. A soldier is a few pixels tall at play zoom; a face is about six pixels. | `CLAUDE.md` ("dimetric RTS"); `data/palette.json`, the skin note ("a face is about six pixels at gameplay zoom") | FACT; "detailed" is JUDGEMENT |
+| 1.5 | Realistic or fantasy? | **Realistic modern military setting**, with invented countries. Combat is resolved realistically (armour, penetration, suppression). Shown at a strategic distance. | `docs/GDD.md` sections 2 and 5; `CLAUDE.md` ("realistic combat resolution") | JUDGEMENT |
+| 1.6 | Blood? | **None found.** No blood effect, decal or texture. The ground marks are crater, scorch, oil, rubble, tread, tyre, churn and scuff. A fallen soldier is "a subdued prone form". | decal kinds (`packages/render/src/three/decal-maths.ts`, `DecalKind`); the 40 files in `data/vfx/` (impacts, fire, smoke, dust, wrecks; none for blood); `docs/superpowers/specs/2026-08-04-unit-animation-design.md` ("No gore, no blood decals"); the word "blood" appears in the repository data only in a palette note about skin tone (`data/palette.json`) | CHECKED |
+| 1.7 | Gore, dismemberment, torture? | **None found.** | same sources as 1.6 | CHECKED |
+| 1.8 | Wounded people? | **Yes, as a game state.** A hit soldier or civilian may become "wounded": one prone figure that bleeds out on a timer (a ring with a "bleed arc" shows the time) unless a medic reaches him. Players can rescue enemy and civilian wounded too, and are rewarded for it. | `docs/superpowers/specs/2026-10-22-wounded-rescue-design.md` (sections 0 and 1; conduct gains for rescued enemy and civilian wounded); `hull.wounds` on 21 unit types (`CLAUDE.md`, "Wounds and rescue"); the `wounded-read` layer (`packages/render/src/three/debug-layers.ts`) | FACT; how it reads on screen is JUDGEMENT |
+| 1.9 | Bodies falling with physics (ragdolls)? | **Not shipped.** Ragdolls exist in code but are **0 on every quality preset**. A dying figure plays an animated fall. Re-answer if ragdolls are switched on. | `packages/render/src/quality.ts` (`physics: { ragdolls: 0 }` on `low`, `medium` and `high`; the lead's ruling L4, 10 Nov) | FACT |
+| 1.10 | Vehicles destroyed? | **Yes.** Destroyed vehicles become burnt, damaged wrecks that smoulder. Buildings can be holed and collapse. | vehicle `wreck` clips and the damage pass (`CLAUDE.md`, "Mesh units"); `data/vfx/catastrophic_kill.json`, `wreck_smoulder.json`, `structure_collapse.json` | FACT |
+| 1.11 | Suicide attacks? | **Yes, as an enemy unit.** One enemy unit, the "Suicide Squad", carries explosive vests and blows itself up next to its target. It appears in 7 mission files. The detonation is an explosion effect; no gore. | `data/units/enemy/charge_squad.json` (`"name": "Suicide Squad"`, ability `kamikaze`, weapon `vest`, type `demolition`); `data/locales/en/units.json`; 7 files in `data/missions/` name `charge_squad` | FACT. **UNCERTAIN** how a board weighs it: flag for the lawyer |
+| 1.12 | Violence in the story? | **Yes, told, not shown.** The story includes a surprise attack on a base and villages, families killed, and people abducted. These are told in briefings and radio lines and through mission goals, "never depicted". Later missions include rescuing a captive from a house and the handover of four captives during a pause in fighting. An enemy holds a position inside a clinic block among sheltering residents. | `docs/campaign/storyline.md` D12 ("shown through mechanics and stated in the story voice, never depicted"); mission text in `data/locales/en/missions.json` (the "people taken at First Light", "bring all four of the taken south of the Cut", the clinic block) | FACT for the text. **UNCERTAIN** that nothing is shown on screen: this rests on the design and the data, not on a playthrough |
+| 1.13 | Based on real events? | **The setting is fiction:** no real name, place, date, flag, faith or people. **But** the lead's structural reference for the opening is a real attack (7 October 2023), "transposed entirely into the fiction". | `docs/GDD.md` section 2; `docs/campaign/storyline.md` D12 | FACT. **UNCERTAIN** how to answer a form that asks this: the lawyer's call |
 
-## 2. Fear, horror, disturbing content
+## 2. Fear and horror
 
-**None intended.** No horror, jump scares or supernatural content. The subject matter (war, civilian harm) is the only disturbing theme. *Mark:* JUDGEMENT. *Basis:* GDD; no horror genre anywhere in the design documents **(CHECKED)**.
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 2.1 | Horror, jump scares, the supernatural? | **None.** | no horror genre or content in the design documents (`docs/GDD.md`, `docs/campaign/storyline.md`) | CHECKED |
+| 2.2 | Disturbing themes? | **War, loss, civilian harm, captives.** See 1.11 to 1.13. | as above | JUDGEMENT |
+| 2.3 | Distressing sound? | One shipped Hebrew voice take is "a shout ... check it is a call and not a scream". A medic call ("Medic!") exists. | `data/audio.json` `voices.lines` (`en` glosses) | **UNCERTAIN**: not heard |
 
-## 3. Sexual content, nudity
+## 3. Sex and nudity
 
-**None.** *Mark:* CHECKED. A search of the English text catalogues (chrome and missions) for sexual terms found none, and there are no character models other than uniformed soldiers and civilians. *Basis:* `packages/app/src/i18n/en.json`, `data/locales/en/missions.json`, `art/meshes/`.
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 3.1 | Sexual content or nudity? | **None found.** The figures are uniformed soldiers and dressed civilians. No sexual words in the game's English text. | search of `packages/app/src/i18n/en.json` and `data/locales/en/*.json` (about 40,800 words, keys included) for sex, sexual, naked, nude, rape, kiss: 0 hits; `art/meshes/` | CHECKED |
 
-## 4. Bad language
+## 4. Language
 
-| Question | Draft answer | Basis | Mark |
-|---|---|---|---|
-| Profanity in text? | **None found.** A search of all 31,962 words of English text for eight common profanities returned zero hits (the words are fuck, shit, bitch, bastard, cunt, piss, whore, damn). | `packages/app/src/i18n/en.json`, `data/locales/en/missions.json`, `data/locales/en/units.json` | CHECKED |
-| Profanity in recorded voice? | **Not reviewed.** Unit barks are in Hebrew (KDF) and Arabic (enemy factions). Only 24 Hebrew files exist today, none for Arabic yet; each line carries a transliteration and an English gloss in the manifest, which a reviewer can read. | `data/audio.json` `voices`; `CONTRIBUTING.md` (voice rules) | **(not verified)**: someone should read the `en` gloss of every shipped line before submitting |
-| Language in player chat? | The game cannot control it: see section 7. | | |
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 4.1 | Swearing in the game's own text? | **None found.** | the same search for fuck, shit, bitch, bastard, cunt, piss, whore, damn, hell, crap: 0 hits | CHECKED |
+| 4.2 | Swearing in recorded voice? | **Probably none, not confirmed.** 12 Hebrew voice takes ship; no Arabic yet. Their English glosses hold no swearing. Several glosses say "unverified by ear", and one says "colloquial ... check by ear". Some takes are AI-generated stand-ins, to be left out of a commercial release. | `data/audio.json` `voices.lines` (`he` 12 variants, `ar` 0); `en` glosses; `packages/app/src/i18n/en.json` `credits.ai.audio` | **UNCERTAIN**: a Hebrew speaker should hear every shipped take |
+| 4.3 | Swearing from other players? | **Possible.** Players can type free text in versus chat. See section 7. | `packages/net/src/protocol.ts` (`CHAT_MAX_CHARS`) | FACT |
 
-## 5. Drugs, alcohol, tobacco, gambling
+## 5. Drugs, alcohol, tobacco
 
-| Question | Draft answer | Basis | Mark |
-|---|---|---|---|
-| Drugs, alcohol, tobacco depicted or referenced? | **None found.** (Text search hits for "smoke" are smoke screens.) | text catalogues | CHECKED |
-| Gambling or simulated gambling? | **No.** There are no chance-based purchases, loot boxes or random rewards, and the store rule forbids any. | `docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`, test T7 ("No random or paid-chance item of any kind") | FACT (a rule, not yet a store; re-check when purchases open) |
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 5.1 | Shown or mentioned? | **None found.** Hits for "smoke" are smoke screens and burning. One enemy faction's doctrine includes "smuggling"; no goods are named in the text. | search of the English text for drug, alcohol, beer, wine, cigarette, tobacco, cocaine, heroin, hashish, narcotic, drunk: 0 hits; `docs/GDD.md` section 2 (Rif Cells: "technicals, raids, smuggling") | CHECKED |
 
-## 6. Digital purchases
+## 6. Gambling and chance
 
-| Question | Draft answer | Basis | Mark |
-|---|---|---|---|
-| Can players spend real money in the game? | **Not today.** A free cosmetic currency, Roar coins, exists and is earned in play or granted by coupon; `PURCHASES_OPEN` is false and the paid balance is clamped to zero. **The plan** is to sell Roar coins through Steam for cosmetics, operation passes and single-player early access to items that play also unlocks. **Re-answer this section the day purchases open.** | `packages/app/src/roar-wallet.ts` header; `packages/economy/src/stores.ts`; the monetisation plan rules 1 to 5 (as amended 2026-10-11) | FACT |
-| Do purchases affect competition between players? | **No.** Coins cannot be used in a match against a person and never affect a score, grade or the simulation. | monetisation plan, tests T2 to T5 (sim-blind, score-blind, gate-blind) | FACT (a design rule, enforced by tests named in that spec) |
-| Is the currency tied to chance or to timers? | No. Items are known before purchase and are permanent. | tests T7, T8 | FACT |
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 6.1 | Real or simulated gambling? | **None found.** | search for gamble, gambling, casino, bet: 0 hits | CHECKED |
+| 6.2 | Loot boxes or random paid items? | **No.** No random, mystery or chance item of any kind, paid or free. Every item is shown before it is bought, and is permanent. | the store rule T7, "No random or paid-chance item of any kind" (`docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`); search of `packages/economy/src` and the Stores UI for loot, crate, mystery, spin, gacha: 0 hits | FACT (a rule) + CHECKED |
 
-## 7. Online interaction and user-generated content
+## 7. Players interacting
 
-| Question | Draft answer | Basis | Mark |
-|---|---|---|---|
-| Can players communicate with each other? | **Yes, in versus rooms only:** typed text messages of up to 280 characters, one every 500 ms, between the players in a room (and visible to spectators of that room **(not verified)**). No voice chat. | `packages/net/src/protocol.ts` (`CHAT_MAX_CHARS` 280); `packages/worker/src/match/room-core.ts` (`CHAT_MIN_GAP_MS` 500, `cleanChat` strips control and bidi characters) | FACT |
-| Is chat moderated or filterable? | **No word filter, mute, block or report feature was found.** The only control is character cleaning and the rate limit. | search of `packages/net/src`, `packages/app/src/net`, `packages/worker/src/match` for profanity, moderat*, mute, block, report: only unrelated audio "mute" hits | CHECKED. **A gap a rating board and a lawyer will ask about.** |
-| Can players share personal information? | A player could type it in chat or into the optional feedback contact field. The game does not ask players for personal details beyond an optional contact in the feedback form and a sign-in through Google (account number only). | `data/schemas/feedback.schema.json` (`contact`); `packages/worker/src/privacy-page.ts` | FACT |
-| User-generated content other players see? | **Names and chat only.** A player-chosen display name and callsign (24 characters, cleaned) are shown to others. There is no player-made map, image or mod sharing in the product. | `packages/net/src/callsign.ts`; GDD section 10 (map editor and mod loader are deferred) | FACT |
-| Does the game connect players to strangers? | Versus rooms are joined by invitation (a room) and can include bots; whether there is open matchmaking by stranger is a lobby detail **(not verified; the lead should state it)**. | `packages/net`, `packages/worker/src/match` | not verified |
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 7.1 | Can players talk to each other? | **Yes, in versus rooms only.** Typed text (up to 280 characters, one line per 500 ms) and preset quick-chat phrases, between the two players of one room. No voice chat. Spectators (bot-against-bot rooms only) get no chat. | `packages/net/src/protocol.ts` (`CHAT_MAX_CHARS`, quick chat by id); `packages/worker/src/match/room-core.ts` (`CHAT_MIN_GAP_MS`); `packages/app/src/ui/quick-chat.ts`; D11 (PR 1490) | FACT |
+| 7.2 | Who can a player meet? | **Anyone who has the room code.** Rooms are opened and joined by a six-character code. There is no public room list and no matchmaking. A code posted in public can still seat a stranger. | `packages/worker/src/match/code.ts`, `routes.ts`; the chat safety design, section 1; lead ruling D10 (no public listing until S1 to S4 ship) | FACT |
+| 7.3 | Is chat checked or filtered? | **Not checked by anyone before it is shown.** The room passes lines on and stores none. Controls on `dev` today: chat off (Settings), and mute a player for the rest of the room. **Open PR 1492** adds a word filter on the receiving device (hide the worst words, mask others; English sorted, de, es-ES, fr, ru mask-only; filtered names show as "Lion"). **Open PR 1502** adds block (members, this device) and report (sent to the person who runs the game, kept 180 days, no automatic action). An operator kill switch for reports is ruled (D8). | `packages/app/src/ui/chat-inbox.ts`, `packages/app/src/settings.ts` (`chat.enabled`, PR 1479); PRs 1492 and 1502; lead rulings D1 to D12 on GH-1417 | FACT for `dev`. **UNCERTAIN** wording: re-answer when 1492 and 1502 land; how to describe "unmoderated chat with controls" is the lawyer's |
+| 7.4 | Can players share personal details? | **They could type them.** Chat, a callsign, a display name and the feedback contact field are free text. The game asks for no personal details. Report text and privacy requests go only to the person who runs the game. | `packages/net/src/callsign.ts`; `data/schemas/feedback.schema.json` (`contact`); `packages/worker/src/privacy-page.ts` | FACT |
+| 7.5 | Content made by players that others see? | **Names and chat only.** A callsign (24 characters) and, for members, a display name. Avatars are preset crests. No shared maps, mods or pictures. | `packages/net/src/callsign.ts`; `data/avatars/presets.json`; an avatar upload is designed and its validator exists (`packages/worker/src/account/avatar-image.ts`) but no upload route was found, and the design says only the owner would see one (`docs/superpowers/specs/2026-11-14-avatars-and-profile-design.md` 5.5) | FACT; **UNCERTAIN** if avatar upload ships |
+| 7.6 | Computer-controlled players? | **Yes.** A seat can be a bot. A player can also invite an AI advisor they run themselves; its text reaches only that player. | `packages/worker/src/match/routes.ts` (`kind`, `botModel`); `packages/net/src/advisor.ts` | FACT |
 
-## 8. Location, accounts, data
+## 8. Location, web access, data
 
-| Question | Draft answer | Basis | Mark |
-|---|---|---|---|
-| Does the game share the player's location? | **No.** No location is collected; no IP or user agent is stored. | `packages/worker/src/privacy-page.ts`, "What is never stored" | FACT |
-| Does it collect personal information? | **Little.** Optional account: the identity provider's account number (Google "sub", or a SteamID64 if Steam is linked), a chosen display name, progress data; no email, name or picture. Anonymous usage reports use a random ID and can be turned off. | `privacy-page.ts` | FACT |
-| Minimum age for an account | **16** (the lead's number); guests need no account. | `PRIVACY_MIN_AGE` in `privacy-page.ts` | FACT; the number is the lead's |
-| Does it have unrestricted web access or social features? | **No** browser, no social feed, no friends list. | `CLAUDE.md` package layout | FACT |
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 8.1 | Does the game share or collect the player's location? | **No.** No location is collected or shown to other players. The game stores no IP address. Cloudflare's own request logs record the address of each request. | `privacy-page.ts`, "What is never stored" (location, IP address) and "What Cloudflare keeps"; no `navigator.geolocation` in `packages/app/src` | FACT + CHECKED |
+| 8.2 | Open web access, a browser, social sharing? | **No.** No in-game browser, no social feed, no friends list, no share button. External links found in the app: the three.js and Rapier sites on the credits screen. Google sign-in opens Google's page. | search of `packages/app/src` (non-test) for external URLs, `navigator.share` and social sites | CHECKED |
+| 8.3 | Personal data collected? | **Little.** With an optional account: Google's account number (or a SteamID64 if Steam was linked), a display name, a random Player ID, progress, coins and save slots. No email, name or picture. On the live site, anonymous usage, crash and performance reports tied to a random ID, kept until about 180 days after last seen; they can be turned off. Feedback can carry an optional contact, removed after 180 days. | `privacy-page.ts`; `packages/worker/src/ingest.ts` (`EVENTS_RETENTION_MS`); `packages/worker/src/feedback-triage.ts` (`RETENTION_MS`) | FACT |
+| 8.4 | Minimum age? | **16 to sign in** (the lead's number). No age check in the sign-in flow; the page states it. Playing as a guest needs no account. | `PRIVACY_MIN_AGE = 16` (`privacy-page.ts`) | FACT. **UNCERTAIN** whether that is enough: Q5 in the terms draft |
 
-## 9. Anything else a rater may want to know
+## 9. Purchases
 
-- **No audio recordings of real events, no real military footage.** Audio assets are CC0 or owned/commissioned, declared in `data/audio.json` with a licence and source (`CONTRIBUTING.md`). *(FACT; the manifest enforces it with `pnpm validate:audio`.)*
-- **AI-generated assets exist in the pack** (3D models from a generative tool, credited in `art/ATTRIBUTION.md`); some storefronts ask. *(FACT: `CLAUDE.md`, "What not to do".)*
-- **Setting sensitivity.** A fictional region whose terrain and palette are modelled on the eastern Mediterranean (the project's terrain notes, `CLAUDE.md` "Domain skills"), with unit voices in Hebrew and Arabic. The GDD's rule is that language is the one real-world marker admitted, admitted symmetrically, with faith and ethnicity excluded (section 2). *(FACT; whether a board reads it as a real-world conflict is JUDGEMENT.)*
+| # | Question | Draft answer | Source in repo | Certainty |
+|---|---|---|---|---|
+| 9.1 | Can players spend real money? | **No, not today.** Paid purchases are switched off, and no code raises the paid balance. | `PURCHASES_OPEN = false` and the paid half clamped to 0 (`packages/economy/src/wallet.ts`) | FACT. **Re-answer the day purchases open** |
+| 9.2 | Is there a digital currency? | **Yes, free.** Roar coins, earned by play or from a coupon (none issued). Today they open single-player units and upgrades early; all can also be earned by play. **Open PR 1565** adds a switch (shipped off) so coins buy cosmetics only. | `wallet.ts` (`EarnSource`, receipts `unit`, `tier`); `data/coupons.json` (empty); PR 1565 (`COINS_COSMETIC_ONLY`) | FACT |
+| 9.3 | Do coins affect play against others? | **No.** Versus reads earned items only; coins never change a result. | `networkView` reads earned items only (`packages/economy/src/wallet.ts` header); versus pays 0 coins (`docs/HANDOVER.md`, the Roar-coin row) | FACT |
+| 9.4 | Planned? | **Yes.** The plan is to sell coin packs through Steam later, for cosmetics, operation passes and early single-player access. | `docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`; `docs/HANDOVER.md` (lane D: ST7, Steam Wallet) | FACT (a plan) |
 
----
+## 10. The uncertain answers, in one list
 
-## What I expect a board to land on, and the three things that might move it
+1. **1.11 Suicide Squad.** An enemy unit with explosive vests, in 7 mission files. How a board weighs a suicide-bomber unit, and how to describe it.
+2. **1.12 "Told, not shown".** The atrocity, the killings and the abductions are said to be never depicted. This rests on the design and the data. Someone should play the opening missions and confirm.
+3. **1.13 Real-world reference.** How to answer "based on real events" when the opening's structure follows the 7 October 2023 attack, moved into fiction.
+4. **2.3 and 4.2 Voice.** Twelve Hebrew takes, several "unverified by ear", one possibly a scream, one "colloquial". A Hebrew speaker should hear all of them. Some are AI stand-ins meant to be left out of a commercial build.
+5. **7.3 Chat controls.** The answer changes when PRs 1492 (filter) and 1502 (block, report) land. The wording for "free chat, no human moderation, with player controls" is the lawyer's.
+6. **7.5 Avatar upload.** Not served today. Re-answer if uploads ship, and again if other players can see them.
+7. **8.4 Age.** Whether stating 16 is enough, per market.
+8. **9.1 Purchases.** Re-answer the day `PURCHASES_OPEN` becomes true.
+9. **1.9 Ragdolls.** Re-answer if a preset turns them on.
 
-I am **not** predicting a rating. For the lawyer's planning: realistic military violence against humans with no blood is a common profile for strategy games; what could move it up or draw questions are (1) the authored civilian-atrocity mission and its real-world reference, (2) unmoderated player chat, and (3) paid currency once purchases open.
+## 11. What may draw a board's attention
 
-## To close before submitting
-
-1. Read the English gloss of every shipped voice line (section 4).
-2. State whether versus has stranger matchmaking (section 7).
-3. Decide on a chat report/mute route, or answer the form's "unmoderated" question honestly (section 7).
-4. Re-answer sections 1 (ragdoll) and 6 (purchases) when either ships.
-5. Have the lawyer read the real-world-reference row (section 1) and decide how it is described.
+I am **not** predicting a rating. For planning only, the items most likely to draw questions are: the suicide-bomber unit (1.11); the civilian killings and abductions in the story and their real-world reference (1.12, 1.13); free-text chat with people who share a room code (7.2, 7.3); and paid coins, once they open (9.1).
