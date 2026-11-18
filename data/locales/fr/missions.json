@@ -183,10 +183,10 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Souterrain",
-    "briefing": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin. Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier. Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez. Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre.",
+    "briefing": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin. Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, les quatre qui sont avec Sahim si vous les atteignez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier. Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez. Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre.",
     "sections": {
       "situation": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin.",
-      "mission": "Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier.",
+      "mission": "Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, les quatre qui sont avec Sahim si vous les atteignez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier.",
       "execution": "Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez.",
       "notes": "Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre."
     },
@@ -202,13 +202,15 @@
       "get_them_out": "Sortir neuf personnes au point de collecte en moins de quatre minutes",
       "take_the_shaft_head": "Tenir la tête du puits jusqu'à ce que Sahim en soit sorti",
       "find_spade": "Trouver Nadir Sahim à la tête du puits",
-      "most_of_them": "Sortir douze des quinze au point de collecte en moins de quatre minutes"
+      "most_of_them": "Sortir douze des quinze au point de collecte en moins de quatre minutes",
+      "bring_back_the_four": "Sortir les quatre personnes retenues à la tête du puits jusqu'au point de collecte"
     },
     "objective_say": {
       "read_the_ground": "Voilà l'équipe de l'itinéraire ouest. Il garde ses terrassiers près du travail, c'est comme ça que nous l'avons trouvé.",
       "get_them_out": "Neuf au point de collecte. C'est la première fois que ce secteur rend quelqu'un.",
       "take_the_shaft_head": "La tête du puits est à vous et il se tient du mauvais côté. Quatre ans à creuser et le voilà en surface.",
-      "most_of_them": "Douze au point de collecte. Gardez la ruelle ouverte pour ceux qui arrivent encore."
+      "most_of_them": "Douze au point de collecte. Gardez la ruelle ouverte pour ceux qui arrivent encore.",
+      "bring_back_the_four": "Les quatre de la tête du puits sont au point de collecte. Tous les quatre."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Le temps est écoulé et il reste sous cette ville un terrain qui n'est pas à nous.",
@@ -229,7 +231,7 @@
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "69efde58",
+      "briefing": "2b6d54c3",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
       "objectives.get_them_out": "4ce3c7c6",
@@ -240,7 +242,7 @@
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "a6496537",
+      "sections.mission": "09bb6a00",
       "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
@@ -256,7 +258,9 @@
       "triggers.yard_families_shelter": "dd03b9f1",
       "triggers.souk_families_shelter": "6c21d359",
       "triggers.market_families_shelter": "a5940c9f",
-      "triggers.clinic_families_shelter": "8a8ab1c5"
+      "triggers.clinic_families_shelter": "8a8ab1c5",
+      "objectives.bring_back_the_four": "235dacf1",
+      "objective_say.bring_back_the_four": "0ce0f960"
     }
   },
   "beit_sahwan_breach": {

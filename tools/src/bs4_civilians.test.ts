@@ -28,7 +28,7 @@ const ID = 'beit_sahwan_4_subterranean';
 const m = (missions as Record<string, unknown>)[ID] as MissionJson & {
   civilians: { refuge: string; groups: { unit: string; count: number; at: [number, number]; group?: string }[] };
   triggers: { id: string; on: { kind: string; value: number }; do: { kind: string; group: string; to?: string }; label?: string }[];
-  objectives: { id: string; type: string; count?: number; seconds?: number; primary: boolean; hostages?: boolean }[];
+  objectives: { id: string; type: string; count?: number; seconds?: number; primary: boolean; hostages?: boolean; group?: string | string[] }[];
   enemy: { garrison: { count?: number }[]; waves: { units: { count?: number }[] }[] };
   starting_force: { unit: string; count?: number; at: [number, number] }[];
 };
@@ -49,10 +49,18 @@ describe('the data', () => {
       expect(groups.filter((g) => g.group === name).reduce((n, g) => n + g.count, 0), name).toBe(count);
     }
   });
+  it('only the objective scoped to the hostage group writes civ.hostages_recovered, so the ledger reads 4 and never 9 (E3, group-scoped evacuation)', () => {
+    const hostageObjectives = m.objectives.filter((o) => o.hostages === true);
+    expect(hostageObjectives.map((o) => o.id)).toEqual(['bring_back_the_four']);
+    const four = hostageObjectives[0];
+    expect([four.type, four.group, four.count, four.seconds, four.primary]).toEqual(['evacuate_before', 'hostages', 4, 240, false]);
+    const held = m.civilians.groups.filter((g) => g.group === 'hostages').reduce((n, g) => n + g.count, 0);
+    expect(four.count).toBe(held);
+  });
   it('every resident group runs to a named muster at 2 s and is taken at the deadline + 2', () => {
     const primary = m.objectives.find((o) => o.id === 'get_them_out');
     const secondary = m.objectives.find((o) => o.id === 'most_of_them');
-    expect([primary?.count, primary?.seconds, primary?.hostages, primary?.primary]).toEqual([9, 240, true, true]);
+    expect([primary?.count, primary?.seconds, primary?.hostages, primary?.group, primary?.primary]).toEqual([9, 240, undefined, undefined, true]);
     expect([secondary?.count, secondary?.seconds, secondary?.primary]).toEqual([12, 240, false]);
     for (const name of Object.keys(RESIDENTS)) {
       const run2s = m.triggers.filter((t) => t.do.kind === 'withdraw_to' && t.do.group === name);
