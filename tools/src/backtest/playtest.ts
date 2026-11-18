@@ -4059,7 +4059,7 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // The assembly layout also sped up three Qasr Liwan wins, so their `min_win_seconds` floors (floor(fastest win / 4), `--min-win`) fall by 1 s each: II 74 -> 73, IV 57 -> 56, V 83 -> 82. Was 74, 57, 83.
 // 2026-11-17, GH-1438 (Bir Tarsha, The Long Ground town 2; I, II, III and V, IV follows): 8093 -> 8927, +834, read off the printed per-mission credits of a playtest on the branch
 // (I 225, II 169, III 195, V 245 on seed 424242). Was 8093.
-// Bir Tarsha IV (GH-1438, part 3): 8927 -> 9242, +315 (IV 305 on seed 424242, 2 stars; the others unchanged). Was 8927.
+// Bir Tarsha IV (GH-1438, part 3): 8927 -> 9242, +315 (IV 305 on seed 424242, 2 stars; V 245 -> 255 now that IV precedes it in the ledger; the others unchanged). Was 8927.
 const LADDER_CREDITS = 9242;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {

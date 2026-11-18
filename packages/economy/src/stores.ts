@@ -93,7 +93,7 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 6955: GH-1360 S3b (2026-11-15), the shipped missions start in the assembly layout, -32 over sixteen missions; reasons beside `LADDER_CREDITS`.
 // Was 6923: Qasr Liwan (2026-11-16, GH-1438), the five new missions on the assembly layout, +1170 (240 + 220 + 250 + 230 + 230); reasons beside `LADDER_CREDITS`.
 // Was 8093: Bir Tarsha (2026-11-17, GH-1438), the four missions I, II, III and V on the assembly layout, +834 (reasons beside `LADDER_CREDITS`).
-// Was 8927: Bir Tarsha IV (2026-11-17, GH-1438), +315 (IV 305 on seed 424242); reasons beside `LADDER_CREDITS`.
+// Was 8927: Bir Tarsha IV (2026-11-17, GH-1438), +315 (IV 305 and V +10 on seed 424242); reasons beside `LADDER_CREDITS`.
 export const CAMPAIGN_CREDITS = 9242;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
