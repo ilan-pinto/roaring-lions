@@ -7,7 +7,7 @@
  * whose id is not the mission's current challenge is not counted.
  *
  * It never feeds stars or unlocks (D2): it is drawn BESIDE `townStars`, never into it, and `starsEarned`, `townStars` and
- * `possibleStars` do not read the key (`challenge-board.test.ts` pins each against a ledger with and without marks).
+ * `possibleStars` do not read the key (`challenge-ui.test.ts` pins each against a ledger with and without marks).
  *
  * Loaded lazily by the campaign route (main.ts `mountCampaign`, through `importWithRetry`), so the challenge catalogue is
  * not on the entry chunk; a load that fails leaves the board without the mark.

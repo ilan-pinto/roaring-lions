@@ -188,6 +188,8 @@ describe('the challenge UI wiring (main.ts, GH-1395 slice 2)', () => {
 
   it('the board fetches its mark lazily, and opens without it if that chunk will not load', () => {
     expect(main).toMatch(/const challengeBoardLoad = importWithRetry\(\(\) => import\('\.\/ui\/challenge-board'\)\)\.catch\(\(\) => null\);/);
+    // A route left while the chunk loads builds no board: the abort check follows the await (the disposer contract).
+    expect(main).toMatch(/const challengeBoard = await challengeBoardLoad;\s*if \(req\.signal\.aborted\) return \(\) => undefined;/);
     expect(main).toMatch(/\.\.\.\(challengeBoard === null \? \{\} : \{ townMark: challengeBoard\.challengeTownMark\(boardWorld, boardLedger\) \}\),/);
     expect(main).not.toMatch(/^import\s[^;]*from\s+'\.\/ui\/(challenge-board|amendments-ui)';/m);
   });
