@@ -53,6 +53,22 @@ describe('bootFlags', () => {
     expect(bootFlags(q('works&civ'), FREE, () => undefined)).toEqual(bootFlags(q('civ'), FREE, () => undefined));
   });
 
+  it('the lead, 18 Nov: &works=0 (=off, =false) turns field works off for that boot, silently; &works or nothing keeps them', () => {
+    for (const v of ['0', 'off', 'false']) {
+      const lines: string[] = [];
+      expect(on(bootFlags(q(`works=${v}`), FREE, (l) => lines.push(l)).flags), v).toEqual([]);
+      expect(lines, v).toEqual([]);
+    }
+    expect(on(bootFlags(q('works'), FREE, () => undefined).flags)).toEqual(['works']);
+    expect(on(bootFlags(q(''), FREE, () => undefined).flags)).toEqual(['works']);
+  });
+
+  it('&works=0 on the Sarim side is nothing to drop: no works and no warning', () => {
+    const lines: string[] = [];
+    expect(on(bootFlags(q('works=0&side=sarim'), FREE, (l) => lines.push(l)).flags)).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+
   it('a Sarim Free play that did not ask for field works gets none, and nothing is said', () => {
     const lines: string[] = [];
     const got = bootFlags(q('side=sarim'), FREE, (l) => lines.push(l));

@@ -10,8 +10,9 @@
  *   2. `sideFlags`: the KDF-only extras off on the Sarim side;
  *   3. `roomFlags`: every extra off in a room, which always plays the KDF side, so step 2 changes nothing there.
  * Then, for a Free play only (no mission, no room), `freePlayDefaults` turns on what Free play has without being asked:
- * field works on the KDF side (the lead's ask of 18 Nov 2026). Last, so neither filter above warns about a default the
- * URL never asked for, and so a mission or a room cannot take one.
+ * field works on the KDF side (the lead's ask of 18 Nov 2026), unless the URL opts out with `&works=0` (`=off`,
+ * `=false`; the lead's ruling of 18 Nov: the visual captures pass it, so their frames do not move). Last, so neither
+ * filter above warns about a default the URL never asked for, and so a mission or a room cannot take one.
  */
 import { roomFlags } from './net/room-flags';
 import { freePlayDefaults, readFlags, sandboxSideOf, sideFlags, type SandboxFlagName, type SandboxSide } from './sandbox-help';
@@ -35,5 +36,5 @@ export function bootFlags(
     boot.inRoom,
     (k) => warn(`[net] sandbox flag &${k} is ignored in a room`),
   );
-  return { side, flags: freePlay ? freePlayDefaults(asked, side) : asked };
+  return { side, flags: freePlay ? freePlayDefaults(asked, side, params) : asked };
 }
