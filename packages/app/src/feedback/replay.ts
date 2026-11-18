@@ -15,6 +15,8 @@
  * with it, so a later replay runner (F4) can say "reproduced" only when its
  * own hash agrees.
  */
+import { BRANCHES_OPEN } from '@lions/data';
+
 export const COMMANDS_MAX_BYTES = 64 * 1024;
 export const START_MAX_BYTES = 32 * 1024;
 
@@ -35,6 +37,13 @@ export interface ReplayStart {
   unlocks: readonly string[];
   /** The roster indices the player sent in, or null for the default force. */
   deploy: readonly number[] | null;
+}
+
+/** GH-1384: the start's `picks` field, spread into the start the battlefield begins. Only once branching is open: while
+ *  `BRANCHES_OPEN` is false it is `{}`, so the replay start is dev's, with no `picks` key. `open` is the switch, which only a
+ *  test passes (`branch_switch_wiring.test.ts` holds every production call to one argument). */
+export function replayStartPicks(picks: unknown, open: boolean = BRANCHES_OPEN): Pick<ReplayStart, 'picks'> {
+  return open ? { picks } : {};
 }
 
 export type ReplayEntry = { tick: number; cmd: unknown } | { tick: number; buy: string };

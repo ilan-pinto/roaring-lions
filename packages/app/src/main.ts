@@ -88,7 +88,6 @@ import {
   vfxEmitters,
   menuDiorama,
   structures as structureCatalogue,
-  BRANCHES_OPEN,
   type BranchPick,
   type KitLevel,
   type MapJson,
@@ -153,7 +152,7 @@ import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
 import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
-import { ReplayRecorder } from './feedback/replay';
+import { ReplayRecorder, replayStartPicks } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
@@ -3410,8 +3409,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         seed: SIM_SEED,
         ledger: sentLedger,
         tiers: bootKit,
-        // GH-1384: only once branching is open; closed, the replay start is dev's.
-        ...(BRANCHES_OPEN ? { picks: branchPicks } : {}),
+        // GH-1384: only once branching is open; closed, the replay start is dev's (`replayStartPicks`).
+        ...replayStartPicks(branchPicks),
         unlocks: [...boughtUnits],
         deploy: picks === null ? null : [...picks.chosen],
       });

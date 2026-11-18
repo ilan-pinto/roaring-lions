@@ -45,7 +45,7 @@ function callArgs(src: string, name: string): string[][] {
 }
 
 const FILES = sources(join(ROOT, 'packages')).map((f) => ({ file: relative(ROOT, f), src: readFileSync(f, 'utf8') }));
-/** The switch's own module, its two readers' modules in data and economy, the resume record and the replay start. */
+/** The switch's own module, its readers' modules in data and economy, the resume record and the replay start (`replayStartPicks`). */
 const MAY_NAME_THE_SWITCH = new Set([
   'packages/data/src/branches-open.ts',
   'packages/data/src/upgrades.ts',
@@ -54,10 +54,10 @@ const MAY_NAME_THE_SWITCH = new Set([
   'packages/economy/src/brigade.ts',
   'packages/economy/src/wallet.ts',
   'packages/app/src/mission-resume.ts',
-  'packages/app/src/main.ts',
+  'packages/app/src/feedback/replay.ts',
 ]);
 /** The most arguments a production call may pass: one fewer than the signature, so `open` is always the default. */
-const MAX_ARGS: Record<string, number> = { applyUpgrades: 3, tierPatch: 2, parseStartInputs: 1 };
+const MAX_ARGS: Record<string, number> = { applyUpgrades: 3, tierPatch: 2, parseStartInputs: 1, replayStartPicks: 1 };
 
 describe('the branch switch reaches production through its default (GH-1384)', () => {
   it('no production call passes `open`', () => {
@@ -82,6 +82,18 @@ describe('the branch switch reaches production through its default (GH-1384)', (
     const assigning = FILES.filter(({ src }) => /BRANCHES_OPEN\s*(:\s*boolean\s*)?=/.test(src)).map(({ file }) => file);
     expect(assigning).toEqual(['packages/data/src/branches-open.ts']);
     expect(readFileSync(join(ROOT, 'packages/data/src/branches-open.ts'), 'utf8')).toMatch(/export const BRANCHES_OPEN: boolean = false;/);
+  });
+  // The PR 1584 review's N2: the Bug-note replay start once spread `BRANCHES_OPEN ? { picks } : {}` inline in main.ts, and a
+  // `true ?` there passed every test. Its `picks` now come only through `replayStartPicks` (pinned closed in replay.test.ts),
+  // called with its one argument (above); this holds main.ts's one `replayLog.begin` to that call and to no `picks:` of its own.
+  it('the replay start takes its picks only through replayStartPicks(branchPicks)', () => {
+    const main = FILES.find(({ file }) => file === 'packages/app/src/main.ts');
+    expect(main).toBeDefined();
+    const begins = callArgs(main?.src ?? '', 'replayLog\\.begin');
+    expect(begins).toHaveLength(1);
+    const body = begins[0]?.join(', ') ?? '';
+    expect(body).toContain('...replayStartPicks(branchPicks)');
+    expect(body.replace('...replayStartPicks(branchPicks)', '')).not.toMatch(/\bpicks\s*:/);
   });
   it('the splitter sees a trailing argument (the guard is not vacuous)', () => {
     expect(callArgs('applyUpgrades(u, { a: [1, 2] }, f(x, y), true)', 'applyUpgrades')).toEqual([['u', '{ a: [1, 2] }', 'f(x, y)', 'true']]);
