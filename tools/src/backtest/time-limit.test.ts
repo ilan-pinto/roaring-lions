@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fastestWins, limitHeadroom } from './time-limit';
 import { sweepOutcome } from './playtest-run';
+import { branchTwoMaxTierLabel, isFloorReportOnly, isPinnedOnly } from './pinned-only';
 
 const at = (id: string, label: string, seconds: number) => ({ id, label, seconds });
 
@@ -37,5 +38,23 @@ describe('fastestWins (GH-1075 A2)', () => {
     expect(r.get('a')).toEqual(at('a', 'a (gate open)', 200));
     expect(r.get('b')?.seconds).toBe(90);
     expect(r.size).toBe(2);
+  });
+  // GH-1384, the lead's ruling on PR 1584: a branch-2 max-tier replay is report-only for the floor, and the branch-1 `(max tier)` replay
+  // still counts, exactly as on dev. Labels are literals, as playtest.ts writes them.
+  it('skips a branch-2 max-tier replay, however fast, and still counts the branch-1 (max tier) one', () => {
+    const r = fastestWins([
+      at('a', 'a', 310),
+      at('a', 'a (max tier)', 306),
+      at('a', 'a branch 2 (max tier)', 302),
+      at('b', 'b branch 2 (max tier)', 50),
+    ]);
+    expect(r.get('a')).toEqual(at('a', 'a (max tier)', 306));
+    expect(r.has('b')).toBe(false); // a mission won only by a branch-2 replay has no floor reading from it
+  });
+  it('the playtest writes the branch-2 label the floor skips, and it stays pinned-only', () => {
+    expect(branchTwoMaxTierLabel('x')).toBe('x branch 2 (max tier)');
+    expect(isFloorReportOnly(branchTwoMaxTierLabel('x'))).toBe(true);
+    expect(isPinnedOnly(branchTwoMaxTierLabel('x'))).toBe(true);
+    expect(isFloorReportOnly('x (max tier)')).toBe(false);
   });
 });
