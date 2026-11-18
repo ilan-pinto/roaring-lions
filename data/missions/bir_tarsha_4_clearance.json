@@ -1,0 +1,629 @@
+{
+  "id": "bir_tarsha_4_clearance",
+  "name": "Bir Tarsha IV — The Blade Line",
+  "town": "bir_tarsha",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "start_layout": "authored",
+  "map": {
+    "file": "bir_tarsha_4",
+    "time_of_day": "day",
+    "player_start": [
+      6,
+      16
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results"
+    ]
+  },
+  "briefing": "Between the Fence and the hamlet is a belt of works thirty tiles long: firing positions, posts, workshops and berms. If you found the east works crew I can say which are theirs, and if you did not, all of them are. Four D9s are yours for this, and the battalion goes with them. Level every work in the belt and bring the blades through to the far gate, and lose two blades and the work is over. A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as anything of ours enters the belt, and it is meant to be answered into a house. Do not answer into a house. A house is six Conduct, two are twelve, and a third is the mission. A T-wall closes the road at the east end, and a D9 will cut it where wheels cannot cross it. Until it is down the far gate is out of reach, and three shafts in the belt vent behind whoever is looking at the wall. Berms are low and a blade will not take one by passing it, so each is an order. Shafts down, works level, blades through.",
+  "debrief": {
+    "victory": {
+      "speaker": "shai",
+      "text": "The belt is level and the blades are through. Nothing stands on the Fence Road that was not put there by the people who left it."
+    },
+    "defeat": {
+      "speaker": "idit",
+      "text": "Not this time. Whatever was left standing on the Fence Road is still facing the gate, and the blades that did not come back are not ours to count."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        4.5,
+        14.5
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        7.5,
+        14.5
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        4.5,
+        17.0
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "dozer_d9",
+      "count": 1,
+      "at": [
+        7.5,
+        17.0
+      ],
+      "tag": "blades"
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        8.5,
+        19.8
+      ]
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        11.5,
+        19.8
+      ]
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        8.5,
+        22.5
+      ]
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        11.0,
+        23.5
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 4,
+      "at": [
+        11.5,
+        14.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "yahalom_squad",
+      "count": 2,
+      "at": [
+        13.5,
+        17.5
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        14.5,
+        15.5
+      ]
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        13.5,
+        18.5
+      ]
+    },
+    {
+      "unit": "ugv_recon_dog",
+      "count": 1,
+      "at": [
+        15.5,
+        19.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        6.5,
+        19.5
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 300,
+    "logistics_rate_per_min": 90
+  },
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        3,
+        18
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        11,
+        21
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        29,
+        21
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        20,
+        22
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        33,
+        22
+      ],
+      "size": [
+        1,
+        1
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        26,
+        23
+      ],
+      "size": [
+        1,
+        1
+      ]
+    },
+    {
+      "type": "militia_weapons_workshop",
+      "at": [
+        21,
+        24
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_weapons_workshop",
+      "at": [
+        30,
+        24
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        13,
+        25
+      ],
+      "size": [
+        1,
+        1
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        15,
+        28
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        24,
+        28
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        32,
+        28
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "blades",
+      "type": "escort",
+      "primary": true,
+      "target": "blades",
+      "zone": "far_gate",
+      "fail_after_losses": 2,
+      "until": [
+        "clear_works",
+        "drop_shafts"
+      ],
+      "text": "Bring the four blades through to the far gate",
+      "say": {
+        "speaker": "shai",
+        "text": "Blades through the fence line. Count them on the far side."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "That is two blades gone. With half the line left, the work cannot be finished from the near side."
+      }
+    },
+    {
+      "id": "clear_works",
+      "type": "raze",
+      "primary": true,
+      "target": "fence_works",
+      "seconds": 390,
+      "text": "Level the works along the Fence Road in six and a half minutes",
+      "say": {
+        "speaker": "shai",
+        "text": "The belt is level. Everything on that strip is flat except the wall."
+      },
+      "by_order": true
+    },
+    {
+      "id": "drop_shafts",
+      "type": "collapse",
+      "primary": true,
+      "target": "fence_works",
+      "seconds": 390,
+      "text": "Bring down the three shafts in the works",
+      "say": {
+        "speaker": "idit",
+        "text": "Three shafts down. Nothing in the belt runs under the road any more."
+      }
+    },
+    {
+      "id": "keep_the_hamlet",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 12,
+      "text": "Lose no more than 12 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is past twelve. There is a house in the count that should not be in it."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "hamlet"
+    ],
+    "flagged_structure_penalty": 3,
+    "fail_below": 55
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          11.5,
+          21.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            11,
+            21
+          ]
+        },
+        "group": "works"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          20.5,
+          22.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            20,
+            22
+          ]
+        },
+        "group": "works"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          29.5,
+          21.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            29,
+            21
+          ]
+        },
+        "group": "works"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          15.5,
+          28.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            15,
+            28
+          ]
+        },
+        "group": "works",
+        "tag": "bt_works_crew"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          24.5,
+          28.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            24,
+            28
+          ]
+        },
+        "group": "works",
+        "tag": "bt_works_crew"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          32.5,
+          28.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            32,
+            28
+          ]
+        },
+        "group": "works",
+        "tag": "bt_works_crew"
+      },
+      {
+        "unit": "digger_crew",
+        "count": 1,
+        "at": [
+          23.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "works",
+        "tag": "bt_works_crew"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          39.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "barrier"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          34.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "barrier"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          35.5,
+          26.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "group": "barrier"
+      },
+      {
+        "unit": "mortar_crew",
+        "count": 1,
+        "at": [
+          40.5,
+          14.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "bait"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          14.5,
+          15.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "in_tunnel": "bt4_w",
+        "group": "shafts"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          24.5,
+          17.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "in_tunnel": "bt4_c",
+        "group": "shafts"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          33.5,
+          16.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "in_tunnel": "bt4_e",
+        "group": "shafts"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "bt4_lee_opens",
+      "label": "Fire is coming from the hamlet's lee",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "fence_works"
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "atgm_cell",
+            "count": 2,
+            "at": [
+              20.5,
+              13.5
+            ],
+            "stance": {
+              "kind": "hold_position"
+            },
+            "group": "lee"
+          }
+        ]
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Missile teams out of the hamlet's lee, on the lane. The houses stand behind them, and that is where they want the answer to go."
+      }
+    },
+    {
+      "id": "bt4_vent_opens",
+      "label": "A shaft has opened behind the escort",
+      "on": {
+        "kind": "timer_s",
+        "value": 240
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "at": [
+              14.5,
+              15.5
+            ],
+            "stance": {
+              "kind": "hold_position"
+            },
+            "group": "vent"
+          }
+        ]
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "A shaft vented behind you, south of the hamlet. It has been waiting for the blades to pass."
+      }
+    }
+  ]
+}

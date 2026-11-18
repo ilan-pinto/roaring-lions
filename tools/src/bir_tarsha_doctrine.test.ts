@@ -1,6 +1,6 @@
 // Bir Tarsha's doctrine (The Long Ground, town 2; docs/campaign/bir_tarsha/level-script.md section 8), as assertions on the
-// SHIPPED maps and missions: I, II, III and V (part 2 of the stack). The pins that read IV (BT-A5 to BT-A9, A12, and IV's rows
-// of A10, A13, A14) arrive with IV in part 3.
+// SHIPPED maps and missions: I to V. (Part 2 of the stack carried I, II, III and V; BT-A5 to A9, A12 and IV's rows of A10, A13 and A14
+// arrive with IV in part 3.)
 //
 // Each claim is driven through the real instruments (the real `FlowField` mask, the shipped JSON) and has a control that
 // moves the one feature or subject, so a check that passes on an empty zone or a path that never existed turns red
@@ -10,7 +10,11 @@
 // What these are not: tile and circle geometry, not a claim about a player's play (that is `pnpm playtest`'s).
 import { describe, expect, it } from 'vitest';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
+import { maps } from '@lions/data/content';
 import { missionWorld } from './mission-harness';
+
+/** The map's character rows as authored (the parsed map keeps masks, not rows). */
+const rowsOf = (file: string): readonly string[] => ((maps as unknown as Record<string, { rows: string[] }>)[file]).rows;
 
 type Pt = readonly [number, number];
 type Rect = readonly [number, number, number, number];
@@ -31,6 +35,7 @@ interface MissionLike {
 const BT1 = 'bir_tarsha_1_recon';
 const BT2 = 'bir_tarsha_2_foothold';
 const BT3 = 'bir_tarsha_3_clearance';
+const BT4 = 'bir_tarsha_4_clearance';
 const BT5 = 'bir_tarsha_5_subterranean';
 
 const world = (id: string, mutate?: (w: ReturnType<typeof missionWorld>) => void) => {
@@ -53,10 +58,10 @@ const mission = (id: string): MissionLike => world(id).mission as unknown as Mis
 const dist = (a: Pt, b: Pt): number => Math.round(Math.hypot(a[0] - b[0], a[1] - b[1]) * 10) / 10;
 
 /** The foot walk, step by step, off the real FlowField (8-connected, corner-cutting refused): the step count, or null. */
-function walk(id: string, from: Pt, to: Pt, mutate?: (w: ReturnType<typeof missionWorld>) => void): number | null {
+function walk(id: string, from: Pt, to: Pt, mutate?: (w: ReturnType<typeof missionWorld>) => void, wheeled = false): number | null {
   const w = world(id, mutate);
   const field = new FlowField(w.map.width, w.map.height);
-  field.compute(w.sim.blocked, w.sim.elevation, Math.floor(to[0]), Math.floor(to[1]));
+  field.compute(wheeled ? w.sim.blockedVehicle : w.sim.blocked, w.sim.elevation, Math.floor(to[0]), Math.floor(to[1]));
   let x = Math.floor(from[0]);
   let y = Math.floor(from[1]);
   const tx = Math.floor(to[0]);
@@ -153,6 +158,105 @@ describe('BT-A4: III, the doors and the walk out', () => {
   });
 });
 
+const T_TILES: readonly Pt[] = [[36, 22], [36, 23], [36, 24], [36, 26], [36, 27], [36, 28], [36, 29]];
+const openT = (w: ReturnType<typeof missionWorld>) => {
+  for (const [x, y] of T_TILES) {
+    w.sim.blocked[y * w.map.width + x] = 0;
+    w.sim.blockedVehicle[y * w.map.width + x] = 0;
+  }
+};
+
+describe('BT-A5: IV, the far gate is out of reach of a wheeled body until the T-wall falls', () => {
+  it('unreachable on wheels from the corral while every T stands, 36 steps once they fall, 36 on foot through the b gap', () => {
+    const corral = marker(BT4, 'corral');
+    const gate = marker(BT4, 'far_gate_point');
+    expect(walk(BT4, corral, gate, undefined, true)).toBeNull();
+    expect(walk(BT4, corral, gate, openT, true)).toBe(36);
+    expect(walk(BT4, corral, gate)).toBe(36);
+  });
+  it('control: opening the boulder gap (36,25) to plain ground lets a wheeled body through', () => {
+    const open = (w: ReturnType<typeof missionWorld>) => {
+      w.sim.blockedVehicle[25 * w.map.width + 36] = 0;
+    };
+    expect(walk(BT4, marker(BT4, 'corral'), marker(BT4, 'far_gate_point'), open, true)).not.toBeNull();
+  });
+});
+
+describe('BT-A6: IV, no house, shanty or clinic within 8 open tiles of the fence works', () => {
+  it('the nearest one is 9 tiles away (Chebyshev)', () => {
+    const rows = rowsOf('bir_tarsha_4');
+    const [zx, zy, zw, zh] = zone(BT4, 'fence_works');
+    const civic = new Set(['h', 's', 'k']);
+    let nearest = 99;
+    rows.forEach((row, y) => [...row].forEach((c, x) => {
+      if (!civic.has(c)) return;
+      const dx = Math.max(zx - x, 0, x - (zx + zw - 1));
+      const dy = Math.max(zy - y, 0, y - (zy + zh - 1));
+      nearest = Math.min(nearest, Math.max(dx, dy));
+    }));
+    expect(nearest).toBe(9);
+  });
+});
+
+describe('BT-A7: IV, what the fence works hold', () => {
+  it('6 firing positions, 3 posts, 2 workshops, 7 T, and 13 low-profile tiles (8 hesco, 5 sandbag)', () => {
+    const rows = rowsOf('bir_tarsha_4');
+    const w = world(BT4);
+    const [zx, zy, zw, zh] = zone(BT4, 'fence_works');
+    const count: Record<string, number> = {};
+    for (let y = zy; y < zy + zh; y++) for (let x = zx; x < zx + zw; x++) { const c = rows[y][x]; count[c] = (count[c] ?? 0) + 1; }
+    expect([count.T, count.H, count.g]).toEqual([7, 8, 5]);
+    const placed: Record<string, number> = {};
+    for (const p of (w.mission as unknown as { structures: { type: string; at: Pt }[] }).structures) {
+      if (inRect([zx, zy, zw, zh], p.at[0], p.at[1])) placed[p.type] = (placed[p.type] ?? 0) + 1;
+    }
+    expect([placed.militia_firing_position, placed.militia_observation_post, placed.militia_weapons_workshop]).toEqual([6, 3, 2]);
+  });
+});
+
+describe('BT-A8 and BT-A9: IV, the lee missile team and the mortar against the lane', () => {
+  it('the Kornet team at (20.5,13.5) is 13.6 from the lane centre (range 14), 15.3 and 18.4 from its ends; the Lavi\'s sight 12 does not reach it', () => {
+    const trigger = (mission(BT4) as unknown as { triggers: { id: string; do: { units: { at: Pt }[] } }[] }).triggers.find((t) => t.id === 'bt4_lee_opens');
+    const team = trigger!.do.units[0].at;
+    expect(team).toEqual([20.5, 13.5]);
+    expect([dist(team, [24.5, 26.5]), dist(team, [12.5, 26.5]), dist(team, [33.5, 26.5])]).toEqual([13.6, 15.3, 18.4]);
+    expect(dist(team, [24.5, 26.5])).toBeLessThanOrEqual(14);
+    expect(dist(team, [12.5, 26.5])).toBeGreaterThan(14);
+    expect(dist(team, [33.5, 26.5])).toBeGreaterThan(14);
+    expect(dist(team, [24.5, 26.5])).toBeGreaterThan(12);
+  });
+  it('the mortar at (40.5,14.5) is 13.9 from the lane\'s east end and 12.2 from the far gate point (range 16), 20.0 from the centre', () => {
+    const mortar = mission(BT4).enemy?.garrison?.find((g) => g.unit === 'mortar_crew')?.at;
+    expect(mortar).toEqual([40.5, 14.5]);
+    expect([dist(mortar!, [33.5, 26.5]), dist(mortar!, [42.5, 26.5]), dist(mortar!, [24.5, 26.5])]).toEqual([13.9, 12.2, 20.0]);
+    expect(dist(mortar!, [24.5, 26.5])).toBeGreaterThan(16);
+  });
+});
+
+describe('BT-A10 (IV): the three routes\' mouths lie in the fence works, every point open', () => {
+  it('three routes, mouths inside fence_works, all points open', () => {
+    const w = world(BT4);
+    const tunnels = w.map.tunnels as unknown as { points: Pt[] }[];
+    expect(tunnels).toHaveLength(3);
+    const works = zone(BT4, 'fence_works');
+    for (const t of tunnels) {
+      expect(inRect(works, t.points[0][0], t.points[0][1])).toBe(true);
+      for (const p of t.points) expect(w.sim.blocked[p[1] * w.map.width + p[0]]).toBe(0);
+    }
+  });
+});
+
+describe('BT-A12: IV, the escort tag names four bodies and the tolerance fits in them', () => {
+  it('blades is 4 dozer_d9 and fail_after_losses (2) is at most 4', () => {
+    const bodies = ((mission(BT4) as unknown as { starting_force: { tag?: string; count?: number }[] }).starting_force).filter((p) => p.tag === 'blades').reduce((n, p) => n + (p.count ?? 1), 0);
+    expect(bodies).toBe(4);
+    const escort = (mission(BT4) as unknown as { objectives: { id: string; fail_after_losses?: number; until?: string[] }[] }).objectives.find((o) => o.id === 'blades');
+    expect(escort?.fail_after_losses).toBe(2);
+    expect(escort!.fail_after_losses!).toBeLessThanOrEqual(bodies);
+    expect(escort?.until).toEqual(['clear_works', 'drop_shafts']);
+  });
+});
+
 describe('BT-A10 (V): the five routes\' mouths lie in the Fence Road, every mouth, waypoint and vent is open ground', () => {
   it('five routes, mouths inside fence_road, all points open', () => {
     const w = world(BT5);
@@ -190,8 +294,12 @@ describe('BT-A13: the body counts the casualties_pct triggers divide by', () => 
   const count = (id: string, buried = false): number =>
     (mission(id).enemy?.garrison ?? []).filter((p) => (p.in_tunnel !== undefined) === buried || (!buried && p.in_tunnel === undefined)).reduce((n, p) => n + (p.count ?? 1), 0);
   const all = (id: string): number => (mission(id).enemy?.garrison ?? []).reduce((n, p) => n + (p.count ?? 1), 0);
-  it('I 8, II 6, III 8, V 9 bodies', () => {
-    expect([BT1, BT2, BT3, BT5].map(all)).toEqual([8, 6, 8, 9]);
+  it('I 8, II 6, III 8, IV 14, V 9 bodies', () => {
+    expect([BT1, BT2, BT3, BT4, BT5].map(all)).toEqual([8, 6, 8, 14, 9]);
+  });
+  it('IV has 3 buried bodies', () => {
+    const buried = (mission(BT4).enemy?.garrison ?? []).filter((p) => p.in_tunnel !== undefined).reduce((n, p) => n + (p.count ?? 1), 0);
+    expect(buried).toBe(3);
   });
   it('V has 3 buried bodies, and 33% of 9 is 3 deaths', () => {
     const buried = (mission(BT5).enemy?.garrison ?? []).filter((p) => p.in_tunnel !== undefined).reduce((n, p) => n + (p.count ?? 1), 0);
@@ -206,6 +314,7 @@ describe('BT-A14: time_limit_s is exactly twice target_minutes', () => {
     [BT1, 6, 720],
     [BT2, 7, 840],
     [BT3, 6, 720],
+    [BT4, 7, 840],
     [BT5, 7, 840],
   ];
   for (const [id, minutes, limit] of LIMITS)
