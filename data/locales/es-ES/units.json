@@ -289,10 +289,10 @@
   },
   "scout_shachaf": {
     "name": "Vehículo de exploración Shachaf",
-    "blurb": "Un ojo en tierra que ve dieciséis casillas y no se puede abatir. Lleva un mástil, no un arma.",
+    "blurb": "Un ojo en tierra que ve dieciséis casillas desde su mástil. Una ametralladora de cúpula alcanza seis casillas.",
     "src": {
       "name": "ac25b766",
-      "blurb": "c6a3a071"
+      "blurb": "63b4b286"
     }
   },
   "sniper_team": {
