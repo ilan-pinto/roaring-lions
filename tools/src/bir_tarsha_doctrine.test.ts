@@ -10,7 +10,7 @@
 // What these are not: tile and circle geometry, not a claim about a player's play (that is `pnpm playtest`'s).
 import { describe, expect, it } from 'vitest';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
-import { maps } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { missionWorld } from './mission-harness';
 
 /** The map's character rows as authored (the parsed map keeps masks, not rows). */
