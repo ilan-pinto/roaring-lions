@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FACTION_MATCHUP_MAPS, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, PAUSES_PER_SEAT, PAUSE_MS, FORFEIT_MS, winModesOffered, type WinMode } from '@lions/net';
-import { maps as shippedMaps } from '@lions/data';
+import { maps as shippedMaps } from '@lions/data/content';
 
 const maps: Readonly<Record<string, { name: string; rows: readonly string[] }>> = shippedMaps;
 
@@ -30,35 +30,35 @@ function tableRows(after: string): string[][] {
   return rows.slice(1); // drop the header row
 }
 
-const WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15 };
+const WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fifteen: 15, seventeen: 17 };
 
 interface Region { towns: { id: string; name: string; missions: string[] }[] }
 const world = json<{ regions: Region[] }>('data/campaign/world.json');
 const missionFiles = readdirSync(join(ROOT, 'data/missions')).filter((f) => f.endsWith('.json'));
 
 describe('README: campaign numbers', () => {
-  it('"three fronts, 29 missions" is the count on the campaign map', () => {
+  it('"three fronts, 34 missions" is the count on the campaign map', () => {
     const onMap = world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions));
     expect(world.regions).toHaveLength(3);
     expect(README).toContain(`three fronts, ${onMap.length} missions`);
   });
-  it('the tutorial is the one mission file outside the map ("the thirtieth")', () => {
+  it('the tutorial is the one mission file outside the map ("the thirty-fifth")', () => {
     const onMap = new Set(world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions)));
     const off = missionFiles.map((f) => f.replace(/\.json$/, '')).filter((id) => !onMap.has(id));
     expect(off).toEqual(['beit_sahwan_0_tutorial']);
-    expect(missionFiles).toHaveLength(30);
-    expect(README).toContain('is the thirtieth mission file');
+    expect(missionFiles).toHaveLength(35);
+    expect(README).toContain('is the thirty-fifth mission file');
   });
   it('every town count in the front table is the town\'s mission count', () => {
     for (const r of world.regions) for (const t of r.towns) expect(README, t.name).toContain(`${t.name} (${t.missions.length})`);
   });
-  it('"Fifteen missions" with income zones is the number of mission files that declare them', () => {
+  it('"Seventeen missions" with income zones is the number of mission files that declare them', () => {
     const n = missionFiles.filter((f) => json<{ resources?: { income_zones?: unknown[] } }>(`data/missions/${f}`).resources?.income_zones !== undefined).length;
     const m = /\*\*Held ground pays\.\*\* (\w+) missions/.exec(README);
     expect(m, 'the Held ground line').not.toBeNull();
     expect(WORD[(m?.[1] ?? '').toLowerCase()]).toBe(n);
   });
-  it('"38 listed maps" is the maps on disk minus the picker\'s unlisted ids', () => {
+  it('"43 listed maps" is the maps on disk minus the picker\'s unlisted ids', () => {
     const src = readFileSync(join(ROOT, 'packages/app/src/ui/menu.ts'), 'utf8');
     const ids = /UNLISTED_MAP_IDS[^=]*=\s*new Set\(\[([^\]]*)\]\)/.exec(src)?.[1].match(/'([a-z0-9_]+)'/g) ?? [];
     expect(ids.length).toBeGreaterThan(0);
@@ -167,12 +167,15 @@ describe('README: what is and is not in the build', () => {
     expect(ids).toEqual(['en']);
     expect(README).toContain('**English is the only language you can choose today.**');
   });
-  it('the difficulty screen and the chat filter, block and report are not in the build, which the README says', () => {
+  it('the difficulty picker is in the build and the chat filter, block and report are not, which the README says', () => {
+    // GH-1394 slice 2 (PR 1548) shipped the picker: the posture UI reads the three posture labels and writes the ledger key.
     const ui = readdirSync(join(ROOT, 'packages/app/src/ui')).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
     const reads = ui.filter((f) => /difficulty\.(easier|standard|harder)/.test(readFileSync(join(ROOT, 'packages/app/src/ui', f), 'utf8')));
-    expect(reads, 'a picker for the posture exists: the README\'s "Difficulty (coming)" is stale').toEqual([]);
+    expect(reads, 'the picker is in the build: the README\'s Difficulty bullet says so').toContain('posture-copy.ts');
+    expect(existsSync(join(ROOT, 'packages/app/src/ui/posture-ui.ts'))).toBe(true);
+    expect(README).toContain('- **Difficulty.** Choose Easier, Standard or Harder');
+    expect(README).not.toContain('Difficulty (coming)');
     expect(existsSync(join(ROOT, 'packages/app/src/chat/block-list.ts')), 'block list exists: update the Chat paragraph').toBe(false);
-    expect(README).toContain('**Difficulty (coming).**');
     expect(README).toContain('are designed but **not in the build yet**');
   });
   it('claims the store copy refuses are not made here either', () => {

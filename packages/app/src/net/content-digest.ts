@@ -19,7 +19,8 @@
  * WebKit are compared on the real data by CI's `net:engines` job
  * (`tools/src/net/two-engine.ts`, reading `__lions.contentDigest()`).
  */
-import { doctrines, formations, maps, structures, units, versusModes, versusRules } from '@lions/data';
+import { doctrines, formations, structures, units, versusModes, versusRules } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fnv1a32 } from '@lions/net';
 
 /** What the digest covers. Plain JSON values, keyed as `@lions/data` keys them. */

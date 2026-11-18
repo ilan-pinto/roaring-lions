@@ -1034,6 +1034,10 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     v7 = None
     if kp.TEAM.v7:
         import inf_kit_v7 as v7            # the approved v7 mesh parts, fitted (a team opts in; the others stay procedural)
+    own = {}
+    if kp.TEAM.own_builders:
+        import importlib
+        own = importlib.import_module(kp.TEAM.own_builders).BUILDERS     # a team's own parts, and its own places for the template's
     fits = {p: kf.Fit(arm, meshes, p) for p in use}
     bank = kf.PoseBank(arm, meshes, fits)
     for p in use:
@@ -1044,14 +1048,15 @@ def build(repo, arm, meshes, mat, only=None, figs=None):
     for part in kp.PARTS:
         if only and part.name not in only:
             continue
-        if part.name not in BUILDERS:
+        if part.name not in BUILDERS and part.name not in own:
             continue
         for pf in use:
             if pf not in part.figs:
                 continue
             for suf, _base in kp.object_suffixes(part):
                 side = suf[-1] if suf[-2] == "_" and suf[-1] in "LR" else None
-                builder = v7.V7_BUILDERS[part.name] if v7 is not None and part.name in v7.V7_BUILDERS else BUILDERS[part.name]
+                builder = (own[part.name] if part.name in own
+                           else v7.V7_BUILDERS[part.name] if v7 is not None and part.name in v7.V7_BUILDERS else BUILDERS[part.name])
                 piece = builder(fits[pf], side)
                 oname = f"{pf}_{suf}"
                 open_thick = piece.open_thick

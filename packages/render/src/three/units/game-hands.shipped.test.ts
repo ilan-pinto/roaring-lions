@@ -247,7 +247,8 @@ const HAND_VISIBILITY_EXEMPT: Readonly<Record<string, string>> = {
   rpg_team: 'rpg_load L shows in 3 of 8 facings in idle',
   sarim_rifles: 'every hand 5 of 8 in idle',
   sniper_team: 'both men, both hands 0 of 8: the arms are welded to the torso',
-  yahalom_squad: 'yah_a L shows in 4 of 8 facings',
+  // yahalom_squad left 17 Nov 2026 (GH-826 unit "Yahalom": the skinned Meshy body, both fists on the carbine): every hand
+  // shows in 6 of 8 facings or more. Was 'yah_a L shows in 4 of 8 facings' (the rigid figure's detector hand).
 };
 
 const teams = readdirSync(DIR)

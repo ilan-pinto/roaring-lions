@@ -21,7 +21,7 @@ On first launch an opening cinematic plays. Skip it at any time; Settings can re
 | Entry | What it is |
 |---|---|
 | **Start** / **Continue** | Jumps to the next mission of the campaign (the tutorial first). |
-| **Campaign** | The campaign map: three fronts, 29 missions. |
+| **Campaign** | The campaign map: three fronts, 34 missions. |
 | **Brigade** | The garage and the Stores: your units, their upgrades, what unlocks what. |
 | **Play with a friend** | Open or join a one-versus-one room, or play a basic computer opponent. |
 | **free play, any map** | Walk any listed map with a full task force, no mission needed. |
@@ -68,20 +68,20 @@ You play a KDF officer, Shai Hammai, from a dawn siege to the end of the war, wi
 
 | Front | Enemy doctrine | Towns (missions) |
 |---|---|---|
-| **The Marj Strip** | Ashwar Front: tunnels, IEDs, ambush, human terrain | Beit Sahwan (5), Khan Rafid (3), Deir Amun (3) |
+| **The Marj Strip** | Ashwar Front: tunnels, IEDs, ambush, human terrain | Beit Sahwan (5), Qasr Liwan (5), Khan Rafid (3), Deir Amun (3) |
 | **Sur** | Sarim Brigades: rockets, anti-tank missiles, standoff | Tel Marum (3), Qarn Hadid (3), Umm Zeitoun (4) |
 | **Naharin** | Rif Cells: technicals, raids, mobility; wet ground and rain | Wadi Halam (5), Ein Qasab (3) |
 
-The war opens with *First Light* in Beit Sahwan. Sur opens after Deir Amun III, Naharin after Umm Zeitoun IV, and Ein Qasab after Wadi Halam III. Each mission is meant to take five to seven minutes and has a time limit; running out with a primary objective open is a defeat. The tutorial, *Working Up*, is the thirtieth mission file and sits outside the map.
+The war opens with *First Light* in Beit Sahwan. Sur opens after Deir Amun III, Naharin after Umm Zeitoun IV, and Ein Qasab after Wadi Halam III. Each mission is meant to take five to seven minutes and has a time limit; running out with a primary objective open is a defeat. The tutorial, *Working Up*, is the thirty-fifth mission file and sits outside the map.
 
 - **Deploy.** Before a mission you pick which veterans fill its slots. Units keep a service record, and veterans aim better and resist suppression.
 - **Objectives.** Locate, hold for a time, survive until relief, capture, eliminate a target, evacuate civilians, collapse a tunnel, raze a building, or destroy everything.
-- **Held ground pays.** Fifteen missions (in Beit Sahwan, Deir Amun, Ein Qasab, Khan Rafid, Qarn Hadid, Tel Marum, Umm Zeitoun and Wadi Halam) have income zones: ground you hold alone pays logistics each minute, and an enemy inside pays nobody.
+- **Held ground pays.** Seventeen missions (in Beit Sahwan, Qasr Liwan, Deir Amun, Ein Qasab, Khan Rafid, Qarn Hadid, Tel Marum, Umm Zeitoun and Wadi Halam) have income zones: ground you hold alone pays logistics each minute, and an enemy inside pays nobody.
 - **Conduct and stars.** Every mission scores Conduct from 0 to 100. A win earns one star; a second for Conduct above the mission's floor; a third for completing every secondary objective that counts toward it (only secondaries flagged as carrying do), so a mission with none tops out at two stars. The debrief lists each Conduct deduction by reason, your losses by name, and the credit payout.
 - **Why a unit died.** The debrief says how each named loss fell (penetrated through the rear by a named gun, shot, burned down, struck by a kamikaze), and the card of the unit that takes its slot repeats it. When the events cannot say how, it names only who, not a guess.
 - **Wounded men.** An infantryman who falls may go down wounded instead of dying. He bleeds out unless a medic reaches him, and nobody fires on him. Most missions loan you a Nemala Medic Team, and rescuing a wounded man, enemy or civilian, earns Conduct.
 - **Intel and the ledger.** Recon in one mission can change the next. The ledger carries your named units, Conduct, stars, intel, evacuated civilians and recovered hostages from mission to mission.
-- **Difficulty (coming).** The rules for three postures, Easier, Standard and Harder, are in the build as mission data; the screen to choose one is not. Every campaign runs on Standard until it lands.
+- **Difficulty.** Choose Easier, Standard or Harder on the campaign board, and again on the deploy screen. Easier thins the enemy's waves and sends a relief squad at a minute and a half, but caps a mission at two stars and pays no carry credits; Harder thickens the waves. Standard is the default, and the tutorial has no choice.
 
 ### Save and resume
 
@@ -107,10 +107,10 @@ Your brigade starts with the five units marked *start*. The rest open on **Condu
 | Lavi MBT | Tank | Wins any duel it can see out to twelve tiles. Its 120mm is the costliest round for Conduct. | Conduct 90 |
 | Lavi Ambush Tank | Tank | Waits under a net and is seen late. A shot gives it away. | credits |
 | Namer IFV | Infantry fighting vehicle | Carries five under armour; its 30mm arms the protected-zone penalty. | Conduct 85 |
-| Eitan APC | Carrier | Armour that keeps up with the tanks, with a gun that answers aircraft. | start |
-| Kipod Screen Carrier | Carrier | Six seats behind reactive plate. | 44 stars |
-| Shoded Jeep | Light vehicle | Fast and thin. Nothing that stops a rocket. | start |
-| Shachaf Scout Car | Recon | A ground eye that sees sixteen tiles and cannot be shot down. One cupola machine gun, 6 tiles. | 30 stars |
+| Eitan APC | Carrier | Armour that keeps up with the tanks, seats for two, and a gun that answers aircraft. | start |
+| Kipod Screen Carrier | Carrier | Six seats behind reactive plate, and a gun that pins people without killing a truck. | 44 stars |
+| Shoded Jeep | Light vehicle | Fast and thin. Two seats, a machine gun, nothing that stops a rocket. | start |
+| Shachaf Scout Car | Recon | A ground eye that sees sixteen tiles from its mast. Lightly armed: one cupola machine gun, 6 tiles. | 30 stars |
 | Recon Drone | Drone | Sees sixteen tiles and marks what it finds. No weapon. | Conduct 70 |
 | Loitering Munition | Drone | Flies itself at the nearest thing your side has identified, and does not come back. | Conduct 72 |
 | Chadaf Recon Robot | Drone | Walks boulders and alleys no wheel can, and finds tunnel routes. Unarmed. | credits |
@@ -142,7 +142,7 @@ An optional **account** (Sign in / Sign up on the menu) keeps your campaign, bri
 
 ## Free play
 
-Free play (menu, *free play, any map*) puts a full KDF task force on any of the 38 listed maps against an opposing force, with no mission, and writes nothing to your campaign. It is the place to try a unit, learn a map, or test a tactic. Optional extras:
+Free play (menu, *free play, any map*) puts a full KDF task force on any of the 43 listed maps against an opposing force, with no mission, and writes nothing to your campaign. It is the place to try a unit, learn a map, or test a tactic. Optional extras:
 
 | Option | Adds |
 |---|---|

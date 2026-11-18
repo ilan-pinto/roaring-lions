@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { doctrines, formations, maps, structures, units, versusModes, versusRules } from '@lions/data';
+import { doctrines, formations, structures, units, versusModes, versusRules } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { canonicalJson, contentDigest, shippedContent, shippedContentDigest, type Content } from './content-digest';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));

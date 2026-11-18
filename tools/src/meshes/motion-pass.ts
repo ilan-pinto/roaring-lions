@@ -89,7 +89,7 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
   if (spec.rescue) lines.push(...applyRescue(doc, id, spec, holds[0]?.ctx ?? []));
   if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
-  if (spec.work) lines.push(...applyWork(doc, id, spec.work));
+  if (spec.work) lines.push(...applyWork(doc, id, spec.work, spec.workShows));
   if (spec.crewFire && needsPinned(doc)) lines.push(...applyCrewPinned(doc, id));
   // A figure with modelled hands carries five more bones a figure and denser held clips: drop what never moves.
   if ((scene.getExtras() as { rl_hands?: unknown }).rl_hands) lines.push(...collapseConstantTracks(doc));
@@ -137,7 +137,7 @@ async function main(): Promise<void> {
         console.log(`MOTION ${id}: no work figures, no work clip`);
         continue;
       }
-      writeFileSync(outFile ?? file, await io.writeBinary((applyWork(doc, id, spec.work), doc)));
+      writeFileSync(outFile ?? file, await io.writeBinary((applyWork(doc, id, spec.work, spec.workShows), doc)));
       console.log(`MOTION ${id}`);
       continue;
     }

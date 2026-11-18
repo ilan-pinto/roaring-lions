@@ -170,8 +170,11 @@ class Team:
     headset_below_rim: float = None   # the ear cup's centre this far under each figure's OWN helmet rim (not 1.572 m, the Rifle Squad's metres)
     headset_clear_gun: float = None   # ...and both cups raised, in 2 mm steps up to this (plus one step of air), until no gun triangle crosses one in any sampled key
     groin_wrap: bool = False     # a v7 groin apron is turned to face the way the belt's front faces under it (a body whose hips stand turned)
+    part_figs: dict = field(default_factory=dict)    # part name -> the figures that carry it, where that is not the template's ALL / LEADER / RIFLEMEN (empty: the template's)
+    own_parts: tuple = ()        # this team's OWN `Part` rows, after the template's (a specialist's items; empty: none)
     v7: bool = False             # the approved v7 mesh parts (art/parts/inf_kit/v7, `inf_kit_v7.py`) stand in for the procedural builders
     part_tris: dict = field(default_factory=dict)   # this team's own per-NODE triangle rows (the graft's 1.10x limit); a part not named reads the shared table in kit-contract.ts
+    own_builders: str = None     # the module that builds this team's own parts and re-places the template's that stand on its base gear (`inf_kit.build` asks it first)
     notes: str = ""
 
 
@@ -187,6 +190,30 @@ V7_PART_TRIS = {
     "radio_pack": 514, "radio_panel": 386, "radio_pouch": 346, "red_dot": 198, "suppressor": 140, "throat": 188,
     "weapon_light": 216,
 }
+
+#: The Yahalom Engineers' own parts (the lead's approval of 30 Oct 2026 on GH-826, "Specialists approved ... Yahalom: a
+#: respirator, headlamp, gas detector and mast sensor"; sizes and places as tabled in the seven-teams spec and in the unit's
+#: plan of 15 Nov, decision 5). `figs` are this team's own prefixes. `spec_tris` here is the size each was BUILT at (17 Nov),
+#: which is also its per-node row in `kit-contract.ts` (`YAHALOM_PART_TRIS`). Round 2 (17 Nov, the lead's "the triangle rows
+#: are kept"): the rows did not move; under them the respirator is built at 408 (its flap is a cap now) and the mast sensor
+#: at 200 (a 12-sided cylinder and a plain clamp).
+_YAHALOM_PARTS = (
+    P("respirator", "armour", 2, None, ("yah_a", "yah_b"), "thigh_R", "uniform", "olive", 410,
+      "drop-leg gas-mask carrier 0.22 x 0.16 x 0.10",
+      "0.22 tall x 0.16 wide x 0.10 deep on the left outer thigh, its top 85 mm under the belt's lower edge; a flap, one thigh strap"),
+    P("headlamp", "sensors", 1, None, ("yah_a", "yah_b"), "head", "weapon", "olive_dark", 156,
+      "helmet light 0.065 x 0.040 x 0.035",
+      "0.065 long x 0.040 tall x 0.035 deep on the left helmet rail, ahead of the headset cup; the lens glass"),
+    P("gas_detector", "sensors", 2, None, ("yah_a", "yah_b"), "spine", "weapon", "olive_dark", 218,
+      "multi-gas clip, Altair 4X class, 0.11 x 0.07 x 0.04",
+      "0.11 tall x 0.07 wide x 0.04 deep on the left carrier strap at z 1.40; the display glass"),
+    P("mast_sensor", "sensors", 3, None, ("yah_a",), "spine", "weapon", "olive_dark", 210,
+      "probe camera head 0.10 x 0.08 x 0.08",
+      "a cylinder 0.08 across x 0.10 long on the stowed mine detector's search head; the lens glass on its end"),
+)
+
+#: ...and the team's per-NODE rows: the v7 table plus its own four (pinned to `kit-contract.ts` by `kit-contract.test.ts`).
+YAHALOM_PART_TRIS = dict(V7_PART_TRIS, **{p.name: p.spec_tris for p in _YAHALOM_PARTS})
 
 TEAMS = {
     # Meshy pilot f1 (1 Nov 2026): the skinned figure's own 2048 x 2048 bake (retinted olive / dark brown / tan), its
@@ -272,6 +299,39 @@ TEAMS = {
         # firing-side cup at the cheek weld: 22 mm on demo_a, 32 mm on demo_b. So as shipped the cups' centres stand 26 and
         # 16 mm under the rim, about 2-3 cm ABOVE the ear, not at it (the lead's L3, 16 Nov 2026: accepted as a named item).
         headset_below_rim=0.048, headset_clear_gun=0.030),
+    # Yahalom Engineers (GH-826, infantry upgrade unit "Yahalom"; the lead's approval of 15 Nov 2026, all 13 decisions, and
+    # his ruling of the same day: the fallback body). The team is the Combat Engineers' Meshy body in two scalings of its
+    # own (yah_a 1.76 m +6 %, the leader; yah_b 1.86 m -2 %), both armed, on the same retinted 2048 x 2048 bake, so the row
+    # is demo_squad's (the same flags, the same lead-ruled literals) with what is this team's own:
+    #   - base gear the wraps and the census see: an assault pack on each back and the collapsed mine detector on yah_a's
+    #     (`webbing`, on the spine: `yahalom_gear.py`), the charge on yah_b's own `yah_b_charge` bone (`charge`, in `work` alone);
+    #   - no back radio: the pack holds that slot (the 30 Oct "baked gear wins" rule). `radio_panel` and `radio_pack` are
+    #     dropped; yah_b carries the radio pouch on his pack's left side and the whips off its top, yah_a none;
+    #   - the four specialist items the lead approved on 30 Oct, at their approved sizes and places (`_YAHALOM_PARTS`).
+    "yahalom_squad": Team(
+        "yahalom_squad", ("yah_a", "yah_b"), ("yah_a",), ("yah_a", "yah_b"), (2048, 2048),
+        {
+            # found by `tools/inf_kit_texels.py yahalom_squad` on this team's own finished atlas (17 Nov 2026)
+            "coyote": (225, 1656),         # dust.5   #806032
+            "coyote_shade": (995, 704),    # dust.6   #6B4F29
+            "olive": (1969, 992),          # olive.2  #4E5433
+            "olive_dark": (1177, 1297),    # olive.3  #333821
+            "glass": (1045, 983),          # shadow.0 #23241F
+        },
+        drop=("nvg_mount", "deltoid", "sleeve", "eud", "radio_panel", "radio_pack"), baked_mount=True, helmet_front_trim=60.0,
+        torso_ring_cap=True,
+        prims=("uniform", "boot", "face", "weapon", "webbing", "charge"),
+        bank_prims=("uniform", "weapon", "webbing", "charge"),
+        clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
+        bank_clips=("idle", "move", "fire", "moveFire", "kneel", "kneelIn", "kneelOut", "pinned", "work"),
+        stage_hide=("charge",), clear_pouches=True, dense_keys=True, flip_deg=120.0,
+        v7=True, part_tris=YAHALOM_PART_TRIS, groin_wrap=True,
+        # carried from demo_squad's row, each a literal the lead ruled on for this body (13 and 16 Nov 2026); none moved
+        belt_from_spine=0.065, weapon_by_surface=True, pouch_turn_max=40.0,
+        carrier_trim=dict(half_w=0.13, drop=0.26, corner=0.03), torso_from_joints=(0.040, 0.035),
+        headset_below_rim=0.048, headset_clear_gun=0.030,
+        part_figs={"radio_pouch": ("yah_b",), "whip_short": ("yah_b",), "whip_long": ("yah_b",)},
+        own_parts=_YAHALOM_PARTS, own_builders="inf_kit_yahalom"),
 }
 
 TEAM = TEAMS["inf_squad"]
@@ -281,7 +341,11 @@ PARTS = list(BASE_PARTS)
 
 def _resolve(part, team):
     figs = part.figs
-    if set(figs) == set(_BASE_ALL):
+    if part.name in team.part_figs:
+        figs = tuple(team.part_figs[part.name])
+    elif part in team.own_parts:
+        pass                      # a team's own row names its own figures
+    elif set(figs) == set(_BASE_ALL):
         figs = team.figs
     elif set(figs) == set(_BASE_LEADER):
         figs = team.leader
@@ -303,13 +367,14 @@ def use_team(team_id):
     ATLAS_W, ATLAS_H = team.atlas
     TEXELS.clear()
     TEXELS.update(team.texels)
-    PARTS[:] = [_resolve(p, team) for p in BASE_PARTS if p.name not in team.drop]
+    PARTS[:] = [_resolve(p, team) for p in tuple(BASE_PARTS) + tuple(team.own_parts) if p.name not in team.drop]
     return team
 
 
 #: Parts built as a left and a right object. `L` is the rig's `_L` bone side,
 #: which stands at NEGATIVE y in the GLB's Blender frame (forward +x).
 SIDED = {"deltoid", "sleeve", "headset"}
+#: A part bound to ONE named bone of a side (the rig's `_L` / `_R`): its `bone` is that bone's own name and it is one object.
 SIDES = ("L", "R")
 
 
@@ -328,9 +393,10 @@ def object_suffixes(p):
 
 
 def part_bone_entries():
-    """suffix -> bone base, for rig.PART_BONE."""
+    """suffix -> bone base, for rig.PART_BONE: the template's parts and every team's own."""
     out = {}
-    for p in PARTS:
+    own = [p for t in TEAMS.values() for p in t.own_parts]
+    for p in list(PARTS) + own:
         for suf, base in object_suffixes(p):
             out[suf] = base
     return out
