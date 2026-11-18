@@ -17,8 +17,9 @@
 //   - for a world with a stateful driver: a deep-equal of A's and B's driver data at the end,
 //   - and all of it with everything the restore promises not to write poisoned.
 // The worlds: versus MIRROR rooms (no runtime) on the four fair maps, the three ECONOMY cells,
-// the TUNNELS arm, a CAPACITY stress, and the golden worlds (battle, relief, orders, wounded,
-// economy).
+// the TUNNELS arm, a CAPACITY stress, the golden worlds (battle, relief, orders, wounded,
+// economy), and versus FIELD WORKS (a KDF-v-KDF room with the option on, and the sim's works-only world for
+// side 1's appended line, which no room can raise: the forward camp is held out of a room's offer).
 //
 // THE RUNTIME RESTORE IS THE REAL ONE (snapshot S2 Task 5). A world with a `MissionRuntime` hands it to
 // the sim witness (`WitnessWorld.runtime`), which encodes it with the sim, restores it natively
@@ -57,10 +58,12 @@ import { fileURLToPath } from 'node:url';
 import { fx, Sim, type MissionRuntime } from '@lions/sim';
 import { WOUND_ADMITTED } from '../../../packages/sim/src/tuning';
 import { doctrines, type MapId } from '@lions/data';
-import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
+import { VERSUS_FAIR_MAPS, matchDigest, validateConfig, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runtimeRowsOf } from '../../../packages/sim/src/runtime-snapshot-schema';
 import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from '../../../packages/sim/src/runtime-forward-world.test-helper';
+import { VW_TICKS, versusWorksAdvance, versusWorksDrive, versusWorksWorld } from '../../../packages/sim/src/runtime-versus-works-world.test-helper';
+import { WORKS_ORDER, padFor } from '../backtest/versus-works';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -145,6 +148,10 @@ export interface WorldSpec {
   readonly build: () => SnapWorld;
   /** What this world exists to exercise, asked of A when it reaches the end; a string is a problem. */
   readonly exercised?: (a: SnapWorld) => string | null;
+  /** Why this runtime world can never end a frame with a queued command (the rally order a delivered unit gets is the only
+   *  source, and a works-only runtime delivers none). With a reason the CLI does not ask for a queued cut, and instead FAILS
+   *  if the world ever has such a boundary: then the reason is false and the field must go. */
+  readonly noQueuedBoundary?: string;
 }
 
 /** What exists once per world in a world with a runtime. The runtime is an anchor, not a carried object: a driver that points at it points at B's own after the restore. */
@@ -397,6 +404,68 @@ export function spreadWorld(): SnapWorld {
  * standing, and so the one in which `runtime.appendedAnchors`, the works rows and the structure columns of a raised work move
  * (a versus room never uses field works). The inputs are the sim package's own (`runtime-forward-world.test-helper.ts`).
  */
+/**
+ * A versus FIELD-WORKS room (the lead's ruling, 18 Nov 2026): KDF v KDF annihilation with `fieldWorks` on, so the room's runtime is
+ * works-only and both seats raise from their own 1,000. Driven like the probe's works arm, statelessly: every round each side
+ * with no site of its own raises the first work in `WORKS_ORDER` its purse covers, on `padFor`'s pad, through a `raiseWorks`
+ * command (the room's path, priced by `matchTick`); its builders stay home while it can still afford one, and everyone else
+ * attack-moves. Side 1's offers and sites move here (`worksOfferList1`, `worksSites1`), and both sides' works stand.
+ */
+export function fieldWorksWorld(map: MapId, seed: number): SnapWorld {
+  const arr: Arrangement = ['kdf', 'kdf'];
+  const config = validateConfig({ ...roomConfig(map, arr, seed), fieldWorks: true });
+  if (config === null) throw new Error(`snapshot witness: no field-works config for ${map}`);
+  const m = buildMatchWorld(config);
+  const rt = m.runtime;
+  if (rt === null || !m.fieldWorks) throw new Error(`snapshot witness: the ${map} field-works room built no works runtime`);
+  const { sideOfEnd } = layoutOf(arr);
+  const sim = m.sim;
+  const hasSite = (side: 0 | 1): boolean => {
+    const w = sim.works;
+    for (let k = 0; k < w.alive.length; k++) if (w.alive[k] === 1 && w.side[k] === side) return true;
+    return false;
+  };
+  const affords = (side: 0 | 1): boolean => rt.worksOffers(side).some((o) => o.left > 0 && o.logistics <= rt.logisticsOf(side));
+  return {
+    sim,
+    runtime: rt,
+    carried: [],
+    anchors: anchorsOf(sim, rt),
+    driveAt: (t) => {
+      if (t % ORDER_EVERY_TICKS !== 0) return;
+      for (const side of sideOfEnd) {
+        if (hasSite(side)) continue;
+        for (const typeId of WORKS_ORDER) {
+          const offer = rt.worksOffers(side).find((o) => o.typeId === typeId);
+          if (offer === undefined || offer.left < 1 || offer.logistics > rt.logisticsOf(side)) continue;
+          const pad = padFor(m, typeId, side);
+          if (pad === null) continue;
+          sim.queueCommand({ kind: 'raiseWorks', side, works: typeId, x: pad[0], y: pad[1], ids: [] });
+          break;
+        }
+      }
+      const home = (side: 0 | 1, id: number): boolean => affords(side) && sim.unitTypes[sim.state.typeIdx[id]].canConstruct;
+      order(sim, (side) => livingOf(sim, side).filter((id) => !home(side, id)), sideOfEnd);
+    },
+    advanceOnce: () => void matchTick(m),
+  };
+}
+
+/** The sim's versus works world (`runtime-versus-works-world.test-helper.ts`): a works-only runtime on a synthetic map, where side 1
+ *  completes a production work and its line is appended at the tail of `lines[1]` (`appendedAnchors1`), which no room can do (the
+ *  forward camp is held out of a room's offer). */
+export function versusWorksSimWorld(): SnapWorld {
+  const { sim, rt } = versusWorksWorld();
+  return {
+    sim,
+    runtime: rt,
+    carried: [],
+    anchors: anchorsOf(sim, rt),
+    driveAt: (t) => versusWorksDrive(sim, rt, t),
+    advanceOnce: () => versusWorksAdvance({ sim, rt }),
+  };
+}
+
 export function forwardCampWorld(): SnapWorld {
   const { sim, rt } = forwardWorld();
   return {
@@ -563,6 +632,39 @@ export function worldSpecs(): WorldSpec[] {
       if (lines.length !== 2 || !lines[1].appended) return `the forward-camp world stopped opening its line: ${lines.length} lines, the second appended = ${String(lines[1]?.appended)}`;
       if (rt.worksOffers()[0]?.left !== 0) return 'the forward-camp world stopped spending its work count';
       return null;
+    },
+  });
+  out.push({
+    id: 'field works tel_marum kdf/kdf 1000',
+    // Cuts every 25 ticks through the first works (staked at 1, built in 20-40 s) and on into the fight.
+    plan: goldenPlan(1500),
+    build: () => fieldWorksWorld('tel_marum', 1000),
+    // A works-only runtime runs no production, so it delivers no unit and queues no rally order after a tick: no frame of it ends
+    // with a queued command (the CLI checks that this stays true).
+    noQueuedBoundary: 'a works-only runtime (versus field works) delivers no unit, so it queues no rally order after a tick',
+    // The world exists for SIDE 1 raising: a work of its own stands (or stood) and it spent from its own purse.
+    exercised: (a) => {
+      const rt = a.runtime;
+      if (rt === null) return 'the field-works world lost its runtime';
+      if (rt.logisticsOf(1) >= 1000) return 'the field-works world stopped spending side 1\'s purse';
+      if (rt.worksOffers(1).every((o) => o.left === o.max)) return 'the field-works world stopped raising side 1\'s works';
+      return null;
+    },
+  });
+  out.push({
+    id: `versus works (sim world, ${VW_TICKS})`,
+    // Both sides staking (3), side 1's camp mid-build (100) and complete with its line appended (150), side 1's post charged and
+    // walking (200) and cancelled part-built (330).
+    plan: { Ts: [0, 3, 97, 100, 150, 200, 330], horizon: 60, tailFrom: 50, end: VW_TICKS },
+    build: versusWorksSimWorld,
+    // A works-only runtime runs no production, so it delivers no unit and queues no rally order after a tick: no frame of it ends
+    // with a queued command (the CLI checks that this stays true).
+    noQueuedBoundary: 'a works-only runtime (versus field works) delivers no unit, so it queues no rally order after a tick',
+    exercised: (a) => {
+      const rt = a.runtime;
+      if (rt === null) return 'the versus works world lost its runtime';
+      const lines = rt.productionLines(1);
+      return lines.length === 1 && lines[0].appended ? null : `the versus works world stopped appending side 1's line: ${lines.length} lines`;
     },
   });
   return out;
@@ -787,21 +889,22 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ...rows(
     'elevation stRouteMask ' +
       'stProducesFor stExitX stExitY tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
-      'evacX evacY evacSide evacCount aidPosts woundLive veterancy',
+      'evacX evacY evacSide evacCount woundLive veterancy',
     'never moves after build in any witness world (written only by applyTerrain, addStructure, addTunnel, addEvacPoint, addUnitType and spawn at veterancy 0). ' +
       'Their RESTORE is proved in every fork regardless, because B\'s state rows are poisoned before `restoreSim` and a restore that skipped one fails; ' +
       'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds tunnels ' +
       'mid-match, or one that promotes veterancy and lays a new evacuation point. (The structure rows left this list on 4 Nov 2026: the forward-camp world raises a ' +
-      'work mid-match, so structureCount_, stTypeIdx, stMaxHp, the centroid and bounds, stTiles and structureOfTile move.)'
+      'work mid-match, so structureCount_, stTypeIdx, stMaxHp, the centroid and bounds, stTiles and structureOfTile move. `aidPosts` left it on 18 Nov 2026: ' +
+      'the field-works room raises aid posts mid-match.)'
   ),
   // `fwLive` and `unitAuraLive` are NOT here since 3 Nov 2026 (GH-707): the economy worlds' plan buys the Nemala medic team, an
   // aura carrier, a few seconds in, and spawning one turns both flags on mid-match. The census saw them move and said to delete
   // the exemption; every fork of those worlds restores them. The site, aura-rate and ownership columns below still never move.
   ...rows(
-    'siteSide stKnown auraCompAt auraRepairTicks auraAccMult',
-    'field works: the site\'s side, the fog latch on an owned structure and the aura-repair columns. The forward-camp world (4 Nov 2026) stakes, builds and completes a work, ' +
-      'so the site, progress, owner and builder rows moved and left this list; its work is the player\'s and never seen by a side-1 unit, and its aura covers no wounded or ' +
-      'damaged unit. Covered by a field-works mission world with an enemy that sees an owned work and a damaged vehicle in a repair area'
+    'auraCompAt auraRepairTicks auraAccMult',
+    'field works: the aura-repair columns. The forward-camp world (4 Nov 2026) stakes, builds and completes a work, so the site, progress, owner and builder rows moved and ' +
+      'left this list, and the field-works room (18 Nov 2026) has side 1 raise works the other side sees, so `siteSide` and `stKnown` left it too; no work\'s aura covers a ' +
+      'damaged vehicle with a component to repair, or an accuracy bonus, at a cut. Covered by a field-works world with a damaged vehicle in a repair area'
   ),
   ...rows('placedLive stChargeTicks stChargeBy', 'placed charges (setPlacedCharge): no witness driver sets one. Covered by a world whose driver places a charge on a structure'),
   ...rows('beamTgt beamDwell beamHeat beamAt beamLock beamLive', 'beam weapons (stepBeam): no unit of any witness world carries one. Covered by a world that fields a beam unit'),
@@ -815,7 +918,7 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'runtime commands (build, setRally, cancelBuild) queued through `queueCommand`: every witness driver calls the runtime directly (`requestBuild`), and the golden economy\'s `command` variant ' +
       'drains its queue inside the same drive, so no boundary of any world holds one (scanned at every tick of every runtime world). Covered by a world whose frame queues a `build` command that the cut precedes (a room\'s frame applier)'
   ),
-  ...rows('curStructure prStructure', 'a unit or a projectile aimed at a structure: no witness world has a building that is shot at. Covered by a world whose force attacks buildings'),
+  ...rows('prStructure', 'a projectile aimed at a structure: no witness world has a shell in flight at a building at a cut (`curStructure` left this list on 18 Nov 2026: the field-works room\'s units target the other side\'s works). Covered by a world whose force shells buildings'),
   ...rows(
     'sepLive',
     'vehicle separation (GH-421): set once, by addUnitType, when a registered type declares a footprint, so it holds its build value at every cut. ' +
@@ -861,6 +964,13 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'runtime.worksList runtime.worksPending',
     'field works (the lazily built works list and the pending charges): the forward-camp world (4 Nov 2026) stakes a work, so the offers, the sites and the raised structures moved and left this list; ' +
       'the list is built once (an unbuilt list is written as the built default) and a pending charge lives for the span of one tick, so no cut of any world holds one. Covered by a world whose frame queues a works request that the cut precedes'
+  ),
+  ...rows(
+    'runtime.worksPending1',
+    'versus field works (18 Nov 2026): side 1\'s pending charges, the twin of `worksPending` above and empty at every frame boundary for the same reason: ' +
+      'a charge is made by `applyQueued` at the head of `matchTick` and answered by the sim\'s tick inside the same call, so no cut of any world holds one. ' +
+      'The field-works room and the sim works world move side 1\'s offers, sites and appended line (`worksOfferList1`, `worksSites1`, `appendedAnchors1`); ' +
+      'the sim package\'s own witness sees this row filled between the queue and the tick (`walkVersusWorks`, `versusWorks@3-`). Covered by a world whose frame queues a works request that the cut precedes'
   ),
   ...rows(
     'runtime.enemyLast runtime.markedThisMission runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',
@@ -1076,7 +1186,14 @@ function main(argv: readonly string[]): number {
     for (const p of run.problems.slice(0, 5)) console.log(`    ${p}`);
     for (const p of run.problems) failures.push(`${spec.id}: ${p}`);
     // A runtime world's frames end with a queued rally order now and then; the queues are state, so each such world must have been cut at one.
-    if (run.hasRuntime && run.queuedCuts.command === 0) {
+    // A world that says it can have no such boundary is held to that instead (`noQueuedBoundary`).
+    if (spec.noQueuedBoundary !== undefined) {
+      const found = queuedBoundaries(spec, spec.plan.end).command;
+      if (found.length > 0) {
+        failures.push(`${spec.id}: says it has no queued boundary, but its frames end with a queued command at ${found.slice(0, 3).join(', ')}; drop noQueuedBoundary`);
+        console.log(`    ${spec.id}: noQueuedBoundary is false (queued at ${found.slice(0, 3).join(', ')})`);
+      }
+    } else if (run.hasRuntime && run.queuedCuts.command === 0) {
       failures.push(`${spec.id}: no fork was cut with a non-empty commandQueue`);
       console.log(`    ${spec.id}: no fork was cut with a non-empty commandQueue`);
     }

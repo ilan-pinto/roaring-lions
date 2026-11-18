@@ -67,7 +67,7 @@ function config(mapId: MapId, seed: number, on: boolean): MatchConfig {
 const builds = (sim: Sim, id: number): boolean => sim.unitTypes[sim.state.typeIdx[id]].canConstruct;
 
 /** The first legal pad for `typeId` on `side`, walking outward from 4 tiles ahead of the side's anchor. */
-function padFor(w: MatchWorld, typeId: string, side: 0 | 1): [number, number] | null {
+export function padFor(w: MatchWorld, typeId: string, side: 0 | 1): [number, number] | null {
   const rt = w.runtime;
   if (rt === null) return null;
   const [ax, ay] = w.anchors[w.endOfSide[side]];
