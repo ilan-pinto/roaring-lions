@@ -6,7 +6,8 @@
 // end panel's framing (`end-panel.test.ts` holds the foot and the keys).
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyMissionLocale, missions } from '@lions/data';
+import { applyMissionLocale } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import en from '../i18n/en.json';
 import { setCatalogue, t } from '../i18n/t';

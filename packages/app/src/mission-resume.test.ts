@@ -1,6 +1,6 @@
 /** GH-1393 slice 2: what a resumed mission is rebuilt from, and every reason a resume does not start. */
 import { afterEach, describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { SIM_EPOCH, SNAPSHOT_FORMAT } from '@lions/sim';
 import { MISSION_SAVE_VERSION, digestOf, serializeSuspended, type SuspendedMission } from './mission-save';
 import { SUSPEND_KEY, type KeyStore } from './mission-save-store';

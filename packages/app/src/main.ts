@@ -71,8 +71,8 @@ import {
 } from '@lions/render';
 import {
   units,
-  maps,
-  missions,
+  mapManifest,
+  missionManifest,
   tutorials,
   world,
   countries,
@@ -91,6 +91,7 @@ import {
   type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
+  type MissionSummary,
   type UpgradableUnit,
   firstUseHints,
   videoManifest,
@@ -101,6 +102,10 @@ import {
   versusModes,
   flagBlockOf,
 } from '@lions/data';
+// B6-6: no map or mission JSON is on the entry chunk. The manifest above answers every synchronous question (names, the
+// board's objectives and ledger contracts); a map or a mission loads by id, through `importWithRetry`, where a screen needs it.
+// `content-wiring.test.ts` walks this file's static import graph and goes red if it reaches the JSON again.
+import { isMapId, loadMap, loadMaps, loadMission } from '@lions/data/content-lazy';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
 import { sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
@@ -124,7 +129,7 @@ import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned } from './ui/pinned';
-import { showMenu, showCampaign, showSandbox } from './ui/menu';
+import { freePlayMapIds, showMenu, showCampaign, showSandbox } from './ui/menu';
 // The garage and its Stores load with the /brigade screen, never with the entry chunk (MAIN_CHUNK_MAX_BYTES).
 import type { BrigadeUnit, GarageState } from './ui/brigade';
 import { accountView } from './account-view';
@@ -197,7 +202,7 @@ import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
 import type { ResumeLoaded } from './mission-resume';
 import type * as SaveKit from './mission-save-kit';
-import { initTelemetry, telemetry, telemetryPlayerForDeletion, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { initTelemetry, telemetry, telemetryPlayerForDeletion, rotateTelemetryPlayer, pauseTelemetrySends, reportsSwitch, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
 import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
@@ -306,13 +311,12 @@ import { readBinding } from './account/binding';
 import { menuAccountSource } from './account/menu-account';
 // Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
-import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
+import { runFramesWith, seatWorldFor, type FrameStep } from './net/frame-run';
 import { roomFlags } from './net/room-flags';
 import { viewerSideOf } from './net/viewer';
 import { tunnelRouteOf } from './net/tunnel-route';
 import type { SpectateEnd, SpectateHooks } from './net/spectator';
 import { screenKit } from './net/room-kit';
-import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import type { FlagView } from './net/flag-view';
@@ -334,14 +338,14 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { reloadMenuHref, routes } from './shell/links';
-import { importWithRetry } from './shell/chunk';
+import { ChunkLoadError, importWithRetry } from './shell/chunk';
 import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
 // The menu's scene host (scene-host plan, Task 6): the lit diorama behind the
 // column. `ui/scene-host.ts` is the only thing that reaches its three.js door,
 // by a dynamic import, so neither import below pulls three into this chunk.
 import { sceneHost } from './ui/scene-host';
-import { dioramaSceneOptions } from './front/diorama';
+import { loadDioramaSceneOptions } from './front/diorama';
 import { initTutorial, advance, productionInputs, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { hudVisibility, type MissionHudJson, type TutorialHudJson } from './tutorial/hud-visibility';
@@ -380,7 +384,7 @@ import type { SavesDeps } from './ui/saves';
 import type { CreditsDeps } from './ui/credits';
 import { versusMaps } from './ui/versus-maps';
 import type { VersusDeps } from './ui/versus';
-import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang } from './i18n/locales';
+import { LOCALES, PSEUDO_RTL, applyLocale, loadLocale, pseudoModeOf, resolveLang, sessionLangOverride } from './i18n/locales';
 import { fetchLocaleJson } from './i18n/overlay-fetch';
 import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
@@ -838,6 +842,8 @@ async function main(): Promise<void> {
   forgetRetiredKeys();
   const settingsStore = safeStorage();
   let settings: Settings = loadSettings(settingsStore);
+  /** This load's `?lang=`/`?pseudo=rtl` locale, set once below beside `applyLocale`: every later `applySettings` keeps it (GH-1413 review F2). */
+  let sessionLang: string | null = null;
   applySettings(settings, document.documentElement);
   audio.setGains(settings.audio);
   audio.setRadioEffect(settings.audio.radio);
@@ -853,7 +859,7 @@ async function main(): Promise<void> {
     set: (next) => {
       settings = next;
       saveSettings(settingsStore, next);
-      applySettings(next, document.documentElement);
+      applySettings(next, document.documentElement, sessionLang);
       audio.setGains(next.audio);
       // Read by the NEXT radio line as it starts (N17); nothing sounding is touched.
       audio.setRadioEffect(next.audio.radio);
@@ -948,6 +954,7 @@ async function main(): Promise<void> {
   // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
   setUnitOverlay(await loadUnitOverlay(lang, BASE));
   applyLocale(document.documentElement, pseudoMode === PSEUDO_RTL ? PSEUDO_RTL : lang);
+  sessionLang = sessionLangOverride(q.get('lang'), pseudoMode);
   // Dev-only: which keys a screen walk asked for and never got, without
   // scraping console output for `[i18n] missing key: …` lines.
   if (import.meta.env.DEV) {
@@ -1033,13 +1040,13 @@ async function main(): Promise<void> {
       audio: { isMuted: () => audio.isMuted(), toggle: () => audio.toggle() },
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
-        name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
+        name: missionManifest.beit_sahwan_0_tutorial.name ?? 'Tutorial',
         done: tutorialIsDone,
       },
       continue: target
         ? {
             missionId: target.missionId,
-            name: (missions as Record<string, MissionJson | undefined>)[target.missionId]?.name ?? target.missionId,
+            name: (missionManifest as Record<string, MissionSummary | undefined>)[target.missionId]?.name ?? target.missionId,
             kind: target.kind,
           }
         : undefined,
@@ -1106,9 +1113,10 @@ async function main(): Promise<void> {
       backdrop: (into, column) =>
         sceneHost(into, column, {
           plateUrl: `${BASE}${menuDiorama.plate}`,
+          // B6-6: async, the diorama's map loading by id first; a rejection is the host's plate.
           world: () => {
             const now = settingsDeps.get();
-            return dioramaSceneOptions(
+            return loadDioramaSceneOptions(
               menuDiorama,
               { colorVision: now.accessibility.colorVision, quality: now.video.quality },
               BASE
@@ -1125,6 +1133,18 @@ async function main(): Promise<void> {
       intro();
       menu();
     };
+  }
+
+  /** The Free Play picker (B6-6): each card paints its map's ground, and no map JSON is on the entry chunk, so the listed
+   *  maps load first, by id. A map that will not load costs the pictures, never the screen: the picker opens with every
+   *  card by its name alone, as it does where there is no canvas, and every card still launches. */
+  async function mountFreePlay(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
+    const previews = await importWithRetry(() => loadMaps(freePlayMapIds())).catch((err: unknown) => {
+      console.error('free play: the map pictures did not load', err);
+      return {};
+    });
+    if (req.signal.aborted) return () => undefined;
+    return showSandbox(host, previews);
   }
 
   /** The saves screen (Task 7): every slot under `lions.saves`, over the SAME
@@ -1178,7 +1198,7 @@ async function main(): Promise<void> {
       countries: parseCountries(countries),
       ledger: ledgerStore.readLedger(),
       commander: parseCommander(commander),
-      missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
+      missionOf: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id],
       portraitUrl: commanderPortraitUrl,
       // So a click on the 3D board's ground changes screen without reloading
       // the document. The flat board's town pins are real anchors and go
@@ -1202,7 +1222,7 @@ async function main(): Promise<void> {
           }
           return { state: 'ready', missionId: r.record.missionId, savedAt: r.record.savedAt, simTick: r.record.simTick, ...(p === 'failed' ? { note: 'failed' as const } : {}) };
         },
-        nameOf: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+        nameOf: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name,
         resume: (id) => void router.navigate(routes.mission(id, { resume: true })),
         discard: () => {
           const ok = kit.discardSuspended(kit.openSuspendStore(() => window.localStorage));
@@ -1309,7 +1329,7 @@ async function main(): Promise<void> {
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
-      missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+      missionName: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name,
       portrait: (typeId) => portraits[typeId] ?? null,
       iconIds: portraitIcons,
       // The garage's bay (Task 15/16). `unitPlate` resolves against the
@@ -1343,7 +1363,7 @@ async function main(): Promise<void> {
       // em-dashes.
       baseOf: (typeId) =>
         ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
-      possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>, ledgerStore.readLedger()),
+      possibleStars: possibleStars(worldData, missionManifest as Record<string, MissionSummary | undefined>, ledgerStore.readLedger()),
       credits: ledgerStore.available ? balance : undefined,
       // A purchase that landed is heard (WP-S3g T11, spec §3.5). The mixer is
       // the document's one, built at boot, so its `pointerdown` listener has
@@ -1372,7 +1392,7 @@ async function main(): Promise<void> {
       },
       ...(serverCtl.gate !== undefined ? { gate: serverCtl.gate, pendingTracks: serverCtl.gate.pendingTracks } : {}),
       onReset: ledgerStore.available ? serverCtl.handlers.reset : undefined,
-      // A coupon code (`data/coupons.json`, hashes only). Client-side and trust-based
+      // A coupon code (`data/coupons.json`, hashes only; the shipped table is empty, GH-1415). Client-side and trust-based
       // until the server ledger (GH-205). No telemetry: the attempt carries the code.
       onRedeem: ledgerStore.available ? serverCtl.handlers.redeem : undefined,
       onBuy: ledgerStore.available
@@ -1594,9 +1614,10 @@ async function main(): Promise<void> {
       { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
       { name: 'brigade', pattern: '/brigade', mount: (host) => mountBrigade(host) },
-      // The picker. Nothing is passed in: the screen reads the map enumeration
-      // and SANDBOX_FLAGS itself, so a new map cannot be missing from it.
-      { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },
+      // The picker. Nothing is passed in but the cards' pictures: the screen reads
+      // the map enumeration and SANDBOX_FLAGS itself, so a new map cannot be
+      // missing from it.
+      { name: 'free-play', pattern: '/free-play', mount: (host, req) => mountFreePlay(host, req) },
       {
         name: 'sandbox',
         // A battlefield owns its focus: its keys reach the game, and its
@@ -1680,6 +1701,8 @@ async function main(): Promise<void> {
               store: storage,
               query: req.query,
               telemetryPlayer: () => telemetryPlayerForDeletion(),
+              rotateTelemetry: () => rotateTelemetryPlayer(),
+              pauseTelemetry: () => pauseTelemetrySends(),
               navigate: (href) => window.location.assign(href),
               reload: reloadHere,
               // C1 (§0.46): with the server-backed store, sign-out and deletion go through the sync module.
@@ -1699,7 +1722,7 @@ async function main(): Promise<void> {
                 coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
                 // The history rows name a mission or a unit the way the Stores do; an id this build does not know words generically.
                 names: {
-                  mission: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+                  mission: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name,
                   unit: (id) => textUnitName(id),
                 },
               },
@@ -1764,10 +1787,11 @@ async function main(): Promise<void> {
     env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
-  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never shows for a software renderer, which that
+  // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never probes a software renderer, which that
   // notice owns). Gated like it; it measures the first seconds of frames on a shell screen and, if they run slow, ASKS once
-  // whether to switch to Low. `settingsDeps.set` is the only write, and only the card's accept button calls it; the preset applies
-  // at the next mission's boot.
+  // whether to switch to Low. On a software renderer the same chunk shows the one-line Low suggestion instead (`software-hint.ts`,
+  // answered once, remembered in `settings.hints.software`). `settingsDeps.set` is the only write, and only their buttons call
+  // it; the preset applies at the next mission's boot.
   // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
   // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
   const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
@@ -1776,8 +1800,7 @@ async function main(): Promise<void> {
       watchQualityHint({
         env: qualityEnv,
         renderer: gpuName,
-        quality: () => settings.video.quality,
-        setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } }),
+        settings: settingsDeps,
         inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
         frames: {
           raf: (cb) => requestAnimationFrame(cb),
@@ -2059,16 +2082,27 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (missionId !== null) {
     // Own keys only (review 559 F5): `?mission=constructor` must be an unknown id,
     // not `Object`'s inherited member.
-    const rawMission = Object.hasOwn(missions, missionId)
-      ? (missions as Record<string, MissionJson | undefined>)[missionId]
+    const summary = Object.hasOwn(missionManifest, missionId)
+      ? (missionManifest as Record<string, MissionSummary | undefined>)[missionId]
       : undefined;
-    if (!rawMission) {
+    if (!summary) {
       bootError(stage, t('boot.unknownMission.title'), t('boot.unknownMission.body'), t('boot.unknownMission.next'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
       return teardown;
     }
+    // B6-6: the mission's JSON loads by id, and its map's beside it (a warm-up: the boot's own `loadMap` below resolves
+    // to the same module). A chunk that fails twice is the download card (`guardBoot`, `bootFailureKind`) with its
+    // reload, never a blank stage; a navigation while it loaded leaves through the teardown, as the posture's does.
+    void loadMap(summary.map.file).catch(() => undefined);
+    const loaded = await importWithRetry(() => loadMission<MissionJson>(missionId)).catch((err: unknown) => (err instanceof ChunkLoadError ? err : new ChunkLoadError(err)));
+    if (req.signal.aborted) return teardown;
+    if (loaded instanceof ChunkLoadError) {
+      teardown();
+      throw loaded;
+    }
+    const rawMission: MissionJson = loaded;
     // The mission-text locale overlay (`data/locales/<lang>/missions.json`,
     // `data/locales/README.md`): `name`/`briefing`/objective `text`/trigger
     // `label` in the current UI language, layered over the `en` source this
@@ -2141,9 +2175,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // failing, and names what it did: a typo in a dev URL should not look like
   // a broken build.
   const sandboxMap = req.sandboxMap;
-  if (sandboxMap && !Object.hasOwn(maps, sandboxMap)) {
+  if (sandboxMap && !isMapId(sandboxMap)) {
     console.warn(
-      `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
+      `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(mapManifest).join(', ')}`
     );
   }
   // Opt-in extras, so the default sandbox stays exactly what it has always
@@ -2180,7 +2214,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         `see __lions.help() for what this build reads`
     );
   }
-  const mapId = mission?.map.file ?? (sandboxMap && Object.hasOwn(maps, sandboxMap) ? sandboxMap : 'beit_sahwan_outskirts');
+  const mapId = mission?.map.file ?? (sandboxMap && isMapId(sandboxMap) ? sandboxMap : 'beit_sahwan_outskirts');
+  // B6-6: the map's JSON, by id, before the transport is resolved (so a room's hooks below are set with no await after
+  // them). The same fallback as the eager lookup had: an id no map has walks the default ground. A chunk that fails
+  // twice is the download card, as for the mission above.
+  const mapLoaded = await importWithRetry(() => loadMap(isMapId(mapId) ? mapId : 'beit_sahwan_outskirts')).catch((err: unknown) => (err instanceof ChunkLoadError ? err : new ChunkLoadError(err)));
+  if (req.signal.aborted) return teardown;
+  if (mapLoaded instanceof ChunkLoadError) {
+    teardown();
+    throw mapLoaded;
+  }
   // The transport, resolved before the sim exists (spec §3.3): a
   // `LocalTransport` in single-player, else a room, which resolves at its
   // `start` with the seed and the map both machines run. The build string is
@@ -2278,7 +2321,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const helpText = (): string =>
     sandboxHelp({
       mapId,
-      mapIds: Object.keys(maps),
+      mapIds: Object.keys(mapManifest),
       on: Object.entries(flags)
         .filter(([, on]) => on)
         .map(([name]) => name),
@@ -2313,8 +2356,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  the loop that registered the sim's types and filled the card's pips. 0
    *  for any type the prepass did not see. */
   const kitLevelOf = (typeId: string): KitLevel => kit.unitKit[typeId] ?? 0;
-  const baseMapJson =
-    (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
+  const baseMapJson: MapJson = mapLoaded;
   // The ditch is cut into the ROWS, before `parseMap`, rather than poked into
   // the parsed arrays afterwards. That way the sandbox walks exactly the code
   // path an authored `d` walks -- legend lookup, the vehicle mask, the decor
@@ -3238,9 +3280,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let startInputs: ReturnType<typeof SaveKit.startInputsJson> | null = null;
   // The save library, loaded on demand. Without it (a chunk that will not load) the mission plays and Save and quit is not offered.
   const sk: typeof SaveKit | null = resumeKit ?? (resolvedMission ? await saveKit().catch(() => null) : null);
-  // Torn down, not just left (GH-1394 slice 2 review, finding 2): the renderer and the sim exist by now, and a no-op disposer
-  // returned here would strand them, WebGL context and all.
-  if (req.signal.aborted) abandon('left while the save library was loading');
+  // `abandon`, never a bare `() => undefined`: the renderer, its canvas, the transport and the loading screen all exist by now, and the
+  // router runs the disposer a stale mount returns rather than tearing down for it, so a no-op here kept them all (WebGL context included).
+  if (req.signal.aborted) abandon('left while the save kit loaded');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -4121,7 +4163,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
   // the sandbox strip names no map, so a different battlefield just appeared.
-  const unknownMap = unknownSandboxMapNotice(sandboxMap, maps, mapJson.name);
+  const unknownMap = unknownSandboxMapNotice(sandboxMap, mapManifest, mapJson.name);
   if (unknownMap) hud.note(...unknownMap, { tier: 'important' });
   // WP-P5 (PA-16): a session that showed the order-row line has done its
   // teaching, so the next one does not show it. Marked on LEAVING rather than
@@ -4272,16 +4314,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /**
    * GH-1393: Save and quit. The mission is read at THIS instant (`cutMission`, synchronous: the sim is paused, and nothing can tick between
    * the read and the gzip), written, READ BACK and compared, and only then left. Any failure comes back as a line for the menu and leaves
-   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out).
+   * the mission running and the previous save in place. Returns null once the save is kept (and the player is on their way out), or once
+   * the battlefield is gone (torn down mid-save: no menu is left to read a line, and nothing is written or navigated).
    */
   const saveAndQuit = async (): Promise<SaveOutcome> => {
     const kit = await saveKit().catch(() => null);
+    if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
     const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
-    if (!(await confirmReplaceOther(other, (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name))) return { declined: true };
+    if (!(await confirmReplaceOther(other, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name))) return { declined: true };
+    if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
     const cut = cutMission({
       sim,
       runtime,
@@ -4294,6 +4339,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
     if (!cut.ok) return saveFailureText('encode_failed');
     const sealed = await sealMission(cut.cut);
+    if (disposed) return null; // left mid-gzip: no save of a mission the player left, and no navigation off where they went
     if (!sealed.ok) return saveFailureText(sealed.reason);
     const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
     if (!wrote.ok) return saveFailureText(wrote.reason);
@@ -4883,7 +4929,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       runtime: dockRt,
       worksBuilders: ownBuilders,
       ledger,
-      missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+      missionName: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name,
       // GH-229 bug 2: the same `ledgerStore.readAccount()` seam the garage
       // screen reads its own wallet through (line ~1001 above) -- never
       // `localStorage` directly. `undefined` when the store itself is
@@ -6535,7 +6581,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // The end of the war: said on the report of the victory that
             // finished the campaign, and never again (`campaign-close.ts`).
             const closing = closingExchange(worldData, ledger, updatedLedger, mev.result);
-            const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
+            const nextJson = nextMissionId ? (missionManifest as Record<string, MissionSummary | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;
             const villain = region ? commanderData.villains?.[region.id] : undefined;
             // `hostagesAccount` is null for a world that declares no `taken` at
@@ -6596,8 +6642,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 const tag = mission.objectives.find((x) => x.id === o.id)?.target;
                 const base = { id: o.id, text: o.text, primary: o.primary, carries: o.carries, status: o.status };
                 if (!o.carries || tag === undefined) return base;
-                const reader = carryReaderOf(worldData, missions as Record<string, MissionJson | undefined>, mission.id, tag);
-                return { ...base, carriesInto: reader ? { name: missions[reader as keyof typeof missions]?.name ?? reader } : null };
+                const reader = carryReaderOf(worldData, missionManifest as Record<string, MissionSummary | undefined>, mission.id, tag);
+                return { ...base, carriesInto: reader ? { name: missionManifest[reader as keyof typeof missionManifest]?.name ?? reader } : null };
               }),
               log: missionLog,
               invoice: invoiceLines(deductions, placeNames),
@@ -6647,7 +6693,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                     name: nextJson?.name ?? nextMissionId,
                     villainLine:
                       region && villain?.lines
-                        ? villain.lines[villainState(region, updatedLedger, (id) => (missions as Record<string, MissionJson | undefined>)[id], villain.ends_at)]
+                        ? villain.lines[villainState(region, updatedLedger, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id], villain.ends_at)]
                         : undefined,
                   }
                 : undefined,
@@ -7100,6 +7146,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           log: (line) => console.info(`[net] ${line}`),
         })
       : null;
+  /** B6-6: `runFramesWith`'s own digest, which the entry cannot compute (the digest hashes every map, and no map JSON is
+   *  on the entry chunk). Never asked: a step without a config hashes nothing, and a room's step carries `dataDigest`
+   *  from the kit (below). A throw rather than a wrong number if that ever stops being true. */
+  const roomDigestAbsent = (): number => {
+    throw new Error('runFrames: a room step must carry its own dataDigest (B6-6)');
+  };
   const frameStep: FrameStep = {
     transport,
     sim,
@@ -7113,7 +7165,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // L4: this client's OWN content digest, folded into every hash it
     // reports. Taken here at boot in a room, so its ~50 ms cold computation
     // is not a hitch on tick 19; single-player hashes nothing and never pays it.
-    ...(netConfig !== null ? { dataDigest: shippedContentDigest() } : {}),
+    // B6-6: from the room kit, which holds the digest and the eager maps it hashes (a room has the kit: `inRoom`).
+    ...(netConfig !== null ? { dataDigest: rk().shippedContentDigest() } : {}),
     // A versus match is decided on a hash tick, from sim state alone (N1b
     // task 10), and no frame runs after the tick that decided it: both seats
     // stop on the same tick with the same result.
@@ -7130,7 +7183,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // What is still waiting behind the first tick of this batch: the room's
     // backlog (a rejoin's log), nothing in single-player.
     catchUpQuiet.begin(room?.behind() ?? 0);
-    const { ran, dropped } = runFrames(frameStep, maxTicks);
+    const { ran, dropped } = runFramesWith(frameStep, maxTicks, roomDigestAbsent);
     if (dropped > 0) console.warn(`[net] dropped ${dropped} command(s) naming units this seat does not command (tick ${sim.tickCount})`);
     return ran;
   };
@@ -7243,7 +7296,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       /** This build's digest of its shipped unit, structure and map JSON
        *  (L4, `net/content-digest.ts`) -- the one a room client folds into
        *  every hash. Read by CI's `net:engines` against Node's own. */
-      contentDigest: () => shippedContentDigest(),
+      //  B6-6: a promise, the digest and the maps it hashes loading on demand; `two-engine.ts` awaits it.
+      contentDigest: (): Promise<number> => importWithRetry(() => import('./net/content-digest')).then((m) => m.shippedContentDigest()),
 
       /** What this build reads off the URL, and what the console offers.
        *  The three sandbox flags used to be reachable only by reading

@@ -11,7 +11,7 @@
  * `campaign.completed_missions`, which the ledger already writes, so the map cannot
  * disagree with what was actually played and there is no second save file to migrate.
  */
-import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
+import { unlockReason, type LedgerData, type MissionResult, type UnlockGate } from '@lions/sim';
 import { gateRequirement, gateSentence } from './gate-sentence';
 import { t } from './i18n/t';
 import { localizedUnit } from './unit-text';
@@ -442,7 +442,7 @@ const results = (ledger: LedgerData | undefined): Record<string, MissionResult> 
  *  Harder; at Easier the ceiling is two (`starCeiling`, GH-1394), so the
  *  campaign's `ledger` names the posture and each mission's stored best. It is
  *  required: left out, the count would silently be Standard's. */
-export function possibleStars(world: ParsedWorld, missions: Record<string, MissionJson | undefined>, ledger: LedgerData): number {
+export function possibleStars(world: ParsedWorld, missions: Readonly<Record<string, { readonly ledger: { readonly produces: readonly string[] } } | undefined>>, ledger: LedgerData): number {
   const posture = postureOf(ledger);
   const r = results(ledger);
   let possible = 0;
@@ -551,7 +551,9 @@ export function promotionAfter(
  */
 export function carryReaderOf(
   world: ParsedWorld,
-  missions: Readonly<Record<string, MissionJson | undefined>>,
+  // A whole mission, or the manifest's summary of one (B6-6): the summary carries `ledger.requires` and every tagged
+  // placement as `{ unit, tag }`, so the walk below finds in it exactly what it finds in the whole JSON.
+  missions: Readonly<Record<string, { readonly ledger: { readonly requires: readonly string[] } } | undefined>>,
   fromId: string,
   tag: string
 ): string | undefined {

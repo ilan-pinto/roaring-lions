@@ -24,8 +24,6 @@ import {
 } from '@lions/sim';
 import {
   units,
-  maps,
-  missions,
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
@@ -35,6 +33,7 @@ import {
   applyOverlays,
   type PostureId,
 } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { withReliefOnLoan } from '../../../packages/app/src/posture';
 import { reliefTriggerIndices } from '@lions/data';
 import { parsePosture } from './posture-ladder';

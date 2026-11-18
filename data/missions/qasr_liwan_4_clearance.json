@@ -1,0 +1,447 @@
+{
+  "id": "qasr_liwan_4_clearance",
+  "name": "Qasr Liwan IV — The Clinic Yard",
+  "town": "qasr_liwan",
+  "phase": "clearance",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "N",
+  "map": {
+    "file": "qasr_liwan_4",
+    "player_start": [
+      28,
+      44
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "briefing": "The shaft mouth is in the clinic yard, the open ground inside the compound's west wall. That is what I have, and it is all of what I have. Take the yard and hold it fifteen seconds with nothing of theirs in it, then stand the engineers beside the route and bring it down. Six minutes for the shaft. Six people are in the forecourt south of the clinic, and they walk out through the south gate once one of ours is within four tiles. A firing position covers that gate from the south-west. Walk five of them to the refuge by the checkpoint inside five minutes. People first or yard first is yours to choose; the yard first stops the crews coming up under you. Their east position is three tiles off the clinic's wall. Every heavy round that misses it lands beside the clinic and is billed. The rifles and the Lavi's coax are free beside that wall; its gun, the Namer's cannon and the AT missile are not. Lose the clinic and you have spent more than ten Conduct in one go, which is the mission.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "The shaft is down and the clinic is standing, and the walk out of the forecourt was the part that counted. The yard had a hole in it, and now it is a yard."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "We came off that compound without the job done. The yard is somebody else's again, and so is whatever is under it."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "yahalom_squad",
+      "count": 1,
+      "at": [
+        27.5,
+        45.5
+      ]
+    },
+    {
+      "unit": "ugv_recon_dog",
+      "count": 1,
+      "at": [
+        29.5,
+        45.5
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 3,
+      "at": [
+        28.5,
+        43.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "at_team",
+      "count": 1,
+      "at": [
+        26.5,
+        44.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "ifv_namer",
+      "count": 1,
+      "at": [
+        31.5,
+        44.5
+      ]
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        33.5,
+        45.5
+      ]
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        24.5,
+        45.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        30.5,
+        46.5
+      ]
+    }
+  ],
+  "structures": [
+    {
+      "type": "militia_firing_position",
+      "at": [
+        22,
+        18
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        37,
+        23
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        22,
+        30
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "take_the_yard",
+      "type": "capture",
+      "primary": true,
+      "target": "clinic_yard",
+      "seconds": 15,
+      "text": "Take and hold the clinic yard",
+      "say": {
+        "speaker": "idit",
+        "text": "The yard is yours. The engineers can only charge the mouth while someone is watching it."
+      }
+    },
+    {
+      "id": "walk_the_forecourt_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "clinic_refuge",
+      "count": 5,
+      "seconds": 300,
+      "text": "Walk five people out of the clinic forecourt",
+      "say": {
+        "speaker": "shai",
+        "text": "Five out of the forecourt and at the refuge. Whatever is left in that compound is the fight."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "The clock is out on the forecourt. Anybody still in it is still beside the fight."
+      }
+    },
+    {
+      "id": "bring_the_shaft_down",
+      "type": "collapse",
+      "primary": true,
+      "target": "clinic_yard",
+      "seconds": 360,
+      "text": "Bring down the shaft in the clinic yard",
+      "say": {
+        "speaker": "shai",
+        "text": "The shaft is down and the clinic is standing. That is the job, both halves."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "Six minutes, and the yard is still open underneath. Whatever comes up there next comes up beside that clinic."
+      }
+    },
+    {
+      "id": "keep_the_clinic",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 10,
+      "text": "Lose no more than 10 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is past ten beside a clinic. Nothing in that yard was worth it."
+      }
+    },
+    {
+      "id": "the_yard_commander",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "target": "ql_yard_commander",
+      "text": "Kill the commander at the yard's north gate",
+      "say": {
+        "speaker": "idit",
+        "text": "The yard commander is down at the north gate. He ran that firing line from outside his own yard."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "clinic"
+    ],
+    "structure_penalty_mult": 2
+  },
+  "civilians": {
+    "refuge": "clinic_refuge_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          30.5,
+          26.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          30.5,
+          27.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          23.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "ql_yard_watch"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          27.5,
+          18.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_yard_commander"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          18.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            22,
+            18
+          ]
+        },
+        "group": "firing_line"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          36.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            37,
+            23
+          ]
+        },
+        "group": "firing_line"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          36.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            37,
+            23
+          ]
+        },
+        "group": "firing_line"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          30.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            22,
+            30
+          ]
+        },
+        "group": "firing_line"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          19.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "quarter"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          15.5,
+          26.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_shore_watch"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          26.5,
+          21.5
+        ],
+        "in_tunnel": "ql4_yard"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          26.5,
+          21.5
+        ],
+        "in_tunnel": "ql4_yard"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "yard_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "north_muster"
+          }
+        ]
+      },
+      {
+        "at_seconds": 270,
+        "to": "south_gate",
+        "units": [
+          {
+            "unit": "technical",
+            "count": 1,
+            "from": "east_muster"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "east_muster"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "A technical and a rocket team coming round to the south gate, the gate the walk goes through."
+        }
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_shore_lane_moves_on_the_yard",
+      "label": "The shore-quarter lane moves on the yard",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "compound"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "quarter",
+        "to": "yard_point"
+      },
+      "say": {
+        "speaker": "net",
+        "text": "Two from the shore-quarter lane, moving on the yard through the west gate."
+      }
+    },
+    {
+      "id": "the_firing_line_leaves",
+      "label": "Their firing line leaves the compound",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 50
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "firing_line",
+        "to": "north_muster"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The firing positions round the compound are emptying north. What is left of the fight is in the yard."
+      }
+    }
+  ]
+}

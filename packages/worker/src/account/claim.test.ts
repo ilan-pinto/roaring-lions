@@ -1,11 +1,11 @@
-import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, sha256Hex, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
-import { coupons, units, world } from '@lions/data';
+import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
+import { units, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { digestOf } from './campaign';
 import { CLAIM_COUPON_COINS_CAP } from './config';
 import { handleAccount } from './routes';
-import { accountHarness, memberTablesInMigration, racingD1, seedWalletMember, swappableHarness } from './test-kit';
+import { accountHarness, memberTablesInMigration, racingD1, seedWalletMember, swappableHarness, testCouponTable, TEST_COUPON_COIN_ID, TEST_COUPON_CREDIT_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
@@ -15,9 +15,9 @@ let seq = 1;
 const op = (): string => `${String(seq++).padStart(8, '0')}-7777-4777-8777-777777777777`;
 const dev = (n: number): string => `dddddddd-${String(n).padStart(4, '0')}-4ddd-8ddd-dddddddddddd`;
 const CODE = 'TEST-CODE';
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
-const CREDIT_ID = 'lead_special_units_10k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+const CREDIT_ID = TEST_COUPON_CREDIT_ID;
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
 /** A ledger that has won each `[mission, stars]`. */
@@ -146,15 +146,15 @@ describe('POST claim', () => {
   });
 
   it('a_forged_record_is_bounded (A2-4)', async () => {
-    expect(ids.length).toBe(29);
+    expect(ids.length).toBe(34);
     const s = setup();
     const cookie = await member(s);
     const all = ids.map((id) => [id, 99] as [string, number]);
     const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 99 }])) };
     const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all), slots: [{ id: 'x', slot: slotOf('x', 1, all) }] }));
-    expect(r.coins).toBeLessThanOrEqual(925);
-    expect(r.earned).toBe(925);
-    expect(await freeOf(s)).toBeLessThanOrEqual(925);
+    expect(r.coins).toBeLessThanOrEqual(1050);
+    expect(r.earned).toBe(1050);
+    expect(await freeOf(s)).toBeLessThanOrEqual(1050);
     const lifetime = await record(s, 'earn_lifetime');
     expect(Object.values(lifetime.missions).every((m) => (m as { stars: number }).stars <= 3)).toBe(true);
   });

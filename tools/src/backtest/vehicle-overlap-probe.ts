@@ -29,7 +29,8 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Sim, fx, TICKS_PER_SECOND, type Command, type UnitTypeJson } from '@lions/sim';
-import { units, maps, structures as structureCatalogue, parseMap, applyTerrain, formations } from '@lions/data';
+import { units, structures as structureCatalogue, parseMap, applyTerrain, formations } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { unitFootprintTable } from '../perf/unit-footprints';
 
 /** A pair counts once its boxes interpenetrate by more than this, in tiles (6 cm). */

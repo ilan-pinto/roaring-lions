@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { missions } from './index';
+import { missions } from './content';
 import {
   applyOps,
   applyOverlays,
@@ -104,8 +104,8 @@ describe('what Easier and Harder do, on Beit Sahwan II (literals read off the sh
   it('across every shipped mission the wave bodies move by the ruled ratio, near enough (literal census)', () => {
     const bodies = (p: PostureId) =>
       all.reduce((n, x) => n + (at(x, p).enemy?.waves ?? []).reduce((k, w) => k + w.units.filter((u) => u.tag === undefined).reduce((j, u) => j + u.count, 0), 0), 0);
-    // 175 authored; x3/4 floors at 1 an entry, so 143 rather than 131; x5/4 is 223 (219 exact, rounding half up per mission).
-    expect([bodies('easier'), bodies('standard'), bodies('harder')]).toEqual([143, 175, 223]);
+    // 211 authored (175 before Qasr Liwan's five missions added 36); x3/4 floors at 1 an entry, so 172 rather than 158; x5/4 is 269 (264 exact, rounding half up per mission).
+    expect([bodies('easier'), bodies('standard'), bodies('harder')]).toEqual([172, 211, 269]);
   });
   it('the earliest shipped wave (18 s) does not go below 0 under Harder', () => {
     expect(at(byId('beit_sahwan_breach'), 'harder').enemy?.waves?.[0].at_seconds).toBe(3);

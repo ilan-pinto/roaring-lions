@@ -3,7 +3,7 @@
  * entitlements) moves into the member's account once per device, and pays only the earn difference against the
  * LIFETIME record (`earn_lifetime`, A2-20): never the device id, never the device's balance. This is the main forgery
  * surface, so every figure the device sends is evidence, a ceiling or an ask, never an amount:
- *   - the earn table, with the 0 to 3 star clamp and world missions only, bounds what it can prove (925 in all);
+ *   - the earn table, with the 0 to 3 star clamp and world missions only, bounds what it can prove (1,050 in all: 100 + 10 a mission + 5 a star + 100 over the 34 missions);
  *   - the device's `coins.free` is only a CEILING on the net credit; `paid` is ignored;
  *   - coupon coins are capped per member (`CLAIM_COUPON_COINS_CAP`) and an id already in `coupon_use` credits 0;
  *   - carried entitlements are charged against the coins THIS claim credited, never the member's balance (§0.26).

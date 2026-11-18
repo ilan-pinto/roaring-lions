@@ -4,7 +4,7 @@
  * defeat screen's one suggestion (D11). Oracles are literals: the ledger key's spelling, the English of every line.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import en from '../i18n/en.json';
 import { missingKeys, setCatalogue } from '../i18n/t';

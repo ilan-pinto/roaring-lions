@@ -11,7 +11,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as structureCatalogue, type MapId } from '@lions/data';
+import { parseMap, applyTerrain, structures as structureCatalogue, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import {
   CROWN_LIFT_LEVELS,
   CROWN_MAX_TILES,

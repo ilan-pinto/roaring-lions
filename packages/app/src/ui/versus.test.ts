@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { maps, paletteTeamColors } from '@lions/data';
+import { paletteTeamColors } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';

@@ -5,8 +5,11 @@ import type { LedgerData } from '@lions/sim';
 // being handed a list. A list passed in is a list that can be passed WRONG --
 // and the whole point of this screen is that adding a map to `data/maps/`
 // makes it playable from the UI with no edit here. `terrain-parity.test.ts`
-// takes `Object.keys(maps)` the same way, for the same reason.
-import { maps, parseMap, type MapJson } from '@lions/data';
+// takes `Object.keys(maps)` the same way, for the same reason. Since B6-6 the
+// enumeration is the synchronous manifest's (`mapManifest`, generated from the
+// registry, so the same ids in the same order); only the card PICTURES need a
+// map's JSON, and the shell loads those by id before it mounts the screen.
+import { mapManifest, parseMap, type MapJson } from '@lions/data';
 import { campaignComplete } from '../campaign-close';
 import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
 import { hasKey, t } from '../i18n/t';
@@ -43,6 +46,12 @@ import type { ResumeBlock } from './resume-row';
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
 export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
+
+/** The maps the Free Play picker shows a card for, in manifest order: what the shell loads (by id) before it mounts the
+ *  picker, so every card can paint its ground. */
+export function freePlayMapIds(): string[] {
+  return Object.keys(mapManifest).filter((id) => !UNLISTED_MAP_IDS.has(id));
+}
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -485,8 +494,13 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
  *  card should read like an internal name -- a map is shown by its human
  *  name alone, an opt-in extra by a player's sentence alone, and neither the map id
  *  nor the free-play URL it builds prints anywhere on the screen (the flag
- *  name is still on the label's `title`, for the curious who hover it). */
-export function showSandbox(stage: HTMLElement): Disposer {
+ *  name is still on the label's `title`, for the curious who hover it).
+ *
+ *  `previews` is each listed map's JSON, loaded by the shell (B6-6: no map JSON
+ *  is on the entry chunk). A card whose map is not in it -- every card, when the
+ *  maps would not load -- reads and launches exactly the same without its
+ *  picture, as it does where there is no canvas. */
+export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string, MapJson>> = {}): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
@@ -549,15 +563,15 @@ export function showSandbox(stage: HTMLElement): Disposer {
   // copy-link and the browser's own history all behave.
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav rl-mapcards';
-  const catalogue = maps as Record<string, MapJson>;
+  const catalogue = mapManifest as Readonly<Record<string, { readonly name: string }>>;
   const links: { id: string; a: HTMLAnchorElement }[] = [];
-  for (const id of Object.keys(catalogue)) {
-    if (UNLISTED_MAP_IDS.has(id)) continue;
+  for (const id of freePlayMapIds()) {
     const a = document.createElement('a');
     a.className = 'rl-btn rl-menu__item rl-mapcard';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
-    const preview = mapPreviewCanvas(catalogue[id]);
+    const json = Object.hasOwn(previews, id) ? previews[id] : undefined;
+    const preview = json === undefined ? null : mapPreviewCanvas(json);
     if (preview) a.appendChild(preview);
     const text = document.createElement('span');
     text.className = 'rl-mapcard__text';
