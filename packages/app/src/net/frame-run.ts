@@ -13,7 +13,7 @@
  * room folds in is the step's own `dataDigest`, else `runFramesWith`'s `ownDigest`. `frame-step.ts` is this module plus
  * the default every Node caller has always had, `shippedContentDigest()` over the eager registry.
  */
-import { applyFrame, economyRoom, fieldWorksRoom, flagSetupRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { applyFrame, economyRoom, fieldWorksRoom, flagSetupRoom, matchDigest, type Faction, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
 import { formations } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { VERSUS_FORMATIONS_OPEN, formationsOpenIn, roomKindOf } from './versus-formations';
@@ -115,6 +115,8 @@ export function seatWorldFor(
   /** GH-859 P1a: whether a versus room fields formations (default: the gate, `VERSUS_FORMATIONS_OPEN`). Injectable so a test
    *  can witness the open path, which is P1b's. */
   versusFormationsOpen: boolean = VERSUS_FORMATIONS_OPEN,
+  /** GH-1381: the faction single-player's seat 0 commands -- the KDF, except a Sarim Free play. A room reads its config. */
+  soloFaction: Faction = 'kdf',
 ): SeatWorld {
   return {
     width: sim.width,
@@ -123,8 +125,8 @@ export function seatWorldFor(
     structureExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
     tunnelExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     sideOfSeat: (seat: Seat) => config?.seats[seat].side ?? 0,
-    // GH-681: single-player is the KDF seat; a room reads the seat's own faction.
-    factionOfSeat: (seat: Seat) => config?.seats[seat].faction ?? 'kdf',
+    // GH-681: single-player is the KDF seat (GH-1381: or Sarim's, in a Sarim Free play); a room reads the seat's own faction.
+    factionOfSeat: (seat: Seat) => config?.seats[seat].faction ?? soloFaction,
     tunnelOwner: (id: number) => (Number.isInteger(id) ? sim.tunnelOwner(id) : -1),
     // Security review 559, F1: no mission runtime prices intel in a versus room.
     versus: config?.mode === 'versus',
@@ -138,7 +140,7 @@ export function seatWorldFor(
     // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
     // on both machines. The protocol still carries the field; P1b opens the gate.
     formationAllowed: (seat: Seat, id: string) =>
-      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map, roomKindOf(config)) && formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
+      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map, roomKindOf(config)) && formationFielded(formations, config?.seats[seat].faction ?? soloFaction, id),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

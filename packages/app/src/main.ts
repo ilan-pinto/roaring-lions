@@ -294,7 +294,8 @@ import { rendererOptionsFor } from './renderer-options';
 import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageInsigniaTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
-import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import { sandboxHelp, unknownParams } from './sandbox-help';
+import { bootFlags } from './boot-flags';
 import { withSoftParticles } from './soft-flag';
 // GH-1500 follow-up (lead ruling 16 Nov 2026): the versus and chat code loads on demand. `./versus-kit` (a dynamic import, below) holds the
 // room's transport, lobby wiring, snapshot, chat, advisor, scoreboard and end screen; this file takes ONLY its types. What stays static is
@@ -302,6 +303,7 @@ import { withSoftParticles } from './soft-flag';
 import { LocalTransport, flagSetupRoom, seatRules, validateCommand, type Faction, type MatchConfig, type Seat, type TransportStatus, type WsTransport } from '@lions/net';
 import type { Connected } from './net/connect';
 import type * as VersusKit from './versus-kit';
+import type * as SandboxSarim from './sandbox-sarim';
 import { OfflineMatchGone, dropOffline, isOfflineTransport } from './net/offline-slot';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -312,7 +314,6 @@ import { menuAccountSource } from './account/menu-account';
 // Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFramesWith, seatWorldFor, type FrameStep } from './net/frame-run';
-import { roomFlags } from './net/room-flags';
 import { viewerSideOf } from './net/viewer';
 import { tunnelRouteOf } from './net/tunnel-route';
 import type { SpectateEnd, SpectateHooks } from './net/spectator';
@@ -722,6 +723,12 @@ function saveKit(): Promise<typeof SaveKit> {
  *  or spectates, never for a campaign or free-play session. */
 function versusKit(): Promise<typeof VersusKit> {
   return importWithRetry(() => import('./versus-kit'));
+}
+
+/** GH-1381: the Sarim side of Free play (its two forces and their mesh roster), loaded only when a Free play picks
+ *  `&side=sarim`, so a KDF Free play, a mission and the entry chunk never carry it. */
+function sandboxSarim(): Promise<typeof SandboxSarim> {
+  return importWithRetry(() => import('./sandbox-sarim'));
 }
 
 function accountState(): {
@@ -1937,7 +1944,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (vk === null) throw new Error('the versus kit is loaded for a room only');
     return vk;
   };
-  const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
+  /** GH-1381: the side this Free play commands (`&side=`): the KDF, the default, everywhere else. The player is seat 0 and
+   *  side 0 on either side; only which force stands where changes (`sandbox-sarim.ts`). The extras follow the side
+   *  (`sideFlags`) and the room (`roomFlags`), in `bootFlags`, which prints what each dropped. */
+  const { side: playSide, flags } = bootFlags(params, { missionId: req.missionId, inRoom }, (line) => console.warn(line));
+  // Nothing is mounted yet, so a chunk that will not load throws a `ChunkLoadError` to the router's error card, as the versus kit's does.
+  const sarim: typeof SandboxSarim | null = playSide === 'sarim' ? await sandboxSarim() : null;
+  if (req.signal.aborted) return () => undefined;
   const audio = battleAudio();
   // GH-1393: a mission being RESUMED from a save. Everything the save needs is read and checked HERE, before anything is built: a save that
   // will not load, is another mission's, or was started from a campaign that has since moved sends the player back to the board (which says
@@ -1987,7 +2000,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  registers each side's kit from the shared config (`buildMatchWorld`),
    *  and its screen's kit tables come from that world through `screenKit`,
    *  never from this prepass. */
-  const bootKit = inRoom ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
+  // GH-1381: the account's kit is the KDF the player commands. In a Sarim Free play the KDF is the opposition, and it
+  // fields the base ladder, as a matched versus room's does, never the player's own bought tiers.
+  const bootKit = inRoom || playSide === 'sarim' ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
@@ -2334,6 +2349,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     sandboxHelp({
       mapId,
       mapIds: Object.keys(mapManifest),
+      side: playSide,
       on: Object.entries(flags)
         .filter(([, on]) => on)
         .map(([name]) => name),
@@ -2394,7 +2410,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(netConfig).humanHeld });
   /** What the ownership check asks of the live sim: single-player is seat 0
    *  on side 0 (R10), so the check runs on one code path, room or none. */
-  const seatWorld = seatWorldFor(netConfig, sim);
+  // GH-1381: a Sarim Free play's seat 0 is Sarim's, so its tunnel verbs and its formations pass the ownership check.
+  const seatWorld = seatWorldFor(netConfig, sim, undefined, playSide);
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
@@ -2596,6 +2613,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // no Sarim and no civilians. `sandboxForce`
     // keeps its meaning -- the seat's own units -- and has no crowd.
     sandboxForce = { player: versusWorld.bySide[me], civilians: [] };
+  } else if (sarim !== null) {
+    // GH-1381: the versus Sarim force at the friendly anchor against the versus KDF force at the hostile one.
+    sandboxForce = sarim.sarimSandboxSpawns(sim, typeOf, anchors, { civ: wantCiv });
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -2708,7 +2728,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
       ? withWoundedTypes(rk().versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
-      : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
+      : sarim !== null
+        ? withWoundedTypes(sarim.sarimSandboxUnitTypes({ civ: wantCiv }), woundsOf)
+        : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
   // the dev note names the key. Set here, before the deploy gate's click, so
@@ -4236,7 +4258,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // GH-110: the EVA half. The radio net speaks the player faction's
     // language; captions carry it until a line is recorded (D5).
     announcements: (audioManifest as AudioManifest).voices?.announcements,
-    announceLang: voiceLangs['kdf'] ?? 'he',
+    // GH-1381: a Sarim Free play's net speaks Sarim's.
+    announceLang: voiceLangs[playSide] ?? 'he',
     labelOf: (id) => mission?.objectives.find((o) => o.id === id)?.text ?? id,
   });
   onDispose(() => {
