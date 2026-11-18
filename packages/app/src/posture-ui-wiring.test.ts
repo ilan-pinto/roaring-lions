@@ -89,7 +89,7 @@ describe('each ruling at its place in main.ts', () => {
   });
 
   it('the brigade screen counts possible stars at the campaign posture', () => {
-    expect(main).toMatch(/possibleStars: possibleStars\(worldData, missions as Record<string, MissionJson \| undefined>, ledgerStore\.readLedger\(\)\)/);
+    expect(main).toMatch(/possibleStars: possibleStars\(worldData, missionManifest as Record<string, MissionSummary \| undefined>, ledgerStore\.readLedger\(\)\)/);
   });
 
   it('a refused resume carries the two postures to the board', () => {
