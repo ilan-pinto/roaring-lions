@@ -19,7 +19,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { maps, type MapJson } from '@lions/data';
+import { type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { SANDBOX_FLAGS, readFlags, unknownParams } from '../sandbox-help';
 import { matchPath, stripBase } from '../shell/router';
 import { UNLISTED_MAP_IDS, showMenu, showSandbox } from './menu';
@@ -38,7 +39,7 @@ const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.inc
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
-  showSandbox(stage);
+  showSandbox(stage, maps as Record<string, MapJson>);
   return stage;
 };
 
@@ -72,12 +73,12 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 41 maps ship (Was 40: Milh Flats (large), GH-920 B3); the picker lists 38 (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(41);
+    // 46 maps ship (Was 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 43 (Was 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(46);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(38);
+    expect(links).toHaveLength(43);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
@@ -227,6 +228,23 @@ describe('the map cards (PA-25)', () => {
         expect(c, id).not.toBeNull();
         expect([c?.width, c?.height], id).toEqual([m.width, m.height]);
       }
+    });
+
+    it("is absent for a map the shell could not load (B6-6), and every card still reads and launches", () => {
+      const ctx = { fillStyle: '', fillRect() {} };
+      HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+      const stage = document.createElement('div');
+      showSandbox(stage);
+      expect(mapLinks(stage).map((a) => a.dataset.map)).toEqual(listedIds());
+      expect(stage.querySelectorAll('canvas').length).toBe(0);
+      const card = stage.querySelector('a[data-map="tel_marum"]');
+      expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.tel_marum.name);
+      expect(card?.getAttribute('href')).toBe('/free-play/tel_marum');
+      // One loaded map paints its card and only its card.
+      const one = document.createElement('div');
+      showSandbox(one, { tel_marum: maps.tel_marum as MapJson });
+      expect(one.querySelectorAll('canvas').length).toBe(1);
+      expect(one.querySelector('a[data-map="tel_marum"] canvas')).not.toBeNull();
     });
 
     it('is simply absent, and the card still reads and launches, where there is no canvas', () => {

@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { FACTION_MATCHUP_MAPS, MAP_CAP_MINUTES, VERSUS_FAIR_MAPS, matchCapMinutes, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
-import { maps, parseMap, versusCapMinutesOf, versusRules } from '@lions/data';
+import { parseMap, versusCapMinutesOf, versusRules } from '@lions/data';
+import { maps } from '@lions/data/content';
 import {
   CAMP_REACH,
   MAX_CAPACITY,

@@ -13,7 +13,7 @@
  * owners (main.ts) from the same object.
  */
 import type { StorageLike } from './brigade-account';
-import { LOCALES } from './i18n/locales';
+import { LOCALES, applyLocale } from './i18n/locales';
 import { isKeyName } from './input/keymap';
 import type { Disposer } from './shell/router';
 
@@ -64,6 +64,9 @@ export interface Settings {
    *  field for the HIDE tier (lead ruling D2: a setting may turn `mask` off, never `hide`), so no stored value can reach it; an
    *  unknown key such as `hide` is dropped by the parse like any other. */
   chat: { enabled: boolean; mask: boolean };
+  /** One-time suggestions the player has answered (GH-1413). `software`: the software-rendering line (`ui/software-hint.ts`) was
+   *  answered, either way, and is never shown again. Added without a `version` bump: parsing is field by field. */
+  hints: { software: boolean };
   language: string;
 }
 
@@ -89,6 +92,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   accessibility: { motion: 'system', colorVision: 'default', captions: true },
   intro: { seen: false },
   chat: { enabled: true, mask: true },
+  hints: { software: false },
   language: 'en',
 });
 
@@ -120,6 +124,7 @@ export function parseSettings(raw: string | null): Settings {
   const acc = isRecord(v.accessibility) ? v.accessibility : {};
   const intro = isRecord(v.intro) ? v.intro : {};
   const chat = isRecord(v.chat) ? v.chat : {};
+  const hints = isRecord(v.hints) ? v.hints : {};
   return {
     version: 1,
     video: {
@@ -148,6 +153,7 @@ export function parseSettings(raw: string | null): Settings {
     },
     intro: { seen: bool(intro.seen, d.intro.seen) },
     chat: { enabled: bool(chat.enabled, d.chat.enabled), mask: bool(chat.mask, d.chat.mask) },
+    hints: { software: bool(hints.software, d.hints.software) },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };
 }
@@ -170,13 +176,16 @@ export function saveSettings(store: StorageLike | null, s: Settings): void {
   }
 }
 
-export function applySettings(s: Settings, root: HTMLElement): void {
+/** `sessionLang` is this load's `?lang=`/`?pseudo=rtl` override (`sessionLangOverride`, i18n/locales.ts): when present it
+ *  wins over the stored `language`, so a settings change never drops a session-only locale (GH-1413 review F2). */
+export function applySettings(s: Settings, root: HTMLElement, sessionLang: string | null = null): void {
   if (s.video.uiScale === 'auto') root.style.removeProperty('--ui-scale');
   else root.style.setProperty('--ui-scale', String(s.video.uiScale));
   root.style.setProperty('--text-size', String(s.video.textSize));
   root.dataset.motion = s.accessibility.motion;
   root.dataset.cvd = s.accessibility.colorVision;
-  root.setAttribute('lang', s.language);
+  if (sessionLang === null) root.setAttribute('lang', s.language);
+  else applyLocale(root, sessionLang);
 }
 
 export interface SettingsBus {

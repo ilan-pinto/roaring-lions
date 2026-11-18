@@ -4368,6 +4368,34 @@ body[data-outcome-beat] .rl-aar {
   flex-wrap: wrap;
   gap: var(--s2);
 }
+/* GH-1413 G1: the software-rendering line (`ui/software-hint.ts`). One status
+   line at the foot of a shell screen, not a dialog: below the scrims (50) and
+   the end panel (30), so a modal card covers it rather than fighting it. */
+.rl-software-hint {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s3);
+  transform: translateX(-50%);
+  z-index: 25;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--s3));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+}
+.rl-software-hint[hidden] {
+  display: none;
+}
+.rl-software-hint__text {
+  margin: 0;
+  flex: 1 1 20rem;
+}
 
 /* Route transitions (shell/router.ts): the stage fades out under the old
    screen and in under the new. The blanket reduced-motion rule collapses both
@@ -11093,4 +11121,70 @@ fieldset.rl-versus__maps {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s2);
+}
+
+/* GH-1394 slice 2: the campaign posture, on the board's header (the chip) and under the deploy screen's orders (the line). A
+   disclosure: the summary names the posture and what it does to the grade and the pay; open, the three rows. */
+.rl-posture {
+  margin: var(--s2) 0 0;
+  font: var(--t-s) / var(--lh-body) var(--font-body);
+  color: var(--ink);
+}
+.rl-posture__chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+.rl-posture__name {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-posture__note { color: var(--ink-mute); }
+.rl-posture[data-posture='easier'] .rl-posture__note { color: var(--ink); }
+.rl-posture__rows {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.rl-posture__row {
+  display: grid;
+  gap: var(--s1);
+  justify-items: start;
+  text-align: start;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-posture__row[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-posture__row:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-posture__row-name { font-weight: 600; }
+.rl-posture__row-blurb { color: var(--ink-mute); }
+.rl-posture__pays,
+.rl-posture__when,
+.rl-posture__msg {
+  margin: var(--s1) 0 0;
+  color: var(--ink-mute);
+}
+.rl-posture__msg:empty { display: none; }
+.rl-posture__msg[data-tone='bad'] { color: var(--bad-text); }
+/* GH-1394 (D11): a defeat's one line suggesting Easier, under the verdict. */
+.rl-aar__suggest {
+  margin: var(--s2) 0 0;
+  font: var(--t-m) / 1.4 var(--font-body);
+  color: var(--ink);
 }

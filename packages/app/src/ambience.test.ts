@@ -4,7 +4,8 @@
  * app can ask for.
  */
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import type { AudioManifest } from '@lions/render';
 import manifestJson from '../../../data/audio.json';
 import { readFileSync } from 'node:fs';
@@ -34,6 +35,11 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   qarn_hadid: 'ridge',
   qarn_hadid_2: 'ridge',
   qarn_hadid_3: 'ridge',
+  qasr_liwan: 'town',
+  qasr_liwan_2: 'town',
+  qasr_liwan_3: 'town',
+  qasr_liwan_4: 'town',
+  qasr_liwan_5: 'town',
   rujm_sawda: 'open',
   tel_marum: 'ridge',
   tel_marum_1: 'ridge',

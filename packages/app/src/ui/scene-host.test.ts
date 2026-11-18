@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { menuDiorama } from '@lions/data';
+import { menuDiorama, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { dioramaSceneOptions } from '../front/diorama';
 import { CROSSFADE_MS } from './scene-host-model';
 import { sceneHost, type MountSceneHostView, type SceneHostDeps } from './scene-host';
@@ -43,7 +44,7 @@ function setup(): { stage: HTMLElement; column: HTMLElement } {
 }
 const deps = (over: Partial<SceneHostDeps> = {}): SceneHostDeps => ({
   plateUrl: '/ui/menu_host_plate.jpg',
-  world: () => dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/'),
+  world: () => dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/', (id) => (maps as Record<string, MapJson | undefined>)[id]),
   reducedMotion: () => false,
   saveData: () => false,
   webgl2: () => true,
@@ -142,6 +143,28 @@ describe('sceneHost', () => {
     expect(el.querySelector('img')).not.toBeNull();
     vi.advanceTimersByTime(CROSSFADE_MS);
     expect(el.querySelector('img')).toBeNull();
+  });
+
+  it("a world that rejects (B6-6: the diorama's map chunk would not load) keeps the plate, and nothing is mounted", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const f = fakeMount();
+    const { stage, column } = setup();
+    host(stage, column, deps({ mount: f.mount, world: () => Promise.reject(new Error('map chunk failed twice')) }));
+    await flush();
+    expect(hostEl(stage).dataset.host).toBe('plate');
+    expect(hostEl(stage).dataset.hostReason).toBe('load-failed');
+    expect(f.calls).toHaveLength(0);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('an async world that resolves is mounted as a sync one is', async () => {
+    const f = fakeMount();
+    const { stage, column } = setup();
+    const sync = deps().world;
+    host(stage, column, deps({ mount: f.mount, world: async () => sync() }));
+    await flush();
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0].opts.camera).toBeDefined();
   });
 
   it('a door that rejects keeps the plate, named', async () => {

@@ -95,7 +95,7 @@ async function corpus(): Promise<{ bodies: Record<string, string[]>; store: Retu
     setInterval: () => 0,
     clearInterval: () => {},
     onPagehide: () => {},
-    sink: { push: (e) => void sent.push(e), flush: () => {} },
+    sink: { push: (e) => void sent.push(e), flush: () => {}, clear: () => {} },
   };
   const tel = createTelemetry(deps);
   const state: RuntimeView = { tick: 100, result: 'victory', defeatCause: undefined, roe: 100, fielded: 5, lost: 0, objectives: [{ id: 'hold', type: 'hold_for', primary: true, status: 'active' }] };
@@ -213,7 +213,7 @@ describe('with the account store active, telemetry and feedback still carry neit
       setInterval: () => 0,
       clearInterval: () => {},
       onPagehide: () => {},
-      sink: { push: (e) => void sent.push(e), flush: () => {} },
+      sink: { push: (e) => void sent.push(e), flush: () => {}, clear: () => {} },
     });
     const acct = store.readAccount() ?? emptyAccount();
     const state: RuntimeView = { tick: 100, result: 'victory', defeatCause: undefined, roe: 100, fielded: 5, lost: 0, objectives: [{ id: 'hold', type: 'hold_for', primary: true, status: 'active' }] };
@@ -262,7 +262,7 @@ describe('with a member opponent in the lobby, telemetry, feedback and match bod
       identity: resolveIdentity(memStore(), new URLSearchParams(), () => '0f8fad5b-d9cb-469f-a165-70867728950e'),
       newSession: () => '7c9e6679-7425-40de-944b-e07fc1f90ae7',
       build: '0.0.0', dev: false, now: () => 1000, viewport: () => [1440, 900], visible: () => true,
-      setInterval: () => 0, clearInterval: () => {}, onPagehide: () => {}, sink: { push: (e) => void sent.push(e), flush: () => {} },
+      setInterval: () => 0, clearInterval: () => {}, onPagehide: () => {}, sink: { push: (e) => void sent.push(e), flush: () => {}, clear: () => {} },
     });
     tel.sessionStart('other', 'three');
     const state: RuntimeView = { tick: 100, result: 'victory', defeatCause: undefined, roe: 100, fielded: 5, lost: 0, objectives: [{ id: 'hold', type: 'hold_for', primary: true, status: 'active' }] };

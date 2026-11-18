@@ -55,7 +55,8 @@ const G2_BLIND: Readonly<Record<string, readonly string[]>> = {
   rpg_team: ['rpg_fire', 'rpg_load'],
   sarim_rifles: ['sar0', 'sar1', 'sar2'],
   sniper_team: ['snp_a', 'snp_b'],
-  yahalom_squad: ['yah_a', 'yah_ak', 'yah_b'],
+  // yahalom_squad left 17 Nov 2026 (GH-826 unit "Yahalom": the Combat Engineers' skinned body, its gloves retinted
+  // brown and read by tone; the kneeling twin `yah_ak` is gone). Its blind builds are read off the frozen rigid file below.
 };
 
 const teams = infantryTeams(MESHES, (d) => readdirSync(d));
@@ -141,6 +142,13 @@ describe('G2 can fail (constructed inputs)', () => {
     const moved = rebindVertices(atgm, 'atgm_crew0_forearm_L', 'atgm_crew0_pelvis', 60);
     expect(strayClawPieces(moved)).toEqual([]);
     expect(strayClawReport(moved).blind).toContain('atgm_crew0');
+  });
+  it('the rigid Yahalom Engineers (frozen) are blind to G2, all three builds; the shipped two are read, and clean', () => {
+    const rigid = readGlb(fileURLToPath(new URL('./fixtures/yahalom_squad_rigid_7dae29e2f.glb', import.meta.url)));
+    expect(strayClawReport(rigid).blind.sort()).toEqual(['yah_a', 'yah_ak', 'yah_b']);
+    const yah = teams.find(([t]) => t === 'yahalom_squad')![1];
+    expect(strayClawReport(yah).blind).toEqual([]);
+    expect(strayClawPieces(yah)).toEqual([]);
   });
   it('the rigid Combat Engineer (frozen) reads its thigh pieces by tone, about 358 cm2 a man', () => {
     const demo = readGlb(fileURLToPath(new URL('./fixtures/demo_squad_rigid_422df13dd.glb', import.meta.url)));
