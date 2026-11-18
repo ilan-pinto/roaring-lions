@@ -67,11 +67,49 @@ against one brief (register: military, terse, neutral; KDF/Sarim, place names an
 places, people, operations or faiths) with one shared glossary, and merged back into the English structure with the `src` hashes
 carried over untouched, so `pnpm validate:data` proves no entry is stale, missing or over a cap (trigger label 48, radio line,
 dispatch and aftermath 240, hostages place 40). The chrome catalogue is checked by `tools/validate_chrome_catalogue.mjs`: exactly
-`en.json`'s keys, and the same `{placeholders}` and ICU `plural`/`select` shape in every value. **Chrome strings carry no source
-hash**, so an English chrome edit after translation is a text-freeze matter, not something the gate sees (the languages brief's D7).
+`en.json`'s keys, and the same `{placeholders}` and ICU `plural`/`select` shape in every value. **Chrome strings carry their source hash in a
+sidecar**, `data/locales/<id>/chrome.src.json` (`{ "<key>": "<8 hex of the English it was translated from>" }`, the same `sourceHash` the
+mission and unit overlays use): an English chrome edit after translation goes red in `validate:data` with both hashes, until the string is
+re-translated and the hash set. The sidecar is never served or read at runtime. `pnpm locales:chrome-src -- <lang>` lists what is missing or
+stale; `--write` adds hashes for keys that have none (a new language runs it once, from the English it read) and keeps a stale entry stale on
+purpose; `--rebless=key,key` refreshes named keys and is for use AFTER re-translating them.
 
 Terms the glossary fixed, for a proofreader: Conduct is "Verhalten", a mission is an "Einsatz", a map tile is a "Feld", a squad or team
 is a "Trupp", the Store is the "Depot", a garrisoned building is "besetzt".
+
+## `fr` is staged too (GH-1406, GH-1407)
+
+Same pattern as `de`, stacked on it: `data/locales/fr/missions.json`, `units.json`, `chrome.src.json` and `packages/app/src/i18n/fr.json`.
+Machine translation by Claude, in-house, no paid service, **not proofread by a human**; `fr` is not in `LOCALES`. Register: military, terse,
+neutral, formal "vous" for the player and the infinitive for UI and orders, French typography. **Terminology calls for a proofreader:**
+Conduct = "Conduite" (the restraint score), rules of engagement = "règles d'engagement", mission = "mission", objective = "objectif",
+tile = "case", squad = "groupe" (a rifle "section" in prose), team = "équipe", Store = "Intendance", garrisoned = "occupé", medic =
+"infirmier", fire support = "appui-feu", suppression = "neutralisation par le feu", Loitering Munition = "munition rôdeuse", Suicide Squad =
+"groupe kamikaze" (mission prose says "charge squad" for the same unit, rendered the same way), "technical" kept as a loanword in prose
+and "pick-up armé" as the unit name, civic hall = "salle communale", Roar coin = "pièce Roar", brigade pack names Patrouille / Compagnie /
+Brigade / Division, Bug = "bogue", Balance = "équilibrage", Praise = "éloge", Advise / Assist = "Conseiller" / "Assister", dock = "barre du
+bas" in prose and "dock" on chips, field works = "ouvrages de campagne", checkpoint = "point de contrôle" ("pc" on chips), tiles per second
+= "c/s". Three select-based messages were reworded for gender agreement (`intel.note.ready`, `alert.supply.open`, `main.note.supportCalled`):
+check them in play. Both languages share one limit for a proofreader: the hostage count words (`world.hostages.n0` to `n20`) are capitalised
+because the same word starts a sentence and sits mid-sentence ("Noch Zwei draußen"), which the catalogue cannot express without a second set.
+
+## `es-ES` is staged too (GH-1406, GH-1407)
+
+Spanish as written in Spain, stacked on `fr`: `data/locales/es-ES/missions.json`, `units.json`, `chrome.src.json` and
+`packages/app/src/i18n/es-ES.json`. Machine translation by Claude, in-house, no paid service, **not proofread by a human**; `es-ES` is not in
+`LOCALES`. Register: military, terse, neutral, formal "usted" for the player, the infinitive for UI and orders, «comillas angulares» and the
+inverted marks. **Terminology calls for a proofreader:** Conduct = "Conducta", rules of engagement = "reglas de enfrentamiento", mission =
+"misión", objective = "objetivo", tile = "casilla", squad = "escuadra" (a rifle "section" in prose = "sección"), team = "equipo", Store =
+"Intendencia", garrison (verb) = "guarnecer", medic = "sanitario", fire support = "apoyo de fuego", suppression = "supresión", Loitering
+Munition = "munición merodeadora", Suicide Squad = "escuadra suicida" (mission prose says "charge squad" for the same unit, rendered the same
+way), "technical" kept as a loanword in prose and "pick-up armada" as the unit name, civic hall = "sala comunal", dock = "muelle" (the
+reinforcements panel), checkpoint = "punto de control" ("pc" on chips), tiles per second = "c/s", Roar coin = "moneda Roar", brigade packs
+Patrulla / Compañía / Brigada / División, Bug = "Error", Balance = "Equilibrio", Praise = "Elogio", Advise / Assist = "Aconsejar" /
+"Asistir", Desync's Report button = "Notificar" (not "Denunciar", which is the chat report). "Old Town" and "Main Street" are rendered "casco
+antiguo" and "calle Mayor" (the English uses both capitalised and lowercase forms). The slices disagreed on a few terms and were normalised
+("wadi" kept, never "uadi"). Check in play: the hostage count words (`world.hostages.n0` to `n20`: "Ningún", "Un", "Dos"...) are written without
+verb agreement because the same word starts a sentence and sits mid-sentence; the Delete key label stays "Del" where a Spanish keyboard shows
+"Supr"; the damaged-save file name `damaged-save-{n}.txt` was translated and should probably stay as the English file name.
 
 ## Staged versus shipped: lag is reported, wrong is red (GH-1406)
 

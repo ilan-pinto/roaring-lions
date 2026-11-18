@@ -288,6 +288,20 @@ describe('seatWorldFor', () => {
     expect([w.factionOfSeat(0), w.factionOfSeat(1)]).toEqual(['kdf', 'sarim']);
     expect([w.tunnelOwner(0), w.tunnelOwner(1), w.tunnelOwner(NaN)]).toEqual([1, -1, -1]);
   });
+  it('GH-1381: a Sarim Free play\'s seat 0 is Sarim\'s, still side 0: its vent passes, the KDF solo seat\'s does not', () => {
+    const sim = fakeSim();
+    const kdf = seatWorldFor(null, sim);
+    const sarim = seatWorldFor(null, sim, undefined, 'sarim');
+    expect([kdf.factionOfSeat(0), sarim.factionOfSeat(0)]).toEqual(['kdf', 'sarim']);
+    expect([kdf.sideOfSeat(0), sarim.sideOfSeat(0)]).toEqual([0, 0]);
+    const vent: Command = { kind: 'vent', ids: [0, 1], mode: 'raid' };
+    expect([validateCommand(vent, 0, kdf), validateCommand(vent, 0, sarim)]).toEqual([false, true]);
+    // Still the seat's OWN units only: side 1's (entities 4, 5) are not Sarim's to order, whatever the faction.
+    expect(validateCommand({ kind: 'vent', ids: [4], mode: 'raid' }, 0, sarim)).toBe(false);
+    for (const id of ['column', 'attack', 'ambush']) expect(sarim.formationAllowed(0, id), id).toBe(true);
+    // A room reads its config, never the solo faction.
+    expect(seatWorldFor(config(), sim, undefined, 'sarim').factionOfSeat(0)).toBe('kdf');
+  });
   it('GH-859 P1a: formationAllowed is the shipped table, by the seat\'s faction (single-player: KDF)', () => {
     const sim = fakeSim();
     const solo = seatWorldFor(null, sim);

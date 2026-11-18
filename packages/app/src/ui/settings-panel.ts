@@ -465,6 +465,16 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     ),
     t('settings.chat.hint')
   );
+  row(
+    table,
+    t('settings.chat.mask'),
+    checkbox('chatMask', s.chat.mask, (v) =>
+      update((n) => {
+        n.chat.mask = v;
+      })
+    ),
+    t('settings.chat.mask.hint')
+  );
 
   table = section(cols.side, 'language', t('settings.language'));
   row(
