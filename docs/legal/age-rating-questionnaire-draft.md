@@ -103,9 +103,9 @@ Roaring Lions is a real-time strategy game, played in a web browser, set in an i
 | # | Question | Draft answer | Source in repo | Certainty |
 |---|---|---|---|---|
 | 9.1 | Can players spend real money? | **No, not today.** Paid purchases are switched off, and no code raises the paid balance. | `PURCHASES_OPEN = false` and the paid half clamped to 0 (`packages/economy/src/wallet.ts`) | FACT. **Re-answer the day purchases open** |
-| 9.2 | Is there a digital currency? | **Yes, free.** Roar coins, earned by play or from a coupon (none issued). Today they open single-player units and upgrades early; all can also be earned by play. **Open PR 1565** adds a switch (shipped off) so coins buy cosmetics only. | `wallet.ts` (`EarnSource`, receipts `unit`, `tier`); `data/coupons.json` (empty); PR 1565 (`COINS_COSMETIC_ONLY`) | FACT |
-| 9.3 | Do coins affect play against others? | **No.** Versus reads earned items only; coins never change a result. | `networkView` reads earned items only (`packages/economy/src/wallet.ts` header); versus pays 0 coins (`docs/HANDOVER.md`, the Roar-coin row) | FACT |
-| 9.4 | Planned? | **Yes.** The plan is to sell coin packs through Steam later, for cosmetics, operation passes and early single-player access. | `docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`; `docs/HANDOVER.md` (lane D: ST7, Steam Wallet) | FACT (a plan) |
+| 9.2 | Is there a digital currency? | **Yes, free.** Roar coins, earned by play or from a coupon (none issued). They buy units and upgrade tiers in the Stores, in place of the credit price; everything they buy can also be bought with brigade credits earned in play. | `wallet.ts` (`EarnSource`, receipts `unit`, `tier`); `packages/economy/src/stores.ts`; `data/coupons.json` (empty) | FACT |
+| 9.3 | Do coins affect play against others? | **Only in a room that opts in.** A versus room ignores everything a player owns, unless its host turns on "bring your brigade" (off by default). In such a room each player fields the units and upgrades they own, including those bought with coins (free coins today). Coins are never earned or spent in versus. | the create body carries owned kit only for `kit: 'brigade'` (`packages/app/src/net/connect.ts`), read through `singlePlayerView` (`packages/app/src/account-view.ts`); `networkView` is called by no production code; `packages/worker/src/match/match-room.ts`; `packages/app/src/net/coin-claim.test.ts`; versus pays 0 coins (A3) | FACT + CHECKED. **Re-answer** when the lead rules on terms Q20 |
+| 9.4 | Planned? | **Yes.** The plan is to sell coin packs through Steam later. On 18 Nov 2026 the lead ruled that coins buy units ("I want users to be able to use coins to buy new units. That's the leading rule."), so coins bought with real money are planned to buy units and upgrade tiers, as well as cosmetics and operation passes. Where those units may be used (single player only, or versus too) is not yet ruled. | the lead's ruling of 18 Nov 2026 (GH-1378, GH-1415), reversing the 16 Nov ruling that paid coins buy cosmetics only at launch; `docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`; `docs/HANDOVER.md` (lane D: ST7, Steam Wallet) | FACT (a plan). **UNCERTAIN** on scope: terms Q20 |
 
 ## 10. The uncertain answers, in one list
 
@@ -117,8 +117,9 @@ Roaring Lions is a real-time strategy game, played in a web browser, set in an i
 6. **7.5 Avatar upload.** Not served today. Re-answer if uploads ship, and again if other players can see them.
 7. **8.4 Age.** Whether stating 16 is enough, per market.
 8. **9.1 Purchases.** Re-answer the day `PURCHASES_OPEN` becomes true.
-9. **1.9 Ragdolls.** Re-answer if a preset turns them on.
+9. **9.3 and 9.4 Coins that buy units.** Once coins are sold, money buys power (units and upgrade tiers). The honest answer to a board or store form that asks whether purchases give a gameplay advantage is then **yes** for single player, and for versus too unless the lead rules otherwise (terms Q20).
+10. **1.9 Ragdolls.** Re-answer if a preset turns them on.
 
 ## 11. What may draw a board's attention
 
-I am **not** predicting a rating. For planning only, the items most likely to draw questions are: the suicide-bomber unit (1.11); the civilian killings and abductions in the story and their real-world reference (1.12, 1.13); free-text chat with people who share a room code (7.2, 7.3); and paid coins, once they open (9.1).
+I am **not** predicting a rating. For planning only, the items most likely to draw questions are: the suicide-bomber unit (1.11); the civilian killings and abductions in the story and their real-world reference (1.12, 1.13); free-text chat with people who share a room code (7.2, 7.3); and paid coins that buy units and upgrades, once they open (9.1, 9.4).
