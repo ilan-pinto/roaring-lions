@@ -59,8 +59,11 @@ export interface Settings {
    *  `version` bump: parsing is field by field, so an old blob loses nothing. */
   intro: { seen: boolean };
   /** Other players' chat in a versus room (GH-1417 S1). `enabled: false` hides every received line and the input; the room is told
-   *  nothing. On by default. Added without a `version` bump: parsing is field by field. */
-  chat: { enabled: boolean };
+   *  nothing. On by default. Added without a `version` bump: parsing is field by field.
+   *  `mask` (GH-1417 S2): whether the word filter's MASK tier replaces swear words with ***. On by default. There is deliberately no
+   *  field for the HIDE tier (lead ruling D2: a setting may turn `mask` off, never `hide`), so no stored value can reach it; an
+   *  unknown key such as `hide` is dropped by the parse like any other. */
+  chat: { enabled: boolean; mask: boolean };
   /** One-time suggestions the player has answered (GH-1413). `software`: the software-rendering line (`ui/software-hint.ts`) was
    *  answered, either way, and is never shown again. Added without a `version` bump: parsing is field by field. */
   hints: { software: boolean };
@@ -88,7 +91,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
   accessibility: { motion: 'system', colorVision: 'default', captions: true },
   intro: { seen: false },
-  chat: { enabled: true },
+  chat: { enabled: true, mask: true },
   hints: { software: false },
   language: 'en',
 });
@@ -149,7 +152,7 @@ export function parseSettings(raw: string | null): Settings {
       captions: bool(acc.captions, d.accessibility.captions),
     },
     intro: { seen: bool(intro.seen, d.intro.seen) },
-    chat: { enabled: bool(chat.enabled, d.chat.enabled) },
+    chat: { enabled: bool(chat.enabled, d.chat.enabled), mask: bool(chat.mask, d.chat.mask) },
     hints: { software: bool(hints.software, d.hints.software) },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };

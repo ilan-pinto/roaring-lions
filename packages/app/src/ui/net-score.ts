@@ -33,7 +33,9 @@ export function amount(n: number): string {
   }
 }
 
-/** The two row names: this seat's, then the other seat's callsign. */
+/** The two row names: this seat's, then the other seat's callsign. `theirs` may be a getter (main.ts's is): the running board
+ *  reads it at every `update` and repaints when it changed, so a name that read as the fallback while the word filter loaded is
+ *  redrawn as its label once the filter is in, without waiting for a number to move (GH-1417 S2, CR9). */
 export interface ScoreNames {
   readonly theirs: string;
 }
@@ -83,12 +85,16 @@ export function scoreTable(score: MatchScore, viewer: 0 | 1, names: ScoreNames, 
 }
 
 /** The running board under the strip. `update` repaints only when a number
- *  moved, so the 4 Hz caller costs nothing in a quiet minute. */
+ *  moved or the other seat's name changed, so the 4 Hz caller costs nothing
+ *  in a quiet minute. */
 export class NetScoreboard {
   private readonly el: HTMLDivElement;
   private readonly board: HTMLDivElement;
   private readonly advisorLine: HTMLDivElement;
   private painted = '';
+  /** The last `advisors` call and the name its chip was drawn with: `update` redraws the chips when that name has changed. */
+  private present: AdvisorPair | null = null;
+  private chipName = '';
 
   constructor(host: HTMLElement, private readonly viewer: 0 | 1, private readonly names: ScoreNames) {
     this.el = document.createElement('div');
@@ -103,7 +109,9 @@ export class NetScoreboard {
   }
 
   update(score: MatchScore): void {
-    const key = JSON.stringify(score);
+    const theirs = this.names.theirs;
+    if (this.present !== null && theirs !== this.chipName) this.advisors(this.present);
+    const key = JSON.stringify([score, theirs]);
     if (key === this.painted) return;
     this.painted = key;
     this.board.replaceChildren(scoreTable(score, this.viewer, this.names, { remaining: false }));
@@ -112,6 +120,8 @@ export class NetScoreboard {
   /** Who has an advisor: a chip per seat with one, this seat's first. The
    *  other seat's callsign is text a player typed, set as text. */
   advisors(present: AdvisorPair): void {
+    this.present = present;
+    this.chipName = this.names.theirs;
     const chips: HTMLElement[] = [];
     const chip = (row: 'mine' | 'theirs', who: string, scope: AdvisorScope | null): void => {
       if (scope === null) return;
@@ -128,7 +138,7 @@ export class NetScoreboard {
       chips.push(el);
     };
     chip('mine', t('versus.score.you'), present.mine);
-    chip('theirs', this.names.theirs, present.theirs);
+    chip('theirs', this.chipName, present.theirs);
     this.advisorLine.replaceChildren(...chips);
     this.advisorLine.hidden = chips.length === 0;
   }
