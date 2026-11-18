@@ -41,7 +41,8 @@ export interface SocketLike {
 export interface WsTransportHooks {
   /** `factions`, by seat: the room's matchup (absent from an older room: the mirror).
    *  `kit`: the room's kit rule, named only for `brigade` (absent is matched). */
-  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit, winMode?: WinMode): void;
+  /** `fieldWorks` (versus field works): the host opened the room with them; absent is off. */
+  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit, winMode?: WinMode, fieldWorks?: true): void;
   /** `fromLog`: the room answered the hello with its log (this seat joined a match already under way), not a live `start`. */
   onStart(config: MatchConfig, fromLog?: boolean): void;
   onDesync?(tick: number, hashes: [number, number]): void;
@@ -284,7 +285,7 @@ export class WsTransport implements MatchTransport {
           if (this.droppedAt !== null) this.setAdvisors([null, null]);
           this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' };
         }
-        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit, msg.winMode);
+        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit, msg.winMode, msg.fieldWorks);
         return;
       case 'start':
         this.begin(msg.config, false);

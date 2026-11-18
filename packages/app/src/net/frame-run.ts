@@ -13,7 +13,7 @@
  * room folds in is the step's own `dataDigest`, else `runFramesWith`'s `ownDigest`. `frame-step.ts` is this module plus
  * the default every Node caller has always had, `shippedContentDigest()` over the eager registry.
  */
-import { applyFrame, economyRoom, flagSetupRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { applyFrame, economyRoom, fieldWorksRoom, flagSetupRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
 import { formations } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { VERSUS_FORMATIONS_OPEN, formationsOpenIn, roomKindOf } from './versus-formations';
@@ -132,6 +132,8 @@ export function seatWorldFor(
     economy: config !== null && economyRoom(config),
     // GH-976 v2: the set-up commands pass only in a flag room the Worker minted `flagSetup` for.
     setupRoom: config !== null && flagSetupRoom(config),
+    // Versus field works: raiseWorks / cancelWorks pass, for the seat's own side, only in a room the host opened with them.
+    fieldWorks: config !== null && fieldWorksRoom(config),
     // GH-859 P1a: a shipped formation whose factions include this seat's own (single-player: KDF) -- and none at all in a
     // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
     // on both machines. The protocol still carries the field; P1b opens the gate.

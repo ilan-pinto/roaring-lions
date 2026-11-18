@@ -98,6 +98,8 @@ export interface StripInput {
   /** The finished game's verdict, from the arena: the winning seat, or `draw` / `void`. */
   verdict: { outcome: string; by: string } | null;
   view: ViewChoice;
+  /** Versus field works: the room was opened with them (`config.fieldWorks`), so the strip names the rule. Absent: off. */
+  fieldWorks?: boolean;
 }
 
 export interface StripText {
@@ -108,6 +110,8 @@ export interface StripText {
   clock: string | null;
   status: string | null;
   verdict: string | null;
+  /** The room's rule beyond annihilation, when it has one (versus field works); null otherwise. */
+  rules: string | null;
   views: readonly { choice: ViewChoice; label: string; on: boolean }[];
 }
 
@@ -145,6 +149,7 @@ export function stripText(i: StripInput): StripText {
     clock: live ? t('arena.strip.clock', { round, time: matchClock(i.tick), tick: i.tick }) : null,
     status,
     verdict,
+    rules: i.fieldWorks === true ? t('arena.strip.fieldWorks') : null,
     views: VIEW_CHOICES.map((c) => ({ choice: c, label: viewLabel(c), on: c === i.view })),
   };
 }
