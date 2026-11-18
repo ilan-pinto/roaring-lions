@@ -21,7 +21,7 @@ On first launch an opening cinematic plays. Skip it at any time; Settings can re
 | Entry | What it is |
 |---|---|
 | **Start** / **Continue** | Jumps to the next mission of the campaign (the tutorial first). |
-| **Campaign** | The campaign map: three fronts, 38 missions. |
+| **Campaign** | The campaign map: three fronts, 39 missions. |
 | **Brigade** | The garage and the Stores: your units, their upgrades, what unlocks what. |
 | **Play with a friend** | Open or join a one-versus-one room, or play a basic computer opponent. |
 | **free play, any map** | Walk any listed map with a full task force, no mission needed. |
@@ -68,11 +68,11 @@ You play a KDF officer, Shai Hammai, from a dawn siege to the end of the war, wi
 
 | Front | Enemy doctrine | Towns (missions) |
 |---|---|---|
-| **The Marj Strip** | Ashwar Front: tunnels, IEDs, ambush, human terrain | Beit Sahwan (5), Qasr Liwan (5), Khan Rafid (3), Deir Amun (3), Bir Tarsha (4) |
+| **The Marj Strip** | Ashwar Front: tunnels, IEDs, ambush, human terrain | Beit Sahwan (5), Qasr Liwan (5), Khan Rafid (3), Deir Amun (3), Bir Tarsha (5) |
 | **Sur** | Sarim Brigades: rockets, anti-tank missiles, standoff | Tel Marum (3), Qarn Hadid (3), Umm Zeitoun (4) |
 | **Naharin** | Rif Cells: technicals, raids, mobility; wet ground and rain | Wadi Halam (5), Ein Qasab (3) |
 
-The war opens with *First Light* in Beit Sahwan. Bir Tarsha opens after Deir Amun III, Sur after Bir Tarsha V, Naharin after Umm Zeitoun IV, and Ein Qasab after Wadi Halam III. Each mission is meant to take five to seven minutes and has a time limit; running out with a primary objective open is a defeat. The tutorial, *Working Up*, is the thirty-ninth mission file and sits outside the map.
+The war opens with *First Light* in Beit Sahwan. Bir Tarsha opens after Deir Amun III, Sur after Bir Tarsha V, Naharin after Umm Zeitoun IV, and Ein Qasab after Wadi Halam III. Each mission is meant to take five to seven minutes and has a time limit; running out with a primary objective open is a defeat. The tutorial, *Working Up*, is the fortieth mission file and sits outside the map.
 
 - **Deploy.** Before a mission you pick which veterans fill its slots. Units keep a service record, and veterans aim better and resist suppression.
 - **Objectives.** Locate, hold for a time, survive until relief, capture, eliminate a target, evacuate civilians, collapse a tunnel, raze a building, or destroy everything.

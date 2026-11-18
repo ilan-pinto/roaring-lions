@@ -37,17 +37,17 @@ const world = json<{ regions: Region[] }>('data/campaign/world.json');
 const missionFiles = readdirSync(join(ROOT, 'data/missions')).filter((f) => f.endsWith('.json'));
 
 describe('README: campaign numbers', () => {
-  it('"three fronts, 38 missions" is the count on the campaign map', () => {
+  it('"three fronts, 39 missions" is the count on the campaign map', () => {
     const onMap = world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions));
     expect(world.regions).toHaveLength(3);
     expect(README).toContain(`three fronts, ${onMap.length} missions`);
   });
-  it('the tutorial is the one mission file outside the map ("the thirty-ninth")', () => {
+  it('the tutorial is the one mission file outside the map ("the fortieth")', () => {
     const onMap = new Set(world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions)));
     const off = missionFiles.map((f) => f.replace(/\.json$/, '')).filter((id) => !onMap.has(id));
     expect(off).toEqual(['beit_sahwan_0_tutorial']);
-    expect(missionFiles).toHaveLength(39);
-    expect(README).toContain('is the thirty-ninth mission file');
+    expect(missionFiles).toHaveLength(40);
+    expect(README).toContain('is the fortieth mission file');
   });
   it('every town count in the front table is the town\'s mission count', () => {
     for (const r of world.regions) for (const t of r.towns) expect(README, t.name).toContain(`${t.name} (${t.missions.length})`);

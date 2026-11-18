@@ -47,6 +47,7 @@ describe('timeOfDayOf (R-12, N-23)', () => {
       'bir_tarsha_1_recon.json': 'dawn',
       'bir_tarsha_2_foothold.json': 'day',
       'bir_tarsha_3_clearance.json': 'day',
+      'bir_tarsha_4_clearance.json': 'day',
       'bir_tarsha_5_subterranean.json': 'dusk',
       'deir_amun_1_recon.json': 'dawn',
       'deir_amun_2_foothold.json': 'dusk',
