@@ -26,8 +26,9 @@
  *  4. invisible characters dropped (zero-width spaces and joiners, soft hyphen, BOM, variation selectors) WITHOUT splitting the word;
  *  5. look-alikes mapped: digits (0 1 3 4 5 7), Cyrillic and Greek letters that look Latin, and `@` `$` `!` inside or against a word.
  * Then the line is cut into words (letters and digits; an emoji is a word of its own; everything else separates), and:
- *  6. a run of single letters is one word ("f u c k", "f.u.c.k"); and when the run starts or ends with a letter that is a word on its
- *     own (`LONE_WORDS`: "a", "I"), the run without it is tried too, so "you are a f u c k" and "f u c k I" are still caught;
+ *  6. a run of single letters is one word ("f u c k", "f.u.c.k"); and when the run starts or ends with letters that are words on their
+ *     own (`LONE_WORDS`: "a", "I"), the run without up to `MAX_LONE_EDGE` of them at each end is tried too, so "you are a f u c k",
+ *     "u a f u c k" and "f u c k I" are still caught;
  *  7. a word matches an entry when equal, or when it is LONGER and equal once repeated letters collapse ("fuuuck"; "as" never
  *     matches "ass", because it is not longer);
  *  8. a phrase matches a run of words;
@@ -200,12 +201,12 @@ function rawWordsOf(text: string): RawWord[] {
  */
 const LONE_WORDS: ReadonlySet<string> = new Set(['a', 'b', 'c', 'e', 'i', 'k', 'o', 'u', 'y', 'и', 'я']);
 
-/** Which edge letters of a run step 6 splits off as words of their own: none (the plain run), the first, the last, or both. */
-type Trim = 'none' | 'first' | 'last' | 'both';
+/** At most this many `LONE_WORDS` letters are split off each edge of a run (GH-1527: two, for "u a ...", "y a ...", "и я ..."). */
+const MAX_LONE_EDGE = 2;
 
-/** Step 6 over `raw`: each run of two or more single letters becomes one word, less the edge letters `trim` names when they are
- *  `LONE_WORDS` and at least two letters are left; a letter split off stays a word of its own. */
-function joinRuns(raw: readonly RawWord[], trim: Trim): Token[] {
+/** Step 6 over `raw`: each run of two or more single letters becomes one word, less up to `head` leading and `tail` trailing letters
+ *  that are `LONE_WORDS`, while at least two letters are left; a letter split off stays a word of its own. */
+function joinRuns(raw: readonly RawWord[], head: number, tail: number): Token[] {
   const out: Token[] = [];
   const one = (r: RawWord): void => {
     out.push({ norm: r.norm, start: r.start, end: r.end });
@@ -217,8 +218,8 @@ function joinRuns(raw: readonly RawWord[], trim: Trim): Token[] {
     if (j - i >= 2) {
       let a = i;
       let b = j;
-      if ((trim === 'first' || trim === 'both') && b - a >= 3 && LONE_WORDS.has(raw[a].norm)) a++;
-      if ((trim === 'last' || trim === 'both') && b - a >= 3 && LONE_WORDS.has(raw[b - 1].norm)) b--;
+      for (let n = 0; n < head && b - a >= 3 && LONE_WORDS.has(raw[a].norm); n++) a++;
+      for (let n = 0; n < tail && b - a >= 3 && LONE_WORDS.has(raw[b - 1].norm); n++) b--;
       for (let k = i; k < a; k++) one(raw[k]);
       out.push({ norm: raw.slice(a, b).map((r) => r.norm).join(''), start: raw[a].start, end: raw[b - 1].end });
       for (let k = b; k < j; k++) one(raw[k]);
@@ -233,21 +234,24 @@ function joinRuns(raw: readonly RawWord[], trim: Trim): Token[] {
 
 /** The words of `text`, folded, with where each sits in the original; a run of single letters is one word (step 6). */
 export function wordsOf(text: string): Token[] {
-  return joinRuns(rawWordsOf(text), 'none');
+  return joinRuns(rawWordsOf(text), 0, 0);
 }
 
 /**
  * The readings of a received line that step 6 allows: the plain one (`wordsOf`) first, then, only where some run has a `LONE_WORDS`
- * letter at an edge, the readings with the first, the last, and both such letters split off. At most four, each one pass over the line,
- * so the cost stays linear in its length; within one reading every run is trimmed the same way.
+ * letter at an edge, the readings with up to `MAX_LONE_EDGE` such letters split off the start, the end, or both. At most nine, each one
+ * pass over the line, so the cost stays linear in its length; within one reading every run is trimmed the same way.
  */
 function readingsOf(text: string): Token[][] {
   const raw = rawWordsOf(text);
-  const plain = joinRuns(raw, 'none');
+  const plain = joinRuns(raw, 0, 0);
   const out: Token[][] = [plain];
-  for (const trim of ['first', 'last', 'both'] as const) {
-    const r = joinRuns(raw, trim);
-    if (r.length !== plain.length) out.push(r);
+  for (let head = 0; head <= MAX_LONE_EDGE; head++) {
+    for (let tail = 0; tail <= MAX_LONE_EDGE; tail++) {
+      if (head === 0 && tail === 0) continue;
+      const r = joinRuns(raw, head, tail);
+      if (r.length !== plain.length) out.push(r);
+    }
   }
   return out;
 }

@@ -73,12 +73,12 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 46 maps ship (Was 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 43 (Was 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(46);
+    // 51 maps ship (Was 46 before the five Bir Tarsha maps; 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 48 (Was 43 before Bir Tarsha listed its five; 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(51);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(43);
+    expect(links).toHaveLength(48);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
@@ -263,7 +263,22 @@ describe('the flag list', () => {
     const boxes = Array.from(
       render().querySelectorAll<HTMLInputElement>('input[data-flag]')
     );
-    expect(boxes.map((b) => b.dataset.flag)).toEqual(SANDBOX_FLAGS.map((f) => f.name));
+    expect(boxes.map((b) => b.dataset.flag)).toEqual(SANDBOX_FLAGS.filter((f) => f.freePlayDefault !== true).map((f) => f.name));
+  });
+
+  // The lead, 18 Nov 2026: field works are on in every KDF Free play, so the picker states them under the
+  // side pick, in the table's own sentence, and offers no box that could only ever be ticked.
+  it('states each Free play default under the side pick, in its catalogue sentence, never as a box', () => {
+    const stage = render();
+    const defaults = SANDBOX_FLAGS.filter((f) => f.freePlayDefault === true);
+    expect(defaults.map((f) => f.name)).toEqual(['works']);
+    for (const f of defaults) {
+      expect(stage.querySelector(`input[data-flag="${f.name}"]`), f.name).toBeNull();
+      const line = stage.querySelector<HTMLElement>(`.rl-sandbox__default[data-default-flag="${f.name}"]`);
+      expect(line?.textContent, f.name).toBe((en as Record<string, string>)[f.labelKey]);
+      expect(line?.closest('fieldset')?.classList.contains('rl-sandbox__sides'), f.name).toBe(true);
+      expect(line?.hidden, f.name).toBe(false);
+    }
   });
 
   // WP-P2 (PA-01, PA-25): the table's own blurbs are console text for a
@@ -422,5 +437,69 @@ describe('reaching it', () => {
     expect(foot?.classList.contains('rl-foot')).toBe(true);
     expect(foot?.classList.contains('rl-foot--sticky')).toBe(true);
     expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).not.toBeNull();
+  });
+});
+
+describe('GH-1381: the side pick', () => {
+  const pick = (stage: HTMLElement, side: string): void => {
+    const radio = stage.querySelector<HTMLInputElement>(`input.rl-versus__side-radio[value="${side}"]`);
+    if (!radio) throw new Error(`no radio for ${side}`);
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change'));
+  };
+  const box = (stage: HTMLElement, flag: string): HTMLInputElement => {
+    const b = stage.querySelector<HTMLInputElement>(`input[data-flag="${flag}"]`);
+    if (!b) throw new Error(`no checkbox for &${flag}`);
+    return b;
+  };
+
+  it('is one radio group, KDF then Sarim, under the versus lobby legend, KDF picked', () => {
+    const stage = render();
+    const radios = Array.from(stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio'));
+    expect(radios.map((r) => [r.value, r.checked])).toEqual([['kdf', true], ['sarim', false]]);
+    expect(new Set(radios.map((r) => r.name)).size).toBe(1);
+    const group = radios[0].closest('fieldset');
+    expect(group?.querySelector('legend')?.textContent).toBe('Pick your side');
+    expect(radios.map((r) => r.closest('label')?.textContent)).toEqual(['KDF', 'Sarim']);
+    expect(group?.querySelector('.rl-sandbox__side-blurb')?.textContent).toBe(en['versus.lobby.faction.kdf.blurb']);
+  });
+
+  it('leaves every card link the KDF link it always was until Sarim is picked', () => {
+    const stage = render();
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum');
+    toggle(stage, 'tunnel');
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
+  });
+
+  it('a Sarim pick puts side=sarim on every card, greys the KDF-only boxes and drops them from the link', () => {
+    const stage = render();
+    toggle(stage, 'tunnel');
+    toggle(stage, 'civ');
+    pick(stage, 'sarim');
+    for (const a of mapLinks(stage)) expect(a.getAttribute('href'), a.dataset.map).toMatch(/[?&]side=sarim$/);
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?civ&side=sarim');
+    for (const f of ['tunnel', 'sur', 'kit']) {
+      expect(box(stage, f).disabled, f).toBe(true);
+      expect(box(stage, f).getAttribute('aria-describedby'), f).toBe('rl-free-play-kdf-only');
+    }
+    // A Sarim Free play has no field works (`freePlayDefaults`), so the line saying they are on goes.
+    expect(stage.querySelector<HTMLElement>('.rl-sandbox__default[data-default-flag="works"]')?.hidden).toBe(true);
+    for (const f of ['roe', 'civ', 'ditch']) expect(box(stage, f).disabled, f).toBe(false);
+    const note = stage.querySelector<HTMLElement>('#rl-free-play-kdf-only');
+    expect(note?.hidden).toBe(false);
+    expect(note?.textContent).toBe(en['freePlay.side.kdfOnly']);
+    expect(stage.querySelector('.rl-sandbox__side-blurb')?.textContent).toBe(en['versus.lobby.faction.sarim.blurb']);
+  });
+
+  it('back to the KDF: the boxes open again, still ticked, and the link is the KDF one', () => {
+    const stage = render();
+    toggle(stage, 'tunnel');
+    pick(stage, 'sarim');
+    pick(stage, 'kdf');
+    expect(box(stage, 'tunnel').disabled).toBe(false);
+    expect(box(stage, 'tunnel').hasAttribute('aria-describedby')).toBe(false);
+    expect(stage.querySelector<HTMLElement>('#rl-free-play-kdf-only')?.hidden).toBe(true);
+    expect(stage.querySelector<HTMLElement>('.rl-sandbox__default[data-default-flag="works"]')?.hidden).toBe(false);
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
   });
 });

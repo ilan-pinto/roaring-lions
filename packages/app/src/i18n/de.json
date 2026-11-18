@@ -1646,7 +1646,6 @@
   "hud.works.cancel": "Bau abbrechen (Erstattung {n})",
   "hud.works.progress": "{n}% gebaut",
   "freePlay.option.soft": "Weicher Rauch: Schwaden verblassen, wo sie auf den Boden treffen",
-  "freePlay.option.works": "Feldbauten im Angebot: jeder baubare Typ zweimal und ein Pioniertrupp, um sie zu errichten",
   "dock.note.locked": "<b>{name}</b> ist gesperrt — {reason}",
   "dock.note.building": "<b>baut</b> {name} — {where, select, camp {setzt ein bei {camp}} shortest {setzt ein beim Lager mit der kürzesten Warteschlange} other {setzt ein an der Startlinie}}",
   "dock.note.cannotBuild": "{name} kann nicht gebaut werden — zu wenig Logistik",
