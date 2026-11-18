@@ -48,6 +48,9 @@ export const GARAGE_SEED_ACCOUNT: BrigadeAccount = {
   },
   grants: [{ source: 'granted', amount: 5000, at: 1 }],
   coupons: [],
+  // GH-1384: a seeded branched tier 3 takes branch 1 (and a legacy marker) on the app's first read.
+  picks: {},
+  legacy: {},
 };
 
 /** Three Beit Sahwan missions logged at 3 stars, the breach at 2 (11 total --

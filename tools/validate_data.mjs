@@ -20,6 +20,7 @@
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
+//   data/units/** branched upgrade tiers: B1-B7 and the C1 cap in tools/validate_branches.mjs (GH-1384)
 //   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
 //                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
@@ -47,6 +48,7 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { tierPatches, validateBranches } from './validate_branches.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
@@ -117,13 +119,24 @@ function unitHasPath(unit, path) {
 // a lower delta on a path both tiers touch, or a path `prev` patched that
 // `curr` drops entirely (which the brief's rule (c) counts as lower, since
 // dropping it is indistinguishable from patching it back to zero).
+//
+// GH-1384: a tier may be branched, so the price is compared once and the patch rule runs per
+// PAIR of (a patch of `prev`, a patch of `curr`): a branch against the tier below is the
+// existing monotone rule, applied twice. `tierPatches` throws on a tier shape it does not
+// know rather than reading it as `{}`; the caller reports that as a failure.
 function tierRegressions(prev, curr) {
   const whats = [];
   if (curr.price < prev.price) {
     whats.push(`price ${curr.price} < ${prev.price}`);
   }
-  const prevPatch = prev.patch ?? {};
-  const currPatch = curr.patch ?? {};
+  for (const prevPatch of tierPatches(prev)) {
+    for (const currPatch of tierPatches(curr)) whats.push(...patchRegressions(prevPatch, currPatch));
+  }
+  return whats;
+}
+
+function patchRegressions(prevPatch, currPatch) {
+  const whats = [];
   for (const path of Object.keys(prevPatch)) {
     const prevVal = prevPatch[path];
     if (!(path in currPatch)) {
@@ -426,17 +439,28 @@ const garrisonableSymbols = new Set(
       }
       for (const [trackName, track] of Object.entries(u.upgrades)) {
         const tiers = track.tiers ?? [];
+        let shapeOk = true;
         tiers.forEach((tier, i) => {
-          for (const path of Object.keys(tier.patch ?? {})) {
-            if (!unitHasPath(u, path)) {
-              failures.push(
-                `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
-                  `which this unit does not have`
-              );
+          let patches;
+          try {
+            patches = tierPatches(tier);
+          } catch (err) {
+            shapeOk = false;
+            failures.push(`${rel(file)}: upgrades.${trackName} tier ${i + 1}: ${err.message}`);
+            return;
+          }
+          for (const patch of patches) {
+            for (const path of Object.keys(patch)) {
+              if (!unitHasPath(u, path)) {
+                failures.push(
+                  `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
+                    `which this unit does not have`
+                );
+              }
             }
           }
         });
-        for (let i = 1; i < tiers.length; i++) {
+        for (let i = 1; shapeOk && i < tiers.length; i++) {
           for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
             failures.push(
               `${rel(file)}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
@@ -1524,6 +1548,13 @@ const garrisonableSymbols = new Set(
   const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
+}
+
+// --- branched upgrade tiers (GH-1384): B1-B7 per branched track, and the C1 cap ------------
+{
+  const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const unitFiles = jsonFilesIn(join(ROOT, 'data/units')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...validateBranches(unitFiles, { en }));
 }
 
 // --- the synchronous content manifest (B6-6) ----------------------------------

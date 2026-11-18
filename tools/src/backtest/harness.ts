@@ -3,21 +3,37 @@
 // This is where the combat model is held against GDD §5.7.
 
 import { Sim, type SimEvent, type UnitTypeJson } from '@lions/sim';
-import { units as baseUnits, applyUpgrades, maxTiers } from '@lions/data';
+import { units as baseUnits, applyUpgrades, maxPicks, maxTiers, type BranchPick } from '@lions/data';
 
 type Roster = typeof baseUnits;
 
+/** Which branch a max-tier roster fields (GH-1384): one branch for every branched track of
+ *  every unit (the uniform vector, `maxPicks(u, pick)`), or a branch per UNIT id for a mixed
+ *  vector (a unit the map does not name takes branch 1). */
+export type MaxPick = BranchPick | Readonly<Record<string, BranchPick>>;
+
+const uniformAtMax = new Map<BranchPick, Roster>();
+
 /** Every KDF entry in the shipped roster, patched to its own maximum tiers --
  *  the same pre-pass `main.ts` runs for a bought tier (`applyUpgrades(u, ownedTiers[u.id]
- *  ?? {})`), maxed rather than owned. Enemy (non-kdf) entries are untouched, matching
- *  `main.ts` and `playtest.ts`'s own `tiers: 'max'` pass exactly. Used by `cli.ts`'s
- *  second table. */
-export const unitsAtMaxTier: Roster = Object.fromEntries(
-  Object.entries(baseUnits).map(([id, u]) => [
-    id,
-    u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u)) : u,
-  ])
-) as Roster;
+ *  ?? {}, ownedPicks[u.id] ?? {})`), maxed rather than owned. Enemy (non-kdf) entries are
+ *  untouched, matching `main.ts` and `playtest.ts`'s own `tiers: 'max'` pass exactly. A branched
+ *  last tier needs a branch (GH-1384), so the max-tier roster is per `pick`: `cli.ts` prints one
+ *  table per uniform vector, and the per-target cross product of the mixed ones. */
+export function unitsAtMaxTier(pick: MaxPick): Roster {
+  if (typeof pick === 'number') {
+    const hit = uniformAtMax.get(pick);
+    if (hit !== undefined) return hit;
+  }
+  const roster = Object.fromEntries(
+    Object.entries(baseUnits).map(([id, u]) => [
+      id,
+      u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u), maxPicks(u, typeof pick === 'number' ? pick : (pick[id] ?? 1))) : u,
+    ])
+  ) as Roster;
+  if (typeof pick === 'number') uniformAtMax.set(pick, roster);
+  return roster;
+}
 
 /** Live module bindings, mutable only through `withRoster` below -- every target
  *  function in `targets.ts` reads these two by name (`units.at_team`, `MBT_BARE`,

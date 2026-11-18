@@ -11,8 +11,12 @@
  * `networkView` reads `earned` only.
  */
 import type { BrigadeAccount } from './brigade';
+import { isPick, settleEntitlement, shippedBranched, type BranchedTable, type BranchPick, type PicksMap } from './branches';
 
-export const ROAR_VERSION = 1 as const;
+/** 2 since GH-1384 (an entitlement's `branch` and `legacy`, a tier receipt's `branch` and
+ *  `refund`); a version-1 wallet migrates on read, and a branched tier it holds takes branch 1
+ *  and a legacy marker. */
+export const ROAR_VERSION = 2 as const;
 
 /** The most the free balance may hold. */
 export const MAX_COINS = 1_000_000;
@@ -36,6 +40,11 @@ export type UnitEntitlement = { free: true } | { paid: true };
 export interface TrackEntitlement {
   tier: number;
   paidTiers: number;
+  /** GH-1384: which branch of the track's branched last tier the coins hold; present exactly
+   *  when `tier` reaches that tier (`migrateRoar` settles it). */
+  branch?: BranchPick;
+  /** GH-1384 §4.2: the coin tier predates branching (it owned both branches' numbers). No number. */
+  legacy?: true;
 }
 
 export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign' | 'backfill' | 'challenge';
@@ -54,7 +63,22 @@ export type RoarReceipt =
   | { kind: 'earn'; id: string; at: number; coins: CoinSplit; source: EarnSource; missionId?: string }
   | { kind: 'coupon'; id: string; at: number; coins: CoinSplit; couponIds: string[]; source?: 'test' }
   | { kind: 'unit'; id: string; at: number; coins: CoinSplit; unitId: string; credits: number; source?: 'test' }
-  | { kind: 'tier'; id: string; at: number; coins: CoinSplit; unitId: string; track: string; tier: number; credits: number; source?: 'test' };
+  | {
+      kind: 'tier';
+      id: string;
+      at: number;
+      coins: CoinSplit;
+      unitId: string;
+      track: string;
+      tier: number;
+      credits: number;
+      source?: 'test';
+      /** GH-1384: the branch a branched tier was bought at. */
+      branch?: BranchPick;
+      /** GH-1384 §4.2, the guest twin of the members' journal row (the lead, Q4): a legacy Return,
+       *  whose `coins` were PAID BACK into the wallet, not spent. */
+      refund?: true;
+    };
 
 /** What has been paid out, ever. Lifetime only: "New campaign" does not clear it. */
 export interface EarnRecord {
@@ -122,14 +146,19 @@ function migrateReceipt(raw: unknown): RoarReceipt | null {
   if (typeof raw.unitId !== 'string' || !isNonNegInt(raw.credits)) return null;
   if (kind === 'unit') return { kind, id, at, coins, unitId: raw.unitId, credits: raw.credits, ...source };
   if (kind === 'tier' && typeof raw.track === 'string' && isNonNegInt(raw.tier)) {
-    return { kind, id, at, coins, unitId: raw.unitId, credits: raw.credits, track: raw.track, tier: raw.tier, ...source };
+    return {
+      kind, id, at, coins, unitId: raw.unitId, credits: raw.credits, track: raw.track, tier: raw.tier, ...source,
+      ...(isPick(raw.branch) ? { branch: raw.branch } : {}),
+      ...(raw.refund === true ? { refund: true as const } : {}),
+    };
   }
   return null;
 }
 
 /** Any raw value -> a valid wallet. Malformed parts drop to empty, and `paid`
- *  reads 0 whatever the file says while `PURCHASES_OPEN` is false (G-M1). */
-export function migrateRoar(raw: unknown): RoarWallet {
+ *  reads 0 whatever the file says while `PURCHASES_OPEN` is false (G-M1). GH-1384: each
+ *  entitlement's `branch` and `legacy` are settled against `branched` (`settleEntitlement`). */
+export function migrateRoar(raw: unknown, branched: BranchedTable = shippedBranched()): RoarWallet {
   if (!isObj(raw)) return emptyRoar();
   const out = emptyRoar();
   out.coins = migrateSplit(raw.coins);
@@ -148,7 +177,10 @@ export function migrateRoar(raw: unknown): RoarWallet {
       for (const [track, v] of Object.entries(tracks)) {
         if (!isObj(v) || !isNonNegInt(v.tier)) continue;
         const paidTiers = PURCHASES_OPEN && isNonNegInt(v.paidTiers) ? Math.min(v.paidTiers, v.tier) : 0;
-        kept[track] = { tier: v.tier, paidTiers };
+        const e: TrackEntitlement = { tier: v.tier, paidTiers };
+        if (isPick(v.branch)) e.branch = v.branch;
+        if (v.legacy === true) e.legacy = true;
+        kept[track] = settleEntitlement(e, branched[unit]?.[track]?.tier);
       }
       out.entitlements.upgrades[unit] = kept;
     }
@@ -276,7 +308,9 @@ export function buyUnitWithCoins(
 
 /** Buys exactly the next tier of a track with coins. `tier` must be
  *  `current + 1`, where `current` is the SINGLE-PLAYER tier,
- *  `max(earned, coins)`. It refuses the same way `buyUnitWithCoins` does. */
+ *  `max(earned, coins)`. It refuses the same way `buyUnitWithCoins` does.
+ *  GH-1384: a BRANCHED tier is refused here (it cannot say which branch);
+ *  `buyBranchWithCoins` is the only coin path onto one. */
 export function buyTierWithCoins(
   w: RoarWallet,
   unitId: string,
@@ -285,7 +319,51 @@ export function buyTierWithCoins(
   current: number,
   coins: number,
   credits: number,
-  at: number
+  at: number,
+  branched: BranchedTable = shippedBranched()
+): { account: RoarWallet; ok: boolean } {
+  const fork = branched[unitId]?.[track];
+  if (fork !== undefined && tier >= fork.tier) return { account: w, ok: false };
+  return coinTier(w, unitId, track, tier, current, coins, credits, at, undefined);
+}
+
+/**
+ * Buys a BRANCH with coins (GH-1384 §4.3): exactly the branched tier, at `pick`, under the same
+ * rules as `buyTierWithCoins` (`tier` is `current + 1`, `current` the single-player tier). A fresh
+ * branch buy is FINAL (the lead, Q2) and writes no legacy marker. Refused -- the same wallet back --
+ * when (unit, track) is not branched at `tier`, `pick` is not 1 or 2, or the brigade account already
+ * holds the branched tier with the OTHER pick. Buying the branch the account holds stays legal.
+ */
+export function buyBranchWithCoins(
+  w: RoarWallet,
+  account: Pick<BrigadeAccount, 'upgrades' | 'picks'>,
+  unitId: string,
+  track: string,
+  tier: number,
+  current: number,
+  pick: BranchPick,
+  coins: number,
+  credits: number,
+  at: number,
+  branched: BranchedTable = shippedBranched()
+): { account: RoarWallet; ok: boolean } {
+  const fork = branched[unitId]?.[track];
+  if (fork === undefined || tier !== fork.tier || !isPick(pick)) return { account: w, ok: false };
+  if ((account.upgrades[unitId]?.[track] ?? 0) >= fork.tier && account.picks[unitId]?.[track] !== pick) return { account: w, ok: false };
+  return coinTier(w, unitId, track, tier, current, coins, credits, at, pick);
+}
+
+/** The one writer of a coin tier, shared by `buyTierWithCoins` and `buyBranchWithCoins`. */
+function coinTier(
+  w: RoarWallet,
+  unitId: string,
+  track: string,
+  tier: number,
+  current: number,
+  coins: number,
+  credits: number,
+  at: number,
+  pick: BranchPick | undefined
 ): { account: RoarWallet; ok: boolean } {
   if (!isNonNegInt(coins) || coins < 1) return { account: w, ok: false };
   if (tier !== current + 1) return { account: w, ok: false };
@@ -299,9 +377,15 @@ export function buyTierWithCoins(
       coins: paid.left,
       entitlements: {
         ...w.entitlements,
-        upgrades: { ...w.entitlements.upgrades, [unitId]: { ...tracks, [track]: { tier, paidTiers: before + (paid.spent.paid > 0 ? 1 : 0) } } },
+        upgrades: {
+          ...w.entitlements.upgrades,
+          [unitId]: { ...tracks, [track]: { tier, paidTiers: before + (paid.spent.paid > 0 ? 1 : 0), ...(pick !== undefined ? { branch: pick } : {}) } },
+        },
       },
-      receipts: capReceipts([...w.receipts, { kind: 'tier', id: receiptId(w, at), at, unitId, track, tier, coins: paid.spent, credits }]),
+      receipts: capReceipts([
+        ...w.receipts,
+        { kind: 'tier', id: receiptId(w, at), at, unitId, track, tier, coins: paid.spent, credits, ...(pick !== undefined ? { branch: pick } : {}) },
+      ]),
     },
     ok: true,
   };
@@ -313,13 +397,21 @@ export function buyTierWithCoins(
  * record goes with the free coins it paid out, so the account starts over as a new
  * one would. A track keeps only the tiers a paid coin bought.
  */
-export function resetFree(w: RoarWallet): RoarWallet {
+export function resetFree(w: RoarWallet, branched: BranchedTable = shippedBranched()): RoarWallet {
   const units: Record<string, UnitEntitlement> = {};
   for (const [id, e] of Object.entries(w.entitlements.units)) if ('paid' in e) units[id] = e;
   const upgrades: Record<string, Record<string, TrackEntitlement>> = {};
   for (const [unit, tracks] of Object.entries(w.entitlements.upgrades)) {
     const kept: Record<string, TrackEntitlement> = {};
-    for (const [track, v] of Object.entries(tracks)) if (v.paidTiers > 0) kept[track] = { tier: v.paidTiers, paidTiers: v.paidTiers };
+    for (const [track, v] of Object.entries(tracks)) {
+      if (v.paidTiers <= 0) continue;
+      // GH-1384: a kept tier keeps its branch only when a paid coin reached the branched tier;
+      // a legacy marker never survives (the free tiers it was about are gone).
+      const fork = branched[unit]?.[track]?.tier;
+      const e: TrackEntitlement = { tier: v.paidTiers, paidTiers: v.paidTiers };
+      if (fork !== undefined && v.paidTiers >= fork && v.branch !== undefined) e.branch = v.branch;
+      kept[track] = e;
+    }
     if (Object.keys(kept).length > 0) upgrades[unit] = kept;
   }
   return {
@@ -333,7 +425,18 @@ export function resetFree(w: RoarWallet): RoarWallet {
 }
 
 type Tiers = Record<string, Record<string, number>>;
-type EarnedHalf = Pick<BrigadeAccount, 'unlocks' | 'upgrades'>;
+/** GH-1384: `picks` is optional so a caller holding only the tiers (an older fixture) still reads;
+ *  every stored account carries it (`migrateAccount`). */
+type EarnedHalf = Pick<BrigadeAccount, 'unlocks' | 'upgrades'> & { readonly picks?: PicksMap };
+
+/** The coin path's picks: unit -> track -> branch, for every entitlement holding one. */
+export function coinPicks(w: RoarWallet): PicksMap {
+  const out: PicksMap = {};
+  for (const [unit, tracks] of Object.entries(w.entitlements.upgrades)) {
+    for (const [track, v] of Object.entries(tracks)) if (v.branch !== undefined) (out[unit] ??= {})[track] = v.branch;
+  }
+  return out;
+}
 
 /** The coin path's tiers as a plain tier map. */
 export function coinTiers(w: RoarWallet): Tiers {
@@ -370,7 +473,16 @@ export function entitlementsOf(
   return { units, upgrades };
 }
 
-function view(account: EarnedHalf, roar: RoarWallet, coinsCount: boolean): { boughtUnits: Set<string>; ownedTiers: Tiers } {
+/** A view: the units and tiers owned, and (GH-1384) the ONE branch owned per branched (unit, track)
+ *  held at its branched tier. Where both stores hold it and their picks still disagree (a hand-edit,
+ *  or an older build's strip), the EARNED pick wins (§4.3), so the view never holds two. */
+export interface AccountViewHalf {
+  boughtUnits: Set<string>;
+  ownedTiers: Tiers;
+  ownedPicks: PicksMap;
+}
+
+function view(account: EarnedHalf, roar: RoarWallet, coinsCount: boolean): AccountViewHalf {
   const ent = entitlementsOf(account, roar);
   const boughtUnits = new Set<string>();
   for (const [id, e] of Object.entries(ent.units)) if (e.earned || (coinsCount && e.coins)) boughtUnits.add(id);
@@ -379,15 +491,21 @@ function view(account: EarnedHalf, roar: RoarWallet, coinsCount: boolean): { bou
     ownedTiers[u] = {};
     for (const [t, e] of Object.entries(tracks)) ownedTiers[u][t] = coinsCount ? Math.max(e.earned, e.coins) : e.earned;
   }
-  return { boughtUnits, ownedTiers };
+  const ownedPicks: PicksMap = {};
+  const earnedPicks = account.picks ?? {};
+  const fromCoins = coinsCount ? coinPicks(roar) : {};
+  for (const source of [fromCoins, earnedPicks]) {
+    for (const [u, tracks] of Object.entries(source)) for (const [t, p] of Object.entries(tracks)) (ownedPicks[u] ??= {})[t] = p; // earned last: earned wins
+  }
+  return { boughtUnits, ownedTiers, ownedPicks };
 }
 
 /** Single-player (campaign, sandbox): `earned OR coins`, and a tier is `max(earned, coins)`. */
-export function singlePlayerView(account: EarnedHalf, roar: RoarWallet): { boughtUnits: Set<string>; ownedTiers: Tiers } {
+export function singlePlayerView(account: EarnedHalf, roar: RoarWallet): AccountViewHalf {
   return view(account, roar, true);
 }
 
 /** Network play (co-op, skirmish, 1v1): `earned` only (spec §1.5, 1 Oct ruling 3). */
-export function networkView(account: EarnedHalf, roar: RoarWallet): { boughtUnits: Set<string>; ownedTiers: Tiers } {
+export function networkView(account: EarnedHalf, roar: RoarWallet): AccountViewHalf {
   return view(account, roar, false);
 }

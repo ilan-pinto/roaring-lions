@@ -13,7 +13,7 @@
  * `sandboxSpawns` itself stayed in `main.ts`: it needs `Sim`, `fx` and the
  * open-tile spiral, none of which this file should grow a dependency on.
  */
-import type { UpgradableUnit } from '@lions/data';
+import { maxPicks, type BranchPick, type UpgradableUnit } from '@lions/data';
 
 /** One placement: unit type id, then dx/dy from the anchor. */
 export type SandboxPlacement = readonly [string, number, number];
@@ -178,6 +178,33 @@ export function sandboxKitTiers(roster: readonly UpgradableUnit[]): Record<strin
     out[u.id] = tiers;
   }
   return out;
+}
+
+/** GH-1384: `&kit`'s picks -- branch 1 for every branched track the ladder puts at its branched
+ *  tier (today `mbt_lavi`, `mortar_team` and `dozer_d9`, at level 3), so `&kit` stays one
+ *  reproducible picture. Both branches draw today's tier-3 parts (the lead, Q6). */
+export function sandboxKitPicks(roster: readonly UpgradableUnit[]): Record<string, Record<string, BranchPick>> {
+  const tiers = sandboxKitTiers(roster);
+  const out: Record<string, Record<string, BranchPick>> = {};
+  for (const u of roster) {
+    const owned = tiers[u.id];
+    if (owned === undefined) continue;
+    const row: Record<string, BranchPick> = {};
+    for (const [track, pick] of Object.entries(maxPicks(u, 1))) {
+      if ((owned[track] ?? 0) >= (u.upgrades?.[track]?.tiers.length ?? Infinity)) row[track] = pick;
+    }
+    if (Object.keys(row).length > 0) out[u.id] = row;
+  }
+  return out;
+}
+
+/** The picks a battlefield boots with, beside `bootTiers` and swapped by the same rule. */
+export function bootPicks(
+  account: Readonly<Record<string, Readonly<Record<string, BranchPick>>>>,
+  boot: { readonly mission: boolean; readonly kitFlag: boolean },
+  roster: readonly UpgradableUnit[]
+): Readonly<Record<string, Readonly<Record<string, BranchPick>>>> {
+  return !boot.mission && boot.kitFlag ? sandboxKitPicks(roster) : account;
 }
 
 /** The tiers a battlefield boots with -- handed to the ONE `upgradePrepass`

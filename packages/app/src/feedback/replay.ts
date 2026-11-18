@@ -28,6 +28,9 @@ export interface ReplayStart {
   ledger: unknown;
   /** The account's tiers, as the one `upgradePrepass` read them. */
   tiers: unknown;
+  /** GH-1384: the branch owned per branched (unit, track), as the same prepass read them. A log
+   *  from before branching has none, and replays a branched tier at the tier below. */
+  picks?: unknown;
   /** Units the account has bought (`kdfUnlockGate`'s `bought`). */
   unlocks: readonly string[];
   /** The roster indices the player sent in, or null for the default force. */
