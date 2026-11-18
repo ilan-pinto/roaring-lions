@@ -440,7 +440,30 @@ describe('possibleStars', () => {
       produces_it: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
       does_not: { ledger: { requires: [], produces: [] } } as unknown as MissionJson,
     };
-    expect(possibleStars(fakeWorld, missionsById)).toBe(3);
+    expect(possibleStars(fakeWorld, missionsById, {})).toBe(3);
+  });
+
+  // GH-1394 slice 2 (ruling 3): Easier grades to two stars at most, so the count says two a mission there, and a mission
+  // already won at three (on another posture) keeps its three, so the total never reads below what was earned.
+  it('under Easier counts two a mission, a stored three stays three, and Standard and Harder count three', () => {
+    const world2: ParsedWorld = {
+      id: 'test', name: 'Test', art: 'campaign/test.svg',
+      regions: [{ id: 'r1', name: 'R1', faction: 'kdf', doctrine: 'd', towns: [{ id: 't1', name: 'T1', at: [0, 0], missions: ['m1', 'm2', 'tut'] }] }],
+    };
+    const ms: Record<string, MissionJson | undefined> = {
+      m1: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
+      m2: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
+      tut: { ledger: { requires: [], produces: [] } } as unknown as MissionJson,
+    };
+    expect(possibleStars(world2, ms, {})).toBe(6);
+    expect(possibleStars(world2, ms, { 'campaign.difficulty': 'harder' })).toBe(6);
+    expect(possibleStars(world2, ms, { 'campaign.difficulty': 'easier' })).toBe(4);
+    const won3 = { 'campaign.difficulty': 'easier', 'campaign.mission_results': { m1: { stars: 3, roe: 90, ticks: 1, lost: 0 } } } as LedgerData;
+    expect(possibleStars(world2, ms, won3)).toBe(5);
+    const town = world2.regions[0]!.towns[0]!;
+    expect(townStars(town, { 'campaign.difficulty': 'easier' })).toEqual({ earned: 0, possible: 6 });
+    expect(townStars(town, won3)).toEqual({ earned: 3, possible: 7 });
+    expect(townStars(town, {})).toEqual({ earned: 0, possible: 9 });
   });
 });
 
