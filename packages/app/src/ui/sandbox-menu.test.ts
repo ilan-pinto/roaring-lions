@@ -73,12 +73,12 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 46 maps ship (Was 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 43 (Was 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(46);
+    // 51 maps ship (Was 46 before the five Bir Tarsha maps; 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 48 (Was 43 before Bir Tarsha listed its five; 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(51);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(43);
+    expect(links).toHaveLength(48);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
