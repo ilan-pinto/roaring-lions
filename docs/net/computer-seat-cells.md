@@ -65,7 +65,9 @@ Two judgements, for the lead to overrule:
 
 `commander-open-cells.test.ts` (the rule): five one-line mutations, four red (idle stall not counted, seat 0 games counted, the literal stall closing a cell, a game with no order not counted); the fifth (dropping a `games > 0` guard) was an equivalent mutant, because a row exists only with a game, and the guard was removed instead. `open-cells.test.ts`, `computer-seat.test.ts` and `versus.test.ts` (the wiring): seven mutations, all red (rush seat instead of the commander, win mode dropped from the config, win mode dropped from the lobby call, the predicate always true, the lobby never hiding the seat, the click guard removed, a cell closed in the table).
 
-## HOLD FOR LEAD (copy and numbers)
+## Lead rulings (18 Nov 2026, relayed by the PM): APPROVED
+
+The computer seat on 25 of 31 cells, the six stalled cells staying closed, the 1-in-48 stall rule, and the `versus.cpu.note` / `versus.cpu.start` copy (unchanged text) are approved. The three items once held here, for the record:
 
 - The lobby copy. `versus.cpu.note` still says the opponent "builds nothing", and `versus.cpu.start` still says "basic"; both are unchanged here. No string says why a cell has no computer seat (the section is hidden, as it was on an economy pairing).
 - Reopening the six closed cells: the guard (what slice 1 leaves at home) and whether a held unit at home is a stall.
