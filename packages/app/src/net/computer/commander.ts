@@ -24,6 +24,16 @@
  *      With production off there is no guard, and a room with no economy never has one.
  *   5. THE MARCH. What is left is `rush`, untouched, over a view without the units tasks 1 to 4 took or kept.
  *
+ * SLICE 2 (GH-1391) adds two more, both OFF unless `CommanderOptions` turns them on (measured: neither raised the win rate, the PR body), both from what the seat's fog shows it and nothing else:
+ *   0. THE SCOUT (before task 1). At its first decision the seat sends the fastest of the cheaper half of its free units (cost at or under the median, by
+ *      the unit data; never its only unit, and nobody when the camps are no further apart than the standoff) with a `move` to a point `RUSH_HOME_TILES` short of the enemy camp, the anchor a human reads off the map, to look. It is kept
+ *      out of the march and the sweep, and out of task 1. One scout, never replaced: what it saw is remembered, not re-sent for.
+ *   3b. THE COUNTER (inside task 3). The seat remembers, per enemy type, the most of it ever in sight at once (`view.contacts`, nothing else), classed
+ *      by `composition.ts` (armour = a hull only an anti-armour weapon can hurt; soft = any other armed ground unit). Seeing more armour than soft,
+ *      it builds an anti-armour menu unit whose weapon beats the strongest front plate seen, until it has one for every armoured hull seen at once;
+ *      seeing more soft than armour, an infantry-role menu unit until it has as many as the soft units seen at once; otherwise, and once that parity
+ *      is met, the furthest-below-start-mix rule of slice 1. A counter nothing in the menu can supply falls through to that rule.
+ *
  * `CommanderOptions` switch tasks 1 to 3 off one at a time. They exist for the scenarios of the tests ("removing it changes the result"), and the
  * default is all on.
  */
@@ -31,6 +41,7 @@ import { fx, type Command } from '@lions/sim';
 import { units } from '@lions/data';
 import { RUSH_HOME_TILES, rush } from './policy';
 import type { SideView } from './view';
+import { antiArmourPenetrationOf, classOf, costOf, frontArmourOf, roleOf, speedOf } from './composition';
 
 /** The radius, in tiles, around the seat's own camp inside which a contact is a threat. HOLD FOR LEAD: it is the script's existing home radius, not a tuned value. */
 export const DEFEND_TILES = RUSH_HOME_TILES;
@@ -51,7 +62,12 @@ export interface PolicyResult {
 
 export type CommanderPolicy = (view: SideView, ctx: CommanderContext) => PolicyResult;
 
-export interface CommanderOptions { defend?: boolean; zones?: boolean; produce?: boolean; guard?: boolean; /** Zones on, but the idle units are not sent to take any (they still hold what they stand in). */ takeZones?: boolean }
+export interface CommanderOptions { defend?: boolean; zones?: boolean; produce?: boolean; guard?: boolean; /** Zones on, but the idle units are not sent to take any (they still hold what they stand in). */ takeZones?: boolean;
+  /** Slice 2, OFF unless asked for (it did not pay in the probe, GH-1391): send a fast, cheaper unit to look at the enemy camp. */
+  scout?: boolean;
+  /** Slice 2, OFF unless asked for (it did not pay in the probe, GH-1391): build against what the seat has seen. */
+  counter?: boolean;
+}
 
 const MAX_IDS_PER_COMMAND = 256;
 const tileCentre = (t: number): number => fx.from(t + 0.5);
@@ -68,12 +84,60 @@ const armed = (id: string): boolean => {
 const inside = (r: readonly [number, number, number, number], t: readonly number[]): boolean => t[0] >= r[0] && t[0] < r[0] + r[2] && t[1] >= r[1] && t[1] < r[1] + r[3];
 const centre = (r: readonly [number, number, number, number]): [number, number] => [Math.floor(r[0] + r[2] / 2), Math.floor(r[1] + r[3] / 2)];
 
+/** The point the scout goes to: `RUSH_HOME_TILES` short of the enemy camp, on the line back to the seat's own. Null when the camps are no further apart than that (there is no standoff to take). */
+function standoff(own: readonly [number, number], enemy: readonly [number, number]): [number, number] | null {
+  const d = dist(own, enemy);
+  if (d <= RUSH_HOME_TILES) return null;
+  return [Math.round(enemy[0] + ((own[0] - enemy[0]) * RUSH_HOME_TILES) / d), Math.round(enemy[1] + ((own[1] - enemy[1]) * RUSH_HOME_TILES) / d)];
+}
+
 function march(ids: readonly number[], to: readonly [number, number], sweep: boolean): Command[] {
   const out: Command[] = [];
   for (let i = 0; i < ids.length; i += MAX_IDS_PER_COMMAND) {
     out.push({ kind: 'attackMove', ids: ids.slice(i, i + MAX_IDS_PER_COMMAND), x: tileCentre(to[0]), y: tileCentre(to[1]), ...(sweep ? { sweep: true } : {}) });
   }
   return out;
+}
+
+/**
+ * The menu units to build FROM against what has been seen, or null for the slice 1 rule. `peak` is per enemy type the most in sight at once; `have`
+ * is the seat's own living + queued + in progress by type. Whole-number comparisons only.
+ */
+export function counterPool(menu: readonly string[], afford: ReadonlySet<string>, peak: ReadonlyMap<string, number>, have: ReadonlyMap<string, number>): Set<string> | null {
+  let armour = 0;
+  let soft = 0;
+  let plate = 0;
+  for (const [t, n] of peak) {
+    const c = classOf(t);
+    if (c === 'armour') { armour += n; plate = Math.max(plate, frontArmourOf(t)); }
+    else if (c === 'soft') soft += n;
+  }
+  if (armour > soft) {
+    // `menu` is every unit the room would let the seat build (priced or not): the answer is chosen from what the menu HAS, then bought only if affordable now.
+    // Units whose round beats the strongest plate seen; if the menu has none, the ones with the strongest anti-armour round it has (a weaker hit is still a hit).
+    const beats = menu.filter((u) => antiArmourPenetrationOf(u) > plate);
+    let best = 0;
+    for (const u of menu) best = Math.max(best, antiArmourPenetrationOf(u));
+    const bar = beats.length > 0 ? plate : best - 1;
+    const pool = menu.filter((u) => antiArmourPenetrationOf(u) > bar && best > 0);
+    if (pool.length === 0) return null;
+    // One for every armoured hull seen at once, counted over what the seat has (living, queued, in progress) that clears the same bar.
+    let own = 0;
+    for (const [t, n] of have) if (antiArmourPenetrationOf(t) > bar) own += n;
+    if (own >= armour) return null;
+    const now = pool.filter((u) => afford.has(u));
+    return now.length > 0 ? new Set(now) : null; // none of the right kind affordable yet: the slice 1 rule builds something else meanwhile
+  }
+  if (soft > armour) {
+    const pool = menu.filter((u) => roleOf(u) === 'infantry');
+    if (pool.length === 0) return null;
+    let own = 0;
+    for (const [t, n] of have) if (roleOf(t) === 'infantry') own += n;
+    if (own >= soft) return null;
+    const now = pool.filter((u) => afford.has(u));
+    return now.length > 0 ? new Set(now) : null;
+  }
+  return null;
 }
 
 /** One commander per match: it remembers the force the seat started with, so a second match needs a second instance (a stabilised casualty who returns to view is, by id, a new unit, and joins the guard: accepted). */
@@ -83,6 +147,16 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
   const produceOn = o.produce !== false;
   const guardOn = o.guard !== false;
   const takeOn = o.takeZones !== false;
+  const scoutOn = o.scout === true;
+  const counterOn = o.counter === true;
+  /** The scout's unit id once chosen (null before, and kept after it dies: it is never replaced). */
+  let scoutId: number | null = null;
+  /** The scout is chosen at one decision only, whether or not anyone qualified. */
+  let scoutDecided = false;
+  /** The tile the scout was last sent from. */
+  let lastSentFrom: [number, number] | null = null;
+  /** Per enemy type, the most of it ever in sight at one decision: what the seat has SEEN of the enemy's force. */
+  const peak = new Map<string, number>();
   /** What the seat started with, by type: captured at its first decision (the force it was handed), the weight production rebuilds toward. */
   let started: Map<string, number> | null = null;
   /** The ids of the force the seat started with: a unit not in it was built (the guard). */
@@ -101,6 +175,45 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
     const keep = new Set<number>();
     const home = (u: SideView['units'][number]): boolean => dist(u.tile, view.camp) <= RUSH_HOME_TILES;
     const idleHome = (): number[] => view.units.filter((u) => u.flags.includes('idle') && able(u.flags) && home(u) && !taken.has(u.id) && !keep.has(u.id)).map((u) => u.id);
+
+    // What the fog shows now, folded into the memory of the most seen at once (task 3b reads it).
+    const nowSeen = new Map<string, number>();
+    for (const c of view.contacts) nowSeen.set(c.type, (nowSeen.get(c.type) ?? 0) + 1);
+    for (const [t, n] of nowSeen) if (n > (peak.get(t) ?? 0)) peak.set(t, n);
+
+    // 0. THE SCOUT: a fast, cheaper unit looks at the enemy camp from the script's home radius short of it; it is not given to any other task.
+    if (scoutOn) {
+      if (!scoutDecided && started !== null) {
+        // Once, at the first decision with a force: the fastest of the cheaper half of the units free to go (cost at or under the median), so the slow
+        // fire-support piece that is the cheapest is not the one sent. Never the only unit. If the camps are too close for a standoff, nobody goes.
+        scoutDecided = true;
+        const free = view.units.filter((u) => u.flags.includes('idle') && able(u.flags) && home(u) && speedOf(u.type) > 0);
+        if (view.units.length >= 2 && free.length > 0 && standoff(view.camp, view.enemyCamp) !== null) {
+          const costs = free.map((u) => costOf(u.type)).sort((x, y) => x - y);
+          const median = costs[Math.floor((costs.length - 1) / 2)];
+          let pick: SideView['units'][number] | null = null;
+          for (const u of free) {
+            if (costOf(u.type) > median) continue;
+            const better = pick === null
+              || speedOf(u.type) > speedOf(pick.type)
+              || (speedOf(u.type) === speedOf(pick.type) && (costOf(u.type) < costOf(pick.type) || (costOf(u.type) === costOf(pick.type) && u.id < pick.id)));
+            if (better) pick = u;
+          }
+          if (pick !== null) scoutId = pick.id;
+        }
+      }
+      const s = scoutId === null ? undefined : view.units.find((u) => u.id === scoutId);
+      const to = standoff(view.camp, view.enemyCamp);
+      if (s !== undefined && to !== null) {
+        keep.add(s.id); // kept units are offered to no task: not defend, not the zone shares, not the march, not the sweep
+        // Idle short of the standoff: sent. Idle on the very tile it was last sent from is stuck (the point cannot be reached): not sent again.
+        const stuck = lastSentFrom !== null && lastSentFrom[0] === s.tile[0] && lastSentFrom[1] === s.tile[1];
+        if (s.flags.includes('idle') && able(s.flags) && dist(s.tile, to) > 1 && !stuck) {
+          commands.push({ kind: 'move', ids: [s.id], x: tileCentre(to[0]), y: tileCentre(to[1]) });
+          lastSentFrom = [s.tile[0], s.tile[1]];
+        }
+      }
+    }
 
     // 4. THE GUARD (decided first so tasks 2 and 5 leave it where it stands; task 1 may still send it out)
     const guard = new Set<number>();
@@ -133,7 +246,7 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
       // share that took it rejoin the march (they are idle and not kept, so the march and the sweep pick them up).
       const held = new Set<string>();
       for (const u of view.units) {
-        if (!u.flags.includes('idle') || !able(u.flags) || taken.has(u.id)) continue;
+        if (!u.flags.includes('idle') || !able(u.flags) || taken.has(u.id) || u.id === scoutId) continue;
         const z = ctx.zones.find((x) => (x.holder === 'mine' || x.holder === 'contested') && inside(x.at, u.tile));
         if (z !== undefined && !held.has(z.zone)) { held.add(z.zone); keep.add(u.id); }
       }
@@ -167,8 +280,9 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
       for (const l of eco.lines) {
         if (!l.alive || l.queued.length > 0) continue;
         const cands = eco.menu.filter((m) => m.blocked === undefined && armed(m.unit) && m.cost <= purse);
+        const counter = counterOn ? counterPool(eco.menu.filter((m) => m.blocked === undefined && armed(m.unit)).map((m) => m.unit), new Set(cands.map((m) => m.unit)), peak, have) : null;
         // The lowest have/weight, compared by cross-multiplication (whole numbers); ties by menu order (the sort is stable).
-        const order = [...cands].sort((a, b) => (have.get(a.unit) ?? 0) * weight(b.unit) - (have.get(b.unit) ?? 0) * weight(a.unit));
+        const order = [...(counter === null ? cands : cands.filter((m) => counter.has(m.unit)))].sort((a, b) => (have.get(a.unit) ?? 0) * weight(b.unit) - (have.get(b.unit) ?? 0) * weight(a.unit));
         const pick = order[0];
         if (pick === undefined) continue;
         commands.push({ kind: 'build', side: view.side, unit: pick.unit, line: l.line });
