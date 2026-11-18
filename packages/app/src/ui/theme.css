@@ -4905,7 +4905,9 @@ fieldset.rl-sandbox__sides {
   max-width: var(--menu-col);
   margin: var(--s3) auto 0;
 }
-.rl-sandbox__side-blurb {
+/* The side blurb, and what Free play has without being asked (field works on the KDF side) under it. */
+.rl-sandbox__side-blurb,
+.rl-sandbox__default {
   flex-basis: 100%;
   margin: 0;
   font-size: var(--t-s);

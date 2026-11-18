@@ -2746,7 +2746,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // meshes this roster and this map's own buildings actually need, so the
   // menu's own diorama can ask the same question about its own roster.
   // Field works are on no map tile and in no mission placement, so their ids join the plan by
-  // name: the mission's `field_works`, or on `&works` every offered type.
+  // name: the mission's `field_works`, or in a KDF Free play (field works on by default since
+  // 18 Nov 2026, `freePlayDefaults`; `&works` is an alias) every offered type.
   const worksIds = worksTypeIdsFor(
     mission?.field_works,
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
@@ -4820,7 +4821,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let worksRingKey = '';
   /** The cursor tooltip's lines for the armed work, rebuilt with the preview. */
   let worksTip: { text: string; bad: boolean }[] | null = null;
-  // `&works` has no mission to raise a work through, so it gets a runtime over a synthetic one
+  // Free play's field works (`flags.works`: on in every KDF Free play since 18 Nov 2026, `freePlayDefaults`)
+  // have no mission to raise a work through, so they get a runtime over a synthetic one
   // (`sandbox-works.ts`), held apart from `runtime` so no mission-only path wakes for it.
   let sandboxWorksRt: MissionRuntime | null = null;
   /** The unit types the `&works` sandbox loads a model for: its dock's menu (GH-277 forward camp). */
