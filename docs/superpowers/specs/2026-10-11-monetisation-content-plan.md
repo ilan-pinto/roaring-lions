@@ -1,6 +1,6 @@
 # The monetisation content plan, non-pay-to-win — design (WP-ST8, #207, revision 2)
 
-> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units, coin-bought units work everywhere including against another person, and the 29 Sep no-pay-to-win rule is retired.** The text below is the earlier posture, kept as history. See `data/store/README.md` E13.
+> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units, a coin-bought unit reaches a match against another person only through a "Bring your brigade" room (the standard kit stays equal and fields nothing from either brigade), and the 29 Sep no-pay-to-win rule is retired.** The text below is the earlier posture, kept as history. See `data/store/README.md` E13.
 
 **Date:** 2026-10-11 · **Status:** the spec. The lead pulled ST8 forward on 2026-10-11 and
 ruled the same day on D1–D5 (§10): early access **kept, fenced** (D1); coins **may** open

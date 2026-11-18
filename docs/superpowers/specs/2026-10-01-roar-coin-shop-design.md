@@ -1,6 +1,6 @@
 # The Roar coin shop and the coin — design (GH-317)
 
-> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units and upgrade tiers, coin-bought units work everywhere including against another person, and the 29 Sep no-pay-to-win rule is retired; "cosmetics only" and "never usable against a person" below are the earlier posture, kept as history.** See `data/store/README.md` E13 and `docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`.
+> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units and upgrade tiers, a coin-bought unit reaches a match against another person only through a "Bring your brigade" room (the standard kit stays equal and fields nothing from either brigade), and the 29 Sep no-pay-to-win rule is retired; "cosmetics only" and "never usable against a person" below are the earlier posture, kept as history.** See `data/store/README.md` E13 and `docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`.
 
 **Date:** 2026-10-01 · **Revised:** 2026-10-01, to the lead's rulings of 1 Oct (§0.1).
 **Status:** draft for the lead. Design only: no money flows, no shipping code, and the sim is

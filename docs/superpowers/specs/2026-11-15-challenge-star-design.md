@@ -190,7 +190,7 @@ colour. (The earlier silver diamond is withdrawn: D1.)
 
 ## 6. Credits, coins, and never pay-to-win
 
-> **Superseded in its title and framing (the lead, 18 Nov 2026):** the 29 Sep no-pay-to-win rule is retired and coin-bought units work everywhere. The rows below about what the CHALLENGE pays (credits unchanged, no coins for a replay) are about this feature and still stand.
+> **Superseded in its title and framing (the lead, 18 Nov 2026):** the 29 Sep no-pay-to-win rule is retired and a coin-bought unit reaches a match against another person only through a "Bring your brigade" room, and the standard kit stays equal. The rows below about what the CHALLENGE pays (credits unchanged, no coins for a replay) are about this feature and still stand.
 
 | thing | rule | why |
 |---|---|---|

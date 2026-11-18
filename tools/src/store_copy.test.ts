@@ -139,6 +139,9 @@ describe('the store page copy (data/store)', () => {
         expect(copy(l)).not.toMatch(/pay[- ]to[- ]win/i);
         expect(copy(l)).not.toMatch(/against (another|a) (person|player)|contra (otra |una )?persona|contre (un autre|une) (joueur|personne)|gegen (eine|einen) (andere|anderen) (Person|Spieler)/i);
       });
+      it('says nothing about which units a room fields (the standard kit fields nothing from either brigade; the copy does not claim the rooms)', () => {
+        expect(copy(l)).not.toMatch(/matched[- ]kit|standard kit|bring your brigade|fields? only what you earn|work everywhere/i);
+      });
       it('says "free to play" one way: in the short description, as a bold heading, and in a key-features bullet', () => {
         expect(section(l, 'Short description')).toContain(`${FREE_TO_PLAY[l]}.`);
         expect(section(l, 'About this game')).toContain(`**${FREE_TO_PLAY[l]}.**`);
@@ -171,5 +174,14 @@ describe('the store page copy (data/store)', () => {
     const ids = files.map((f) => (JSON.parse(readFileSync(join(ROOT, 'data', 'units', f), 'utf8')) as { id?: string }).id).filter((x): x is string => typeof x === 'string');
     const real = ids.filter((id) => id !== 'civilians' && !id.startsWith('wounded_'));
     expect(real.length).toBeGreaterThan(40);
+  });
+});
+
+describe('the store README does not repeat the false matched-kit claim (the lead, 18 Nov 2026: standard kit stays equal)', () => {
+  const readme = readFileSync(join(__dirname, '..', '..', 'data', 'store', 'README.md'), 'utf8');
+  it('never says a matched-kit room fields what you earn, and states the Bring-your-brigade rule', () => {
+    expect(readme).not.toMatch(/fields only what you earn/i);
+    expect(readme).toContain('fields nothing from either brigade');
+    expect(readme).toContain('"Bring your brigade" room');
   });
 });
