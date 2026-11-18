@@ -8,7 +8,7 @@ Second version: 18 Nov 2026, from `origin/dev` `e1845a77e`. The first was PR 147
 
 | File | What it is |
 |---|---|
-| `terms-of-use-draft.md` | Terms for the hosted web game: the free game, the optional Google account, Roar coins, versus and chat, conduct, feedback, the code and art licences, "as is", ending, changes, contact. Each clause names the file it rests on. 18 open questions at the end. |
+| `terms-of-use-draft.md` | Terms for the hosted web game: the free game, the optional Google account, Roar coins, versus and chat, conduct, feedback, the code and art licences, "as is", ending, changes, contact. Each clause names the file it rests on. 19 open questions at the end. |
 | `age-rating-questionnaire-draft.md` | IARC-style answers prepared from the game's actual content, as question/answer tables with a "source in repo" column and a certainty mark. Every uncertain answer is listed again in its section 10. |
 | `privacy-contact-paragraph.md` | The privacy and security contact wording, copied from PR 1481 (and PR 1502 for chat reports), the exact names and routes, the lead's rulings C1 to C5, and 7 open questions. It replaces `privacy-contact-proposal.md`. |
 

@@ -4,7 +4,7 @@
 
 Written 18 Nov 2026 by an AI coding assistant from the repository at `origin/dev` `e1845a77e` and the head of PR 1481 (`cl/privacy-form`, `1f4e9749d`). It replaces the 15 Nov proposal (PR 1475, `privacy-contact-proposal.md`), which the lead ruled on (C1 to C5, below). Nothing here changes the Worker or the game.
 
-**Rule for this file:** every name, route and sentence below is copied from PR 1481 (and PR 1502 for chat reports). Nothing is reworded. If a PR's wording changes before it merges, this file must follow it, not the other way round. No email address and no legal entity are invented. Brackets mark what only the lead can supply.
+**Rule for this file:** every name, route and sentence below is copied from PR 1481 (and PR 1502 for chat reports), and nothing is reworded, **except section 3**. Section 3 is a deliberate shortening for other places, and says so. If a PR's wording changes before it merges, this file must follow it, not the other way round. No email address and no legal entity are invented. Brackets mark what only the lead can supply.
 
 ---
 
@@ -27,7 +27,7 @@ Heading "Contact and minimum age". The words "private request form" are the link
 
 ## 3. The same contact, short, for the terms and a store page
 
-For `terms-of-use-draft.md` section 13, and a store page's privacy or support field. It only shortens section 2. It adds no promise.
+For `terms-of-use-draft.md` section 13, and a store page's privacy or support field. **This section is not verbatim.** It shortens the form's intro and `SECURITY.md` (for example "also work" where the form says "are also available"). It adds no promise. The lead may prefer the verbatim wording.
 
 > **Your data.** To ask for a copy, an export, a deletion or a correction of your data, use the private request form at [GAME ADDRESS]/privacy/request. It is read only by the person who runs Roaring Lions, and it is never posted to GitHub. If you have an account, "Download my data" and "Delete my account" on the profile screen also work. How your data is kept: [GAME ADDRESS]/privacy.
 >

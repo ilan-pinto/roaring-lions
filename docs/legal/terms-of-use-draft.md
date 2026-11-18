@@ -33,13 +33,13 @@ By playing you accept these terms. [How they are shown, and whether acceptance i
 
 The web game costs nothing to play. You do not need an account.
 
-*Basis:* `README.md` ("Play it"); the campaign, free play and versus all run as a guest (`packages/worker/src/privacy-page.ts`, first paragraph).
+*Basis:* `README.md`, "Play it" ("There is nothing to install and no account").
 
 ## 4. Playing as a guest
 
-As a guest, your progress is kept in your browser, on your device. We do not keep it on our server. If you clear your browser's site data, or use another browser, that progress is gone. We cannot bring it back.
+As a guest, your progress is kept in your browser, on your device. We do not keep it on our server. We store no personal details about a guest on our server, unless you choose to send feedback with contact details (section 9). If you clear your browser's site data, or use another browser, that progress is gone. We cannot bring it back.
 
-*Basis:* the guest stores are browser `localStorage` keys `lions.settings`, `lions.saves`, `lions.brigade.account` and `lions.roar` (`CLAUDE.md`, "The shell"). A guest creates no account and stores no personal details on the server (`privacy-page.ts`).
+*Basis:* the guest stores are browser `localStorage` keys `lions.settings`, `lions.saves`, `lions.brigade.account` and `lions.roar` (`CLAUDE.md`, "The shell"). A guest creates no account and stores no personal details on the server, "unless you choose to send feedback with contact details" (`privacy-page.ts`, first paragraph).
 
 ## 5. An account (optional)
 
@@ -51,9 +51,10 @@ As a guest, your progress is kept in your browser, on your device. We do not kee
 - You are responsible for what is done with your account.
 - You can download your data and delete your account at any time, on the profile screen. Deletion cannot be undone.
 - An account with no sign-in for 36 months is deleted.
-- The person who runs the game can see your display name, Player ID and balances, can correct a coin balance, and can clear a display name. Every view and every change is logged. A change appears in your data download.
+- The person who runs the game can see your display name, Player ID and balances, and can correct a coin balance. Every view and every balance correction is logged, and a correction appears in your data download.
+- The person who runs the game can also clear a display name (it is replaced by your Player ID). [This is not logged today and does not appear in your data download: Q19.]
 
-*Basis:* `privacy-page.ts` ("What is stored for a signed-in player", "What the team can see", "For how long", "Your copy and your deletion"; `PRIVACY_MIN_AGE = 16`, the lead's number); the Google `openid` scope only ("Signing in with Google"); Steam paused (`CLAUDE.md`, "Google sign-in (GH-1075 G1 to G5)"); the admin members page and its "blank" action (`packages/worker/src/stats.ts`, `/stats/api/members/blank`; `CLAUDE.md`, `/stats/members`). Nothing in the sign-in flow checks age; the page only states it (not verified by an exhaustive search).
+*Basis:* `privacy-page.ts` ("What is stored for a signed-in player", "What the team can see", "For how long", "Your copy and your deletion"; `PRIVACY_MIN_AGE = 16`, the lead's number); the Google `openid` scope only ("Signing in with Google"); Steam paused (`CLAUDE.md`, "Google sign-in (GH-1075 G1 to G5)"); the admin members page (`CLAUDE.md`, `/stats/members`); the "blank" action (`packages/worker/src/stats.ts`, `handleBlank`, `/stats/api/members/blank`) runs one `UPDATE profile SET display_name` to the public id, writes no `admin_action` or `coin_journal` row, and needs only the `/stats` password, not `admin_member`. The `/privacy` sentence on logging covers views and balance changes only (`privacy-page.ts`, "What the team can see"). Nothing in the sign-in flow checks age; the page only states it (not verified by an exhaustive search).
 
 ## 6. Roar coins and brigade credits
 
@@ -62,29 +63,29 @@ The game has two in-game currencies. Neither costs money today.
 - **Brigade credits** are earned by winning campaign missions. They unlock and upgrade units. They cannot be bought.
 - **Roar coins** are free. You earn them by playing (a welcome grant, first wins, stars, the campaign, challenges) or from a coupon code. No coupon codes are issued today.
 - **You cannot buy coins with real money.** Paid purchases are switched off.
-- Today, coins can open a unit or an upgrade early, for **single-player** play only. Everything coins open can also be earned by playing.
+- Today, coins can open a unit or an upgrade early, for **single-player** play only. Everything coins open can also be bought with brigade credits, which you earn by playing. Some units are never opened by play alone: they must be bought, with credits or coins.
 - Coins, and anything bought with them, are never used in a match against another person. They never change a versus result.
 - There are no random or chance-based items. You see what you get before you spend.
 - Coins and credits have no cash value. You cannot sell them, swap them, or give them to another person. [Whether to call them a licence and not property: Q7.]
 - We may change what coins buy. We plan to make coins buy **cosmetics only** (looks that never change a fight). When that happens, anything you already bought with coins stays yours.
 - If real-money purchases ever open, these terms will change first. [Price, tax, refunds, chargebacks and store wallet terms: Q6.]
 
-*Basis:* `PURCHASES_OPEN = false`, and the paid half clamped to 0 (`packages/economy/src/wallet.ts`); the earn sources `welcome`, `first_win`, `star`, `campaign`, `backfill`, `challenge` (same file, `EarnSource`); `data/coupons.json` is `{"coupons": []}`; coin buys of units and upgrade tiers (`wallet.ts`, `RoarReceipt` kinds `unit` and `tier`; `packages/economy/src/stores.ts`); `singlePlayerView` reads earned or coin-bought, `networkView` reads earned only (`wallet.ts` header); no random or paid-chance item (`docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`, test T7); credits (`README.md`, "The brigade"; `packages/sim/src/credits.ts`). **Open PR 1565** (HOLD FOR LEAD: money) adds the switch `COINS_COSMETIC_ONLY` beside `PURCHASES_OPEN`. It ships **off**. When on, coins buy cosmetics only, and coin-bought units and tiers are kept, through a brigade reset too. The cosmetics shelf is empty today.
+*Basis:* `PURCHASES_OPEN = false`, and the paid half clamped to 0 (`packages/economy/src/wallet.ts`); the earn sources `welcome`, `first_win`, `star`, `campaign`, `backfill`, `challenge` (same file, `EarnSource`); `data/coupons.json` is `{"coupons": []}`; coin buys of units and upgrade tiers (`wallet.ts`, `RoarReceipt` kinds `unit` and `tier`; `packages/economy/src/stores.ts`); `singlePlayerView` reads earned or coin-bought, `networkView` reads earned only (`wallet.ts` header); no random or paid-chance item (`docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`, test T7); credits (`README.md`, "The brigade"; `packages/sim/src/credits.ts`); bought-only units, whose `unlock` is a price alone (`isBoughtOnly`, `packages/sim/src/unlock.ts`; the Stores' `earnedOpen` returns false for them, `packages/economy/src/stores.ts`), for example `demo_tzav`, `heli_peten_gunship`, `at_nlos_team`, `air_medevac_heli`. **Open PR 1565** (HOLD FOR LEAD: money) adds the switch `COINS_COSMETIC_ONLY` beside `PURCHASES_OPEN`. It ships **off**. When on, coins buy cosmetics only, and coin-bought units and tiers are kept, through a brigade reset too. The cosmetics shelf is empty today.
 
 ## 7. Versus play and chat
 
 - Versus is a one-against-one match. You open a room, or join one with its six-character room code. There is no public room list and no matchmaking.
 - A seat can be a person (a guest or a member) or a computer opponent (a bot). A bot's operator may declare which AI model plays it.
 - A player may invite an **AI advisor** that they run themselves. It talks only to that player. With "assist" it can also propose orders. A proposal is carried out after two seconds unless the player vetoes it. You are responsible for any bot or advisor you bring.
-- Spectators are allowed only in bot-against-bot rooms. They see no chat.
+- There is no spectating on the hosted game.
 - **Chat.** In a room you can type short messages (up to 280 characters) or pick a preset quick-chat phrase. The other player sees them.
-- The room passes messages on and keeps none of them. We do not read chat, and nobody checks it before it is shown.
+- The room passes messages on and keeps none of them. Nobody checks chat before it is shown. We do not read chat unless a player reports it to us (see block and report, below).
 - **Your controls:** turn chat off in Settings; mute the other player for the rest of the room.
 - **Word filter** (open PR 1492): your game hides lines with the worst words, and shows other swear words as `***`. It runs on your device only. You can turn the `***` masking off. You cannot turn the hiding off. A name with a filtered word shows as "Lion".
 - **Block and report** (open PR 1502): you can block a signed-in player on this device. You can report a player's chat to us. A report holds the last messages your game received in that room (up to ten), the reason, your note, the map, the other player's public ID if they are a member, and a random session ID. We keep a report for 180 days. Only the person who runs the game reads reports. Nothing happens to the other player automatically, except that your game mutes them for the rest of that room.
 - If you play versus while signed in, the match is recorded: the map, the sides, the result, the date, and whether the opponent was a member, a guest or a bot.
 
-*Basis:* room codes (`packages/worker/src/match/code.ts`, `routes.ts`; `docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md` section 1: "no public listing or matchmaking route was found"; lead ruling D10 on GH-1417: none until S1 to S4 ship); bot seats and `botModel` (`packages/worker/src/match/routes.ts`); the advisor (`packages/net/src/advisor.ts`, `packages/app/src/ui/advisor.ts`, `PROPOSAL_MS = 2000`); spectators (the chat safety design, D11; PR 1490); `CHAT_MAX_CHARS = 280` (`packages/net/src/protocol.ts`), one line per seat per 500 ms (`packages/worker/src/match/room-core.ts`, `CHAT_MIN_GAP_MS`), control and bidi characters removed (`packages/net/src/callsign.ts`); quick chat (`packages/app/src/ui/quick-chat.ts`, PR 1488); chat off and mute (`packages/app/src/ui/chat-inbox.ts`, `packages/app/src/settings.ts` `chat.enabled`, PR 1479); filter, block and report: open PRs 1492 and 1502, and the `/privacy` paragraph PR 1502 adds; recorded matches (`privacy-page.ts`, last bullet of "What is stored"). [What we may do about a player who breaks section 8: Q8.]
+*Basis:* room codes (`packages/worker/src/match/code.ts`, `routes.ts`; `docs/superpowers/specs/2026-11-16-versus-chat-safety-design.md` section 1: "no public listing or matchmaking route was found"; lead ruling D10 on GH-1417: none until S1 to S4 ship); bot seats and `botModel` (`packages/worker/src/match/routes.ts`); the advisor (`packages/net/src/advisor.ts`, `packages/app/src/ui/advisor.ts`, `PROPOSAL_MS = 2000`); no spectating: `POST /api/match/:code/watch` answers 404 unless `env.ARENA_WATCH === '1'` (`packages/worker/src/match/routes.ts`, `watchTicket`), which only the local relay sets (`tools/src/net/local-relay.ts`), not `wrangler.jsonc` (the bot-only and no-chat rules of D11 and PR 1490 apply to that local arena tool); `CHAT_MAX_CHARS = 280` (`packages/net/src/protocol.ts`), one line per seat per 500 ms (`packages/worker/src/match/room-core.ts`, `CHAT_MIN_GAP_MS`), control and bidi characters removed (`packages/net/src/callsign.ts`); quick chat (`packages/app/src/ui/quick-chat.ts`, PR 1488); chat off and mute (`packages/app/src/ui/chat-inbox.ts`, `packages/app/src/settings.ts` `chat.enabled`, PR 1479); filter, block and report: open PRs 1492 and 1502, and the `/privacy` paragraph PR 1502 adds; recorded matches (`privacy-page.ts`, last bullet of "What is stored"). [What we may do about a player who breaks section 8: Q8.]
 
 ## 8. How you must behave
 
@@ -113,7 +114,7 @@ If you find a security problem, tell us privately (section 13). [Whether to prom
 - Do not put other people's personal details in feedback.
 - [What permission you give us to use your feedback: Q10.]
 
-*Basis:* `README.md` ("Feedback"); `POST /api/feedback` (`packages/worker/src/feedback-ingest.ts`); the optional `contact`, up to 120 characters (`data/schemas/feedback.schema.json`); the 180-day purge (`packages/worker/src/feedback-triage.ts`, `RETENTION_MS`, `purgeExpired`); the prefilled GitHub issue is a step the lead takes by hand, and never carries a tester name, contact or id (`docs/superpowers/specs/2026-10-08-in-game-feedback-design.md` section 5.4; `CLAUDE.md`, "Hosting, telemetry, feedback"). The privacy request form and chat reports travel through the same endpoint, under their own rules (sections 7 and 13).
+*Basis:* `README.md` ("Feedback"); `POST /api/feedback` (`packages/worker/src/feedback-ingest.ts`); the optional `contact`, up to 120 characters (`data/schemas/feedback.schema.json`); the 180-day purge (`packages/worker/src/feedback-triage.ts`, `RETENTION_MS`, `purgeExpired`); the prefilled GitHub issue is a step the lead takes by hand, and never carries a tester name, contact or id (`docs/superpowers/specs/2026-10-08-in-game-feedback-design.md` section 5.4; `CLAUDE.md`, "Hosting, telemetry, feedback"). The privacy request form (open PR 1481) and chat reports (open PR 1502) travel through the same endpoint, under their own rules (sections 7 and 13).
 
 ## 10. Usage reports
 
@@ -129,12 +130,12 @@ On the live site, the game sends anonymous usage, crash and performance reports,
 - **Third-party material keeps its own licence.** These terms take away no right you have under it:
   - libraries such as three.js (MIT) and Rapier (Apache-2.0);
   - fonts under the SIL Open Font License 1.1 (`assets/fonts/OFL-*.txt`);
-  - sound under CC0, each file with its source (`data/audio.json`);
   - a courtesy credit to Meshy, under CC BY 4.0, for AI-generated 3D art (`art/ATTRIBUTION.md`);
   - chat word lists adapted from LDNOOBW, CC BY 4.0, Shutterstock (`data/chat/LICENSES.md`; the lists arrive with open PR 1492).
 - The credits screen lists the libraries, the fonts and the AI-generated material.
+- **The project's own sound carries open labels.** `data/audio.json` marks 60 sound entries, all made by the project's own scripts, as CC0, and the main theme and its two mission beds as CC BY 4.0. These labels conflict with "all rights reserved" above [Q18].
 
-*Basis:* `LICENSE`; `CONTRIBUTING.md`, "Licensing and sign-off"; `CLA.md`; `data/LICENSE.md`; `art/ATTRIBUTION.md`; `data/chat/LICENSES.md`; the credits screen (`packages/app/src/credits-data.ts`, `packages/app/src/ui/credits.ts`). Licence counts read from `data/audio.json` on 18 Nov: 60 `CC0-1.0`, 25 `LicenseRef-owned`, 3 `CC-BY-4.0`. The three CC BY files are the project's own AI-generated music, credited to the project lead, with "generator and plan unrecorded" (`data/audio.json` `music`; `docs/ASSET_PROVENANCE.md`, Status item 3). See Q11 and Q18.
+*Basis:* `LICENSE`; `CONTRIBUTING.md`, "Licensing and sign-off"; `CLA.md`; `data/LICENSE.md`; `art/ATTRIBUTION.md`; `data/chat/LICENSES.md`; the credits screen (`packages/app/src/credits-data.ts`, `packages/app/src/ui/credits.ts`). Licence counts read from `data/audio.json` on 18 Nov: 60 `CC0-1.0`, 25 `LicenseRef-owned`, 3 `CC-BY-4.0`. The 60 CC0 entries are the project's own synthesis, not third-party: 48 are "generated by tools/gen_audio.py" and 12 "generated by docs/polish/audio/engines/engine_candidates.py" (their `source` fields). The 3 CC BY entries cover 5 files: the main theme (`music/holding_the_perimeter.mp3`) and its calm and battle beds (an `.ogg` and an `.m4a` each). All three are credited to the project lead. The theme's own entry says it is AI-generated from a prompt; "generator and plan unrecorded" appears only in the two beds' `source`. The generator's terms are recorded as open in `docs/ASSET_PROVENANCE.md`, "Open items for the lead", item 3 ("The main theme's generator"). `data/LICENSE.md` claims "all rights reserved" over everything in `assets/`, where these files live. See Q11 and Q18.
 
 ## 12. The setting
 
@@ -154,7 +155,7 @@ The game is fiction. Its countries, towns, factions and people are invented. Ene
 
 - The game is provided "as is" and "as available".
 - It may have bugs. It may be slow, offline, changed or stopped at any time.
-- Features can be switched off without a new release: accounts, Google sign-in, feedback, the privacy form and chat reports each have a switch.
+- Features can be switched off without a new release: accounts, Google sign-in and feedback each have a switch today. The privacy form (open PR 1481) and chat reports (open PR 1502) close with the feedback switch.
 - Saves and progress can be lost, on your device or on our server.
 - [Warranty wording, any cap on liability, and the consumer rights no contract can remove: Q13.]
 
@@ -204,4 +205,8 @@ This draft answers none of these. Each lists options, not a choice.
 15. **Q15 Survival.** Which sections outlast the terms (licences, feedback permission, liability, law)?
 16. **Q16 Changes.** How is a change announced: a date on the page only; a notice at next sign-in; a fresh acceptance?
 17. **Q17 Law and venue.** Governing law and courts, or a dispute process.
-18. **Q18 Music provenance.** The main theme and the mission music cut from it are AI-generated, with the generator and plan unrecorded (`docs/ASSET_PROVENANCE.md`, Status item 3), yet `data/audio.json` lists them as CC BY 4.0. What rights does the operator hold in them, and is CC BY the right label?
+18. **Q18 Open labels on the project's own sound.** `data/LICENSE.md` says everything in `assets/` is all rights reserved, but `data/audio.json` labels the project's own sound with open licences:
+    - 60 entries made by the project's own scripts (`tools/gen_audio.py`, `engine_candidates.py`) are labelled CC0. Is CC0 meant, given a planned commercial release? If yes, `data/LICENSE.md` needs a carve-out; if no, the labels need changing.
+    - The main theme and its two beds (3 entries, 5 files) are labelled CC BY 4.0 and are AI-generated, with the generator's terms not recorded (`docs/ASSET_PROVENANCE.md`, "Open items for the lead", item 3). What rights does the operator hold in them, and is CC BY the right label?
+    - The two beds' `source` fields in `data/audio.json` point to "docs/ASSET_PROVENANCE.md, Status item 3". That item is about Meshy meshes. The pointer should read "Open items for the lead", item 3. This pack does not edit data; it is listed for the lead.
+19. **Q19 Clearing a display name.** The admin can clear a member's display name with only the `/stats` password, and nothing records it (`handleBlank`, `packages/worker/src/stats.ts`). Options: log it in `admin_action` like a balance change, so it shows in the member's download; require `admin_member` as the members page does; or say on `/privacy` and in the terms that it is not logged.
