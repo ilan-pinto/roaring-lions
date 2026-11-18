@@ -1,5 +1,6 @@
 // GH-2 and GH-4: the authoring-time cross-checks for the `escort` and `no_collateral_above` objective types, and for the fields that
-// belong to them alone (`zone`, `threshold`, and since GH-1439 an escort's `fail_after_losses` and `until`).
+// belong to them alone (`zone`, `threshold`, and since GH-1439 an escort's `fail_after_losses` and `until`); since E3 (GH-1438) also
+// an evacuate_before's civilian `group`.
 //
 // The runtime (`MissionRuntime`'s constructor and `start()`) throws on the same faults at load; this is the same refusal
 // before a mission ships, and it names the mission file. Its own module, like `validate_income.mjs`, because
@@ -93,6 +94,24 @@ export function objectiveFailures(o, mi, map, file) {
             out.push(`${file}: escort "${o.id}" until waits on a type that waits on it ("${u}" is ${waits.type === 'escort' ? 'an' : 'a'} ${waits.type})`);
           }
         }
+      }
+    }
+  }
+  // E3 (GH-1438): an evacuation scoped to civilian groups. The shape (a non-empty name or a non-empty list of distinct
+  // names) is the schema's; this is what it cannot see: the names must be groups a civilians.groups placement (or a
+  // passenger of one) declares, or the objective counts nobody and can never complete. The runtime's start() refuses
+  // the same.
+  if (o.group !== undefined) {
+    if (o.type !== 'evacuate_before') {
+      out.push(`${file}: objective "${o.id}" is a ${o.type}, which takes no group (only evacuate_before does)`);
+    } else {
+      const civGroups = new Set();
+      for (const p of mi.civilians?.groups ?? []) {
+        if (p.group) civGroups.add(p.group);
+        for (const q of p.passengers ?? []) if (q.group) civGroups.add(q.group);
+      }
+      for (const name of typeof o.group === 'string' ? [o.group] : Array.isArray(o.group) ? o.group : []) {
+        if (!civGroups.has(name)) out.push(`${file}: evacuate_before "${o.id}" names group "${name}", which no civilian placement declares`);
       }
     }
   }
