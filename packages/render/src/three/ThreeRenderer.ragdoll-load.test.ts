@@ -71,12 +71,22 @@ describe('the WASM loads only when a preset asks for ragdolls', () => {
     for (const q of Object.values(QUALITY_PRESETS)) expect(q.physics).toEqual({ ragdolls: 0 });
   });
 
-  it('low, medium, high and no preset at all never request it', () => {
+  it('low and no preset at all never request it; medium and high request it once each, as shipped', () => {
+    // GH-1400: RAGDOLL_PRESETS_LIVE is on (`high` 16, `medium` 8, `low` 0). Falsify: the switch back to false (medium and
+    // high then request nothing), or `RAGDOLL_PRESET_CAPS.low` above 0.
     loads.n = 0;
     boot(QUALITY_PRESETS.low);
-    boot(QUALITY_PRESETS.medium);
-    boot(QUALITY_PRESETS.high);
     boot(undefined);
+    expect(loads.n).toBe(0);
+    boot(QUALITY_PRESETS.medium);
+    expect(loads.n).toBe(1);
+    boot(QUALITY_PRESETS.high);
+    expect(loads.n).toBe(2);
+  });
+
+  it('an explicit cap of 0 on high never requests it', () => {
+    loads.n = 0;
+    boot({ ...QUALITY_PRESETS.high, physics: { ragdolls: 0 } });
     expect(loads.n).toBe(0);
   });
 

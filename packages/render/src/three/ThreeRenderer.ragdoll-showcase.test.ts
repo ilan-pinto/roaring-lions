@@ -141,8 +141,12 @@ describe('the ragdoll showcase (the gated `ragdoll` scenario)', () => {
     r.dispose();
   });
 
-  it('with no ragdoll cap (every shipped preset), the showcase stands nothing', async () => {
-    const { r, p } = await showcase(1, 2, QUALITY_PRESETS.high);
+  it('with no ragdoll cap (`low`, or an explicit 0), the showcase stands nothing', async () => {
+    // GH-1400: `high` and `medium` ship a cap since RAGDOLL_PRESETS_LIVE, so the cap-0 case is `low` and an explicit 0.
+    const low = await showcase(1, 2, QUALITY_PRESETS.low);
+    expect(low.p.ragdollRoots.size).toBe(0);
+    low.r.dispose();
+    const { r, p } = await showcase(1, 2, { ...QUALITY_PRESETS.high, physics: { ragdolls: 0 } });
     expect(p.ragdollRoots.size).toBe(0);
     r.dispose();
   });
