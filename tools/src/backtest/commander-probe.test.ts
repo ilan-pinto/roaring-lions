@@ -59,6 +59,8 @@ describe('the stall detectors', () => {
     expect(r.stallLiteral).toBe(true);
     expect(r.stallIdle).toBe(true);
     expect(r.maxIdleSilentTicks).toBeGreaterThanOrEqual(STALL_TICKS);
+    // It never leaves home, so the reading that counts only units AWAY from home (a deliberate guard stands at home) stays quiet.
+    expect(r.stallAway).toBe(false);
   });
 
   it('a passive baseline orders nothing: two silent seats never fight, and the game runs to the cap undecided', () => {
