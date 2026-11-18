@@ -13,9 +13,10 @@ import { gzipBytes } from '@lions/net';
 const MISSION = Object.keys(missions).find((id) => !id.includes('tutorial')) ?? '';
 const LEDGER = { 'campaign.mission_results': { m0: { stars: 2 } } } as unknown as CampaignLedger;
 const TIERS = { mbt_lavi: { armour: 1 } };
-const inputs = () => startInputsJson({ ledger: LEDGER, tiers: TIERS, unlocks: new Set(['b', 'a']), deploy: new Set([2, 0]) });
+const PICKS = {};
+const inputs = () => startInputsJson({ ledger: LEDGER, tiers: TIERS, picks: PICKS, unlocks: new Set(['b', 'a']), deploy: new Set([2, 0]) });
 const shell = () => shellJson(captureShell({ log: newMissionLog(), deductions: [], lost: [], narratedRoe: new Set(), evacuated: 0, deadlinesWarned: new Set(), limitWarned: false }));
-const LIVE = { ledger: LEDGER, unlocks: ['a', 'b'], tiers: TIERS };
+const LIVE = { ledger: LEDGER, unlocks: ['a', 'b'], tiers: TIERS, picks: PICKS };
 
 async function record(over: Partial<SuspendedMission> = {}): Promise<SuspendedMission> {
   const raw = new Uint8Array(40); // not a real snapshot: loadResume only inflates and checks the header it can; see below
@@ -38,11 +39,11 @@ describe('the start inputs', () => {
   it('round-trip through JSON: sets sorted, the deploy pick as indices', () => {
     const j = JSON.parse(JSON.stringify(inputs()));
     const back = parseStartInputs(j);
-    expect(back).toEqual({ ledger: LEDGER, tiers: TIERS, unlocks: ['a', 'b'], deploy: [0, 2] });
+    expect(back).toEqual({ ledger: LEDGER, tiers: TIERS, picks: PICKS, unlocks: ['a', 'b'], deploy: [0, 2] });
   });
 
   it('the deploy pick may be absent (the screen was never touched)', () => {
-    const j = JSON.parse(JSON.stringify(startInputsJson({ ledger: LEDGER, tiers: {}, unlocks: [], deploy: null })));
+    const j = JSON.parse(JSON.stringify(startInputsJson({ ledger: LEDGER, tiers: {}, picks: {}, unlocks: [], deploy: null })));
     expect(parseStartInputs(j)?.deploy).toBeNull();
   });
 
@@ -58,7 +59,16 @@ describe('the start inputs', () => {
     expect(bad((o) => { o.tiers = []; })).toBeNull();
     expect(bad((o) => { o.deploy = [0, 'x']; })).toBeNull();
     expect(bad((o) => { o.deploy = undefined; })).toBeNull();
+    expect(bad((o) => { o.picks = { mbt_lavi: { firepower: 3 } }; })).toBeNull();
     expect(parseStartInputs(null)).toBeNull();
+  });
+
+  // GH-1384 §4.5, case 10: a record from before branched tiers has `tiers` and no `picks`. Resuming it with `{}` would rebuild a
+  // branched tier 3 at tier 2, so it is REFUSED (and kept: `loadResume`'s `failed` path), never defaulted. A literal record.
+  it('a record with no picks (from before branched tiers) is refused, not resumed with none', () => {
+    const before = { ledger: { 'campaign.mission_results': {} }, tiers: { mbt_lavi: { firepower: 3 } }, unlocks: [], deploy: null };
+    expect(parseStartInputs(before)).toBeNull();
+    expect(parseStartInputs({ ...before, picks: { mbt_lavi: { firepower: 1 } } })?.picks).toEqual({ mbt_lavi: { firepower: 1 } });
   });
 });
 
@@ -83,9 +93,11 @@ describe('whatMoved: which part of the campaign changed (GH-1393 follow-up)', ()
     expect(whatMoved(frozen, { ...LIVE, ledger: wonAnother })).toEqual(['ledger']);
     expect(whatMoved(frozen, { ...LIVE, unlocks: ['a', 'b', 'c'] })).toEqual(['units']);
     expect(whatMoved(frozen, { ...LIVE, tiers: { mbt_lavi: { armour: 2 } } })).toEqual(['upgrades']);
+    // GH-1384 case 10: a pick alone changed (a legacy Switch since the suspend) reads as upgrades.
+    expect(whatMoved(frozen, { ...LIVE, picks: { mbt_lavi: { firepower: 2 } } })).toEqual(['upgrades']);
   });
   it('names all three in a fixed order when all three changed, and campaignMoved agrees with "not empty"', () => {
-    const live = { ledger: wonAnother, unlocks: ['a', 'b', 'c'], tiers: { mbt_lavi: { armour: 2 } } };
+    const live = { ledger: wonAnother, unlocks: ['a', 'b', 'c'], tiers: { mbt_lavi: { armour: 2 } }, picks: PICKS };
     expect(whatMoved(frozen, live)).toEqual(['ledger', 'units', 'upgrades']);
     expect(campaignMoved(frozen, live)).toBe(true);
     expect(campaignMoved(frozen, LIVE)).toBe(whatMoved(frozen, LIVE).length > 0);

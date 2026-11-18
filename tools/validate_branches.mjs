@@ -181,3 +181,85 @@ export function validateBranches(units, { en, tracksMax = BRANCHED_TRACKS_MAX, c
   }
   return out;
 }
+
+// Compares tier `curr` against the tier immediately before it (`prev`) and
+// returns one description string per field that regressed — a lower price,
+// a lower delta on a path both tiers touch, or a path `prev` patched that
+// `curr` drops entirely (which the brief's rule (c) counts as lower, since
+// dropping it is indistinguishable from patching it back to zero).
+//
+// GH-1384: a tier may be branched, so the price is compared once and the patch rule runs per
+// PAIR of (a patch of `prev`, a patch of `curr`): a branch against the tier below is the
+// existing monotone rule, applied twice. `tierPatches` throws on a tier shape it does not
+// know rather than reading it as `{}`; the caller reports that as a failure.
+export function tierRegressions(prev, curr) {
+  const whats = [];
+  if (curr.price < prev.price) {
+    whats.push(`price ${curr.price} < ${prev.price}`);
+  }
+  for (const prevPatch of tierPatches(prev)) {
+    for (const currPatch of tierPatches(curr)) whats.push(...patchRegressions(prevPatch, currPatch));
+  }
+  return whats;
+}
+
+function patchRegressions(prevPatch, currPatch) {
+  const whats = [];
+  for (const path of Object.keys(prevPatch)) {
+    const prevVal = prevPatch[path];
+    if (!(path in currPatch)) {
+      whats.push(`${path} missing (was ${prevVal})`);
+    } else if (currPatch[path] < prevVal) {
+      whats.push(`${path} ${currPatch[path]} < ${prevVal}`);
+    }
+  }
+  return whats;
+}
+
+/**
+ * The per-tier checks every upgrade track gets (moved here from validate_data.mjs so a test can import them,
+ * GH-1384): each patched path exists on the unit (`hasPath`), for EVERY patch a tier carries, both branches of
+ * a branched one; and each tier is monotone over the one below, per pair of patches (`tierRegressions`). A tier
+ * whose shape `tierPatches` does not know is itself a failure, and stops the monotone check for its track.
+ *
+ * @param {string} where the file, for the message
+ * @param {any} u the unit
+ * @param {(u: any, path: string) => boolean} hasPath validate_data.mjs's `unitHasPath`
+ * @returns {string[]}
+ */
+export function upgradeTierFailures(where, u, hasPath) {
+  const failures = [];
+  for (const [trackName, track] of Object.entries(u.upgrades ?? {})) {
+    const tiers = track.tiers ?? [];
+    let shapeOk = true;
+    tiers.forEach((tier, i) => {
+      let patches;
+      try {
+        patches = tierPatches(tier);
+      } catch (err) {
+        shapeOk = false;
+        failures.push(`${where}: upgrades.${trackName} tier ${i + 1}: ${err.message}`);
+        return;
+      }
+      for (const patch of patches) {
+        for (const path of Object.keys(patch)) {
+          if (!hasPath(u, path)) {
+            failures.push(
+              `${where}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
+                `which this unit does not have`
+            );
+          }
+        }
+      }
+    });
+    for (let i = 1; shapeOk && i < tiers.length; i++) {
+      for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
+        failures.push(
+          `${where}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
+            `tier ${i} (${what})`
+        );
+      }
+    }
+  }
+  return failures;
+}

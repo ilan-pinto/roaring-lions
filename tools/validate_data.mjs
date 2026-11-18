@@ -48,7 +48,7 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
-import { tierPatches, validateBranches } from './validate_branches.mjs';
+import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
@@ -112,40 +112,6 @@ function unitHasPath(unit, path) {
     }
   }
   return cur !== undefined;
-}
-
-// Compares tier `curr` against the tier immediately before it (`prev`) and
-// returns one description string per field that regressed — a lower price,
-// a lower delta on a path both tiers touch, or a path `prev` patched that
-// `curr` drops entirely (which the brief's rule (c) counts as lower, since
-// dropping it is indistinguishable from patching it back to zero).
-//
-// GH-1384: a tier may be branched, so the price is compared once and the patch rule runs per
-// PAIR of (a patch of `prev`, a patch of `curr`): a branch against the tier below is the
-// existing monotone rule, applied twice. `tierPatches` throws on a tier shape it does not
-// know rather than reading it as `{}`; the caller reports that as a failure.
-function tierRegressions(prev, curr) {
-  const whats = [];
-  if (curr.price < prev.price) {
-    whats.push(`price ${curr.price} < ${prev.price}`);
-  }
-  for (const prevPatch of tierPatches(prev)) {
-    for (const currPatch of tierPatches(curr)) whats.push(...patchRegressions(prevPatch, currPatch));
-  }
-  return whats;
-}
-
-function patchRegressions(prevPatch, currPatch) {
-  const whats = [];
-  for (const path of Object.keys(prevPatch)) {
-    const prevVal = prevPatch[path];
-    if (!(path in currPatch)) {
-      whats.push(`${path} missing (was ${prevVal})`);
-    } else if (currPatch[path] < prevVal) {
-      whats.push(`${path} ${currPatch[path]} < ${prevVal}`);
-    }
-  }
-  return whats;
 }
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -437,38 +403,7 @@ const garrisonableSymbols = new Set(
           `${rel(file)}: upgrades are only valid on faction 'kdf' units`
         );
       }
-      for (const [trackName, track] of Object.entries(u.upgrades)) {
-        const tiers = track.tiers ?? [];
-        let shapeOk = true;
-        tiers.forEach((tier, i) => {
-          let patches;
-          try {
-            patches = tierPatches(tier);
-          } catch (err) {
-            shapeOk = false;
-            failures.push(`${rel(file)}: upgrades.${trackName} tier ${i + 1}: ${err.message}`);
-            return;
-          }
-          for (const patch of patches) {
-            for (const path of Object.keys(patch)) {
-              if (!unitHasPath(u, path)) {
-                failures.push(
-                  `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
-                    `which this unit does not have`
-                );
-              }
-            }
-          }
-        });
-        for (let i = 1; shapeOk && i < tiers.length; i++) {
-          for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
-            failures.push(
-              `${rel(file)}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
-                `tier ${i} (${what})`
-            );
-          }
-        }
-      }
+      failures.push(...upgradeTierFailures(rel(file), u, unitHasPath));
     }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {

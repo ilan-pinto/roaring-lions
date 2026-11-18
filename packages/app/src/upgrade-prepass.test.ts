@@ -15,14 +15,14 @@ import { upgradePrepass } from './upgrade-prepass';
 // renderer is handed against the tiers the sim's types were actually patched
 // with -- not against a second reading of the account, which would agree with
 // a prepass that read it twice.
-const seen = vi.hoisted(() => [] as { id: string; tiers: unknown }[]);
+const seen = vi.hoisted(() => [] as { id: string; tiers: unknown; picks: unknown }[]);
 vi.mock('@lions/data', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@lions/data')>();
   return {
     ...actual,
-    applyUpgrades: ((u: { id: string }, tiers: unknown) => {
-      seen.push({ id: u.id, tiers });
-      return (actual.applyUpgrades as (a: unknown, b: unknown) => unknown)(u, tiers);
+    applyUpgrades: ((u: { id: string }, tiers: unknown, picks: unknown) => {
+      seen.push({ id: u.id, tiers, picks });
+      return (actual.applyUpgrades as (a: unknown, b: unknown, c: unknown) => unknown)(u, tiers, picks);
     }) as typeof actual.applyUpgrades,
   };
 });
@@ -32,20 +32,20 @@ describe('upgradePrepass', () => {
   const owned = { at_team: { firepower: 2 }, mbt_lavi: { armour: 3, sensors: 1 } };
 
   it('registers every unit, in roster order -- the sim numbers its types by it', () => {
-    const { registered } = upgradePrepass(roster, owned);
+    const { registered } = upgradePrepass(roster, owned, {});
     expect(registered.map((u) => u.id)).toEqual(roster.map((u) => u.id));
   });
 
   it('patches a KDF type with its owned tiers, and reports the same kit for its card', () => {
-    const { registered, kitByType } = upgradePrepass(roster, owned);
+    const { registered, kitByType } = upgradePrepass(roster, owned, {});
     const at = registered.find((u) => u.id === 'at_team');
-    expect(at).toEqual(applyUpgrades(units.at_team, owned.at_team));
-    expect(kitByType.get('at_team')).toEqual(kitSummary(units.at_team, owned.at_team));
+    expect(at).toEqual(applyUpgrades(units.at_team, owned.at_team, {}));
+    expect(kitByType.get('at_team')).toEqual(kitSummary(units.at_team, owned.at_team, {}));
     expect(kitByType.get('at_team')?.pips.find((p) => p.track === 'firepower')?.owned).toBe(2);
   });
 
   it('gives every KDF type a kit, bought or not, and no other faction one', () => {
-    const { kitByType } = upgradePrepass(roster, owned);
+    const { kitByType } = upgradePrepass(roster, owned, {});
     const kdf = roster.filter((u) => u.faction === 'kdf').map((u) => u.id);
     expect([...kitByType.keys()].sort()).toEqual([...kdf].sort());
     expect(kitByType.get('inf_squad')?.level).toBe(0);
@@ -54,12 +54,12 @@ describe('upgradePrepass', () => {
   it('never patches an enemy type, whatever the account says about its id', () => {
     const enemy = roster.find((u) => u.faction !== 'kdf');
     if (enemy === undefined) throw new Error('fixture: the roster has no enemy unit');
-    const { registered } = upgradePrepass(roster, { ...owned, [enemy.id]: { armour: 3 } });
+    const { registered } = upgradePrepass(roster, { ...owned, [enemy.id]: { armour: 3 } }, {});
     expect(registered.find((u) => u.id === enemy.id)).toBe(enemy);
   });
 
   it('hands the renderer the level the card shows, for every KDF type and no other', () => {
-    const { kitByType, unitKit } = upgradePrepass(roster, owned);
+    const { kitByType, unitKit } = upgradePrepass(roster, owned, {});
     expect(Object.keys(unitKit).sort()).toEqual([...kitByType.keys()].sort());
     for (const [id, summary] of kitByType) expect(unitKit[id], id).toBe(summary.level);
     expect(unitKit.mbt_lavi).toBe(kitLevel(units.mbt_lavi, owned.mbt_lavi));
@@ -67,7 +67,7 @@ describe('upgradePrepass', () => {
 
   it('hands the renderer, per KDF type, exactly the tiers applyUpgrades patched it with (GH-238)', () => {
     seen.length = 0;
-    const { unitKitTiers, unitKit } = upgradePrepass(roster, owned);
+    const { unitKitTiers, unitKit } = upgradePrepass(roster, owned, {});
     const kdf = roster.filter((u) => u.faction === 'kdf').map((u) => u.id);
     expect(Object.keys(unitKitTiers).sort()).toEqual([...kdf].sort());
     expect(Object.keys(unitKitTiers).sort()).toEqual(Object.keys(unitKit).sort());
@@ -89,13 +89,13 @@ describe('upgradePrepass', () => {
     // must the renderer, or it draws kit for tiers the sim is not running.
     expect(units.mbt_lavi.upgrades?.armour?.tiers.length).toBe(3);
     expect(Object.keys(units.mbt_lavi.upgrades ?? {})).not.toContain('mobility');
-    const { unitKitTiers, registered } = upgradePrepass(roster, { mbt_lavi: { armour: 5, mobility: 2, sensors: 1 } });
+    const { unitKitTiers, registered } = upgradePrepass(roster, { mbt_lavi: { armour: 5, mobility: 2, sensors: 1 } }, {});
     expect(unitKitTiers.mbt_lavi).toEqual({ armour: 3, sensors: 1 });
     // And the sim is running exactly that: the raw request and the clamped
     // one patch the same Lavi.
-    expect(registered.find((u) => u.id === 'mbt_lavi')).toEqual(applyUpgrades(units.mbt_lavi, unitKitTiers.mbt_lavi));
+    expect(registered.find((u) => u.id === 'mbt_lavi')).toEqual(applyUpgrades(units.mbt_lavi, unitKitTiers.mbt_lavi, {}));
     // Below zero clamps to 0, as applyUpgrades' own Math.max does.
-    expect(upgradePrepass(roster, { mbt_lavi: { armour: -2 } }).unitKitTiers.mbt_lavi).toEqual({ armour: 0 });
+    expect(upgradePrepass(roster, { mbt_lavi: { armour: -2 } }, {}).unitKitTiers.mbt_lavi).toEqual({ armour: 0 });
   });
 
   it('reads the audit seed as the spec did: Lavi 3, rifles 1, AT 1, and the sim runs that Lavi', () => {
@@ -104,9 +104,23 @@ describe('upgradePrepass', () => {
       at_team: { firepower: 1 },
       mbt_lavi: { armour: 3, sensors: 3, firepower: 3 },
     };
-    const { unitKit, registered } = upgradePrepass(roster, seed);
+    const { unitKit, registered } = upgradePrepass(roster, seed, {});
     expect([unitKit.mbt_lavi, unitKit.inf_squad, unitKit.at_team, unitKit.ifv_namer]).toEqual([3, 1, 1, 0]);
     // Spec §1 F2: 3000 -> 3750 on the maxed Lavi. The mark and the sim read one object.
     expect(registered.find((u) => u.id === 'mbt_lavi')?.hull.hp).toBe(3750);
+  });
+
+  // GH-1384: the picks go where the tiers go. The Lavi's firepower tier 3 branches (literals from
+  // data/units/kdf/mbt_lavi.json: base 0.85 / 1300, tier 2 +0.06 / +208, branch 2 penetration +325).
+  it('patches a branched tier with the pick it is handed, and the tier below with none', () => {
+    seen.length = 0;
+    const tiers = { mbt_lavi: { firepower: 3 } };
+    const pen = (picks: Record<string, Record<string, 1 | 2>>): number | undefined =>
+      (registered(picks).find((u) => u.id === 'mbt_lavi') as { weapons: { penetration: number }[] }).weapons[0].penetration;
+    const registered = (picks: Record<string, Record<string, 1 | 2>>) => upgradePrepass(roster, tiers, picks).registered;
+    expect(pen({ mbt_lavi: { firepower: 2 } })).toBe(1625);
+    expect(pen({ mbt_lavi: { firepower: 1 } })).toBe(1508);
+    expect(pen({})).toBe(1508); // no pick: the tier below, never the envelope
+    expect(seen.some((x) => x.id === 'mbt_lavi' && JSON.stringify(x.picks) === JSON.stringify({ firepower: 2 }))).toBe(true);
   });
 });
