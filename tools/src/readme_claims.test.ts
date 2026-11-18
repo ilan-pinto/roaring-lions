@@ -86,11 +86,18 @@ describe('README: credits, coins and the unit table', () => {
     expect(wallet).toMatch(/export const PURCHASES_OPEN\s*(:\s*boolean\s*)?=\s*false/);
     expect(README).toContain('the real-money coin packs are switched off');
   });
-  it('says coins buy units (the lead\'s rule of 18 Nov 2026), that the rule is everywhere including against a person, and no longer promises cosmetics only', () => {
+  it('says coins buy units (the lead\'s rule of 18 Nov 2026), that a coin-bought unit reaches a match against a person only through a Bring-your-brigade room (the standard kit stays equal), and no longer promises cosmetics only', () => {
     expect(README).toContain('**coins buy new units**');
     expect(README).toContain('in a match against another player too');
     expect(README).not.toMatch(/cosmetics only/i);
     expect(README).not.toMatch(/pay-to-win/i);
+    // The lead, 18 Nov 2026: the standard kit stays equal, and a coin-bought unit reaches a match against a person only through a "Bring your brigade" room.
+    // A matched (standard) kit room fields NOBODY's owned kit, earned or bought (connect.ts roomClaim returns {}), so "fields only what you earn" is false.
+    expect(README).toContain('through a "Bring your brigade" room');
+    expect(README).toContain('it fields nothing from either brigade');
+    expect(README).not.toMatch(/fields only what you earn/i);
+    const en = JSON.parse(readFileSync(join(ROOT, 'packages/app/src/i18n/en.json'), 'utf8')) as Record<string, string>;
+    expect(en['versus.host.kit'], 'the room option the README names is the one on the host screen').toBe('Bring your brigade');
     const lede = JSON.parse(readFileSync(join(ROOT, 'packages/app/src/i18n/en.json'), 'utf8'))['stores.lede'] as string;
     expect(lede, 'the Stores screen still says coins buy what credits buy').toContain('Coins buy what credits buy');
   });
