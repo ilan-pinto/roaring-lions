@@ -111,7 +111,7 @@ describe('A1: what an amendment moves, it moves the restricting way, and nothing
 describe('every shipped mission at every posture passes the mission schema (PM review of PR 1504, hand-off 3)', () => {
   // Nothing else validates a mission AFTER the overlays: validate:data sees the authored files only.
   const all = Object.keys(missions);
-  it('covers the 35 shipped missions', () => expect(all.length).toBe(35));
+  it('covers the 39 shipped missions', () => expect(all.length).toBe(39));
   it.each(POSTURE_IDS.flatMap((p) => all.map((id) => [`${id} at ${p}`, id, p] as const)))('%s', (_, id, p) => {
     const m = applyOverlays(raw(id), { posture: p });
     expect(validateMission(m), JSON.stringify(validateMission.errors)).toBe(true);

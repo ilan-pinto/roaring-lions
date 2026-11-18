@@ -477,12 +477,14 @@ export function runAll(argv: string[], log: (line: string) => void): void {
   const tier = argOf(argv, 'tier') ?? 'base';
   const only = argOf(argv, 'only');
   const want = (k: string): boolean => !only || only.split(',').includes(k);
-  const U = (tier === 'max' ? unitsAtMaxTier : baseUnits) as unknown as Roster;
+  // GH-1384: `--branch=1|2` picks the uniform branch vector at `--tier=max` (default 1).
+  const branch = argOf(argv, 'branch') === '2' ? 2 : 1;
+  const U = (tier === 'max' ? unitsAtMaxTier(branch) : baseUnits) as unknown as Roster;
   const row = (name: string, t: Tally): void => log(formatRow(name, t));
   const row5 = (name: string, r: Sf2Result): void => log(formatSf2(name, r));
   const row6 = (name: string, h: ManpadHover, p: ManpadPass): void => log(formatManpad(name, h, p));
 
-  log(`vehicle-health-probe tier=${tier} seeds=${seeds}`);
+  log(`vehicle-health-probe tier=${tier}${tier === 'max' ? ` branch=${branch}` : ''} seeds=${seeds}`);
   if (want('s1')) {
     row('spike x3 @7 vs lavi', engagement(U, [{ id: 'at_team', n: 3, range: 7 }], seeds));
     row('rpg x2 @3.5 vs lavi', engagement(U, [{ id: 'rpg_team', n: 2, range: 3.5 }], seeds));

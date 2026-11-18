@@ -193,17 +193,32 @@ export {
 
 /** Brigade economy step 3 (spec 2026-09-15 §4.3): patches a unit's JSON
  *  with its bought upgrade tiers before @lions/sim registers the type. */
+export { BRANCHES_OPEN } from './branches-open';
 export {
   applyUpgrades,
+  branchedTable,
+  branchedTracks,
+  branchOf,
+  isBranchedTier,
   kitCounts,
   kitLevel,
+  maxPicks,
   maxTiers,
   nextTierPrice,
   readPath,
+  tierPatch,
   UPGRADE_PATHS,
+  type BranchedTable,
+  type BranchedTrack,
+  type BranchedTier,
+  type BranchPick,
+  type BranchPicks,
   type KitCounts,
   type KitLevel,
+  type OwnedPicks,
+  type PlainTier,
   type UpgradableUnit,
+  type UpgradeBranch,
   type UpgradeTier,
   type UpgradeTrack,
   type UpgradeTracks,
