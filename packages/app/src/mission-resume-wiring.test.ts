@@ -61,7 +61,8 @@ describe('Save and quit (main.ts)', () => {
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // every failure is a line, never a throw or a silent return of null before the write is kept (a torn-down battlefield aside, below)
-    expect(body.match(/return saveFailureText\(/g)?.length).toBe(4);
+    // (5: the content digest's on-demand load is the fifth, since the kit stopped carrying every map's JSON)
+    expect(body.match(/return saveFailureText\(/g)?.length).toBe(5);
     expect(body).toMatch(/return null;\s*\};?\s*$/);
   });
 

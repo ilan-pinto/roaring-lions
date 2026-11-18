@@ -4376,15 +4376,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const kit = await saveKit().catch(() => null);
     if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
+    const { cutMission, loadContentDigest, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
     if (!(await confirmReplaceOther(other, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name))) return { declined: true };
     if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    // The content digest (every map's JSON) loads at the save, not with the kit, which rides every mission boot (`loadContentDigest`).
+    const contentDigest = await loadContentDigest().catch(() => null);
+    if (disposed) return null; // left while the digest loaded: nothing to cut, write or leave
+    if (contentDigest === null) return saveFailureText('encode_failed');
     const cut = cutMission({
       sim,
       runtime,
+      contentDigest,
       missionId: resolvedMission.id,
       seed: SIM_SEED,
       build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
