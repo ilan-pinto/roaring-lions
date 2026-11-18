@@ -10,6 +10,19 @@ import { maps } from '@lions/data/content';
 import { filterLine, shippedFilter } from './chat-filter';
 
 const I18N = join(dirname(fileURLToPath(import.meta.url)), '../i18n');
+const MISSIONS_EN = join(dirname(fileURLToPath(import.meta.url)), '../../../../data/locales/en/missions.json');
+
+/** Every player-visible English mission string (the generated catalogue's text leaves; `src` holds hashes, not text). */
+function missionLines(): { at: string; line: string }[] {
+  const out: { at: string; line: string }[] = [];
+  const walk = (v: unknown, at: string): void => {
+    if (typeof v === 'string') out.push({ at, line: v });
+    else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
+    else if (v !== null && typeof v === 'object') for (const [k, x] of Object.entries(v)) if (k !== 'src') walk(x, `${at}.${k}`);
+  };
+  walk(JSON.parse(readFileSync(MISSIONS_EN, 'utf8')), 'missions');
+  return out;
+}
 const catalogues = readdirSync(I18N)
   .filter((f) => f.endsWith('.json'))
   .map((f) => ({ lang: f.slice(0, -'.json'.length), cat: JSON.parse(readFileSync(join(I18N, f), 'utf8')) as Record<string, string> }));
@@ -35,5 +48,14 @@ describe('free-play copy against the chat filter (GH-1417)', () => {
     expect(names.length).toBeGreaterThanOrEqual(40);
     const reader = shippedFilter('en');
     for (const name of names) expect(filterLine(reader, name, { mask: false }).kind, name).toBe('show');
+  });
+
+  // The lead, 18 Nov 2026: reword the Ein Qasab II dyke lines too (briefing, trigger label and its radio line). Every shipped
+  // mission line a player reads (briefing, objectives, labels, radio) passes the hide tier, so a later briefing cannot reintroduce one.
+  it('every shipped English mission line passes the hide tier', () => {
+    const lines = missionLines();
+    expect(lines.length).toBeGreaterThanOrEqual(750);
+    const reader = shippedFilter('en');
+    for (const { at, line } of lines) expect(filterLine(reader, line, { mask: false }).kind, `${at}: ${line}`).toBe('show');
   });
 });
