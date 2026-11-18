@@ -26,7 +26,8 @@ Every figure is **(M)**, measured on this tree, or **(R)**, reasoned. Each one i
    Adding them is one data edit, with no art.
 2. **Three types are new:** `sarim_carrier` (**Tracked Carrier**, the armoured vehicle the issue asks for),
    `hmg_team` (**Heavy MG Team**) and `observer_team` (**Observer Team**). All three are priced on the fitted curve,
-   within 1.3% of it (M, §2.5). They use no new schema field and need no engine change.
+   within 1.3% of it at base tier and 2.9% at max tier (M, §2.5). They use no new schema field and need no engine
+   change.
 3. **The production menu is the doctrine menu.** It runs on the one camp line per end that `data/versus/<map>.json`
    already authors. It touches no `data/missions` file, so **D7 is untouched**. A second, role-filtered Sarim line is
    designed in §3.3 and **not recommended** now.
@@ -50,11 +51,12 @@ Every figure is **(M)**, measured on this tree, or **(R)**, reasoned. Each one i
   - the Sarim budget is 1.6x the KDF's (`SARIM_BUDGET_RATIO` 8/5: 2400 against 1500, still `provisional`).
 - **Menu today: 6 types**, in dock order: `sarim_rifles`, `atgm_cell`, `gun_truck` (a Rif unit), `manpad_team`,
   `rocket_battery`, `recoilless_team`. `pop_cap` is 56; the KDF's is 40.
-- **The opposition fields 17 unit files** in `data/units/enemy/`: 8 of `faction: sarim`, 4 of `rif`, 5 of `ashwar`.
+- **The opposition fields 17 unit files** in `data/units/enemy/`: 8 of `faction: sarim`, 3 of `rif`, 6 of `ashwar`.
   Two of them are not buildable at all: `wounded_sarim` is shed by a squad, never bought, and `drone_swarm` is in
   `VERSUS_HELD_UNITS`.
 - **A versus room registers every shipped unit except `VERSUS_HELD_UNITS`** (`packages/app/src/net/versus-roster.ts`),
-  so all 15 non-held opposition types are already in every room's type table. A menu edit adds no registration and
+  so 16 opposition types are registered in every room (`wounded_sarim` included; only `drone_swarm` is held), and the
+  15 buildable ones among them are already in every room's type table. A menu edit adds no registration and
   moves no type index.
 
 ### 1.2 The table
@@ -304,17 +306,23 @@ Neighbours on each axis (M, read from `data/units`):
 
 `tools/validate_balance.py` (±18% band, refitted from the whole roster on every run) was run on this tree with the three
 files in a scratch directory passed as `--also`. That is a pure-Python, offline run, no different from what CI does for
-staged content. All four of CI's invocations (`.github/workflows/ci.yml` lines 161-172) pass, 50 units.
+staged content. All six of CI's invocations (`.github/workflows/ci.yml` lines 167-168 and 179-182: plain, the staged
+`--also e5 --also gh709`, and each of those again at max tier with `--branch=1` and with `--branch=2`, which the max-tier
+pass needs since PR 1584) pass, 50 units. Re-run on `dev` at `ab3819d06` (18 Nov), the three files passed with
+`--also <scratch dir>` (the script globs `**/*.json` under every `--also` directory and fits them WITH `--units`). The
+`e5` and `gh709` directories hold no unit JSON today (only notes), so those rows read as their plain twins.
 
 | invocation | fitted curve | `sarim_carrier` 445 | `hmg_team` 290 | `observer_team` 255 | widest | widest without the three |
 |---|---|---|---|---|---|---|
 | plain | 282.707 x power^0.482 | +0.7% (expected 442) | -1.3% (294) | -1.1% (258) | `attack_drone` +14.0% | +13.9% |
 | `--also e5 --also gh709` | same | same | same | same | +14.0% | +13.9% |
-| `--max-tier --upgrade-cost-factor 0.02` | 301.658 x power^0.484 | +2.3% (435) | -2.8% (298) | -2.1% (260) | `heli_yanshuf` +15.5% | +15.3% |
-| both | same | same | same | same | +15.5% | +15.3% |
+| `--max-tier --upgrade-cost-factor 0.02 --branch=1` | 301.830 x power^0.485 | +2.1% (436) | -2.9% (299) | -2.2% (261) | `heli_yanshuf` +15.3% | +15.0% |
+| `--max-tier --upgrade-cost-factor 0.02 --branch=2` | 301.843 x power^0.487 | +2.0% (436) | -2.9% (299) | -2.1% (261) | `heli_yanshuf` +15.2% | +15.0% |
+| both, `--branch=1` | same as `--branch=1` | same | same | same | +15.3% | +15.0% |
+| both, `--branch=2` | same as `--branch=2` | same | same | same | +15.2% | +15.0% |
 
-- **The refit barely moves.** It widens the widest deviation by 0.1 to 0.2 points. The most negative stays
-  `manpad_team` at -10.0% (-10.2% at max tier).
+- **The refit barely moves.** It widens the widest deviation by 0.1 to 0.3 points. The most negative stays
+  `manpad_team` at -10.0% (-10.3% at max tier on branch 1, -10.2% on branch 2).
 - **The first prices were a reasoned guess and were refitted once.** The guess was 500 / 250 / 230, which read +13.1%,
   -14.6% and -10.3%. Each was then moved to its own expected price, and nothing else was changed.
 - **The curve is the authority** (the 2026-08-23 roster design's rule). The landing PR re-runs it on its own tree. These
@@ -379,7 +387,7 @@ not in this combination:
 | a role filter on a line | `production.roles` and `lineTakes` (GH-277), with `NOT_ON_LINE` worded in the dock | the same filter on an AUTHORED versus line. Today it is only on a production WORK, which is owner 0, buildable, never placed by data, and refused in every versus room (`raiseWorks` drops in `ownership.ts`) |
 | a second structure per end | no: `versus_rules.schema.json` `end` has exactly one `camp` | a schema field, e.g. `ends.<end>.yard: { at, size, exit, roles }`, plus `validate_versus_rules.mjs` (open ground, within 6 tiles of the anchor, point-mirrored exits) |
 | side-1 lines | yes in versus (`economyRuntime` builds both ends' camps) | nothing new |
-| a role list naming opposition roles | no: `validate_production.mjs` refuses "a role no KDF unit has" | a rule widened to the line's own faction |
+| a role list naming opposition roles | no: `tools/validate_works.mjs` (`:123`) refuses "a role no KDF unit has" | a rule widened to the line's own faction |
 | `MAX_PRODUCTION_LINES` 4 a side | yes | 2 of 4 |
 
 **Why not now:**
@@ -498,7 +506,7 @@ Pipeline keys:
 | 10 | `militia_cell` | yes, `art/meshes/militia_cell.glb` | no tracked | 10 / none | n/a | none | 0 / 0 | 0 / 0 |
 | 11 | `mortar_crew` | yes, `art/meshes/mortar_crew.glb` | part only, `art/parts/mortar_crew/mortar.blend` | 7 / none | n/a | none | 0 / 0 | 0 / 0 |
 | 12 | `paramotor` | yes, `art/meshes/vehicles/paramotor.glb` | yes, `art/src/drones/paramotor.blend` | idle, wreck / none | n/a | none | 0 / 0 | 0 / 0 |
-| 13 | **`sarim_carrier`** | **no** | **no** | none / **idle, wreck** (written by `wreck:meshes`) | **None fits as a body.** Every tracked hull on disk is KDF (`ifv_namer_host.blend`, `apc_eitan_host.blend`, the Lavi), and a KDF hull on the Sarim side would read as KDF and collide in IoU. Reusable: the running-gear pass and its tracked recipe shape (`NAMER_GEAR`), the wreck and damage passes, and the turret-pivot convention of the shipped carriers. The 14.5 mm in a small cone turret is in the Meshy body (one object, roles split into named nodes in Blender) | **V**: Meshy text-to-3D (textured, real metres, about 6.7 x 2.9 m, hull `hull`, turret `turret`, tracks `track`, road wheels named for the recipe) -> new `tools/vehicles/export_meshy_carrier.py` (modelled on `export_meshy_truck.py`) -> `art/src/vehicles/sarim_carrier.blend` + `art/meshes/vehicles/sarim_carrier.glb` -> `running-gear:meshes` (new recipe, measured from the bytes) -> [`mark:meshes` if Q5 says yes: a row in `tools/vehicles/lavi_mark.py`] -> `wreck:meshes` (new recipe) -> `damage:meshes` -> `encode:meshes` -> catalogue, `TEXTURED_VEHICLE_EXEMPT` + TS twin, `ATTRIBUTION.md`, `ASSET_PROVENANCE.md`, `check_provenance_register.py` -> portrait (team) | **35 / 70.** Planned: 1 preview `meshy-6` 20 + 1 refine 2K 10 + 1 remesh 5. Ceiling: a second full round (the `ifv_namer` precedent, 80, was two rounds plus an extra refine). +5 for an 8K refine; the vehicle texture ratchet is 2560 px (`validate:meshes`), so 2K is enough | **12 / 16.** Import, scale, orient, de-light check, role split 3; exporter 2; running-gear recipe and check 2; turret pivot and slew 1; wreck recipe, damage, encode 1.5; team mark 1 (if Q5); IoU and gate iterations 1.5; portrait 0.25 (ceiling: one more Meshy round to clean, +4) |
+| 13 | **`sarim_carrier`** | **no** | **no** | none / **idle, wreck** (written by `wreck:meshes`) | **None fits as a body.** Every tracked hull on disk is KDF (`ifv_namer_host.blend`, `apc_eitan_host.blend`, `apc_kipod_host.blend`, the Lavi), and a KDF hull on the Sarim side would read as KDF and collide in IoU. Reusable: the running-gear pass and its tracked recipe shape (`NAMER_GEAR`), the wreck and damage passes, and the turret-pivot convention of the shipped carriers. The 14.5 mm in a small cone turret is in the Meshy body (one object, roles split into named nodes in Blender) | **V**: Meshy text-to-3D (textured, real metres, about 6.7 x 2.9 m, hull `hull`, turret `turret`, tracks `track`, road wheels named for the recipe) -> new `tools/vehicles/export_meshy_carrier.py` (modelled on `export_meshy_truck.py`) -> `art/src/vehicles/sarim_carrier.blend` + `art/meshes/vehicles/sarim_carrier.glb` -> `running-gear:meshes` (new recipe, measured from the bytes) -> [`mark:meshes` if Q5 says yes: a row in `tools/vehicles/lavi_mark.py`] -> `wreck:meshes` (new recipe) -> `damage:meshes` -> `encode:meshes` -> catalogue, `TEXTURED_VEHICLE_EXEMPT` + TS twin, `ATTRIBUTION.md`, `ASSET_PROVENANCE.md`, `check_provenance_register.py` -> portrait (team) | **35 / 70.** Planned: 1 preview `meshy-6` 20 + 1 refine 2K 10 + 1 remesh 5. Ceiling: a second full round (the `ifv_namer` precedent, 80, was two rounds plus an extra refine). +5 for an 8K refine; the vehicle texture ratchet is 2560 px (`validate:meshes`), so 2K is enough | **12 / 16.** Import, scale, orient, de-light check, role split 3; exporter 2; running-gear recipe and check 2; turret pivot and slew 1; wreck recipe, damage, encode 1.5; team mark 1 (if Q5); IoU and gate iterations 1.5; portrait 0.25 (ceiling: one more Meshy round to clean, +4) |
 | 14 | **`hmg_team`** | **no** | **no** (source: shipped Meshy figure + part, per house practice for Meshy teams) | none / **all**: idle, move, moveFire, fire, down, wreck, pinned, kneel set (from `rig.py` + the motion pass) | **The body:** the B3 `militia_cell` remesh, the figure `sarim_rifles` and `manpad_team` already reuse (0 credits). **The tripod:** `kit.atgm_tripod` (a code part) as the mount base, and the crew-point convention of `art/parts/mortar_crew/points.json`. **The gun:** none shipped (`technical`'s DShK is inside a supplied export whose source is not in git), so it is new | **T**: a `crew_builds.py` / `teams.py` entry (2 figures, gunner prone-to-kneel behind the gun, loader kneeling) -> gun part: Meshy preview, refine 2K, remesh at about 400-600 tris -> `art/parts/hmg_team/dshk.glb` + `.blend` + `points.json` -> rig -> motion -> gait -> encode -> catalogue, `TEXTURED_INFANTRY_EXEMPT` + TS twin, `rig.SUPPORTED_TEAMS`, attribution, provenance -> portrait (team + lead) | **35 / 95.** Planned: the gun part at 35 (preview 20 + refine 10 + remesh 5), body 0. Ceiling: the part at 60 (the `recoilless_rifle` precedent) + a new A-pose figure at 35, if the lead wants the HMG men to look unlike the riflemen, or if IoU needs a different body | **7 / 10.** Crew build and cut 2; part import, points, tripod 2; clips through rig/motion/gait 1.5; IoU and gait-gate iterations 1; portrait both variants 0.5 (ceiling: a new figure's cut, +3) |
 | 15 | **`observer_team`** | **no** | **no** | none / **all**, as above (`fire`/`moveFire` for the carbines; the kneel set for the observing pose) | **The body:** the same B3 figure (0), or the `atgm_cell` figure for a second face. **Kit, all code:** `kit.binoculars` (shipped), a tripod spotting scope from `kit.atgm_tripod` + `kit.tube`, and a whip antenna (one `kit.tube`, about 1.2 m) on the second man's pack, which is the silhouette cue. Carbines: the `sarim_rifle` part | **T**: as row 14, with no Meshy part | **0 / 35.** Planned 0: every part is code-built or shipped. Ceiling: a new A-pose figure at 35 (preview 20 + refine 10 + remesh 5), or 15 on the lite tier (`meshy-6-lite` preview 5 + refine 10, 2K only), if the lead wants it distinct | **6 / 9.** Crew build and kit placement 2.5; clips 1.5; IoU (sniper and MANPAD neighbours) 1; portrait both variants 0.5; slack 0.5 (ceiling: a new figure, +3) |
 | bench | `charge_squad` | yes, `art/meshes/charge_squad.glb` | no tracked | 7 / none | n/a | none | 0 / 0 | 0 / 0 |
@@ -575,8 +583,9 @@ checks, and where a new unit has gone red there before.
 - Run `git status art/meshes/` first: the gate walks untracked files too.
 
 **3. Balance.**
-- **What it checks:** `python3 tools/validate_balance.py --units data/units` and the three other CI invocations at ±18%
-  (§2.5 is the scratch reading). Then `pnpm balance`, the §5.7 targets, which should be unmoved (R).
+- **What it checks:** `python3 tools/validate_balance.py --units data/units` and the five other CI invocations at ±18%
+  (the staged `--also`, and both at max tier with `--branch=1` and `--branch=2`; §2.5 is the scratch reading). Then
+  `pnpm balance`, the §5.7 targets, which should be unmoved (R).
 - **No tuning-constant change** (the issue's constraint, and the balance park).
 
 **4. Portraits.**
@@ -660,9 +669,9 @@ included.
 | slice | contents | gates | waits on |
 |---|---|---|---|
 | S1 | menu 6 -> 12 (the six shipped types, appended) | `validate:data`; `versus:probe -- --economy` at 96 / 192 seeds; mirror and placed byte-identical | GH-1381's probe ruling; Q1, Q2, Q7 |
-| S2 | `sarim_carrier`: staged JSON + staged test, then Meshy, exporter, passes, then JSON into `data/units/enemy/` in the art commit | §5, all | Q3, Q4, Q5 approval |
-| S3 | `hmg_team`: as S2, team path | §5, all; infantry review | Q4 |
-| S4 | `observer_team`: as S3 | §5, all; infantry review | Q4 |
+| S2 | `sarim_carrier`: staged JSON + staged test, then Meshy, exporter, passes, then JSON into `data/units/enemy/` in the art commit; the PR description discloses the AI-generated art and the Meshy asset is added to `art/ATTRIBUTION.md` (CLAUDE.md) | §5, all | Q3, Q4, Q5 approval |
+| S3 | `hmg_team`: as S2, team path, with the same disclosure and `ATTRIBUTION.md` entry for any Meshy part or figure | §5, all; infantry review | Q4 |
+| S4 | `observer_team`: as S3, with the same disclosure and an `ATTRIBUTION.md` entry for any Meshy asset it adds | §5, all; infantry review | Q4 |
 | S5 | menu 12 -> 15, the probe re-read, pins blessed once | `versus:probe`; versus pins | S1-S4 |
 
 ## 8. What this page does not decide
