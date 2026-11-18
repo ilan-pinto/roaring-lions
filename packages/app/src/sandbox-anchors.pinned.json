@@ -458,5 +458,55 @@
       3,
       24
     ]
+  },
+  "bir_tarsha": {
+    "friendly": [
+      24,
+      34
+    ],
+    "hostile": [
+      26,
+      3
+    ]
+  },
+  "bir_tarsha_2": {
+    "friendly": [
+      24,
+      33
+    ],
+    "hostile": [
+      26,
+      3
+    ]
+  },
+  "bir_tarsha_3": {
+    "friendly": [
+      24,
+      2
+    ],
+    "hostile": [
+      43,
+      20
+    ]
+  },
+  "bir_tarsha_4": {
+    "friendly": [
+      6,
+      16
+    ],
+    "hostile": [
+      33,
+      26
+    ]
+  },
+  "bir_tarsha_5": {
+    "friendly": [
+      6,
+      16
+    ],
+    "hostile": [
+      40,
+      2
+    ]
   }
 }

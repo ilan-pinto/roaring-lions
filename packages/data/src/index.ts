@@ -193,17 +193,32 @@ export {
 
 /** Brigade economy step 3 (spec 2026-09-15 §4.3): patches a unit's JSON
  *  with its bought upgrade tiers before @lions/sim registers the type. */
+export { BRANCHES_OPEN } from './branches-open';
 export {
   applyUpgrades,
+  branchedTable,
+  branchedTracks,
+  branchOf,
+  isBranchedTier,
   kitCounts,
   kitLevel,
+  maxPicks,
   maxTiers,
   nextTierPrice,
   readPath,
+  tierPatch,
   UPGRADE_PATHS,
+  type BranchedTable,
+  type BranchedTrack,
+  type BranchedTier,
+  type BranchPick,
+  type BranchPicks,
   type KitCounts,
   type KitLevel,
+  type OwnedPicks,
+  type PlainTier,
   type UpgradableUnit,
+  type UpgradeBranch,
   type UpgradeTier,
   type UpgradeTrack,
   type UpgradeTracks,
@@ -347,6 +362,10 @@ export type { AvatarPreset, AvatarView, AvatarInput } from './avatar';
  *  directory order. Hand-kept, so `index.test.ts` pins it to the directory: an unregistered file
  *  would be silently inert. The renderer bakes the one the app picks (`gradeOf`) into a 32^3 LUT. */
 export const grades = [gradeDawn, gradeDusk] as const;
+
+/** The chat word lists (GH-1417 S2) are NOT here: they live on the subpath `@lions/data/chat-filters`, loaded only with the app's
+ *  lazily imported word filter, so they stay out of the entry chunk (the main-chunk guard). Only the type is re-exported. */
+export type { ChatFilterJson } from './chat-filters';
 
 /** Building types, keyed by id. Shapes match structure.schema.json. */
 export const structures = structureCatalogue.types;

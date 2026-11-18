@@ -55,6 +55,7 @@ import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
 import { inboxOf } from './chat-inbox';
+import { chatFilterNow, loadChatFilter } from './chat-filter-gate';
 import { quickChatText } from './quick-chat';
 import { symbolLabel } from './symbol';
 import { unitName } from '../unit-text';
@@ -115,6 +116,9 @@ export interface VersusDeps {
   saveData?: () => boolean;
   /** Whether the player has chat on (Settings, Chat; GH-1417 S1), read at every line. Absent is on. */
   chatEnabled?: () => boolean;
+  /** Whether the word filter masks swear words (Settings, Chat; GH-1417 S2), read at every line. Absent is on. The hide tier has no
+   *  switch. */
+  chatMask?: () => boolean;
 }
 
 /** Where the lobby tells a player to save the copied advisor ticket: a private
@@ -270,15 +274,28 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     },
     // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
     // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
-    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
+    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), deps.chatMask, room.seat).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
     // A preset phrase arrives as an id and is drawn in THIS client's language, through the same inbox.
-    onQuick: (seat, id) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, quickChatText(id), (shown) => room.chat?.receive(seat, shown)),
+    onQuick: (seat, id) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), deps.chatMask, room.seat).deliver(seat, quickChatText(id), (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
       room.repaint?.();
     },
   });
+  // GH-1417 S2: the word filter loads on demand (`chat-filter-gate.ts`). Until it is in, every typed name reads as the fallback name
+  // and every received line is held by the inbox; once it is, the lobby is relabelled so the names read as typed (or filtered).
+  // IN PLACE, whatever the phase: a match that started while the filter loaded holds this very tuple (`handOver`) and reads it at
+  // every name (`nameFrom`), so it reads the names as typed from then on instead of the fallback name for the whole match (CR5).
+  if (chatFilterNow() === null) {
+    void loadChatFilter().then((ok) => {
+      if (!ok) return;
+      const fresh = labelsOf(room.seats);
+      room.labels[0] = fresh[0];
+      room.labels[1] = fresh[1];
+      if (room.phase === 'lobby') room.repaint?.();
+    });
+  }
   return room;
 }
 
@@ -1136,7 +1153,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       send: (text) => r.transport.chat(text),
       nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
       sendQuick: (id) => r.transport.quick(id),
-      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true)),
+      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true), deps.chatMask, r.seat),
       peer: r.seat === 0 ? 1 : 0,
     }, { docked: true });
 

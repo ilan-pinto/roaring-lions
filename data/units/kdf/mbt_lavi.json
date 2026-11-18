@@ -161,10 +161,24 @@
         },
         {
           "price": 950,
-          "patch": {
-            "weapons[0].accuracy": 0.1,
-            "weapons[0].penetration": 325
-          }
+          "branches": [
+            {
+              "id": "fire_control",
+              "label": "garage.branch.mbt_lavi.fire_control",
+              "patch": {
+                "weapons[0].accuracy": 0.1,
+                "weapons[0].penetration": 208
+              }
+            },
+            {
+              "id": "long_rod",
+              "label": "garage.branch.mbt_lavi.long_rod",
+              "patch": {
+                "weapons[0].accuracy": 0.06,
+                "weapons[0].penetration": 325
+              }
+            }
+          ]
         }
       ]
     }

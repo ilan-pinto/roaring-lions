@@ -88,6 +88,7 @@ import {
   vfxEmitters,
   menuDiorama,
   structures as structureCatalogue,
+  type BranchPick,
   type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
@@ -151,7 +152,7 @@ import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
 import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
-import { ReplayRecorder } from './feedback/replay';
+import { ReplayRecorder, replayStartPicks } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
@@ -185,6 +186,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
+import { withGarageBranch } from './branch-bridge';
 import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
@@ -273,6 +275,7 @@ import {
 } from './sandbox-extras';
 import {
   SANDBOX_WORKS_KDF,
+  bootPicks,
   bootTiers,
   sandboxUnitTypes,
 } from './sandbox-force';
@@ -294,7 +297,8 @@ import { rendererOptionsFor } from './renderer-options';
 import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageInsigniaTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
-import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import { sandboxHelp, unknownParams } from './sandbox-help';
+import { bootFlags } from './boot-flags';
 import { withSoftParticles } from './soft-flag';
 // GH-1500 follow-up (lead ruling 16 Nov 2026): the versus and chat code loads on demand. `./versus-kit` (a dynamic import, below) holds the
 // room's transport, lobby wiring, snapshot, chat, advisor, scoreboard and end screen; this file takes ONLY its types. What stays static is
@@ -302,6 +306,7 @@ import { withSoftParticles } from './soft-flag';
 import { LocalTransport, flagSetupRoom, seatRules, validateCommand, type Faction, type MatchConfig, type Seat, type TransportStatus, type WsTransport } from '@lions/net';
 import type { Connected } from './net/connect';
 import type * as VersusKit from './versus-kit';
+import type * as SandboxSarim from './sandbox-sarim';
 import { OfflineMatchGone, dropOffline, isOfflineTransport } from './net/offline-slot';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -312,7 +317,6 @@ import { menuAccountSource } from './account/menu-account';
 // Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFramesWith, seatWorldFor, type FrameStep } from './net/frame-run';
-import { roomFlags } from './net/room-flags';
 import { viewerSideOf } from './net/viewer';
 import { tunnelRouteOf } from './net/tunnel-route';
 import type { SpectateEnd, SpectateHooks } from './net/spectator';
@@ -724,9 +728,16 @@ function versusKit(): Promise<typeof VersusKit> {
   return importWithRetry(() => import('./versus-kit'));
 }
 
+/** GH-1381: the Sarim side of Free play (its two forces and their mesh roster), loaded only when a Free play picks
+ *  `&side=sarim`, so a KDF Free play, a mission and the entry chunk never carry it. */
+function sandboxSarim(): Promise<typeof SandboxSarim> {
+  return importWithRetry(() => import('./sandbox-sarim'));
+}
+
 function accountState(): {
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
+  ownedPicks: Record<string, Record<string, BranchPick>>;
   balance: number;
 } {
   // A blocked store reads as the empty account (`ledger-store.ts`), which has
@@ -1280,7 +1291,7 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades, picks: a.ownedPicks };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
@@ -1292,7 +1303,7 @@ async function main(): Promise<void> {
           const { account, ok } = buyWithCoins(
             storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
             roar,
-            ask,
+            withGarageBranch(ask),
             Date.now()
           );
           if (ok) {
@@ -1415,6 +1426,7 @@ async function main(): Promise<void> {
         : undefined,
       owned: ownedTiers,
       earned: ledgerStore.readAccount().upgrades,
+      picks: accountState().ownedPicks,
       onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
             // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
@@ -1425,7 +1437,7 @@ async function main(): Promise<void> {
               ?.upgrades?.[track]?.tiers.map((x) => x.price);
             if (prices === undefined) return { ...now(), landed: false };
             const { account, ok } = buyTierWithCredits(
-              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers },
+              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers, roar: ledgerStore.readRoar() },
               prices,
               unitId,
               track,
@@ -1452,6 +1464,7 @@ async function main(): Promise<void> {
   const versusStore = safeStorageLike(() => window.localStorage);
   const versusDeps: VersusDeps = {
     chatEnabled: () => settingsDeps.get().chat.enabled,
+    chatMask: () => settingsDeps.get().chat.mask,
     open: async (req, signal) => {
       const kit = await versusKit();
       return kit.openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
@@ -1936,7 +1949,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (vk === null) throw new Error('the versus kit is loaded for a room only');
     return vk;
   };
-  const flags = roomFlags(readFlags(params), inRoom, (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`));
+  /** GH-1381: the side this Free play commands (`&side=`): the KDF, the default, everywhere else. The player is seat 0 and
+   *  side 0 on either side; only which force stands where changes (`sandbox-sarim.ts`). The extras follow the side
+   *  (`sideFlags`) and the room (`roomFlags`), in `bootFlags`, which prints what each dropped. */
+  const { side: playSide, flags } = bootFlags(params, { missionId: req.missionId, inRoom }, (line) => console.warn(line));
+  // Nothing is mounted yet, so a chunk that will not load throws a `ChunkLoadError` to the router's error card, as the versus kit's does.
+  const sarim: typeof SandboxSarim | null = playSide === 'sarim' ? await sandboxSarim() : null;
+  if (req.signal.aborted) return () => undefined;
   const audio = battleAudio();
   // GH-1393: a mission being RESUMED from a save. Everything the save needs is read and checked HERE, before anything is built: a save that
   // will not load, is another mission's, or was started from a campaign that has since moved sends the player back to the board (which says
@@ -1958,7 +1977,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       missionId: req.missionId,
       store: loadedKit.openSuspendStore(() => window.localStorage),
       seed: SIM_SEED,
-      live: { ledger: ledgerStore.readLedger(), unlocks: a.boughtUnits, tiers: a.ownedTiers },
+      live: { ledger: ledgerStore.readLedger(), unlocks: a.boughtUnits, tiers: a.ownedTiers, picks: a.ownedPicks },
     });
     if (req.signal.aborted) return () => undefined;
     if (!got.ok) {
@@ -1967,7 +1986,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     resumed = got.loaded;
   }
-  const { boughtUnits, ownedTiers } = accountState();
+  const { boughtUnits, ownedTiers, ownedPicks } = accountState();
   /** The bought kit, read ONCE from the account through `accountState()`
    *  (WP-S3g §3.4): tiers are type-wide and fixed for the mission (brigade
    *  D3). `upgradePrepass` is one loop that yields both the unit types
@@ -1986,8 +2005,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  registers each side's kit from the shared config (`buildMatchWorld`),
    *  and its screen's kit tables come from that world through `screenKit`,
    *  never from this prepass. */
-  const bootKit = inRoom ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
-  const prepass = upgradePrepass(roster, bootKit);
+  // GH-1381: the account's kit is the KDF the player commands. In a Sarim Free play the KDF is the opposition, and it
+  // fields the base ladder, as a matched versus room's does, never the player's own bought tiers.
+  const bootKit = inRoom || playSide === 'sarim' ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
+  /** GH-1384: the branch owned per branched track, read with the tiers and swapped with them under
+   *  `&kit` (`bootPicks`), and dropped wherever the tiers are. Named `branchPicks`, never `picks`: the deploy selection
+   *  below is `picks`. */
+  const branchPicks = inRoom || playSide === 'sarim' ? {} : bootPicks(ownedPicks, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
+  const prepass = upgradePrepass(roster, bootKit, branchPicks);
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -2278,6 +2303,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** A seat's name: the lobby's label (a member's name and public id, GH-1075 A3), else the config's callsign. The
    *  config carries no label (§0.14); after a reload nothing was handed over and the callsign stands. */
   const seatName = (seat: number): string => rk().nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
+  /** GH-1417 S2: the chat word filter, loaded on demand (`ui/chat-filter-gate.ts`, re-exported by the kit) for a room only. Asked for
+   *  here, awaited before the room's chat, score and status line are mounted; until it is in, a typed name reads as the fallback name
+   *  and a line is held. A config exists only from the kit's `connectMatch`, so `rk()` is loaded wherever this asks. */
+  const chatFilterLoad: Promise<boolean> | null = netConfig !== null ? rk().loadChatFilter() : null;
   /** This battlefield's room, when it is one seat of a match (N1b task 8):
    *  where Escape's pause, the menu's Resume and Surrender go. Null in
    *  single-player, which keeps its local pause exactly as it was. */
@@ -2329,6 +2358,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     sandboxHelp({
       mapId,
       mapIds: Object.keys(mapManifest),
+      side: playSide,
       on: Object.entries(flags)
         .filter(([, on]) => on)
         .map(([name]) => name),
@@ -2387,7 +2417,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(netConfig).humanHeld });
   /** What the ownership check asks of the live sim: single-player is seat 0
    *  on side 0 (R10), so the check runs on one code path, room or none. */
-  const seatWorld = seatWorldFor(netConfig, sim);
+  // GH-1381: a Sarim Free play's seat 0 is Sarim's, so its tunnel verbs and its formations pass the ownership check.
+  const seatWorld = seatWorldFor(netConfig, sim, undefined, playSide);
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
@@ -2589,6 +2620,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // no Sarim and no civilians. `sandboxForce`
     // keeps its meaning -- the seat's own units -- and has no crowd.
     sandboxForce = { player: versusWorld.bySide[me], civilians: [] };
+  } else if (sarim !== null) {
+    // GH-1381: the versus Sarim force at the friendly anchor against the versus KDF force at the hostile one.
+    sandboxForce = sarim.sarimSandboxSpawns(sim, typeOf, anchors, { civ: wantCiv });
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -2701,7 +2735,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
       ? withWoundedTypes(rk().versusUnitTypes(versusFactions, versusWorld?.specialsBySide), woundsOf)
-      : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
+      : sarim !== null
+        ? withWoundedTypes(sarim.sarimSandboxUnitTypes({ civ: wantCiv }), woundsOf)
+        : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
   // the dev note names the key. Set here, before the deploy gate's click, so
@@ -2717,7 +2753,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // meshes this roster and this map's own buildings actually need, so the
   // menu's own diorama can ask the same question about its own roster.
   // Field works are on no map tile and in no mission placement, so their ids join the plan by
-  // name: the mission's `field_works`, or on `&works` every offered type.
+  // name: the mission's `field_works`, or in a KDF Free play (field works on by default since
+  // 18 Nov 2026, `freePlayDefaults`; `&works` is an alias) every offered type.
   const worksIds = worksTypeIdsFor(
     mission?.field_works,
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
@@ -3290,6 +3327,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `abandon`, never a bare `() => undefined`: the renderer, its canvas, the transport and the loading screen all exist by now, and the
   // router runs the disposer a stale mount returns rather than tearing down for it, so a no-op here kept them all (WebGL context included).
   if (req.signal.aborted) abandon('left while the save kit loaded');
+  // GH-1417 S2: a room waits for its word filter. The load never rejects; a failure is logged by the gate, and the match plays on
+  // with its received lines hidden and its typed names read as the fallback name. The wait gives way to a leave (CR1) and to a hung
+  // chunk after `CHAT_FILTER_WAIT_MS` (CR7): the match then starts on the same fallback, and the load runs on; when it lands the inbox
+  // delivers its held lines, and what draws a name next reads its label (`seatName` is asked at each draw, never kept): the status
+  // line and new chat lines; the scoreboard, its advisor chip and the points panel at their next update, which repaints on a changed
+  // name (CR9). A feed line already posted, and the chat's mute button until the chat opens or the inbox changes, keep the fallback they drew.
+  if (chatFilterLoad !== null) await rk().untilLoadedOrAborted(chatFilterLoad, req.signal);
+  if (req.signal.aborted) abandon('left while the chat filter loaded');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -3329,7 +3374,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // cast: TypeScript narrows `deploySelection` to its initial null, since
       // it is assigned only inside the deploy screen's callback.
       const picks = deploySelection as DeploySelection | null;
-      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
+      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
       if (resumed !== null && sk !== null) {
         // The world stands at tick 0, built as for a new mission. The save is written onto it, proved (sim hash and runtime digest equal
         // the saved ones) before a tick runs, and the renderer is re-seeded from it. A refusal leaves this sim half-written: it is dropped.
@@ -3364,6 +3409,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         seed: SIM_SEED,
         ledger: sentLedger,
         tiers: bootKit,
+        // GH-1384: only once branching is open; closed, the replay start is dev's (`replayStartPicks`).
+        ...replayStartPicks(branchPicks),
         unlocks: [...boughtUnits],
         deploy: picks === null ? null : [...picks.chosen],
       });
@@ -4099,7 +4146,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const chatInbox = room !== null && netConfig !== null && !spectating
-    ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
+    ? rk().inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask, netSeat)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
     ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), sendQuick: (id) => room.quick(id), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
@@ -4108,9 +4155,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
     room.setHooks({
-      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }),
       // A preset phrase is an id on the wire and is drawn in this client's language, through the same inbox.
-      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }),
     });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
@@ -4219,7 +4266,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // GH-110: the EVA half. The radio net speaks the player faction's
     // language; captions carry it until a line is recorded (D5).
     announcements: (audioManifest as AudioManifest).voices?.announcements,
-    announceLang: voiceLangs['kdf'] ?? 'he',
+    // GH-1381: a Sarim Free play's net speaks Sarim's.
+    announceLang: voiceLangs[playSide] ?? 'he',
     labelOf: (id) => mission?.objectives.find((o) => o.id === id)?.text ?? id,
   });
   onDispose(() => {
@@ -4780,7 +4828,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let worksRingKey = '';
   /** The cursor tooltip's lines for the armed work, rebuilt with the preview. */
   let worksTip: { text: string; bad: boolean }[] | null = null;
-  // `&works` has no mission to raise a work through, so it gets a runtime over a synthetic one
+  // Free play's field works (`flags.works`: on in every KDF Free play since 18 Nov 2026, `freePlayDefaults`)
+  // have no mission to raise a work through, so they get a runtime over a synthetic one
   // (`sandbox-works.ts`), held apart from `runtime` so no mission-only path wakes for it.
   let sandboxWorksRt: MissionRuntime | null = null;
   /** The unit types the `&works` sandbox loads a model for: its dock's menu (GH-277 forward camp). */
@@ -7216,8 +7265,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  /** Read in a room only (NetScoreboard, NetPoints, showNetEnd): outside one the kit is not loaded, so `seatName` would throw. */
-  const scoreNames = { theirs: vk !== null ? seatName(otherSeat) : '' };
+  /** Read in a room only (NetScoreboard, NetPoints, showNetEnd): outside one the kit is not loaded, so `seatName` would throw.
+   *  A getter, read at each update of the board and the points panel, which key their repaint on it (GH-1417 S2, CR9): a name that
+   *  read as the fallback while the word filter loaded is redrawn as its label at the next update once the filter is in (CR7), the
+   *  advisor chip with it. The end panel reads it once, when the match is over. `chat-filter-wiring.test.ts` pins the getter. */
+  const scoreNames = { get theirs(): string { return vk !== null ? seatName(otherSeat) : ''; } };
   const netScore = vk !== null && vk.showsScoreboard(netConfig) && !spectating ? new vk.NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and

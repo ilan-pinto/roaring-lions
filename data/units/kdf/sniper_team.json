@@ -133,10 +133,24 @@
         },
         {
           "price": 275,
-          "patch": {
-            "weapons[0].accuracy": 0.1,
-            "weapons[0].penetration": 11
-          }
+          "branches": [
+            {
+              "id": "match_optic",
+              "label": "garage.branch.sniper_team.match_optic",
+              "patch": {
+                "weapons[0].accuracy": 0.1,
+                "weapons[0].penetration": 7
+              }
+            },
+            {
+              "id": "tungsten_core",
+              "label": "garage.branch.sniper_team.tungsten_core",
+              "patch": {
+                "weapons[0].accuracy": 0.06,
+                "weapons[0].penetration": 11
+              }
+            }
+          ]
         }
       ]
     }

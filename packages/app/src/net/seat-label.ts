@@ -5,9 +5,19 @@
  *
  * A bot's typed model name is DATA: it is returned as a plain string for a text node, never passed through `t()`
  * and never markup. A listed model id is chrome and goes through `t('bot.model.<id>')`.
+ *
+ * Every typed name (a callsign, a member's name, a bot's typed model) passes the chat word filter here (GH-1417 S2,
+ * `ui/chat-filter.ts`'s `screenName`): one with a filtered word is shown as the room's fallback name, `Lion`. This is
+ * the one place a seat's name is made, so the lobby, the chat, the score, the status line and a spectator all see the
+ * same filtered name. The filter is the receiver's: the other seat's own screen and the room keep what was typed. The filter loads on
+ * demand (`ui/chat-filter-gate.ts`); until it is in, every typed name reads as that fallback name, never as typed.
  */
 import type { BotModel, SeatState } from '@lions/net';
 import { t } from '../i18n/t';
+import { shownName } from '../ui/chat-filter-gate';
+
+/** A typed name as this reader is shown it: filtered, or the fallback name while the filter loads. */
+const shown = (raw: string): string => shownName(raw);
 
 /** `PUBLIC_ID_SHOWN`: the whole public id is shown (8 Crockford characters, §0.18). */
 export const PUBLIC_ID_SHOWN = 8;
@@ -21,7 +31,7 @@ export interface SeatLabel {
 
 const modelText = (m: BotModel | undefined): string | null => {
   if (m === undefined) return null;
-  return m.id === 'other' ? m.name : t(`bot.model.${m.id}`);
+  return m.id === 'other' ? shown(m.name) : t(`bot.model.${m.id}`);
 };
 
 const recordText = (r: { won: number; lost: number; drawn: number }): string =>
@@ -37,16 +47,16 @@ export function seatLabel(
 ): SeatLabel {
   if (s.member !== undefined) {
     return {
-      text: `${s.member.name} · ${s.member.publicId.slice(0, PUBLIC_ID_SHOWN)}`,
+      text: `${shown(s.member.name)} · ${s.member.publicId.slice(0, PUBLIC_ID_SHOWN)}`,
       tag: opts.sandbox === true ? null : 'member',
       record: s.member.record === undefined ? null : recordText(s.member.record),
       model: null,
     };
   }
   if (kind === 'bot') {
-    return { text: s.callsign, tag: opts.sandbox === true ? null : 'bot', record: null, model: modelText(s.botModel) };
+    return { text: shown(s.callsign), tag: opts.sandbox === true ? null : 'bot', record: null, model: modelText(s.botModel) };
   }
-  return { text: s.callsign, tag: opts.sandbox === true ? null : 'guest', record: null, model: null };
+  return { text: shown(s.callsign), tag: opts.sandbox === true ? null : 'guest', record: null, model: null };
 }
 
 /** The label of each seat the lobby named, by seat; a seat it did not name is null. */
@@ -60,4 +70,4 @@ export function labelsOf(seats: readonly SeatState[], opts: { sandbox?: boolean 
 
 /** A seat's name in chat, status line and score: its label, else the config's callsign. */
 export const nameFrom = (labels: readonly (SeatLabel | null)[] | undefined, seat: number, fallback: string): string =>
-  labels?.[seat]?.text ?? fallback;
+  labels?.[seat]?.text ?? shown(fallback);

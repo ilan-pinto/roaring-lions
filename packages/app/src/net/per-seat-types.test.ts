@@ -58,7 +58,7 @@ const baseOf = (id: string): RosterUnit => {
 };
 const read = (u: UpgradableUnit, path: string): number => readPath(u, path) ?? NaN;
 const tierPatch = (id: string, track: string, path: string): number =>
-  (baseOf(id).upgrades?.[track]?.tiers[0]?.patch[path] as number | undefined) ?? 0;
+  (baseOf(id).upgrades?.[track]?.tiers[0]?.patch?.[path] as number | undefined) ?? 0;
 
 /** Side 1's registrations, one variant per question. Every variant except
  *  `base` registers a full set of KDF copies, so the type-index layout -- and
@@ -87,34 +87,35 @@ type Variant = 'base' | 'identity' | 'armour' | 'kit' | 'plates' | 'gunnery';
 function side1Types(variant: Exclude<Variant, 'base'>): RosterUnit[] {
   switch (variant) {
     case 'identity':
-      return upgradePrepass(kdf, {}).registered;
+      return upgradePrepass(kdf, {}, {}).registered;
     case 'armour':
-      return upgradePrepass(kdf, tiersFor(['armour'])).registered;
+      return upgradePrepass(kdf, tiersFor(['armour']), {}).registered;
     case 'kit':
-      return upgradePrepass(kdf, KIT).registered;
+      return upgradePrepass(kdf, KIT, {}).registered;
     case 'gunnery':
       return kdf.map((u) => {
         const fp = u.upgrades?.firepower;
         const armour = u.upgrades?.armour;
-        if (!fp) return applyUpgrades(u, armour ? { armour: 1 } : {});
+        if (!fp) return applyUpgrades(u, armour ? { armour: 1 } : {}, {});
         const patch: Record<string, number> = {};
-        for (const [path, d] of Object.entries(fp.tiers[0].patch)) patch[path] = d * FIRE_GAIN;
-        const tiers = [{ ...fp.tiers[0], patch }, ...fp.tiers.slice(1)];
+        for (const [path, d] of Object.entries(fp.tiers[0].patch ?? {})) patch[path] = d * FIRE_GAIN;
+        const tiers = [{ price: fp.tiers[0].price, patch }, ...fp.tiers.slice(1)];
         return applyUpgrades(
           { ...u, upgrades: { ...u.upgrades, firepower: { ...fp, tiers } } },
           armour ? { armour: 1, firepower: 1 } : { firepower: 1 },
+          {},
         );
       });
     case 'plates':
       return kdf.map((u) => {
         const armour = u.upgrades?.armour;
-        if (!armour) return applyUpgrades(u, {});
+        if (!armour) return applyUpgrades(u, {}, {});
         const patch: Record<string, number> = {};
-        for (const [path, d] of Object.entries(armour.tiers[0].patch)) {
+        for (const [path, d] of Object.entries(armour.tiers[0].patch ?? {})) {
           if (path !== 'hull.hp') patch[path] = d * PLATE_GAIN;
         }
-        const tiers = [{ ...armour.tiers[0], patch }, ...armour.tiers.slice(1)];
-        return applyUpgrades({ ...u, upgrades: { ...u.upgrades, armour: { ...armour, tiers } } }, { armour: 1 });
+        const tiers = [{ price: armour.tiers[0].price, patch }, ...armour.tiers.slice(1)];
+        return applyUpgrades({ ...u, upgrades: { ...u.upgrades, armour: { ...armour, tiers } } }, { armour: 1 }, {});
       });
   }
 }

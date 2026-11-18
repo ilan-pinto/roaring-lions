@@ -133,10 +133,24 @@
         },
         {
           "price": 660,
-          "patch": {
-            "weapons[0].accuracy": 0.1,
-            "weapons[0].penetration": 30
-          }
+          "branches": [
+            {
+              "id": "stabilised_sight",
+              "label": "garage.branch.ifv_namer.stabilised_sight",
+              "patch": {
+                "weapons[0].accuracy": 0.1,
+                "weapons[0].penetration": 19
+              }
+            },
+            {
+              "id": "tungsten_belt",
+              "label": "garage.branch.ifv_namer.tungsten_belt",
+              "patch": {
+                "weapons[0].accuracy": 0.06,
+                "weapons[0].penetration": 30
+              }
+            }
+          ]
         }
       ]
     }
