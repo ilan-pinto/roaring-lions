@@ -463,7 +463,11 @@ describe('snapshot format pin', () => {
     // row, so only those digest bytes move. With the four rows cut from snapshot-schema.ts the same run reads
     // 3026783768 again (watched), so the move is exactly the new rows. 3165750916 is read off a fresh run. The golden
     // hash did not move: nothing new folds into hash().
-    expect(h >>> 0).toBe(3165750916);
+    // Was 3165750916. GH-1438 E1 (the compound gate) appended four `state` rows (stGateState Uint8Array x 256, stGateTimer
+    // and stGateHold Int32Array x 256, and the `gateLive` scalar), encoded even when no gate is raised. With those four rows
+    // cut from snapshot-schema.ts the same run reads 3165750916 again (watched), so the move is exactly the new rows.
+    // 2772551002 is read off a fresh run. The golden hash did not move: nothing folds the block until a gate is raised.
+    expect(h >>> 0).toBe(2772551002);
   });
 });
 

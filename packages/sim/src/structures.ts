@@ -66,6 +66,13 @@ export interface StructureTypeJson {
    *  and treated for `treat_s`; idle friendly medics within `dispatch_radius` tiles are sent
    *  to wounded within that radius of the post. Absent = not an aid post (every shipped type). */
   aid?: { admit_radius: number; treat_s: number; dispatch_radius: number };
+  /** GH-1438 E1: a compound gate (docs/campaign/civilian-drama.md section 2). It stands blocked like any
+   *  structure, opens when a living, surface, standing ground unit of side `opens_for` (0, the KDF: the only
+   *  value the schema admits) comes within `open_radius_tiles` (an integer, 1..8) of its centroid, and shuts
+   *  `hold_open_s` (0..30, default 3) after the last one left, never on anything standing in it. Each swing
+   *  takes `swing_s` (1..10, default 2). Absent = not a gate (every shipped type). Never `per_tile`: the two
+   *  leaves are one structure. */
+  gate?: { open_radius_tiles: number; hold_open_s?: number; swing_s?: number; opens_for?: number };
   /** Chest-high: blocks movement and shields whoever is hugging it, but you
    *  shoot over it rather than at it. A compound built from sight-blocking
    *  masonry is a blind box -- its garrison cannot fire out, so the wall
@@ -221,6 +228,8 @@ export interface StructureType {
   production: StructureProduction | null;
   /** GH-707: the parsed `aid` block, null when the type is not an aid post. */
   aid: StructureAid | null;
+  /** GH-1438 E1: the parsed `gate` block, null when the type is not a gate. */
+  gate: StructureGate | null;
   /** A linear run whose tiles are each their own structure -- walls, fences.
    *  See StructureTypeJson.per_tile. */
   perTile: boolean;
@@ -235,6 +244,50 @@ export interface StructureAid {
   admitRadiusSq: Fx;
   treatTicks: number;
   dispatchRadiusSq: Fx;
+}
+
+/** GH-1438 E1: a parsed `gate` block. Integers only: no fixed-point multiply anywhere in it. */
+export interface StructureGate {
+  /** The side whose units open it (0). */
+  opensFor: number;
+  /** `open_radius_tiles` squared, in Q8.8 squared units (tile^2 x 65536): the form the near test
+   *  compares `((dx >> 8)^2 + (dy >> 8)^2)` against, as `SHEPHERD_RADIUS_SQ` does. At most 8 x 8 x 65536. */
+  radiusSq: number;
+  /** `open_radius_tiles` in Q8.8 (tile x 256): the per-axis early reject. */
+  radiusQ8: number;
+  /** `hold_open_s` x ticks per second. */
+  holdTicks: number;
+  /** `swing_s` x ticks per second. */
+  swingTicks: number;
+}
+
+/** GH-1438 E1: the four states of a gate (`Sim.structures.gate`). OPENING always completes; CLOSING reverses
+ *  to OPEN the tick an opening unit is near again, and holds (its timer does not run) while anything stands
+ *  in the gate. The tiles are blocked in CLOSED and OPENING only. */
+export const GATE_CLOSED = 0;
+export const GATE_OPENING = 1;
+export const GATE_OPEN = 2;
+export const GATE_CLOSING = 3;
+
+/** Most tiles a gate's radius may reach (the schema's maximum). */
+export const GATE_MAX_RADIUS_TILES = 8;
+
+/** Parse a `gate` block (GH-1438 E1). Every field is an authored integer, refused here if it is not one
+ *  inside the schema's range, so the sim never sees a fractional radius or a seconds value that does not
+ *  land on a whole tick. */
+function gateFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureGate | null {
+  const g = json.gate;
+  if (g === undefined) return null;
+  if (json.per_tile === true) throw new Error(`structure type ${json.id}: a gate is one structure, not per_tile`);
+  const intIn = (v: number, lo: number, hi: number, what: string): number => {
+    if (!Number.isInteger(v) || v < lo || v > hi) throw new Error(`structure type ${json.id}: gate ${what} must be an integer ${lo}..${hi}, got ${v}`);
+    return v;
+  };
+  const r = intIn(g.open_radius_tiles, 1, GATE_MAX_RADIUS_TILES, 'open_radius_tiles');
+  const hold = intIn(g.hold_open_s ?? 3, 0, 30, 'hold_open_s');
+  const swing = intIn(g.swing_s ?? 2, 1, 10, 'swing_s');
+  const opensFor = intIn(g.opens_for ?? 0, 0, 0, 'opens_for');
+  return { opensFor, radiusSq: r * r * 65536, radiusQ8: r * 256, holdTicks: hold * ticksPerSecond, swingTicks: swing * ticksPerSecond };
 }
 
 /** Parse an `aid` block (GH-707). Authored floats cross into fixed point once, here. */
@@ -417,6 +470,7 @@ export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: n
     aura: auraFromJson(json, ticksPerSecond),
     production: productionFromJson(json),
     aid: aidFromJson(json, ticksPerSecond),
+    gate: gateFromJson(json, ticksPerSecond),
     ...(json.wall_tone !== undefined ? { wallTone: json.wall_tone } : {}),
     ...(json.wall_self_lit !== undefined ? { wallSelfLit: json.wall_self_lit } : {}),
   };

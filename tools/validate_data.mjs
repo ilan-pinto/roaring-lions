@@ -56,6 +56,7 @@ import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
+import { gateFailures } from './validate_gate.mjs';
 import {
   buildableOwnerFailures,
   fieldWorksCarrierReport,
@@ -1575,6 +1576,20 @@ failures.push(
     structureCatalogue,
     jsonFilesIn(join(ROOT, 'data/maps')).map((file) => ({ file: rel(file), rows: loadJson(file)?.rows ?? [] })),
     TERRAIN_SYMBOLS
+  )
+);
+
+// GH-1438 E1: the compound gate. One structure, 2x1 or 1x2, never on a map with a versus rules file
+// (validate_gate.mjs). Nothing ships a gate type yet, so today this checks nothing; it is the gate's own fence.
+failures.push(
+  ...gateFailures(
+    structureCatalogue,
+    jsonFilesIn(join(ROOT, 'data/maps')).map((file) => {
+      const m = loadJson(file);
+      return { id: m?.id, file: rel(file), rows: m?.rows ?? [] };
+    }),
+    jsonFilesIn(join(ROOT, 'data/missions')).map((file) => ({ file: rel(file), mission: loadJson(file) })),
+    new Set(jsonFilesIn(join(ROOT, 'data/versus'), ['modes']).map((file) => loadJson(file)?.map ?? basename(file, '.json')))
   )
 );
 
