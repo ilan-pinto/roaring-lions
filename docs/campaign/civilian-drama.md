@@ -819,16 +819,16 @@ round) and every defeat; Shai never names the motive, Idit names it without a nu
 Same `name`, `dispatch`, `aftermath`, both `debrief` lines and the three locate objectives
 as A: none of them describes the enemy acting on a civilian.
 
-**`briefing`** — 1,219 characters, 7 beats, the same speakers and sections as A:
+**`briefing`** — 1,222 characters, 7 beats, the same speakers and sections as A (beat 3 corrected for §10.5 N30: the spotter is `eye_north`, over the grove, not the paramotor to the east; **superseded** by the 18 Nov rulings: Q1 is A and Q2 moves the pilot to the breach, §9.7):
 
 ```
-Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM pair that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns: armor, an IFV, mortars, scouts and a drone. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The town never emptied: when we step off, nearly ninety people run for the yellow gate in our wall. Their mortar in the town centre reaches the ground in front of it, and the eye to the east calls it onto soldiers. The gate opens for one of ours within four tiles, and anyone within four tiles of him follows him through. Leave it and it shuts on whoever is outside; get fifty-five in by five minutes. Twelve more wait in the north block, thirty tiles east, for one of ours to come within four tiles. At four minutes somebody else moves them. The Lavi's gun is billed within two tiles of anyone; the Namer's cannon and the rifles are not. Every soldier in that crowd gives their tube a reason to fire there. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.
+Before anything moves on Beit Sahwan, Idit needs the picture: six garrison positions, and the ATGM pair that overlooks the east road. An identification takes eyes held on a position, not a glance. The battalion has attached one of everything it owns: armor, an IFV, mortars, scouts and a drone. Push the drone east, keep the heavy metal back as a screen, and do not get decisively engaged. The town never emptied: when we step off, nearly ninety people run for the yellow gate in our wall. Their mortar in the town centre reaches the ground in front of it, and the eye over the grove calls it onto soldiers. The gate opens for one of ours within four tiles, and anyone within four tiles of him follows him through. Leave it and it shuts on whoever is outside; get fifty-five in by five minutes. Twelve more wait in the north block, thirty tiles east, for one of ours to come within four tiles. At four minutes somebody else moves them. The Lavi's gun is billed within two tiles of anyone; the Namer's cannon and the rifles are not. Every soldier in that crowd gives their tube a reason to fire there. The mortar does not care who is under it. What you find and who you bring home is what the brigade fights with next week.
 ```
 
 | beat | speaker | chars | change from A |
 |---|---|---|---|
 | 1, 2, 7 | Idit, Shai, Shai | 196, 192, 121 | none |
-| 3 | Idit | 214 | the grove becomes the new `mortar_crew` at (30,22) and the shipped `bs_observer_aloft`: *calls it onto soldiers* (B: fire aimed at soldiers only) |
+| 3 | Idit | 217 | the grove becomes the new `mortar_crew` at (30,22) and the grove's spotter (`eye_north`, §10.1.5): *calls it onto soldiers* (B: fire aimed at soldiers only) |
 | 4 | Shai | 186 | the cost clause moves to beat 6 |
 | 5 | Idit | 140 | the north block waits for a shepherd; *"At four minutes somebody else moves them"* (the `remove` at 242 s; the register of shipped `umm_zeitoun_1_recon`) |
 | 6 | Shai | 164 | the bill, then the crossfire cost: soldiers in the crowd draw the tube |
@@ -1660,3 +1660,505 @@ All on `SWEEP_SEEDS` (30), A and B separately, on S0 first and then with the gat
 | N29 | §6 stars, §9.2 | danger-close is **per heavy shot**, no cooldown (V8): ten shots or four deaths end the second star |
 | N30 | §9.2 B briefing | *"the eye to the east calls it onto soldiers"* names the wrong eye; the spotter is in the grove north of the apron, so *"the eye over the grove"* is the true wording (`narrative-designer`) |
 | N31 | §2.3 | the unreachable-goal fallback the designer cites at `sim.ts:4969-4978` is `nearestOpenTile`'s comment; the straight-line beeline and wall slide are at `sim.ts:13039-13089` |
+
+---
+
+### 9.7 The breach pilot's narrative sheet (Option A only)
+
+*(narrative-designer, appended after the Rulings of 18 Nov. §9.2 and §10.1 were written for
+recon and are superseded as the pilot by Q2; §9.2's B briefing is corrected for N30 in place
+and stays only as a record.)*
+
+**Read for this sheet:** `data/missions/beit_sahwan_breach.json` as shipped (6 waves, 5
+triggers, 2 primaries, 11 civilians in group `families` at (10.5,18.5) ×3, (37.5,18.5) ×3,
+(9.5,27.5) ×3, (37.5,27.5) ×2; refuge `civ_refuge` (24,26) inside zone `compound`
+[18,17,13,13]); `data/maps/marj_perimeter.json` (wall x 17–31, y 16–30; the two gaps on the
+road at (17,21–22) and (31,24–25); villages of `h` and `s` at the four corners; the road on
+row 23 from both map edges); `beit_sahwan/narrative.md` §2; `storyline.md` §1, §2.1(3),
+§2.2(6), §2.3, D12, D18. The shipped JSON is **behind** that sheet: its briefing has no
+forward section and no eye aloft, so this sheet is written against the JSON.
+
+**Recommendation: Q11-KEEP.** Eleven, two and nine are spoken in three acts and are the
+number Idit exists to say; KEEP changes two shipped strings, RESTATE changes nine across
+three files and `world.json`. The ~100 the lead asked for still run, under fire, on screen:
+they are the road, not the villages.
+
+**The shape both sub-variants share.**
+
+| layer | who | where at t=0 | counted by | canon |
+|---|---|---|---|---|
+| the villages | group `families` (KEEP 11 · RESTATE 40) | the four shipped village markers | the primary `evac_settlements`, **scoped to `group: families` (G-6)** | the atrocity: KEEP *eleven, two in, nine not* |
+| the road | groups `road_w`, `road_e` (KEEP 89 · RESTATE 60) | on the road outside each gate (row 23, x 0–16 and x 32–47) | a new **secondary** `road_in`, scoped to the road groups (G-6), never carried | uncounted in canon: no line states how many came in |
+| the gates | two `compound_gate`s in the shipped gaps, (17,21–22) and (31,24–25) | — | — | "two gates, both on the road" (shipped) become the huge yellow ones |
+| the threat (A) | T1-A: the t=18 cells entering by `raid_w` (2,26) and `raid_e` (43,26), flagged `fires_on_civilians` (G-4) | — | — | Ashwar Front: cells, the corners, ambush on the approach |
+| the taking (A) | T2-A: the four `ring_*` corners walk the families still outside toward their raid markers at 240 s; the shipped `remove` at 272 s takes whoever is still with them | — | — | *"they are taken, back across the line"* (`design.md` §1) |
+
+The road starts **outside**, running: a civilian placed inside `compound` is collected and
+deleted on the first evaluation (`civilians.ts` `collect`, `alive = 0`), so nobody can be
+"already inside" and visible (§ report, awkward 1). Authored entities: 54 shipped + 89 road =
+**143** (RESTATE 54 − 11 + 40 + 60 = 143), inside §3.1's 160.
+
+#### Q11-KEEP
+
+**`name`:** `Beit Sahwan — First Light` (unchanged). **`dispatch`** (219, unchanged, true as
+shipped): *Beit Sahwan, before dawn. Nadir Sahim spent four years digging under the Marj and
+one morning spending it — every approach at once, and four villages left outside the wire.
+The senior officer still inside was a captain.* · `live`
+
+**`briefing`** — 1,131 characters, 6 beats, no line breaks:
+
+```
+They came at dawn, out of the Marj, across every approach at once. Eleven are still in the four villages outside the wire, and nearly ninety more are on the road, running for our gates. What is left of the company is inside the compound on the Beit Sahwan road. Hold the yard until the relief column reaches us, five minutes out. Two gates, both on the road, huge yellow steel, and two blind faces they will cut straight through rather than walk round. Cells are coming in along both roads, and they fire on anyone running while nothing of ours is in reach. A gate opens for one of ours within four tiles of it and for nobody else, and anyone within four tiles of him follows him in. While it stands open it is open to them as well, so be standing at it when it opens. The families in the villages have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast: a family runs once one of ours is within four tiles, or under fire. The Nemala Medic Team is on loan: a wounded man has a minute, and it treats him and carries him to the rear of the yard.
+```
+
+| beat | speaker | chars | `briefing_sections` | source |
+|---|---|---|---|---|
+| 1 | Idit | 185 | `situation` | shipped sentence 1 + the two layers, counted and uncounted |
+| 2 | Shai | 143 | `mission` | shipped (*"Hold the yard…"*), *"Two things matter this morning"* cut |
+| 3 | Idit | 227 | `execution` | shipped gates sentence, now *huge yellow steel*; the T1-A fire as a tile fact |
+| 4 | Shai | 210 | `execution` | the gate rule and the shepherd rule; the cost: an open gate is open to the Ashwar too |
+| 5 | Shai | 152 | `execution` | **the canon line, verbatim from *"the families"* to *"afterwards"*** |
+| 6 | Shai | 209 | `notes` | shipped, *"for the compound"* cut (the gates now say where) |
+
+Idit / Shai / Idit / Shai / Shai / Shai: picture, plan, picture, then three beats of costs and
+orders, as shipped First Light closed. Idit is **not** named in the third person: she is
+standing next to him (`beit_sahwan/narrative.md` §2.3).
+*Compliance:* 6 beats ≤ 2 sentences and ≤ 240; total in 385–1,225; *nobody is coming back for
+them afterwards* kept as the ceiling; the fire is ground and a condition, never an effect;
+adversaries are *cells*; no harm word; *families* survives only uncounted or in canon (rule 10).
+
+**Objectives.**
+
+| id | order (chars) | as a toast | status | needs |
+|---|---|---|---|---|
+| `survive_relief` | Hold until the relief column arrives (36) | `OBJECTIVE COMPLETE — Hold until the relief column arrives` | live | — (shipped) |
+| `evac_settlements` | Get two families inside the wire before the ring closes (55) | `OBJECTIVE FAILED — Get two families inside the wire before the ring closes` | **schema** | G-6 `group: families`; without it the road completes the canon primary in seconds. Text shipped; *families* kept because it is canon |
+| `road_in` (new, secondary, not `carries`) | Get fifty people off the road and inside the wire (49) | `OBJECTIVE COMPLETE — Get fifty people off the road and inside the wire` | **schema** | G-6 over `road_w` + `road_e`; 50 of 89 by 270 s (56%) |
+
+*Compliance:* imperative, ≤ 72, no full stop; the road's count is *people*.
+
+**Trigger table — KEEP.** Ids are proposals; rows the shipped file already carries are marked.
+
+| event | channel | speaker | line | overlay / audio | status | needs |
+|---|---|---|---|---|---|---|
+| mission start | `title` | system | `Beit Sahwan — First Light` · *2 primary objectives* | `hud.announce` | live | — |
+| mission start | `dispatch` | narrator | shipped | title card | live | — |
+| mission start | `brief` | Idit / Shai | beats 1–6 | deploy screen, commander bar | live | — |
+| `timer_s(2)` → `the_road_runs_west` (`withdraw_to road_w → gate_apron_w` (15,22)) | `toast` | system | `The road runs for the west gate` (31) | feed | live | G-1; new marker |
+| same | `radio` | Idit | "Both roads are running for our gates, west and east. Their cells are coming in along the same roads, and nothing of ours is out there yet." (138) | commander bar | live | G-4 |
+| `timer_s(2)` → `the_road_runs_east` (`withdraw_to road_e → gate_apron_e` (33,24)) | `toast` | system | `The road runs for the east gate` (31) | feed | live | G-1; new marker |
+| first `fire` by a `fires_on_civilians` cell | `radio` | Idit | "Their cells are firing on the road. Put something of ours where they can see it and they look at that instead." (110) | commander bar | **engine** | `on.kind: sim` + G-4 |
+| an enemy unit enters `compound` while a gate is open | `radio` | Shai | "Something of theirs came in behind the road. A gate shuts when the last of ours walks away from it." (99) | commander bar | **engine** | `on.kind: sim` (`gateOpened`) + G-3 |
+| a civilian `down` | — | — | **no line, by design** (§9.1 rule 3) | — | — | — |
+| `gateOpened` / `gateClosed` | audio | — | no line; the motor and the clank of the yellow gates | `data/audio.json` | **engine** | G-3, §5 |
+| `evacuated`, per person | `toast` | system | `clear (1)` | feed | live | — |
+| `evacuated`, coalesced | `toast` | system | `clear (n)` per second | feed | **engine** | N6, `render-vfx` |
+| wave t=18 s (`compound_centre`) | `radio` | Idit | shipped: "Every approach at once. There is no main effort in this — he does not need one." | | live | — (shipped) |
+| `first_contact` → `villages_rise`, `they_take_the_south_village`; `timer_s(150)` → `they_come_for_the_west_families`; `timer_s(190)` → `the_last_village_goes` | `toast` + `radio` | system / Idit | shipped labels and lines, unchanged (*"They are not queuing for the gates — they are going to the houses"* now reads against open gates, and holds) | | live | — (shipped) |
+| waves t=120 s, t=205 s | `radio` | Shai, Idit | shipped, unchanged | | live | — (shipped) |
+| `objective(evac_settlements, complete)` | `radio` | Shai | shipped: "Two in. Get the gate shut behind them." | | **schema** | G-6 |
+| `objective(road_in, complete)` | `radio` | Shai | "Fifty in off the road. The gate shuts when the last of them is through, not before." (83) | commander bar | **schema** | G-6 |
+| `timer_s(240)` → `the_corners_walk_back` (`withdraw_to` each `ring_*` and `families` → its raid marker) | `toast` | system | `The corners walk back with the families` (39) | feed | live | T2-A approximation; §10.5 N24 (a `withdraw_to` on a civilian group; zone ignored) |
+| same | `radio` | Idit | "The corners are walking back the way they came, and they are not walking back empty." (84) | commander bar | live | the shipped line, moved here from the 272 s `remove` |
+| `objective(evac_settlements, failed)` @270 s | `radio` | Idit | shipped: "The ring is closed. Whatever is still outside it is outside it." | | live | — (shipped) |
+| `timer_s(272)` → `the_ring_closes` (`remove families`, with a `zone` per N24) | `toast` | system | silent; chrome `taken (1)` per person | feed | live | — (shipped trigger) |
+| same | `radio` | Idit | "The ring is closed. The villages are across their line now, and so is everyone we did not reach." (96) | commander bar | live | new line; the old one moved to 240 s |
+| `missionEnd(victory)` | `aftermath` | narrator | *The relief came through the west gate a little after six, and the yellow gates shut behind it. Everything the brigade did in the Marj after that morning was about the four villages on the other side of them.* (207) | victory banner | live | new field on this mission |
+| `missionEnd(victory)` | `debrief` | Idit | "Eleven were in the villages at first light. Two came in." (56) | end screen | live | **changed**: *outside the wire* → *in the villages*, because ninety more were outside the wire |
+| `missionEnd(defeat)` | `debrief` | Idit | shipped: "The compound went at 0-something. I did not get the time." | end screen | live | — (shipped) |
+
+**Row count, KEEP:** 25 rows (one deliberately silent), **4 `engine`**, 2 `schema` (plus the
+two `schema` objectives).
+*Compliance:* labels ≤ 48, no full stop, no harm word; the visible taking is *walk back
+with the families*, the outcome is *across their line*, nobody taken is described; no
+`enemy` speaker line; the Ashwar act by doctrine (every approach, the corners, cells on the
+approach, the walk back), never as a people; Shai never names his motive; the number is
+Idit's, once, at the end, as shipped.
+
+#### Q11-RESTATE
+
+Everything in KEEP stands except these strings (all checked; the §9.5 replacement set):
+
+| field | string | chars | status |
+|---|---|---|---|
+| `briefing` beat 1 (Idit) | They came at dawn, out of the Marj, across every approach at once. Forty are still in the four villages outside the wire, and about sixty more are on the road, running for our gates. | 182 | live |
+| `briefing` beat 5 (Shai) | The families in the villages have nowhere else to go: get at least ten inside before the ring closes, because nobody is coming back for them afterwards. | 152 | live |
+| whole `briefing` | 1,128 characters, 6 beats, seams as KEEP | — | live |
+| `evac_settlements.text` | Get ten people inside the wire before the ring closes | 53 | schema (G-6) |
+| `evac_settlements.say` (Shai) | "Ten in. Get the gate shut behind them." | 38 | schema (G-6) |
+| `road_in.text` | Get thirty-five people off the road and inside the wire | 55 | schema (G-6), 35 of 60 |
+| `road_in.say` (Shai) | "Thirty-five in off the road. The gate shuts when the last of them is through, not before." | 89 | schema (G-6) |
+| `debrief.victory` (Idit) | "Forty were in the villages at first light. Ten came in." | 55 | live |
+| `wadi_halam_4_village` `evac_families.say_on_fail` (Idit) | "The road is shut and there are still families inside it. Thirty did not come in at First Light. Somebody has to keep saying the number, and it is not going to be you." | 166 | live |
+| `storyline.md` §1, §2.1(3), §2.3 | §9.5's set, with *in four groups* read as *in the four villages* | — | lead |
+| `world.json` `taken` | re-derived from 30 plus the soldiers (derivation UNREAD) | — | lead |
+
+*Compliance:* as KEEP; the counted forty are *people* in objectives (rule 10).
+
+#### N30
+
+Fixed in §9.2 B (*"the eye over the grove"*, 1,222 characters, beats re-checked). Nothing
+kept for the breach uses an eye: the shipped breach has no paramotor in any wave and its
+briefing names none, so no line here mentions one.
+
+---
+
+### 9.8 GDD §11 reconciliation: PROPOSED DIFF, NOT APPLIED
+
+**The lead's to apply.** `docs/GDD.md` is not edited by this change; the version bump is the
+lead's. Read today: line 3 (version), lines 420–424 (*One villain per front*), lines 426–429
+(*The level carries story twists*). The second hunk is required by D18 (it lists an execution,
+which D18 rules out); the third is optional.
+
+```diff
+--- docs/GDD.md
++++ docs/GDD.md (proposed, D18 Option A)
+@@ -3 +3 @@
+-**Version:** 1.2.4 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09); §2 and §11 gain Ein Qasab, the winter interlude town, and §11's stale `debrief` clause is dropped (2026-10-31)
++**Version:** 1.2.5 · **Status:** decisions locked; §5 synced to the calibrated M0 model; §11 (story) added 2026-09-03 as a draft, its surface list corrected the same day when `dispatch`/`aftermath`/`debrief`/`say` landed; §11's surface list gains the end of the war (2026-10-09); §2 and §11 gain Ein Qasab, the winter interlude town, and §11's stale `debrief` clause is dropped (2026-10-31); §11's twist clause reconciled with storyline D18, civilians in danger in play (2026-11-18)
+@@ -426,4 +426,8 @@
+ **The level carries story twists.** Missions may turn the plot inside the level
+-— a kidnapped civilian killed, a soldier abducted — where the declarative
+-vocabulary can express it, and the vocabulary is extended where it cannot; no
+-mission is ever scripted in code.
++— people led away under fire and caught before the edge of the map, a soldier
++taken from his post — where the declarative vocabulary can express it, and the
++vocabulary is extended where it cannot; no mission is ever scripted in code.
++The enemy may be seen endangering civilians only in the ways
++`docs/campaign/storyline.md` D18 lists, and only adults; nothing done to anyone
++taken is ever shown, and the story voice names a number, never a method.
+@@ -420,2 +420,2 @@  (optional)
+ **One villain per front.** Each campaign — the Marj, Sur, Naharin — introduces
+-an arch-terrorist through an atrocity in its opening mission, keeps him present
++an adversary through an atrocity in its opening mission, keeps him present
+```
+
+No §5 or §7 line is touched. §2 needs nothing: its doctrine rule already covers D18's
+*each front's own enemy*.
+
+
+---
+
+## 11. The breach pilot: level script (re-derives sections 6 and 10.1)
+
+**Date:** 2026-11-18 · **Status:** proposal for `mission-author` and the RL worker. **Written against** `a0a6ecce7` (the worktree HEAD after the lead's rulings; D18 is in `storyline.md:53`). Nothing here is written into `data/`. The pilot is `beit_sahwan_breach` (Q2), Option A, adults only (Q1), the Ashwar on the Marj (Q3). The recommended sub-variant is **Q11-KEEP** (§9.7): the villages' counted **eleven** stay, the **89** more are the road. Q11-RESTATE is a diff at the end of §11.1. Status words as §10: `live` / `schema` / `engine` (E-numbers are §10.2's, with the changes §11.4 records as N32 onward).
+
+**What I ran, on the real sim and runtime.** `tools/dist/scratch/breach_pilot.ts` (gitignored under `dist/`; run with `tools/node_modules/.bin/tsx`). It builds the world the way `tools/src/backtest/fl_ladder.ts` does (`fl_ladder.ts:35-91`), from the shipped `beit_sahwan_breach.json` edited to the §11.1.8 fragments, and **emulates what does not exist yet outside the sim**: E1 (two 1x2 gates in the shipped gaps, opened and shut each tick by a runner-side state machine over the public `removeStructure` / `addStructure`, the §2.3 rule: side-0 ground, surface, standing, within 4 tiles, 3 s hold, 2 s swing, never shut on an occupant) and E3 (the primary's count is patched to village civilians only). **Not emulated:** E6 (no cell fires on a civilian), E8, E5 (the 240 s orders have no zone filter). Everything below that says "measured" is this runner, 30 seeds (`424242` and 1 to 29) unless it says 100; the baseline it reproduces: the **shipped** mission passive 0/2 `defeat:{objective:evac_settlements}` at 269.9 s, `shipped_plan` 2/2 victory at 299.9 s, as `fl_ladder.ts` prints (`passive 0/3`, `optimal 3/3` at 5.00 min, run 18 Nov). Also run: the `jsonschema` check (0 errors with engine fields stripped; with them the schema refuses `group` on an objective and **silently accepts** `fires_on_civilians` on a wave unit, V21) and the repository's `removeTriggerFailures`, `triggerLabelFailures`, `narrativeTextFailures`, `timeLimitFailures` (0 failures on the §11.1.8 mission; 5 on a copy with a 49-character label, `time_limit_s` 320 and a `remove` of an undeclared group). **Not run:** `pnpm validate:data`, `walk_placements.ts`, `pnpm playtest`, the vitest files named in §11.4.
+
+### 11.0 What I read in addition to §10.0
+
+| # | claim | source read | result |
+|---|---|---|---|
+| V19 | the shipped breach | `data/missions/beit_sahwan_breach.json`: `target_minutes` 5, `time_limit_s` 600, `start_layout: authored` (6-8); objectives `survive_relief` (survive_until 300, `clock: false`) and `evac_settlements` (evacuate_before `compound`, count **2**, seconds **270**) (123-152); 7 `fence` runs (153-231); 11 civilians in group `families` (232-272); 7 garrison placements `ring_nw/ne/sw/se` (273-333); 6 waves (334-459), wave 0 at 18 s `to compound_centre` carrying one cell each from `raid_nw raid_n raid_ne raid_w raid_e` (357, 362), later `raid_w` entries at 160 s and `raid_e` at 250 s; 5 triggers (460-543), of which `the_ring_closes` is the `remove families` at 272 s | the starting point of the diff |
+| V20 | the map | `data/maps/marj_perimeter.json`: `=` wall x 17-31, y 16-30; **gaps (17,21), (17,22) west and (31,24), (31,25) east**; road row 23 from both edges; markers `compound_centre` (24,23), `civ_refuge` (24,26), `wounded_evac` (23,27), `raid_nw (4,3) raid_n (24,2) raid_ne (42,3) raid_e (43,26) raid_se (42,43) raid_s (24,43) raid_sw (4,43) raid_w (2,26)`, `families_nw (12,18) ne (35,18) sw (12,27) se (35,27)`; zones `compound` [18,17,13,13], `clinic`, `outpost_ground`. No versus file exists for it (`data/versus/` holds `milh_flats_l rujm_sawda tel_marum wadi_tarfan wadi_tarfan_l` and `modes`) | the compound zone starts at x=18, so both gates (x=17, x=31) are **outside** it: a person is counted the first tile past the gate |
+| V21 | a wave unit cannot carry a flag today | `mission.schema.json` wave `units.items` has `required [unit, count]` and **no** `additionalProperties: false`; `stepWaves` passes only `{unit, count, marker: u.from, group, tag}` to `spawnPlacement` (`mission.ts:4668-4671`) | a `fires_on_civilians` on a wave unit validates and is **dropped**: E6 must add the schema property **and** the passthrough |
+| V22 | the passive precedent | `tools/src/first_light_fence.test.ts:470-483` pins the control: `defeat`, `evac_settlements` failed, `survive_relief` active, objective ids exactly `['evac_settlements','survive_relief']`; its header (1-60) records that a wider stand-off once made the control **win** because corner civilians crossed `CIV_FLEE_AT` and walked to `civ_refuge` through the open gaps; `fl_ladder.ts:18-20` records 0/100 | the leak this pilot closes with gates |
+| V23 | unit coordinates are exact | `starting_force` `at` values are used as given (integers are tile corners, not centres); gate centres (17.5, 22.0) and (31.5, 25.0). Nearest ground unit: `at_team` (22,23) is **4.61** tiles from the west gate, `at_team` (27,23) **4.92** from the east, `inf_squad` (21,18) 5.32, (27,28) 5.41 | thin (0.61) but held: 0 gate openings in the 30-seed passive runs |
+| V24 | shared pins around the mission | `LADDER_CREDITS = 8093` (`playtest.ts:4026`); breach is the head of the ledger chain `led0` (`playtest.ts:141`) and "mission 1, unconditionally" (3577-3580); `min_win_seconds.json` breach 74 = floor(fastest win / 4) (`plan-sweep.ts:171-206`); overlay census `[172, 211, 269]` and `waves[0].at_seconds` 18 -> 3 (`overlays.test.ts:107-116`); `civ.settlements_evacuated` is produced as the **global** `evacuatedCount` (`mission.ts:5019`) and read by nothing but the ledger shape (`ledger-shape.ts:97`) | §11.4 |
+| V25 | what a gate in `structures[]` costs | `raiseMissionStructures` (`mission.ts:3769-3823`) raises a non-per-tile type over `size` as one body and refuses an overlap with a building. The gap tiles are `.` in the grid, so **both gates are mission data and the shared `marj_perimeter` grid is not edited** | the fence test, versus, sandbox anchors and the backdrop do not see a gate |
+
+### 11.1 The level script (Q11-KEEP)
+
+#### 11.1.1 Shape and numbers
+
+| layer | who | at t=0 | counted by | canon |
+|---|---|---|---|---|
+| the villages | groups `families_nw/ne/sw/se` (3, 3, 3, 2 = **11**) | the four shipped spots | primary `evac_settlements`, **count 2, group-scoped (E3)** | *eleven, two in, nine not* (unchanged) |
+| the road | groups `road_w` (45) and `road_e` (44) = **89** | outside each gate, on the road: west x 2.5 to 9, y 19.5 to 28.25; east x 40.5 to 47, y 19.5 to 28 | new secondary `road_in`, count **50** of 89, 270 s, group-scoped, `clock: false`, never `carries` | uncounted in canon |
+| the gates | two `compound_gate`s (E1) in the gaps | shut | | "two gates, both on the road" |
+| the cells (T1-A) | the wave-0 cells from `raid_w` and `raid_e`, `fires_on_civilians` (E6) | spawn at 18 s | | the Ashwar by doctrine: cells on the approach |
+| the walk-back (T2-A) | the four `ring_*` corners and the four village groups, ordered to their raid marker at 240 s | | | *"not walking back empty"* |
+| the taking | the shipped `remove`, one per village group, `zone corner_*`, 272 s | | | *taken, back across the line* |
+
+Authored entities: **143** = 9 force + 100 civilians + 7 garrison + 27 wave bodies (script count; the shipped total is 54, and 54 - 11 + 11 + 89 = 143). No wave body is added: the cells **are** the shipped wave-0 entries.
+
+#### 11.1.2 Map requirements (`data/maps/marj_perimeter.json`: markers and zones only, no grid edit)
+
+| name | kind | value | purpose | on the map today? |
+|---|---|---|---|---|
+| `gate_apron_w` | marker | (15,22) | the west muster, 2.06 tiles from the gate centre, outside `compound` | new |
+| `gate_apron_e` | marker | (33,24) | the east muster, 2.06 tiles from (31.5, 25.0) | new |
+| `village_nw` | zone | [8,16,8,7] | E5 filter for the 240 s families order | new |
+| `village_ne` | zone | [33,16,10,8] | same | new |
+| `village_sw` | zone | [6,25,10,6] | same | new |
+| `village_se` | zone | [33,25,10,6] | same | new |
+| `corner_nw/ne/sw/se` | zones | [0,0,12,10], [36,0,12,10], [0,38,12,10], [36,38,12,10] | the `remove` zones at 272 s (each contains its `raid_*` marker) | new |
+
+Zone names avoid `sandbox-extras.ts:22`'s `PROTECTED_ZONE` pattern (`clinic|hall|refuge|hospital|school`). Any digest over `data/maps/*.json` (`content-manifest.ts` is generated) is **UNREAD**. The fences at x=16 (y 17-20, 24-29) and x=32 (y 17-22, 26-29) leave a 3-tile funnel in front of each gate; the aprons sit in it.
+
+**The crowd** (rows of 3 at 1.25 spacing; every body spawned through the real `assertGroundClear` in the runner, so clear): west bases (2.5,19.5) x11, (6.5,19.5) x11, (2.5,24.5) x11, (6.5,24.5) x12; east bases (44.5,19.5), (40.5,19.5), (44.5,24.5), (40.5,24.5), x11 each. Walks to the apron are 10 to 14 tiles west and 7 to 13 east (script, fences and walls in): **arrival 9 to 18 s** at 0.8 t/s, so the last of them reach the apron as the cells appear at 18 s. Two tiles are shared by harmless overlaps with `families_sw`.
+
+**Start-force margin.** 4.61 tiles to the west gate is the thinnest (V23). The lever, if the lead wants 1.5 tiles: `at_team` (22,23) -> (21,23) (5.61). It is a `starting_force` edit to a pinned mission (§11.4 P7).
+
+#### 11.1.3 ECA rows (KEEP)
+
+| event | IF | THEN | cue bound (§9.7) | status |
+|---|---|---|---|---|
+| Start | mission start | title, dispatch, 6-beat briefing; crowd in place | `title`, `dispatch`, `brief` | live |
+| `the_road_runs_west` | `timer_s` 2 | `withdraw_to` `road_w` -> `gate_apron_w` | toast *The road runs for the west gate*; radio Idit | live (measured: the road stands at the aprons by about 18 s) |
+| `the_road_runs_east` | `timer_s` 2 | `withdraw_to` `road_e` -> `gate_apron_e` | toast *The road runs for the east gate* | live |
+| Gates | a ground side-0 unit within 4 tiles of a gate centre / none for 3 s and nobody in it | open / shut; events | audio | **engine E1, E2** |
+| Shepherd | a ground side-0 unit within 4 tiles of a civilian | the flight rule orders him to `civ_refuge` (V7) | none | live |
+| Arrivals | `evacuated` | `evac_settlements` counts village arrivals, `road_in` road arrivals; the yard clears them | toast `clear (n)` | **schema E3**; coalescing **E4** |
+| Cells fire | a wave-0 `raid_w` / `raid_e` cell has a civilian in reach and no KDF target | the crowd's rear and flank rows fall | radio Idit (first fire) | **engine E6**; the cue **E7** |
+| Wave 0, 120, 160, 205, 250 | shipped | shipped | shipped lines | live (unchanged) |
+| `villages_rise`, `they_take_the_south_village`, `they_come_for_the_west_families`, `the_last_village_goes` | shipped | `commit` the corners to their villages | shipped | live (unchanged) |
+| `corner_walks_back_{nw,ne,sw,se}` | `timer_s` 240 | `withdraw_to` `ring_*` -> `raid_*` | toast *The north-west corner walks back* (x4); radio Idit on the first | live |
+| `families_walk_{nw,ne,sw,se}` | `timer_s` 240 | `withdraw_to` `families_*` -> `raid_*`, **`zone village_*`** | toast *The north-west families walk with it* (x4) | **engine E5**; without the zone: live with the early-rescue hazard (§10.1.1, P4) |
+| `the_ring_closes` (+`_ne`, `_sw`, `_se`) | `timer_s` 272 | `remove` `families_*`, `zone corner_*` | radio Idit on the first; chrome `taken (1)` | live |
+| `evac_settlements` / `road_in` done or failed | counts, 270 s | `say` / `say_on_fail` | shipped / §9.7 | live / **schema E3** |
+| End | victory / defeat | `aftermath` (new field), `debrief` | §9.7 | live |
+
+The eight 240 s orders are eight labelled triggers (a trigger moves one group, and a non-`remove` trigger must carry a label): up to eight feed lines on one tick. The labels above are mine, for `narrative-designer` (N39). **E8** collapses them to four and lets the captives follow.
+
+#### 11.1.4 AI director
+
+| t (s) | what | group | size | from | to |
+|---|---|---|---|---|---|
+| 0 | crowd in place | `road_w`, `road_e`, `families_*` | 89 + 11 | §11.1.2 | |
+| 0 | ring corners in ambush (shipped) | `ring_nw/ne/sw/se` | 2, 2, 2, 1 | the four corners | |
+| 2 | the run | `road_w`, `road_e` | 45, 44 | | `gate_apron_w`, `gate_apron_e` |
+| 9 to 18 | the road arrives at the aprons | | | | |
+| 18 | wave 0 (shipped), the `raid_w` and `raid_e` cells flagged | | 5 + 3 | the raid markers | `compound_centre`, `assault_sw` |
+| first contact | `ring_ne`, `ring_se` commit to their villages (shipped) | | 2, 1 | | `families_ne`, `families_se` |
+| 120, 160, 205, 250 | shipped waves | | 4, 4, 7, 4 | | |
+| 150, 190 | `ring_nw`, `ring_sw` commit (shipped) | | 2, 2 | | `families_nw`, `families_sw` |
+| 240 | the walk-back | rings and families | | villages | raid markers |
+| 270 | `evac_settlements` and `road_in` deadlines; `survive_relief` ends at 300 | | | | |
+| 272 | the taking: `remove` per village group inside its corner zone | | | | |
+
+**Stances.** Unchanged for all 7 garrison placements (ambush 4 or 3 tiles; the corners spring on the villages). The wave units have no stance (they attack-move and sweep). The only new behaviours are two flags and orders.
+
+**Pressure curve.** The mission is one hold with two clocks. The road arrives in 9 to 18 s and **waits at two gates that shut**; from 18 s two cells close from the edges and, with E6, shoot the crowd's rear while nothing of ours is in reach; the waves converge on the compound and, as shipped, **cut the blind faces** (3 wall tiles lost a run, measured). A unit within 4 tiles of a gate opens it, and the crowd within 4 tiles of him follows: two keepers parked at the aprons clear 58 people by 24 s (measured), so the road's difficulty is the fire and the opened gate, not the walk. At 240 s the corners walk the remaining villagers off with their escorts; at 272 s whoever is still with them is taken. Restraint is the Lavi's gun and the mortar near the aprons (3 Conduct a shot).
+
+#### 11.1.5 Objectives, ROE, clocks, stars
+
+| id | type | P/S | numbers | note |
+|---|---|---|---|---|
+| `survive_relief` | survive_until | P | 300 s, `clock: false` | shipped |
+| `evac_settlements` | evacuate_before `compound` | P | count **2**, 270 s, **`group: [families_nw, families_ne, families_sw, families_se]`** (E3) | text and lines shipped; the count is **canon** |
+| `road_in` | evacuate_before `compound` | S | count **50**, 270 s, `clock: false`, `group: [road_w, road_e]` (E3) | text and `say` §9.7 |
+
+- **Time.** `target_minutes` 5, `time_limit_s` **600** unchanged (= 2 x 5 x 60, the floor; 270 + 60 = 330 and 300 + 60 = 360 are inside it). Every measured win ends at 299.9 s (the hold), so `pnpm playtest`'s margins hold: 600 - 300 = 300 s >= 120 s and 600 / 300 = 2.0 >= 1.2.
+- **ROE.** `roe: { "enabled": true }` unchanged, no `fail_below`, no `flagged_zones`; defaults: 8 per civilian the player kills, 3 per heavy shot (collateral >= 0.5: `gun_120`, `mortar_60`) within 2 tiles of a civilian, +3 per wounded civilian the medics admit (cap +10); enemy-caused deaths cost nothing (V8). Measured Conduct 100 on every run that printed it (passive, shipped plan, parked, keepers; no heavy fire near a civilian in these plans; E6 absent).
+- **Stars.** 1 victory; 2 Conduct >= 70; **no third star** (no `carries`), as shipped (`playtest.ts:141` expects 2).
+- **No intercept objective.** A scored objective for the walking villagers would make "two came in" false. The intercept is the player's choice and is not counted; the shepherd rule frees whoever he reaches.
+
+#### 11.1.6 Q11-RESTATE: the diff
+
+| field | KEEP | RESTATE |
+|---|---|---|
+| villages | 4 groups, 11 | 4 groups of **10** (`count` 10 each, same four `at`s; each is a 3 x 4 block, check `assertGroundClear` east of x 37.5 and south of y 27.5) |
+| road | 89 (45 + 44) | **60** (30 + 30: three placements of 10 each side, bases (2.5,19.5), (6.5,19.5), (2.5,24.5) / (44.5,19.5), (40.5,19.5), (44.5,24.5)) |
+| `evac_settlements.count` and text | 2, *two families* | **10**, *Get ten people inside the wire before the ring closes* |
+| `road_in.count` and text | 50, *fifty people* | **35**, *thirty-five people* |
+| entities | 143 | 143 (54 - 11 + 40 + 60) |
+| strings | §9.7 KEEP | §9.7 RESTATE table, plus `wadi_halam_4_village` `say_on_fail`, `storyline.md` §1 / §2.1(3) / §2.3, `world.json` `taken` |
+| E-pieces | as KEEP | as KEEP; the pins in §11.4 are the same, plus the downstream strings |
+
+#### 11.1.7 Twists
+
+| id | proposal | class |
+|---|---|---|
+| T-a | the gate shuts on the Ashwar: a unit that follows the crowd in holds the gate open behind it (E1: nothing may stand in the gate) | engine E1 |
+| T-b | the walk-back caught short: reach a village before 240 s, or follow the column to the corner before 272 s (the shepherd rule frees at 4 tiles) | live (P4 probes it) |
+| T-c | the run starts at 18 s with the cells instead of at 2 s: `RUN_AT=18` measured on 8 seeds, two keepers' 50th arrival moves from 24 s to 40 to 234 s (one seed late), the full plan to 38 to 49 s | expressible today (`timer_s` 2 -> 18) |
+
+#### 11.1.8 Copy-ready fragments (KEEP)
+
+Field names are the schema's; engine-only fields carry `/* E# */` and are **not valid JSON** until the piece lands. The assembled scratch mission validated as in the preamble. `mission-author` assembles, then runs `pnpm validate:data`, `walk_placements.ts`, `walk_mission.ts`.
+
+`structures` (append to the seven fences; a gate in the shipped gaps):
+
+```json
+[
+  { "type": "compound_gate", "at": [17, 21], "size": [1, 2] },
+  { "type": "compound_gate", "at": [31, 24], "size": [1, 2] }
+]
+```
+
+`civilians` (replace; the `families` group is split so each village can be ordered):
+
+```json
+{
+  "refuge": "civ_refuge",
+  "groups": [
+    { "unit": "civilians", "count": 3, "at": [10.5, 18.5], "group": "families_nw" },
+    { "unit": "civilians", "count": 3, "at": [37.5, 18.5], "group": "families_ne" },
+    { "unit": "civilians", "count": 3, "at": [9.5, 27.5], "group": "families_sw" },
+    { "unit": "civilians", "count": 2, "at": [37.5, 27.5], "group": "families_se" },
+    { "unit": "civilians", "count": 11, "at": [2.5, 19.5], "group": "road_w" },
+    { "unit": "civilians", "count": 11, "at": [6.5, 19.5], "group": "road_w" },
+    { "unit": "civilians", "count": 11, "at": [2.5, 24.5], "group": "road_w" },
+    { "unit": "civilians", "count": 12, "at": [6.5, 24.5], "group": "road_w" },
+    { "unit": "civilians", "count": 11, "at": [44.5, 19.5], "group": "road_e" },
+    { "unit": "civilians", "count": 11, "at": [40.5, 19.5], "group": "road_e" },
+    { "unit": "civilians", "count": 11, "at": [44.5, 24.5], "group": "road_e" },
+    { "unit": "civilians", "count": 11, "at": [40.5, 24.5], "group": "road_e" }
+  ]
+}
+```
+
+`objectives` (the shipped `evac_settlements` gains `group`; `road_in` is appended):
+
+```json
+[
+  { "id": "evac_settlements", "type": "evacuate_before", "primary": true, "target": "compound", "count": 2, "seconds": 270,
+    "group": ["families_nw", "families_ne", "families_sw", "families_se"] /* E3 */,
+    "text": "Get two families inside the wire before the ring closes",
+    "say": { "speaker": "shai", "text": "Two in. Get the gate shut behind them." },
+    "say_on_fail": { "speaker": "idit", "text": "The ring is closed. Whatever is still outside it is outside it." } },
+  { "id": "road_in", "type": "evacuate_before", "primary": false, "target": "compound", "count": 50, "seconds": 270, "clock": false,
+    "group": ["road_w", "road_e"] /* E3 */,
+    "text": "Get fifty people off the road and inside the wire",
+    "say": { "speaker": "shai", "text": "Fifty in off the road. The gate shuts when the last of them is through, not before." } }
+]
+```
+
+`enemy.waves[0].units` (the two road cells; every other entry and every other wave unchanged):
+
+```json
+[
+  { "unit": "militia_cell", "count": 1, "from": "raid_w", "fires_on_civilians": true /* E6: wave-unit schema property AND stepWaves passthrough */ },
+  { "unit": "militia_cell", "count": 1, "from": "raid_e", "fires_on_civilians": true /* E6 */ }
+]
+```
+
+`triggers` (append after `they_take_the_south_village`, `they_come_for_the_west_families`, `the_last_village_goes`; **replace** the shipped `the_ring_closes`). The two road triggers and the first of each family of four are shown; the others differ only in the corner (`ne`, `sw`, `se`) and the labels *The north-east / south-west / south-east corner walks back* and *... families walk with it*:
+
+```json
+[
+  { "id": "the_road_runs_west", "label": "The road runs for the west gate",
+    "on": { "kind": "timer_s", "value": 2 },
+    "do": { "kind": "withdraw_to", "group": "road_w", "to": "gate_apron_w" },
+    "say": { "speaker": "idit", "text": "Both roads are running for our gates, west and east. Their cells are coming in along the same roads, and nothing of ours is out there yet." } },
+  { "id": "the_road_runs_east", "label": "The road runs for the east gate",
+    "on": { "kind": "timer_s", "value": 2 },
+    "do": { "kind": "withdraw_to", "group": "road_e", "to": "gate_apron_e" } },
+  { "id": "corner_walks_back_nw", "label": "The north-west corner walks back",
+    "on": { "kind": "timer_s", "value": 240 },
+    "do": { "kind": "withdraw_to", "group": "ring_nw", "to": "raid_nw" },
+    "say": { "speaker": "idit", "text": "The corners are walking back the way they came, and they are not walking back empty." } },
+  { "id": "families_walk_nw", "label": "The north-west families walk with it",
+    "on": { "kind": "timer_s", "value": 240 },
+    "do": { "kind": "withdraw_to", "group": "families_nw", "to": "raid_nw" /* + "zone": "village_nw"  E5 */ } },
+  { "id": "the_ring_closes",
+    "on": { "kind": "timer_s", "value": 272 },
+    "do": { "kind": "remove", "group": "families_nw", "zone": "corner_nw" },
+    "say": { "speaker": "idit", "text": "The ring is closed. The villages are across their line now, and so is everyone we did not reach." } },
+  { "id": "the_ring_closes_ne",
+    "on": { "kind": "timer_s", "value": 272 },
+    "do": { "kind": "remove", "group": "families_ne", "zone": "corner_ne" } }
+]
+```
+
+The `_sw` and `_se` removes follow the same shape. The `starting_force` placements need **no** `group` (no trigger reads one). `enemy.garrison`: unchanged. `waves`: only the two flags. `ledger`: unchanged (`civ.settlements_evacuated` is still produced; E3 should scope it to the primary's groups, N32).
+
+### 11.2 The passive-player loss proof
+
+**Claim.** A player who gives no orders loses on the **primary** `evac_settlements` failing at its own 270 s deadline, on every seed, with `survive_relief` still running and the 600 s limit never reached. A player who sends everyone out on a naive attack-move **wins** the canon primary (as shipped) and loses the secondary and, under E6, the crowd it walks past.
+
+**Argument.**
+1. *The villages need a soldier.* A village civilian moves only when suppressed above `CIV_FLEE_AT` or when a ground side-0 unit is within 4 tiles (V7). The ring corners do not frighten them (they walk to the houses; V19), and nothing of ours is near: the nearest force unit to any village is at least 10.5 tiles (script).
+2. *The gates need a soldier.* The nearest ground unit to either gate centre is 4.61 and 4.92 tiles (V23): shut. A crowd member who flees from suppression walks to `civ_refuge`, which is unreachable, and presses the wall with `moving 1` (V5).
+3. *The road is not the primary.* `evac_settlements` counts village people only (E3). The enemy's breaches (below) let some of the road in, and that cannot complete it.
+4. *The leak that remains is the enemy's own breach.* The waves cut the blind faces (shipped; the briefing says so). Three wall tiles fall a run; the opened yard then admits part of the road.
+
+**Executed** (`breach_pilot.ts`, real sim and runtime, gates and E3 emulated, 30 seeds unless stated):
+
+| run | win | ends | village people in (mean, min..max) | road in (mean, min..max) | notes |
+|---|---|---|---|---|---|
+| **passive**, pilot | **0/30** (0/100 on seeds 424242 and 1 to 99) | `defeat:{objective:evac_settlements}` at 269.9 s, 30/30; `survive_relief` active, `road_in` failed | 0.3 (0..1; **max 1 of the 2 needed**) | 28.3 (10..35); 0 by 60 s and 120 s, 0.4 by 180 s, 18.6 by 240 s | gates never opened (0.0); wall tiles lost 3.0; peak entities 170 |
+| passive, **E3 off** (global count) | **30/30 victory** | the road's leak satisfies the primary | | | the mutation that turns the proof red: E3 is a hard precondition |
+| passive, gates absent (shipped gaps open), E3 on | 0/30 | `defeat:{objective:evac_settlements}` | 0.0 (max 0) | 24.9 (16..33); 3.6 by 60 s, 13.6 by 120 s | the gaps leak the road from 60 s (suppressed civilians walk in); the gates hold it to 0 until 180 s |
+| parked, one squad at the west apron | 0/30 | `defeat:{objective:evac_settlements}` | 0.3 | 37.5 | a keeper alone saves road people, not the canon primary |
+| parked, one squad at each apron | 0/30 | same | 0.2 | **58.7**; the 50th at **24 s on 30/30 seeds** | `road_in` is a 24 s job for two squads (N43) |
+| **naive attack-move**, all ground units to (4,23) at t=0 | **30/30** | victory 299.9 s | 6.0 | 43.8 (west 41.0, east 2.9); the 50th never | wins the primary; `road_in` fails; the east crowd (about 41) and 5 villagers are left; no Conduct cost (no E6 yet) |
+| naive attack-move, split west / east | 30/30 | victory | 7.9 | 85.0; the 50th at 20 s | units passing the aprons shepherd the whole crowd |
+| shipped plan (jeep and APC to the west villages, home at 45 s) | 30/30 | victory 299.9 s | 6.0 (6..6) | 51.3 (48..54); the 50th at 89 to 221 s, 3 seeds never | `road_in` met on 27/30 |
+| shipped plan + two keepers at the aprons at t=2, two more at t=30 | 30/30 | victory | 6.7 | **79.7**; the 50th at 23 s | KDF entities lost 14.4 against 3.9 |
+
+Peak living entities across all runs: **180** of 256; distinct flow fields at 2 s: **89 to 98**; worst tick (sim plus mission) **18.5 ms** on this machine (the old mission: 1.6 to 7.0 ms), against the 50 ms budget.
+
+**What the proof does not cover.** E6 and E8 (the cells never shoot, the column never follows); the runner opens a gate after the tick, not between commands and movement; the walk-back has no E5 zone; `fl_ladder`'s four tiers were not re-run on the edited mission; the 18 s `RUN_AT` variant ran on 8 seeds. The margin on the passive control is **one village person** on the worst of 100 seeds (the shipped control's margin is the full two): a 1000-seed sweep belongs in `passiveAcrossSeeds`' neighbourhood before this ships.
+
+**Numbers the playtest must print** (per seed and as a table, A only; the shipped lines stay): ends and cause, `defeatCause`; village people in, road people in at 60, 120, 180, 240 and 270 s; time to the 2nd village person and to the 50th and 80th road person; civilians downed, killed (by side) and taken; wall tiles destroyed and the tick of the first; gate transitions, ticks open, and who stood within 4 tiles; first tick a `raid_w` / `raid_e` cell fires on a civilian; Conduct at the end and minimum; the number of heavy-shot deductions; KDF losses; peak and lifetime `entityCount`; flow fields at 2 s; worst tick ms; `first_contact` tick; stars. **Controls to add to `passiveAcrossSeeds`:** `defeat` on every seed with zero `evacuated` village events and zero gate openings (mutation: point `gate_apron_w` at (20,22), inside `compound`, or switch E3 off: the control must go red); the two parked controls and the naive attack-move as reports; the early-rescue probe P4 (a unit to a village at 20, 60, 100, 230 s; without E5 it must go red at 20 to 230 s because the 240 s order turns a freed, still-outside villager round).
+
+### 11.3 What the pilot needs from E1 to E15, and what is data first
+
+| E | what the breach needs from it | size |
+|---|---|---|
+| **E1** gate | two `compound_gate` entries in `structures[]` (V25); `validate:data`'s versus rule is moot (no versus file for the map); the audit of the `structureOfTile` readers matters more here: the **shipped enemy waves breach the walls** and path through the gaps, and an open gate must not read as a wall to them | M |
+| **E2** presentation | the huge yellow gates (the lead's words); Q8, Q10 | M + art |
+| **E3** group count | **hard precondition**: without it the passive control wins 30/30. Needs `group` as **`string` or `string[]`** (the villages are four groups so each can be ordered), and `collect` scoped to the groups of **active** objectives, so a village person who walks in after the primary is complete is not counted (that keeps *"Two came in"* an accounting fact, as shipped; N32); `civ.settlements_evacuated` scoped to the primary's groups | S |
+| **E4** feed | about 100 `clear (1)` lines in 30 s without it | S |
+| **E5** zone filter | the four `families_walk_*` orders; without it the early-rescue hazard (§10.1.1) | S |
+| **E6** civilians as targets | **wave-unit** schema property and `stepWaves` passthrough (`mission.ts:4668-4671`, V21) as well as the placement field; only the two flagged entries; the cue **E7** | M |
+| **E7** `group_fired` | two cue rows (cells firing; a hostile unit entering `compound` while a gate is open); optional | S |
+| **E8** `abduct` | optional: halves the eight 240 s triggers and lets the villagers follow their corner | M |
+| **E9** crowd perf | measured: 89 to 98 flow fields at 2 s (the 100 `withdraw_to` slots), worst tick 18.5 ms, 100 people at the aprons; the render curve (Q5, N22) is the open measurement | S |
+| **E10** entity budget | 143 passes (<= 160); measured peak 180 of 256 | S |
+| **E11** harness | the pins and controls of §11.2 and §11.4 | S/M |
+| **E12** wounded count as saved | optional | S |
+| **E13** validators | muster outside `compound` (the aprons at x=15 and 33 are); the force-to-gate rule at **5** tiles fails at 4.61 and 4.92: either relax it to 4.5 or move one `at_team` (11.1.2) | S |
+| **E14** adults only | **mandatory under D18** for a hundred people under fire (G-16); `civilians.figures: "adults"` | S |
+| **E15** capacity | decision: stay at 256, authored 143, peak 180; a runtime `reinforce` or wave is skipped whole if it would not fit (V11), which the Easier relief at 90 s would hit only past 254 | S |
+
+**Data first (today).** Nothing about the road can ship before E3: adding the road crowd to the mission as it is makes the passive control win (measured, E3 off 30/30). Order: **E10, E13, E3** (S) -> the road crowd, the two run triggers, the `road_in` secondary, the removes with zones, the walk-back (S0: gaps open, passive 0/30, the road leaks 24.9) -> **E4** -> **E1, E2** (the gates; S2) -> **E5** -> **E6, E14, E7** -> E8 if wanted. The 143-entity budget against 256: 143 authored, 180 peak over 30 seeds of seven plans (37 wounded and rejoined bodies at most), so about 76 left; civilians shot under E6 spawn nothing (`wounds.in_place`), so E6 does not eat the margin; the 160 rule passes.
+
+### 11.4 What this supersedes, notes, and the pins a change moves
+
+**Superseded by §11 (by heading).**
+- §6 *The pilot: `beit_sahwan_1_recon`*: all of it (the map variant `beit_sahwan_1`, the compound, the 88 + 12 crowd, the `fl_north` and `takers` cells, the objectives 55 / 85 / 8, the margins, the stars, the assets). Recon stays an ordinary Marj recon mission.
+- §10.1: 10.1.2 (map `beit_sahwan_1`), 10.1.3 (flags), 10.1.4 and 10.1.5 (ECA rows, A and B), 10.1.6 (director), 10.1.7 (objectives and clocks), 10.1.8 (levers), 10.1.9 (slices) and 10.1.10 (fragments). **Still valid:** 10.1.1 (N2: the order of the civilian rule and the triggers, the early-rescue hazard and E5) and §10.0, §10.2, §10.3.
+- §10.4 *Playtest asks*: the recon table P0 to P5 (replaced by §11.2); the method stands.
+- §3.2 rows 2 and 3 (breach 40 / 10, recon 100) and §7 Q11's "re-state it" recommendation (§9.6 N5 and §9.7 recommend KEEP; so does this).
+- §9.2 *The pilot: `beit_sahwan_1_recon`* (recon strings, kept as a record per §9.7).
+
+**Notes (N32 onward; earlier sections not edited).**
+
+| # | where | note |
+|---|---|---|
+| N32 | §10.2 E3 | `group` must take **a string or an array of strings** (the villages need four group names to be ordered one by one) and `collect` must be scoped to the groups of **active** evacuation objectives. Otherwise the road secondary keeps the yard collecting, every village person who walks in is counted (6 of 11 on every measured winning plan, 6.0 to 7.9) and *"Two came in"* is false on the player's own tally |
+| N33 | §10.2 E13(b), §10.1.2 | the 5-tile rule meets authored margins of 4.61 and 4.92 (V23: `at` is exact, not a tile centre; §10's recon distances added 0.5 to tile corners where the layout is `assembly`, which is correct there, and wrong for an `authored` layout) |
+| N34 | §10.1.1 | confirmed on the breach: the shipped no-zone `remove families` at 272 s is the pattern that takes a freed villager; the pilot uses a zone per village |
+| N35 | §10.2 E6 | wave units need the schema property **and** the `stepWaves` passthrough; today the key validates and is dropped (V21). Add a `validate:data` refusal until it lands |
+| N36 | §10.2 E1, §10.1.2 | V25: gates in `structures[]` mean `marj_perimeter.json`'s grid, the fence test's `BASE`, versus, the sandbox anchors (`sandbox-anchors.pinned.json`) and the terrain fixtures are not touched; only markers and zones are added to the map file |
+| N37 | §3.2 row 2 | superseded: 11 + 89, not 40; `compound` zone [18,17,13,13] and gaps (17,21-22), (31,24-25) verified |
+| N38 | §10.5 N19 | the wall breach is **measured**, not hypothetical: 3.0 wall tiles destroyed a passive run, 28.3 of the road (max 35) reach the yard through them. It is harmless to the primary only because of E3 |
+| N39 | §9.7 triggers | `the_corners_walk_back` is one row but needs eight triggers (or four with E8), each non-`remove` with a label: up to eight feed lines on tick 4800 |
+| N40 | §9.7 objectives | `road_in` needs `clock: false` (two countdowns at 270 s otherwise); `first_light_clock.test.ts:38` pins `clockless` to exactly `['survive_relief']` |
+| N41 | §9.7 briefing | six beats; `loading.test.ts:581` pins five |
+| N42 | §9.7 | the cells' fire is not the only threat to the crowd: the waves breach the walls (N38), and an open gate is open to them (T-a) |
+| N43 | §10.4 P1, §11.1.5 | `road_in` 50 is met by two parked squads at 24 s on 30/30 seeds; with E6 absent this is a floor on the difficulty, not the measure. Levers: count 65 (79.7 is the best measured), or the run at 18 s (T-c) |
+| N44 | §9.7 *shape* | *"a civilian placed inside `compound` is collected on the first evaluation"* is true (`civilians.ts:258-281`); the run starts outside and arrives 9 to 18 s in, as the 18 s cells appear |
+
+**The breach's pins and playtest-plan lines a change moves** (files and lines read this session; **UNREAD** where the body was not opened):
+
+| # | pin | where | moves? | action |
+|---|---|---|---|---|
+| P1 | body census 27, 11 civilian | `first_light_fence.test.ts:222-228` | yes: 116 bodies, 100 civilian (9 + 7 + 100) | re-derive |
+| P2 | per-body route table `SPAWN_WALKS` (11 keys), `walked` toEqual | `first_light_fence.test.ts:328-410` | yes: the test walks every civilian body; 89 are new | restrict to the village groups or extend |
+| P3 | `afterSim` raises every `MISSION.structures` entry | `first_light_fence.test.ts:268-286` | yes: the closed gates sever every route into the compound (`severed by the fence`) and every wave route to `compound_centre` (`:413-447`) | skip `compound_gate` in `afterSim` |
+| P4 | passive control: `defeat`, `evac_settlements` failed, `survive_relief` active, ids exactly two | `first_light_fence.test.ts:470-483` | ids change to `evac_settlements`, `road_in`, `survive_relief`; the rest **held** (executed) | update the id list |
+| P5 | `clockless` == `['survive_relief']` | `first_light_clock.test.ts:38` | yes (`road_in` is `clock: false`) | `['road_in','survive_relief']`; the rest of the file **UNREAD** against the new mission |
+| P6 | briefing beat count 5 | `loading.test.ts:581`; length 385-1225 at `evacuation.test.ts:110-111` | beat count yes (6); length holds (1,131) | 5 -> 6 |
+| P7 | starting force positions | `start_layout.test.ts:228-241` (authored, moved 0); `challenges.test.ts:103-108` (`inf_squad` x4, slice of three) | no, unless `at_team` moves: still `authored`, order unchanged | none |
+| P8 | locale overlays | `data/locales/en/missions.json`, `de/missions.json`; `locales_en.test.ts:207-221` (`wave_say.0`, `.2` keyed by index) | strings yes; the wave indices **hold** (no wave added or reordered) | regenerate `en`; `de` re-translate (AI-translated, unproofread) |
+| P9 | the passive line | `playtest.ts:133` (`'defeat'`) | held (executed: 30/30) | add the controls of §11.2 |
+| P10 | the winning plan line | `playtest.ts:141` (victory, 2 stars, `inf_medic_squad`, rescue counts `>= 1`) | victory and 2 stars held (executed); rescue counts **UNREAD** | re-run |
+| P11 | `LADDER_CREDITS = 8093` | `playtest.ts:4026-4029` | **yes**: the breach is mission 1 of the chain (3577-3580) and its survivors, Conduct and clock feed every later `led*`; "one more body shifts every later entity id and so the wave streams" (3962-3970) | re-pin from CI numbers; diff every downstream line |
+| P12 | `ROSTER_MAX` / `ROSTER_CAP` | `playtest.ts:3413` | possibly (survivor count) | re-run |
+| P13 | `min_win_seconds` breach 74 | `data/accounts/min_win_seconds.json:3`, `plan-sweep.ts:171-206` | **held**: fastest win 299.9 s (floor 74) | `--min-win` to confirm |
+| P14 | sweep margins | `plan-sweep.ts` 30 seeds, 120 s and 20% | **held**: 300 s and 2.0x | none |
+| P15 | passive-intel report | `playtest.ts:4268-4274` ("ahead on 16 of 30", report-only) | possibly | read the line |
+| P16 | postures | `overlays.test.ts:107-116` (`[172, 211, 269]`, `waves[0]` 18 -> 3), `posture-ladder.ts` | census **held** (no untagged wave body added); Harder puts the flagged cells at **3 s**, inside the crowd's start and before the run (2 s) has moved it; whether a grown entry keeps `fires_on_civilians` is **UNREAD** (`overlays.ts` extra entry) | run Easier and Harder (8 seeds) |
+| P17 | challenge `thin_wire` (`lost_at_most 2`), `breach_no_jeep`, `no_medic` | `data/challenges/beit_sahwan_breach.json`; `challenge-reading.test.ts:28` (limit 600 **holds**) | winnability **UNREAD** | `playtest` challenge reading |
+| P18 | the four-tier ladder | `fl_ladder.ts` (header numbers, `civilians in` histogram counts all `evacuated`) | tool, not a test; its histogram is meaningless with a road | re-label or scope |
+| P19 | shared plans | `plans.test.ts:54, 69, 73` (regexes on `firstLightPlan`) | held if the plan is untouched; the plan wins 30/30 unchanged (executed) | none |
+| P20 | alerts | `alert-world.test.ts:77-90` (two waves by 20 s), `:96-110` | held (no wave added) | none |
+| P21 | unit roster | `mesh-catalogue.test.ts:274-312` | held (no new unit type) | none |
+| P22 | determinism | `determinism.test.ts` pins | none for the breach itself; `GATE_WORLD_PIN` (E1) and a civ-fire pin (E6) are new | per §10.2 |
+| P23 | `docs/campaign/beit_sahwan/design.md`, `narrative.md`, `script.md` | the breach's design and script | yes | `narrative-designer`, `mission-author` |
+
+**The biggest risk to the canon (eleven, two, nine).** *Eleven* holds. *Two* and *nine* are **thresholds, not outcomes**: the sim lets a competent player bring in **six of the eleven** (6.0 on every measured winning plan, 7.9 on the split attack) and takes five, not nine. The shipped mission carries the same latent falsity and hides it by an accounting convention: the objective completes at two, `collect` stops, and the report says two. The pilot breaks that convention the moment a second evacuation objective (`road_in`) keeps the yard collecting; then the player's own tally reads six and Idit's *"Two came in"* is false in plain view. E3 must therefore scope `collect` to the groups of active objectives (N32), or `debrief.victory` must be rewritten to be true of every victory (for example *"Eleven were in the villages at first light. We had counted two when the count stopped."*, `narrative-designer`). A second, smaller risk is the passive control's margin: one village person on the worst of 100 seeds (§11.2).
