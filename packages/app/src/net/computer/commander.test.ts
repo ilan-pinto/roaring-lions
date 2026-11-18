@@ -7,19 +7,23 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Command } from '@lions/sim';
-import { DEFEND_TILES, createCommander, type CommanderContext, type ZoneFact } from './commander';
+import { DEFEND_TILES, counterPool, createCommander as createSlice2, type CommanderContext, type CommanderOptions, type ZoneFact } from './commander';
 import { ComputerSeat, sweepStragglers } from './computer-seat';
 import { DESK_MAX_QUEUE } from './order-desk';
 import { RUSH_HOME_TILES } from './policy';
+import { SOFT_PENETRATION_CEILING, classOf } from './composition';
 import { zoneFacts } from './zones';
 import type { EconomyView, MenuLine } from './economy-view';
 import type { SideView, UnitLine, ContactLine } from './view';
+
+/** The slice 1 tests ask for the slice 1 commander: the slice 2 tasks are off unless a test turns them on. */
+const createCommander = (o: CommanderOptions = {}) => createSlice2({ scout: false, counter: false, ...o });
 
 const CAMP: [number, number] = [10, 40];
 const ENEMY_CAMP: [number, number] = [40, 8];
 
 const unit = (id: number, tile: [number, number], o: { flags?: string[]; type?: string } = {}): UnitLine => ({ id, type: o.type ?? 'inf_squad', tile, hp: 100, flags: o.flags ?? ['idle'], stance: 'free' });
-const contact = (id: number, tile: [number, number]): ContactLine => ({ id, type: 'rifle', tile, hp: 100, inSight: true, seenTick: 0 });
+const contact = (id: number, tile: [number, number], type = 'rifle'): ContactLine => ({ id, type, tile, hp: 100, inSight: true, seenTick: 0 });
 const menu = (unit: string, cost: number, blocked?: string): MenuLine => ({ unit, cost, population: 1, buildSeconds: 30, ...(blocked !== undefined ? { blocked } : {}) });
 const eco = (o: Partial<EconomyView> = {}): EconomyView => ({
   purse: 1000, perMin: 0, population: null,
@@ -264,5 +268,251 @@ describe('invariant 4: the commander reads the public view and writes nothing', 
     expect(strip(readFileSync(join(__dirname, 'commander.ts'), 'utf8'))).not.toMatch(/\.sim\b|\.state\b|internals|queueCommand|\.entityCount|\.unitTypes|requestBuild/);
     // zones.ts reads the runtime's public zone board, whose entries have a `.state` of their own; it names no sim and no way to write one.
     expect(strip(readFileSync(join(__dirname, 'zones.ts'), 'utf8'))).not.toMatch(/\.sim\b|internals|queueCommand|\.entityCount|\.unitTypes|requestBuild|\.state\[/);
+  });
+});
+
+// ---- slice 2 ------------------------------------------------------------------------------------------------------------------------
+
+/** The slice 2 tasks are opt-in; these tests ask for them. */
+const slice2 = (o: CommanderOptions = {}) => createSlice2({ scout: true, counter: true, ...o });
+
+const buildsOf = (cs: readonly Command[]): string[] => cs.filter((c): c is Extract<Command, { kind: 'build' }> => c.kind === 'build').map((c) => c.unit);
+const moves = (cs: readonly Command[]) => cs.filter((c): c is Extract<Command, { kind: 'move' }> => c.kind === 'move');
+const mkMove = (c: Extract<Command, { kind: 'move' }>): [number, number] => [Math.floor(c.x / 65536), Math.floor(c.y / 65536)];
+
+describe('composition: the classes are read off the unit data', () => {
+  it('armour is a hull only an anti-armour weapon can hurt; the ceiling is derived from the data, not written', () => {
+    expect(SOFT_PENETRATION_CEILING).toBe(120); // the Namer's autocannon: the best non-anti-armour, non-demolition round
+    expect(classOf('mbt_lavi')).toBe('armour');
+    expect(classOf('ifv_namer')).toBe('armour');
+    expect(classOf('apc_eitan')).toBe('armour');
+    expect(classOf('inf_squad')).toBe('soft');
+    expect(classOf('jeep_shoded')).toBe('soft'); // a light hull any autocannon hurts
+    expect(classOf('heli_peten')).toBe('air');
+    expect(classOf('recon_drone')).toBe('none'); // carries no weapon
+    expect(classOf('no_such_unit')).toBe('none');
+  });
+});
+
+describe('slice 2 is opt-in: the default commander is the slice 1 commander', () => {
+  it('with no options it neither scouts nor counters: the same view gives the same orders as with both explicitly off', () => {
+    const force = [unit(1, [10, 41], { type: 'at_team' }), unit(2, [11, 40], { type: 'inf_squad' }), unit(3, [9, 39], { type: 'mortar_team' })];
+    const v = (): SideView => view({ units: force, contacts: [contact(90, [30, 20], 'mbt_lavi')], economy: eco() });
+    expect(createSlice2()(v(), ctx()).commands).toEqual(createSlice2({ scout: false, counter: false })(v(), ctx()).commands);
+    expect(moves(createSlice2()(v(), ctx()).commands)).toHaveLength(0);
+  });
+});
+
+describe('scout: the cheapest unit looks at the enemy camp', () => {
+  const force = [unit(1, [10, 41], { type: 'at_team' }), unit(2, [11, 40], { type: 'inf_squad' }), unit(3, [9, 39], { type: 'mortar_team' })];
+  const only = (o: CommanderOptions) => slice2({ defend: false, zones: false, produce: false, counter: false, ...o });
+
+  it('sends the fastest of the cheaper half (costs 209 / 236 / 292, median 236: the at_team at 0.7 t/s, not the slower mortar crew that is the cheapest) with a move to RUSH_HOME_TILES short of the enemy camp, and leaves it out of the march', () => {
+    const out = only({})(view({ units: force }), ctx());
+    const m = moves(out.commands);
+    expect(m).toHaveLength(1);
+    expect(m[0].ids).toEqual([1]);
+    const [x, y] = mkMove(m[0]);
+    expect(Math.round(Math.hypot(x - ENEMY_CAMP[0], y - ENEMY_CAMP[1]))).toBe(RUSH_HOME_TILES);
+    expect(Math.hypot(x - CAMP[0], y - CAMP[1])).toBeLessThan(Math.hypot(ENEMY_CAMP[0] - CAMP[0], ENEMY_CAMP[1] - CAMP[1]));
+    expect(out.keep.has(1)).toBe(true);
+    expect(marches(out.commands).flatMap(ids)).not.toContain(1);
+    expect(marches(out.commands).flatMap(ids).sort()).toEqual([2, 3]);
+  });
+
+  it('with it off the same view sends nobody ahead and the march takes all three', () => {
+    const out = only({ scout: false })(view({ units: force }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+    expect(marches(out.commands).flatMap(ids).sort()).toEqual([1, 2, 3]);
+  });
+
+  it('never sends its only unit', () => {
+    const out = only({})(view({ units: [unit(1, [10, 41])] }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+  });
+
+  it('a scout under way is left alone; one that stopped short is sent again; one that arrived is not; it is kept in all three', () => {
+    const c = only({});
+    c(view({ units: force }), ctx()); // chooses unit 1
+    const moving = c(view({ units: [unit(1, [20, 30], { type: 'at_team', flags: ['moving'] }), force[1], force[2]] }), ctx());
+    expect(moves(moving.commands)).toHaveLength(0);
+    expect(moving.keep.has(1)).toBe(true);
+    const stopped = c(view({ units: [unit(1, [20, 30], { type: 'at_team', flags: ['idle'] }), force[1], force[2]] }), ctx());
+    expect(moves(stopped.commands)).toHaveLength(1);
+    const to = mkMove(moves(stopped.commands)[0]);
+    const arrived = c(view({ units: [unit(1, to, { type: 'at_team', flags: ['idle'] }), force[1], force[2]] }), ctx());
+    expect(moves(arrived.commands)).toHaveLength(0);
+    expect(arrived.keep.has(1)).toBe(true);
+    expect(marches(arrived.commands).flatMap(ids)).not.toContain(1);
+  });
+
+  it('is chosen once: when the scout dies nobody is sent in its place', () => {
+    const c = only({});
+    c(view({ units: force }), ctx());
+    const after = c(view({ units: [force[1], force[2]] }), ctx());
+    expect(moves(after.commands)).toHaveLength(0);
+  });
+
+  it('is decided at one decision only: a unit that arrives later is never picked, even if nobody could go at the start', () => {
+    const c = only({});
+    c(view({ units: [unit(1, [10, 41], { flags: ['moving'] }), unit(2, [11, 40], { flags: ['moving'] })] }), ctx()); // nobody idle at home
+    expect(moves(c(view({ units: force }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('a scout that cannot move (it is idle on the tile it was last sent from) is not sent again; one that moved and stopped is', () => {
+    const c = only({});
+    c(view({ units: force }), ctx());
+    const stuckAt = unit(1, [10, 41], { type: 'at_team' });
+    expect(moves(c(view({ units: [stuckAt, force[1], force[2]] }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('nobody is sent when the camps are no further apart than the standoff', () => {
+    const out = only({})(view({ units: force, enemyCamp: [CAMP[0] + 4, CAMP[1]] }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+    expect(out.keep.size).toBe(0);
+  });
+
+  it('the scout is not a zone\'s holder: another idle unit standing in a held zone is kept for it', () => {
+    const zoneAt = zone('held', [8, 36, 6, 8], 'mine');
+    const out = only({ zones: true })(view({ units: force }), ctx([zoneAt]));
+    expect(out.keep.has(1)).toBe(true); // the scout
+    expect([...out.keep].filter((id) => id !== 1)).toHaveLength(1); // plus one real holder
+  });
+
+  it('is not recalled to defend: the defend march names the others', () => {
+    const out = slice2({ zones: false, produce: false, counter: false })(view({ units: force, contacts: [contact(90, [12, 38])] }), ctx());
+    expect(marches(out.commands).flatMap(ids).sort()).toEqual([2, 3]);
+    expect(moves(out.commands)).toHaveLength(1);
+  });
+
+  it('reads nothing but the view: the order depends on the two camps and the units, never on a contact', () => {
+    const a = only({})(view({ units: force }), ctx());
+    const b = only({})(view({ units: force, contacts: [contact(90, [30, 30])] }), ctx());
+    expect(moves(a.commands)).toEqual(moves(b.commands));
+  });
+});
+
+describe('counter: build against what has been seen', () => {
+  const start = [unit(1, [10, 41], { type: 'inf_squad' }), unit(2, [11, 40], { type: 'inf_squad' }), unit(3, [9, 39], { type: 'inf_squad' }), unit(4, [12, 41], { type: 'at_team' })];
+  const o = { defend: false, zones: false, scout: false } as const;
+  const sees = (types: string[]): ContactLine[] => types.map((t, i) => contact(100 + i, [30, 20 + i], t));
+  const play = (c: ReturnType<typeof createSlice2>, contacts: ContactLine[], units = start): string[] => buildsOf(c(view({ units, contacts, economy: eco() }), ctx()).commands);
+
+  it('slice 1 builds the type furthest below its start mix (the at_team, 1 of 1 over 3 of 3, is tied: menu order, so the squad); against seen armour it builds anti-armour', () => {
+    expect(play(slice2({ ...o, counter: false }), sees(['mbt_lavi', 'mbt_lavi']))).toEqual(['inf_squad']);
+    expect(play(slice2({ ...o }), sees(['mbt_lavi', 'mbt_lavi']))).toEqual(['at_team']);
+  });
+
+  it('against more soft than armour it builds an infantry-role unit, even when another type is further below its mix', () => {
+    // Started with 1 squad and 3 AT teams; two AT teams are lost. Slice 1 rebuilds the AT team (1 of 3 over 1 of 1); three soft contacts seen, the counter builds the squad.
+    const started = [unit(1, [10, 41], { type: 'inf_squad' }), unit(2, [10, 42], { type: 'at_team' }), unit(3, [11, 42], { type: 'at_team' }), unit(4, [12, 41], { type: 'at_team' })];
+    const later = [started[0], started[1]];
+    const soft = sees(['inf_squad', 'inf_squad', 'inf_squad']);
+    const economy = eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] });
+    for (const [counter, want] of [[false, 'at_team'], [true, 'inf_squad']] as const) {
+      const c = slice2({ ...o, counter });
+      c(view({ units: started, economy: eco({ lines: [] }) }), ctx());
+      expect(buildsOf(c(view({ units: later, contacts: soft, economy }), ctx()).commands), `counter ${counter}`).toEqual([want]);
+    }
+  });
+
+  it('nothing seen, or as much armour as soft: the slice 1 rule', () => {
+    const eq = slice2({ ...o })(view({ units: start, contacts: sees(['mbt_lavi', 'inf_squad']), economy: eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] }) }), ctx());
+    const none = slice2({ ...o })(view({ units: start, economy: eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] }) }), ctx());
+    const slice1 = slice2({ ...o, counter: false })(view({ units: start, economy: eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] }) }), ctx());
+    expect(buildsOf(eq.commands)).toEqual(buildsOf(slice1.commands));
+    expect(buildsOf(none.commands)).toEqual(buildsOf(slice1.commands));
+  });
+
+  it('as much armour as soft: the armour is not countered either (a strict majority, not a tie)', () => {
+    // Started with 3 squads and 1 AT team; two squads are lost. Slice 1 rebuilds a squad (1 of 3 over 1 of 1). Two hulls and two soft units seen: a tie.
+    const started = [unit(1, [10, 41], { type: 'inf_squad' }), unit(2, [10, 42], { type: 'inf_squad' }), unit(3, [11, 42], { type: 'inf_squad' }), unit(4, [12, 41], { type: 'at_team' })];
+    const later = [started[0], started[3]];
+    const economy = eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] });
+    const c = slice2({ ...o });
+    c(view({ units: started, economy: eco({ lines: [] }) }), ctx());
+    const tie = c(view({ units: later, contacts: sees(['mbt_lavi', 'mbt_lavi', 'inf_squad', 'inf_squad']), economy }), ctx());
+    expect(buildsOf(tie.commands)).toEqual(['inf_squad']);
+  });
+
+  it('soft parity: once the seat has as many infantry as soft units seen at once, the slice 1 rule is back', () => {
+    const started = [unit(1, [10, 41], { type: 'inf_squad' }), unit(2, [10, 42], { type: 'at_team' }), unit(3, [11, 42], { type: 'at_team' }), unit(4, [12, 41], { type: 'at_team' })];
+    const later = [started[0], started[1]];
+    const economy = eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] });
+    const c = slice2({ ...o });
+    c(view({ units: started, economy: eco({ lines: [] }) }), ctx());
+    expect(buildsOf(c(view({ units: later, contacts: sees(['inf_squad']), economy }), ctx()).commands)).toEqual(['at_team']); // 1 squad held, 1 soft seen: parity
+    expect(buildsOf(c(view({ units: later, contacts: sees(['inf_squad', 'inf_squad']), economy }), ctx()).commands)).toEqual(['inf_squad']); // 2 soft seen: one short
+  });
+
+  it('remembers the most seen at once: the armour is still countered after it leaves sight', () => {
+    const c = slice2({ ...o });
+    c(view({ units: start, contacts: sees(['mbt_lavi', 'mbt_lavi']), economy: eco({ lines: [{ line: 0, alive: true, tile: [10, 40], building: null, progress: 0, secondsLeft: 0, contested: false, queued: ['inf_squad'], rally: null }] }) }), ctx());
+    expect(play(c, [])).toEqual(['at_team']);
+  });
+
+  it('parity: one anti-armour unit for every armoured hull seen at once, counting what is queued; then back to the mix', () => {
+    const c = slice2({ ...o });
+    const queued = (q: string[]) => eco({ lines: [{ line: 0, alive: true, tile: [10, 40], building: null, progress: 0, secondsLeft: 0, contested: false, queued: q, rally: null }] });
+    // seen 2 hulls; the force holds 1 at_team: one more is wanted.
+    expect(buildsOf(c(view({ units: start, contacts: sees(['mbt_lavi', 'mbt_lavi']), economy: eco() }), ctx()).commands)).toEqual(['at_team']);
+    // the line has an at_team queued: parity (2 of 2) is met, no build while the line is not empty (slice 1's one-waiting rule)
+    expect(buildsOf(c(view({ units: start, economy: queued(['at_team']) }), ctx()).commands)).toEqual([]);
+    // an empty line at parity: the slice 1 rule again, not another at_team
+    const atTwo = [...start, unit(5, [12, 42], { type: 'at_team' })];
+    expect(buildsOf(c(view({ units: atTwo, economy: eco() }), ctx()).commands)).toEqual(['inf_squad']);
+  });
+
+  it('picks the anti-armour round that beats the strongest plate seen (700 front: the 900 ATGM, not the 650 recoilless)', () => {
+    const menuAt = eco({ menu: [menu('recoilless_team', 100), menu('atgm_cell', 150), menu('sarim_rifles', 90)] });
+    const sarim = [unit(1, [10, 41], { type: 'sarim_rifles' }), unit(2, [11, 40], { type: 'sarim_rifles' })];
+    expect(buildsOf(slice2({ ...o })(view({ units: sarim, contacts: sees(['mbt_lavi']), economy: menuAt }), ctx()).commands)).toEqual(['atgm_cell']);
+    // against an APC (220 front) the cheaper 650 round beats it and is a candidate too: the furthest-below rule picks between them (menu order on a tie)
+    expect(buildsOf(slice2({ ...o })(view({ units: sarim, contacts: sees(['apc_eitan']), economy: menuAt }), ctx()).commands)).toEqual(['recoilless_team']);
+  });
+
+  it('the round that beats the plate is unaffordable: the seat does what the slice 1 commander does with this purse, not buy the round that cannot penetrate', () => {
+    const menuAt = (purse: number) => eco({ purse, menu: [menu('recoilless_team', 100), menu('atgm_cell', 150), menu('sarim_rifles', 90)] });
+    // Started with 2 rifles and 1 recoilless; one rifle lost. Slice 1 rebuilds the rifles (1 of 2 over 1 of 1). Two hulls seen with a 700 front plate.
+    const started = [unit(1, [10, 41], { type: 'sarim_rifles' }), unit(2, [11, 40], { type: 'sarim_rifles' }), unit(3, [12, 40], { type: 'recoilless_team' })];
+    const later = [started[0], started[2]];
+    const run = (counter: boolean, purse: number): string[] => {
+      const c = slice2({ ...o, counter });
+      c(view({ units: started, economy: eco({ lines: [] }) }), ctx());
+      return buildsOf(c(view({ units: later, contacts: sees(['mbt_lavi', 'mbt_lavi']), economy: menuAt(purse) }), ctx()).commands);
+    };
+    expect(run(true, 1000)).toEqual(['atgm_cell']);
+    expect(run(true, 120)).toEqual(['sarim_rifles']);
+    expect(run(true, 120)).toEqual(run(false, 120));
+  });
+
+  it('counterPool: a held round that cannot beat the plate does not count toward parity; one that can does', () => {
+    const peak = new Map([['mbt_lavi', 1]]);
+    const menuAll = ['recoilless_team', 'atgm_cell', 'sarim_rifles'];
+    const all = new Set(menuAll);
+    expect([...(counterPool(menuAll, all, peak, new Map([['recoilless_team', 1]])) ?? [])]).toEqual(['atgm_cell']);
+    expect(counterPool(menuAll, all, peak, new Map([['atgm_cell', 1]]))).toBeNull();
+  });
+
+  it('counterPool: when no round in the menu beats the plate, the strongest the menu has is the pool (a weaker hit is still a hit)', () => {
+    const peak = new Map([['mbt_lavi', 1]]);
+    const menuAll = ['recoilless_team', 'rpg_team', 'sarim_rifles']; // 650 and 550 against 700
+    expect([...(counterPool(menuAll, new Set(menuAll), peak, new Map()) ?? [])]).toEqual(['recoilless_team']);
+  });
+
+  it('a menu with no anti-armour unit falls through to the slice 1 rule, and so does a menu with no infantry against soft', () => {
+    const noAt = eco({ menu: [menu('inf_squad', 100), menu('mortar_team', 100)] });
+    expect(buildsOf(slice2({ ...o })(view({ units: start, contacts: sees(['mbt_lavi']), economy: noAt }), ctx()).commands)).toEqual(buildsOf(slice2({ ...o, counter: false })(view({ units: start, economy: noAt }), ctx()).commands));
+    const noInf = eco({ menu: [menu('at_team', 100), menu('mortar_team', 100)] });
+    const lost = [unit(4, [12, 41], { type: 'at_team' })];
+    expect(buildsOf(slice2({ ...o })(view({ units: lost, contacts: sees(['inf_squad', 'inf_squad']), economy: noInf }), ctx()).commands)).toEqual(buildsOf(slice2({ ...o, counter: false })(view({ units: lost, economy: noInf }), ctx()).commands));
+  });
+
+  it('an unarmed contact and an aircraft count toward neither side', () => {
+    const c = slice2({ ...o });
+    const menuTwo = eco({ menu: [menu('at_team', 100), menu('inf_squad', 150)] });
+    const slice1 = slice2({ ...o, counter: false })(view({ units: start, economy: menuTwo }), ctx());
+    const out = c(view({ units: start, contacts: sees(['recon_drone', 'recon_drone', 'heli_peten']), economy: menuTwo }), ctx());
+    expect(buildsOf(out.commands)).toEqual(buildsOf(slice1.commands));
   });
 });
