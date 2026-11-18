@@ -9,11 +9,15 @@
  *   campaign complete     100   once, on the win that finishes the campaign
  *   replays, Conduct points, time, losses, versus: 0
  *
- * That caps a lifetime at 100 + 10 per mission + 5 per star + 100: 830 coins over
- * the 29 missions and the 68 stars the playtest ladder reaches, and one campaign
+ * That caps a lifetime at 100 + 10 per mission + 5 per star + 100: 940 coins over
+ * the 34 missions and the 80 stars the playtest ladder reaches, and one campaign
  * buys the dearest unit in the Stores (800). `roar_earn.test.ts` pins that against
  * the ladder (gate G-E2). Conduct is paid through the second star (the Conduct
  * line), so a Conduct point pays nothing of its own.
+ *
+ * GH-1395: a beaten challenge pays 10 more, once per account, through `payChallenge`
+ * (challenge-earn.ts), kept apart so the entry chunk never carries it. Every record write
+ * here keeps the lifetime `challenge` flag (`...prev`), so a later star never reopens it.
  *
  * Coins and credits stay apart (spec guard G3): credits are the wage, paid on every
  * win by `payMission`; coins are a lifetime bonus. Nothing here touches the brigade
@@ -22,7 +26,7 @@
  */
 import type { LedgerData } from '@lions/sim';
 import { campaignComplete } from './campaign-complete';
-import { grantFree, type EarnRecord, type EarnSource, type RoarWallet } from './wallet';
+import { grantFree, type EarnMission, type EarnRecord, type EarnSource, type RoarWallet } from './wallet';
 import { worldMissionIds, type ParsedWorld } from './world';
 
 /** What each kind of payout is worth. The Stores' copy and the debrief read these. */
@@ -45,6 +49,9 @@ export interface VictoryWin {
   stars: number;
   /** The ledger as this win leaves it: the campaign is complete or it is not. */
   ledger: LedgerData;
+  /** GH-1395: THIS run beat the mission's challenge (`packages/app/src/challenge.ts`). `roarEarn` does not read it: the
+   *  lazily loaded victory settle pays it through `payChallenge` (challenge-earn.ts), once per account. */
+  challenge?: boolean;
 }
 
 const clampStars = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(MAX_STARS, Math.floor(n))) : 0);
@@ -75,7 +82,7 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
       welcomed: true,
       campaignDone: w.earn.campaignDone || finishes,
       backfilled: w.earn.backfilled,
-      missions: { ...w.earn.missions, [win.missionId]: { won: true, stars: Math.max(prev.stars, stars) } },
+      missions: { ...w.earn.missions, [win.missionId]: { ...prev, won: true, stars: Math.max(prev.stars, stars) } },
     },
   };
   for (const a of awards) {
@@ -86,7 +93,7 @@ export function roarEarn(w: RoarWallet, win: VictoryWin, world: ParsedWorld, at:
 
 /** What a ledger proves was won: the input of the back-payment's difference loop. */
 export interface EarnEvidence {
-  missions: Readonly<Record<string, { won: boolean; stars: number }>>;
+  missions: Readonly<Record<string, EarnMission>>;
   campaignDone: boolean;
 }
 
@@ -130,7 +137,7 @@ export function earnDifference(
     // Only the difference between the lifetime record and what `earn` holds.
     if (!prev.won) coins += EARN.firstWin;
     coins += EARN.star * Math.max(0, stars - prev.stars);
-    missions[id] = { won: true, stars: Math.max(prev.stars, stars) };
+    missions[id] = { ...prev, won: true, stars: Math.max(prev.stars, stars) };
     if (!prev.won || stars > prev.stars) raisedMissions[id] = missions[id];
   }
   const welcomes = anyWin && !record.welcomed;

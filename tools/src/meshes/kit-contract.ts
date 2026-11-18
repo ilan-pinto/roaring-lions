@@ -74,7 +74,7 @@ export const KIT_VEHICLES: readonly string[] = [
 // measure or key a kit node already skips it.
 
 /** The teams whose GLB carries kit. One at a time: each is a lane of its own. */
-export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad'];
+export const INFANTRY_KIT_TEAMS: readonly string[] = ['inf_squad', 'demo_squad', 'yahalom_squad'];
 
 /** The role primitives a team's kit part may join. */
 export const INFANTRY_KIT_HOSTS: readonly string[] = ['uniform', 'weapon'];
@@ -124,6 +124,9 @@ const V7_PART_TRIS: Readonly<Record<string, number>> = {
 export const INFANTRY_KIT_TEAM_PART_TRIS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
   inf_squad: V7_PART_TRIS,
   demo_squad: V7_PART_TRIS,
+  // GH-826 unit "Yahalom" (17 Nov 2026): the v7 set plus the four specialist items the lead approved on 30 Oct, each at the
+  // size it was built at (`inf_kit_yahalom.py`; `inf_kit_parts.YAHALOM_PART_TRIS`).
+  yahalom_squad: { ...V7_PART_TRIS, respirator: 410, headlamp: 156, gas_detector: 218, mast_sensor: 210 },
 };
 
 /** The approved triangles for one node of `part` in `team`'s kit: the team's own row, else the shared table. */

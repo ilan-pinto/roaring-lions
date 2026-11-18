@@ -8,7 +8,7 @@
 // old rule did.
 //
 //   pnpm --filter @lions/tools exec tsx src/backtest/first-contact-probe.ts [--seeds=1,2,3,4,5] [--max-ticks=6000] [--missions=a,b]
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson, SimEvent } from '@lions/sim';
 import { missionWorld } from '../mission-harness';
 

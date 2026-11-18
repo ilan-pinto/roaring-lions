@@ -3,7 +3,8 @@
 // changes the one feature (a wall removed, the foot gap closed, a zone moved), so a check that would also pass on an empty zone or a path that never
 // existed goes red. The oracles are LITERALS measured on the committed maps, with the design's own figures where it gave them.
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 type Pt = readonly [number, number];
 const ID = ['bir_tarsha', 'bir_tarsha_2', 'bir_tarsha_3', 'bir_tarsha_4', 'bir_tarsha_5'] as const;

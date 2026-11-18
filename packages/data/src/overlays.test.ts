@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { missions } from './index';
+import { missions } from './content';
 import {
   applyOps,
   applyOverlays,
@@ -22,8 +22,8 @@ type M = {
   time_limit_s?: number;
   objectives: readonly { id: string; type: string; primary: boolean; carries?: boolean; seconds?: number }[];
   enemy?: { waves?: readonly { at_seconds: number; trigger?: string; units: readonly { unit: string; count: number; tag?: string }[] }[] };
-  starting_force?: readonly unknown[];
-  roe?: unknown;
+  starting_force?: readonly { unit: string; count: number; tag?: string }[];
+  roe?: { fail_below?: number; enabled?: boolean };
   triggers?: readonly { id?: string; on: { kind: string; value?: number }; do: { kind: string; units?: readonly { unit: string; count: number }[] } }[];
 };
 const all = Object.values(missions) as unknown as M[];
@@ -34,7 +34,11 @@ describe('the closed operation set', () => {
   it('the schema and the applier name the same operations (a new one is a change to both)', () => {
     const schema = JSON.parse(readFileSync(join(ROOT, 'data/schemas/overlay_ops.schema.json'), 'utf8'));
     const inSchema = (schema.$defs.op.oneOf as { properties: { op: { const: string } } }[]).map((o) => o.properties.op.const).sort();
-    expect(inSchema).toEqual(['add_wave', 'reinforce_player', 'scale_time_limit', 'scale_waves', 'shift_waves', 'uncarry']);
+    // GH-1395 slice 1 adds the four amendment operations, each a restriction (challenges.test.ts).
+    expect(inSchema).toEqual([
+      'add_wave', 'raise_fail_below', 'reinforce_player', 'remove_starting', 'scale_resources', 'scale_time_limit', 'scale_waves',
+      'set_intel_start', 'shift_waves', 'uncarry',
+    ]);
     // Every one of them is handled: an op the switch does not know throws.
     expect(() => applyOps(byId('beit_sahwan_2_foothold'), [{ op: 'set_fail_below', value: 0 } as unknown as OverlayOp])).toThrow(/unknown operation/);
   });
@@ -150,11 +154,25 @@ describe('purity', () => {
     { op: 'reinforce_player', at_seconds: 90, label_key: 'k', units: [{ unit: 'inf_squad', count: 1 }] },
     { op: 'uncarry' },
     { op: 'add_wave', wave: { at_seconds: 1, units: [{ unit: 'sarim_rifles', count: 1 }] } },
+    // GH-1395's amendment operations. remove_starting throws where a mission has no inf_squad, so the loop below
+    // tolerates a throw: what it pins is that nothing was written into the authored JSON either way.
+    { op: 'raise_fail_below', by: 10 },
+    { op: 'remove_starting', unit: 'inf_squad', count: 1 },
+    { op: 'scale_resources', num: 1, den: 2 },
+    { op: 'set_intel_start', value: 0 },
   ];
   it.each(one.map((o) => o.op))('%s alone never mutates the authored JSON', (name) => {
     const op = one.find((o) => o.op === name) as OverlayOp;
     const before = JSON.stringify(missions);
-    for (const m of all) applyOps(m, [op]);
+    let changed = 0;
+    for (const m of all) {
+      try {
+        if (applyOps(m, [op]) !== m) changed++;
+      } catch {
+        /* remove_starting on a mission without enough of the unit: an authoring error, and still no write */
+      }
+    }
+    expect(changed, 'the op changed at least one mission, so the purity check had something to catch').toBeGreaterThan(0);
     expect(JSON.stringify(missions)).toBe(before);
   });
   it('never mutates the authored JSON, and the same inputs give the same output', () => {
@@ -179,7 +197,9 @@ describe('a posture composes with amendments: the posture first, the amendments 
     const reversed = applyOps(applyOps(m, [{ op: 'add_wave', wave: added }]), postureOps('easier'));
     expect(reversed.enemy?.waves?.at(-1)).not.toEqual(added);
   });
-  it('a tight clock amendment stacks on the posture, multiplied in that order', () => {
+  // The applier is generic: a clock op in the amendment slot still stacks after the posture. No shipped amendment
+  // carries one (the lead dropped Tight clock, PR 1524; tools/validate_challenges.mjs refuses it).
+  it('a clock op in the amendment slot stacks on the posture, multiplied in that order', () => {
     const o = applyOverlays(m, { posture: 'easier', amendments: [[{ op: 'scale_time_limit', num: 3, den: 4 }]] });
     expect(o.time_limit_s).toBe(788); // ceil(ceil(840 * 5/4) * 3/4) = ceil(1050 * 3/4)
   });

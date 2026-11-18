@@ -16,7 +16,7 @@
  * cannot mean "stuck".
  */
 import type { DatabaseSync } from 'node:sqlite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import worker from './index';
 import { PURGE_BATCH_SLICE, PURGE_BATCH_SLICES, PURGE_PLAYER_SLICE, PURGE_PLAYER_SLICES } from './ingest';
 import { PURGE_EXPIRED_BATCHES, PURGE_EXPIRED_SLICE, PURGE_EXPIRED_STATEMENTS, RETENTION_MS } from './feedback-triage';
@@ -121,7 +121,7 @@ async function world(seeds: Seeds, race = false) {
     members: count(acc, 'member'),
   });
   const tombs = async (prefix: string) => (await h.kv.list({ prefix })).keys.length;
-  return { env, meter, left, kv: h.kv, tombs };
+  return { env, meter, left, kv: h.kv, tombs, acc };
 }
 
 async function run(w: Awaited<ReturnType<typeof world>>): Promise<number> {
@@ -203,6 +203,60 @@ describe('one scheduled() run stays under 50 D1 queries with worst-case backlogs
     // Telemetry 14 (one partial feedback slice 3, events 2 + legacy 1, players 5, desync, snap, rate_day), admin views 1, accounts 26
     // (expiry 5, idle select 1, three pages over 203 tombstones, one delete batch of 17 for the two idle members and the live one).
     expect(n).toBe(41);
+  });
+
+  it('GH-1530: one member whose delete always fails, among 39 good ones: two runs delete nobody, the third records it alone, the fourth deletes the 39; every run under 50', async () => {
+    // Every telemetry backlog at its worst as well, so the account fallback is metered against a full run, not an idle one.
+    const w = await world({ ...WORST, idleMembers: 0, deadTombstones: 0, liveTombstones: DUE_MEMBERS_MAX });
+    // 'zlive0' sorts first on the tombstone page and every day is the same, so live0 is the oldest queued: the first one tried alone.
+    w.acc.exec("CREATE TRIGGER stuck BEFORE DELETE ON member WHEN OLD.id = 'live0' BEGIN SELECT RAISE(ABORT, 'stuck member'); END");
+    const live = () => (w.acc.prepare("SELECT COUNT(*) AS n FROM member WHERE id LIKE 'live%'").get() as { n: number }).n;
+    const shared = (log: string[]) => log.filter((s) => / batch\(17\) WITH due\(id, day\) AS \(VALUES \(\?1, \?2\), /.test(s)).length;
+    const alone = (log: string[]) => log.filter((s) => / batch\(17\) WITH due\(id, day\) AS \(VALUES \(\?1, \?2\)\) /.test(s)).length;
+    // PR 1540 review: with a record, the idle select also reads which recorded members exist. It must stay ONE statement.
+    const union = (log: string[]) => log.filter((s) => / SELECT id, id_hash, last_seen_day, 1 AS idle FROM \(/.test(s)).length;
+    const runs: { n: number; live: number; shared: number; alone: number; union: number; threw: boolean }[] = [];
+    const once = async (): Promise<void> => {
+      w.meter.n = 0;
+      w.meter.calls = 0;
+      w.meter.log = [];
+      const threw = await worker.scheduled(undefined, w.env).then(() => false, () => true);
+      expect(w.meter.over, w.meter.log.join('\n')).toBe(0);
+      runs.push({ n: w.meter.n, live: live(), shared: shared(w.meter.log), alone: alone(w.meter.log), union: union(w.meter.log), threw });
+    };
+    for (let i = 0; i < 4; i++) await once();
+    expect(runs.map((r) => [r.live, r.shared, r.alone, r.threw])).toEqual([
+      [40, 1, 0, true], // the shared batch of 40 fails
+      [40, 1, 0, true], // again: the threshold (2)
+      [40, 0, 1, true], // live0 alone: it fails, and is recorded
+      [1, 1, 0, true], // the 39 in one shared batch; live0 is left out, and the run still fails so it is seen
+    ]);
+    for (const r of runs) expect(r.n).toBeLessThan(LIMIT);
+    // The alone run costs what a shared run does (one 17-statement batch): the fallback adds KV calls, never a D1 statement.
+    expect(runs.map((r) => r.n)).toEqual([45, 41, 41, 41]);
+    expect(runs.map((r) => r.union)).toEqual([0, 0, 0, 1]); // run 4 has a record: its existence check rode the idle select
+    expect(w.acc.prepare("SELECT id FROM member WHERE id LIKE 'live%'").all()).toEqual([{ id: 'live0' }]);
+    expect(await w.kv.get('tomb:zlive0')).not.toBeNull(); // its deletion is still on record
+    expect(await w.tombs('tomb:zlive')).toBe(DUE_MEMBERS_MAX); // the 39 keep theirs too: dead ones, for `gone`
+    // PR 1540 delta review, N1: a week on, the hold is over and live0 is retried alone FROM THE RECORD (its existence check rides the
+    // idle select, so nothing is added): one 17-statement batch where a shared run has one. 38 = a quiet day (20), the alone batch (17)
+    // and one page of the tombstone listing (1); the backlogs that made runs 1 to 4 dearer are drained by now.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 7 * DAY);
+      await once();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(runs[4]).toMatchObject({ live: 1, shared: 0, alone: 1, union: 1, threw: true });
+    expect(runs[4]?.n).toBe(38);
+    // The way out, metered: live0's rows go by another path (the route), and the next run is green and drops the record.
+    w.acc.exec('DROP TRIGGER stuck');
+    w.acc.exec("DELETE FROM member WHERE id = 'live0'");
+    await once();
+    expect(runs[5]).toMatchObject({ live: 0, shared: 0, alone: 0, union: 1, threw: false });
+    expect(runs[5]?.n).toBe(21); // the backlogs are drained by now: a quiet day (20) plus one page of the 40 dead tombstones
+    expect(await w.kv.get('reconcile:failing')).toBeNull();
   });
 
   it('a quiet day costs exactly 20 statements in 12 calls: each sweep\'s fixed statements, and nothing a bound should have removed', async () => {

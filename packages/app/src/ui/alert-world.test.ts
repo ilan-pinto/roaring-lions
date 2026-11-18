@@ -5,7 +5,8 @@
 // mission the audit photographed the defect in (play-22).
 import { describe, expect, it } from 'vitest';
 import { MissionRuntime, Sim, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
-import { applyTerrain, maps, missions, parseMap, units } from '@lions/data';
+import { applyTerrain, parseMap, units } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { standMapStructures } from '../map-sim';
 import { placeOnScreen } from './alert-place';
 import { alertWorldFor } from './alert-world';
