@@ -110,6 +110,19 @@ describe('the matcher, on a fixture list', () => {
     expect(shown('o u a b l a r g')).toBe('o u a b l a r g');
   });
 
+  it('step 6, both letters split off an edge stay words of their own, in order (GH-1527 review, F1)', () => {
+    // Phrases built from the split letters and their neighbours (a fixture only). With both split letters kept, no two of these words
+    // are ever side by side in "go u a v e x" or "v e x a u go"; drop either split letter and its neighbours meet and match a phrase.
+    const p = compileFilter([{ lang: 'en', hide: [], mask: ['go a', 'u vex', 'a go', 'vex u'], allow: [] }], () => true);
+    const said = (s: string) => filterLine(p, s, { mask: true });
+    for (const s of ['go u a v e x', 'v e x a u go']) expect(said(s), s).toEqual({ kind: 'show', text: s, masked: false });
+    // the controls: each phrase does mask when its words do meet
+    expect(said('go a vex')).toEqual({ kind: 'show', text: '*** vex', masked: true });
+    expect(said('u vex')).toEqual({ kind: 'show', text: '***', masked: true });
+    expect(said('vex a go')).toEqual({ kind: 'show', text: 'vex ***', masked: true });
+    expect(said('go vex u')).toEqual({ kind: 'show', text: 'go ***', masked: true });
+  });
+
   it('step 7, repeated letters: a LONGER stretched spelling matches, a shorter word never does', () => {
     expect(hidden('zorrrgoooon')).toBe(true);
     expect(shown('blaaaarg')).toBe(MASK);
