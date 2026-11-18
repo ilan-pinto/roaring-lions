@@ -1,11 +1,11 @@
-import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, sha256Hex, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
-import { coupons, units, world } from '@lions/data';
+import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
+import { challengeMissionIds, units, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { digestOf } from './campaign';
 import { CLAIM_COUPON_COINS_CAP } from './config';
 import { handleAccount } from './routes';
-import { accountHarness, memberTablesInMigration, racingD1, seedWalletMember, swappableHarness } from './test-kit';
+import { accountHarness, memberTablesInMigration, racingD1, seedWalletMember, swappableHarness, testCouponTable, TEST_COUPON_COIN_ID, TEST_COUPON_CREDIT_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
@@ -15,9 +15,9 @@ let seq = 1;
 const op = (): string => `${String(seq++).padStart(8, '0')}-7777-4777-8777-777777777777`;
 const dev = (n: number): string => `dddddddd-${String(n).padStart(4, '0')}-4ddd-8ddd-dddddddddddd`;
 const CODE = 'TEST-CODE';
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
-const CREDIT_ID = 'lead_special_units_10k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+const CREDIT_ID = TEST_COUPON_CREDIT_ID;
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
 /** A ledger that has won each `[mission, stars]`. */
@@ -157,6 +157,26 @@ describe('POST claim', () => {
     expect(await freeOf(s)).toBeLessThanOrEqual(1150);
     const lifetime = await record(s, 'earn_lifetime');
     expect(Object.values(lifetime.missions).every((m) => (m as { stars: number }).stars <= 3)).toBe(true);
+  });
+
+  it('GH-1395: a forged challenge flag on every mission is bounded by the challenge index, and a second device pays none of it', async () => {
+    // 1,150 over the 38 missions (100 + 10 a mission + 5 a star + 100; 1,050 over 34 before Bir Tarsha I, II, III and V), plus 10 for each mission that HAS a challenge
+    // (six in the pilot), never 10 x 34.
+    expect(ids.length).toBe(38);
+    expect(challengeMissionIds.length).toBe(6);
+    const bound = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + 10 * challengeMissionIds.length;
+    expect(bound).toBe(1210);
+    const s = setup();
+    const cookie = await member(s);
+    const all = ids.map((id) => [id, 3] as [string, number]);
+    const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 3, challenge: true }])) };
+    const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all) }));
+    expect(r.earned).toBe(bound);
+    const lifetime = await record(s, 'earn_lifetime');
+    const flagged = Object.entries(lifetime.missions).filter(([, m]) => (m as { challenge?: boolean }).challenge === true).map(([id]) => id).sort();
+    expect(flagged).toEqual([...challengeMissionIds].sort());
+    const again = await ok(await claim(s, cookie, { device: dev(2), wallet: { ...RICH, earn }, campaign: campaignOf(all) }));
+    expect(again.earned).toBe(0);
   });
 
   it('claimEvidence itself clamps stars 0 to 3 and ignores non-world missions (the clamp the route also relies on)', () => {

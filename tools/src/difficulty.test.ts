@@ -2,7 +2,8 @@
 // D3-D5). Bounds over `creditsFor`'s and `starsFor`'s own inputs, with the sim's own weights: nothing here
 // re-derives a number the code under test computes.
 import { describe, expect, it } from 'vitest';
-import { applyOverlays, missions, POSTURE_IDS, type PostureId } from '@lions/data';
+import { applyOverlays, POSTURE_IDS, type PostureId } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { creditsFor, MissionRuntime, starsFor, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
 import { campaignMission, withReliefOnLoan } from '../../packages/app/src/posture';
 import { missionStage } from './mission-harness';

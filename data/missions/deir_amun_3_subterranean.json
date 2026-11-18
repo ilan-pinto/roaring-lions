@@ -30,7 +30,7 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 4] },
     { "unit": "inf_medic_squad", "count": 1, "at": [23, 3] }
   ],
-  "resources": { "logistics_start": 500, "logistics_rate_per_min": 90 },
+  "resources": { "logistics_start": 500, "logistics_rate_per_min": 90, "income_zones": [{ "zone": "hamlet", "rate_per_min": 20 }, { "zone": "spoil_field", "rate_per_min": 12 }] },
   "objectives": [
     { "id": "all_four", "type": "collapse", "primary": true, "target": "hamlet", "seconds": 300,
       "text": "Collapse all four routes under the village inside five minutes",

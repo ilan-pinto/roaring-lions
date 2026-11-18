@@ -38,6 +38,10 @@ const OWN_BAND: Readonly<Record<string, Readonly<Record<string, readonly [number
   // the lead's ruling of 13 Nov 2026 (GH-826 unit 1): the grafted collapsed stock, 0.680 m on the base body
   // read 13 Nov on the shipped bytes: demo_a (the body x0.98 across) 0.6702, demo_b (x1.08) 0.7389
   demo_squad: { demo_a: [0.665, 0.675], demo_b: [0.734, 0.744] },
+  // the lead's ruling of 15 Nov 2026 (GH-826 unit "Yahalom"): the Combat Engineers' body, "its grafted 0.68 m carbine is
+  // accepted as this team's own gun band (a ratchet)". Read 17 Nov on the shipped bytes: yah_a (the body x1.06 across)
+  // 0.7237, yah_b (x0.98) 0.6683
+  yahalom_squad: { yah_a: [0.719, 0.729], yah_b: [0.663, 0.673] },
 };
 
 type V3 = [number, number, number];
@@ -102,8 +106,10 @@ const rows = skinned.flatMap(([team, glb]) => figureBuilds(glb).map((fig) => [te
 
 describe('the carbine of a skinned Meshy team is a carbine long', () => {
   it('reads the population it says it reads', () => {
-    expect(skinned.map(([t]) => t).sort()).toEqual(['demo_squad', 'inf_squad']);
-    expect(rows.map(([t, f]) => `${t}/${f}`).sort()).toEqual(['demo_squad/demo_a', 'demo_squad/demo_b', 'inf_squad/f0', 'inf_squad/f1', 'inf_squad/f2']);
+    expect(skinned.map(([t]) => t).sort()).toEqual(['demo_squad', 'inf_squad', 'yahalom_squad']);
+    expect(rows.map(([t, f]) => `${t}/${f}`).sort()).toEqual([
+      'demo_squad/demo_a', 'demo_squad/demo_b', 'inf_squad/f0', 'inf_squad/f1', 'inf_squad/f2', 'yahalom_squad/yah_a', 'yahalom_squad/yah_b',
+    ]);
     for (const [team, fig, glb] of rows) expect(weaponPoints(glb, fig).length, `${team}/${fig}: weapon vertices`).toBeGreaterThan(300);
   });
 
@@ -134,6 +140,16 @@ describe('the gun-length reading can fail (constructed inputs)', () => {
       expect(whole - cut).toBeGreaterThan(0.045);
       expect(cut).toBeLessThan(bandOf('demo_squad', fig)[0]);
     }
+  });
+  it('the Yahalom Engineers\' carbine with its rear 55 mm pulled in is under its band, both men', () => {
+    const yah = skinned.find(([t]) => t === 'yahalom_squad')![1];
+    for (const fig of ['yah_a', 'yah_b']) {
+      const cut = gunLength(weaponPoints(yah, fig, 0.055));
+      expect(gunLength(weaponPoints(yah, fig)) - cut).toBeGreaterThan(0.045);
+      expect(cut).toBeLessThan(bandOf('yahalom_squad', fig)[0]);
+    }
+    // ...and the bands are per man: yah_a's length is over yah_b's ceiling by 5 cm
+    expect(gunLength(weaponPoints(yah, 'yah_a'))).toBeGreaterThan(OWN_BAND.yahalom_squad.yah_b[1] + 0.04);
   });
   it('demo_a\'s carbine is under the global band: the team\'s own band is doing the work, and is not the global one', () => {
     // (demo_b is the same carbine on a body 8 % wider: 0.739, over the global floor; his own band still pins him)

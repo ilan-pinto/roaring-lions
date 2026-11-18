@@ -15,7 +15,7 @@
 //   software  "Google SwiftShader", "ANGLE (Google, Vulkan 1.3.0 (SwiftShader
 //             Device (Subzero)), SwiftShader driver)", "llvmpipe (LLVM 15...)",
 //             "Gallium 0.4 on llvmpipe", "Microsoft Basic Render Driver", "GDI Generic" (Windows's GL 1.1),
-//             Mesa's "lavapipe"/"softpipe", anything that says "Software".
+//             Mesa's "lavapipe"/"softpipe", OSMesa's "Mesa OffScreen" (old headless Chrome), anything that says "Software".
 //   hardware  "ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro...)", NVIDIA,
 //             AMD, "Intel(R) UHD Graphics", "Mali-G78", "Adreno (TM) 640".
 // A browser with no WebGL at all (`null`) is NOT software rendering: that case
@@ -53,7 +53,7 @@ import { mountNotice, type NoticeHandle } from './notice-card';
 export const NO_GPU_DISMISSED_KEY = 'lions.noGpu.dismissed';
 
 /** Renderer strings that mean "drawn on the CPU". Case-insensitive. */
-const SOFTWARE = /swiftshader|llvmpipe|lavapipe|softpipe|microsoft basic render|gdi generic|\bsoftware\b/i;
+const SOFTWARE = /swiftshader|llvmpipe|lavapipe|softpipe|microsoft basic render|gdi generic|mesa offscreen|\bsoftware\b/i;
 
 /** True when an unmasked WebGL renderer string names a software rasteriser.
  *  Null, empty and unknown strings are NOT software: the notice only speaks

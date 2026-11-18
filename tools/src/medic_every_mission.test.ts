@@ -14,7 +14,8 @@
 //
 // The ids and the exclusion are literals, not read off the data, so deleting a placement fails here.
 import { describe, expect, it } from 'vitest';
-import { missions, units } from '@lions/data';
+import { units } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { loanedPlacements, resolveUpgrades, type UnlockGate } from '../../packages/sim/src';
 import { kdfUnlockGate } from './backtest/playtest-run';
 import { missionWorld } from './mission-harness';

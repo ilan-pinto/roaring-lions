@@ -25,7 +25,7 @@
  */
 import { gunzipCapped, gzipBytes, fnv1a32, readSnapshotHeader } from '@lions/net';
 import { encodeSim, restoreSim, SIM_EPOCH, SNAPSHOT_FORMAT, SnapshotRefused, type MissionRuntime, type Sim } from '@lions/sim';
-import { missions } from '@lions/data';
+import { missionManifest } from '@lions/data';
 import { canonicalJson, shippedContentDigest } from './net/content-digest';
 
 /** The record format. Bump it when the record's own shape changes; a different value is refused as `older_version`. */
@@ -211,7 +211,7 @@ export function serializeSuspended(record: SuspendedMission): string {
 
 // ---- read ------------------------------------------------------------------
 
-/** A mission amendment id: plain, lower-case, short (`tight_clock`). */
+/** A mission amendment id: plain, lower-case, short (`light_order`). */
 const AMENDMENT_ID = /^[a-z][a-z0-9_]{0,39}$/;
 const MAX_AMENDMENTS = 16;
 const isAmendmentId = (v: unknown): v is string => typeof v === 'string' && AMENDMENT_ID.test(v);
@@ -237,7 +237,7 @@ export interface ParseOptions {
   knownMission?: (id: string) => boolean;
 }
 
-const shippedMission = (id: string): boolean => Object.hasOwn(missions, id);
+const shippedMission = (id: string): boolean => Object.hasOwn(missionManifest, id);
 
 export function parseSuspended(text: string, opts: ParseOptions = {}): ParseResult {
   let o: unknown;

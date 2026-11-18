@@ -19,7 +19,7 @@ import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
 import type { AccountExtra, AccountLike, Loadout, RuntimeView } from './events';
 import type { PlayerIntent } from '../input/intents';
-import { resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, type Identity, type StorageLike } from './identity';
+import { clearStoredTester, resolveIdentity, readOptOut, safeStorage, setOptOut, storedOptOut, storedPlayerId, writePlayerId, type Identity, type StorageLike } from './identity';
 import { gpuFamily } from '@lions/data/telemetry';
 import { installErrorHandlers, type DescribedError } from './errors';
 import { FrameSampler } from './perf';
@@ -68,6 +68,11 @@ export interface Telemetry {
   /** GH-1431: this session's player id even after an opt-out, for an account deletion that also deletes the reports. Reads memory only;
    *  sends and stores nothing. Null when telemetry never ran this page load. */
   knownPlayer(): string | null;
+  /** Lead ruling, 17 Nov 2026: after a successful account deletion, every later event of this page carries `player` and a fresh session id,
+   *  so nothing sent from here on links back to the deleted account's id. Memory only: the caller stores the id. What is still QUEUED under
+   *  the old id is dropped first, unsent: a later flush or the reload's pagehide beacon would otherwise re-create the deleted id's rows.
+   *  The `?tester` label is dropped too (T2): later events and `ids()` carry none. */
+  rotate(player: string): void;
 }
 
 const NOOP_MISSION: MissionTelemetry = {
@@ -87,6 +92,7 @@ export const NOOP_TELEMETRY: Telemetry = {
   clientError: () => undefined,
   ids: () => null,
   knownPlayer: () => null,
+  rotate: () => undefined,
 };
 
 export interface TelemetryDeps {
@@ -104,7 +110,8 @@ export interface TelemetryDeps {
   gear?: () => Gear;
   /** GH-1410: the live opt-out. True once the player has switched reports off this session: `ids()` then answers null, so a feedback note carries no id. */
   optedOut?: () => boolean;
-  sink: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void };
+  /** `clear` drops everything queued, unsent: the id rotation calls it before the new id takes effect. */
+  sink: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void };
 }
 
 const HEARTBEAT_MS = 60_000;
@@ -129,7 +136,10 @@ const safe =
 const DEFAULT_GEAR: Gear = { preset: 'high', backend: 'webgl2', gpu: null };
 
 export function createTelemetry(d: TelemetryDeps): Telemetry {
-  const session = d.newSession();
+  let session = d.newSession();
+  let player = d.identity.player;
+  // T2: the rotation forgets the label too, so no later event or feedback note of this page carries it beside the new id.
+  let tester = d.identity.tester;
   // The ONE place the graphics card is named in an event, and it is the FAMILY: the raw `WEBGL_debug_renderer_info` string carries PCI device ids
   // and driver versions. Nothing past here sees the raw text, so no caller can send it by mistake.
   const gear = (): Gear => {
@@ -138,9 +148,9 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   };
   const envelope = (): TelemetryEnvelope => ({
     v: 1,
-    player: d.identity.player,
+    player,
     session,
-    ...(d.identity.tester === undefined ? {} : { tester: d.identity.tester }),
+    ...(tester === undefined ? {} : { tester }),
     build: d.build,
     t: d.now(),
     ...(d.dev ? { dev: true as const } : {}),
@@ -160,13 +170,17 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
   );
 
   return {
-    knownPlayer: () => d.identity.player,
-    ids: () =>
-      d.optedOut?.() === true
-        ? null
-        : d.identity.tester === undefined
-          ? { player: d.identity.player, session }
-          : { player: d.identity.player, session, tester: d.identity.tester },
+    knownPlayer: () => player,
+    rotate: (next) => {
+      // FIRST, before the new id takes effect: an event queued under the old id must never leave. Flushed later (or by the
+      // reload's pagehide beacon) it would re-create rows the server just deleted, or share one POST with new-id events, and
+      // the Worker keeps only the first event's player.
+      d.sink.clear();
+      player = next;
+      session = d.newSession();
+      tester = undefined;
+    },
+    ids: () => (d.optedOut?.() === true ? null : { player, session, ...(tester === undefined ? {} : { tester }) }),
     sessionStart: safe((screen, renderer) => {
       d.sink.push(ev.sessionStart(envelope(), screen, renderer, d.viewport(), d.identity.returning));
     }),
@@ -294,22 +308,64 @@ export function telemetryPlayerForDeletion(storage: StorageLike | null = safeSto
 }
 
 /**
+ * Lead ruling, 17 Nov 2026: a SUCCESSFUL account deletion rotates this browser's telemetry id, client side only. A fresh id (the same
+ * `crypto.randomUUID()` a first visit mints) replaces the stored one through the one writer, and the running session, if any, takes it and
+ * a new session id for every later event. It sends nothing. A browser that never held an id (GPC, DNT, `?notrack`, dev) is given none.
+ * Lead ruling T2: the stored `?tester` label is forgotten first, whether or not an id was held, through `identity.ts`'s own remover.
+ */
+export function rotateTelemetryPlayer(storage: StorageLike | null = safeStorage(() => window.localStorage), newId: () => string = () => crypto.randomUUID()): void {
+  try {
+    clearStoredTester(storage);
+    if (instance.knownPlayer() === null && storedPlayerId(storage) === null) return;
+    const next = newId();
+    writePlayerId(storage, next);
+    instance.rotate(next);
+  } catch {
+    /* telemetry never breaks the game */
+  }
+}
+
+/** How many account-delete requests are in flight on this page (lead ruling T1, 17 Nov 2026). While any is, no telemetry send leaves. */
+let sendHolds = 0;
+
+/**
+ * Lead ruling T1, 17 Nov 2026: the report queue PAUSES before the account-delete request is sent. While paused, no send leaves: not the
+ * 30 s interval flush, not a crash's immediate flush, not the pagehide beacon. Events are still QUEUED, under the old id. The returned
+ * release resumes (idempotent, and only its own hold): the caller rotates FIRST on a success (`rotateTelemetryPlayer`, which drops that
+ * queue), then releases; on a failure it only releases, and the queue goes out under the old id at the next flush, nothing lost.
+ * A page that unloads while paused loses what was queued, unsent: a privacy-leaning loss, as the class comment of `Sender` allows.
+ */
+export function pauseTelemetrySends(): () => void {
+  sendHolds++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    sendHolds--;
+  };
+}
+
+/**
  * GH-1410: the sink the game's events go through, with the opt-out read LIVE before every push and flush. The off switch at boot
  * (`telemetryEnabled`) decides whether telemetry exists at all; this decides, event by event, whether the Settings toggle was turned to
- * "off" since. An opt-out drops what is already queued too (`clear`), so nothing waiting leaves after the player said no.
+ * "off" since. An opt-out drops what is already queued too (`clear`), so nothing waiting leaves after the player said no. `paused`
+ * (T1, `pauseTelemetrySends`) holds every flush, keeping the queue; an opt-out still wins and drops it.
  */
 export function gatedSink(
   inner: { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void },
-  optedOut: () => boolean
-): { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void } {
+  optedOut: () => boolean,
+  paused: () => boolean = () => false
+): { push(e: TelemetryEvent): void; flush(useBeacon?: boolean): void; clear(): void } {
   return {
+    // Not gated: dropping the queue is always allowed (the id rotation's call, opted out or not).
+    clear: () => inner.clear(),
     push: (e) => {
       if (optedOut()) inner.clear();
       else inner.push(e);
     },
     flush: (useBeacon) => {
       if (optedOut()) inner.clear();
-      else inner.flush(useBeacon);
+      else if (!paused()) inner.flush(useBeacon);
     },
   };
 }
@@ -365,7 +421,7 @@ export function initTelemetry(opts: { dev: boolean; gear?: () => Gear }): Teleme
     if (!on) return (instance = NOOP_TELEMETRY);
     const identity = resolveIdentity(storage, query, () => crypto.randomUUID());
     const sender = new Sender(browserTransport(new URL('api/events', location.origin + import.meta.env.BASE_URL).href));
-    const sink = gatedSink(sender, () => optedOutNow(storage));
+    const sink = gatedSink(sender, () => optedOutNow(storage), () => sendHolds > 0);
     window.setInterval(safe(() => sink.flush()), FLUSH_MS);
     instance = createTelemetry({
       identity,

@@ -14,7 +14,7 @@
 // - no body moved more than 11 tiles (the measured 10.1, plus one: a ratchet a scattering layout change fails);
 // - every body of an assembly facing its front, and the front seeded from the enemy-centroid derivation (D2).
 import { describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { MissionRuntime, startFaceOf, startFrontDerivations, type MissionJson, type StartFront, type StartPlacement } from '@lions/sim';
 import { missionStage } from './mission-harness';
 import { entriesOf, overlaps, type Entry } from './backtest/spacing-census';

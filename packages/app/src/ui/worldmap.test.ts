@@ -5,7 +5,7 @@ import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import commanderJson from '../../../../data/campaign/commander.json';
 import type { LedgerData, MissionJson } from '@lions/sim';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
 import { gatedWorldJson, ledgerBeforeNaharin } from '../gated-town.fixture';
 import { ledgerLine, worldMap } from './worldmap';

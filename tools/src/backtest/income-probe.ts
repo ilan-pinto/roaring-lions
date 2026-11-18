@@ -20,7 +20,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { MissionRuntime, creditsFor, creditInputFrom, type SimEvent, type MissionEvent } from '@lions/sim';
-import { missions, maps } from '@lions/data';
+import { missions, maps } from '@lions/data/content';
 import { runLog } from './playtest-run';
 import { INCOME_TABLES, CENSUS_TABLES, CENSUS_MISSIONS, D7_MISSIONS, tableProblems, type MissionIncome } from './income-proposal';
 
