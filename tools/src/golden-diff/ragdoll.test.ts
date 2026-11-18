@@ -3,7 +3,8 @@
 // URL to what the app parses, and the BASELINES entry to what it declares.
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap } from '@lions/data';
+import { applyTerrain, parseMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { buildTerrainSurface } from '../../../packages/render/src/three/terrain/surface';
 import { SHOWCASE_CLEAR_TILES, ragdollShowcaseSite, showcaseAnchor, showcaseSites } from '../../../packages/render/src/three/decal-showcase';
 import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';

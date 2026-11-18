@@ -15,7 +15,8 @@
 // assertions that the repair really ran (not just fell back to `compute`) are what keep a "fallback always"
 // implementation, which is trivially exact, from passing.
 import { describe, expect, it, vi } from 'vitest';
-import { applyTerrain, parseMap, maps, structures as structureCatalogue, units, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, units, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, unitTypeFromJson, type UnitTypeJson } from '../../packages/sim/src/sim';
 import { fx } from '../../packages/sim/src/fixed';

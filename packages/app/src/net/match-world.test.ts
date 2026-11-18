@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { doctrines, maps, structures, units, versusRules } from '@lions/data';
+import { doctrines, structures, units, versusRules } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { matchDigest, sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
 import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';

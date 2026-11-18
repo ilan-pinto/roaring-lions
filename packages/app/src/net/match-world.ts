@@ -1,4 +1,5 @@
-import { applyTerrain, doctrines, flagBlockOf, formations, maps, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap, type SetupKitPiece } from '@lions/data';
+import { applyTerrain, doctrines, flagBlockOf, formations, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap, type SetupKitPiece } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';

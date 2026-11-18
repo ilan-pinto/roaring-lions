@@ -28,9 +28,14 @@ describe('wiring in main.ts (pinned as text)', () => {
     expect(main).not.toMatch(/^import \{ watchQualityHint \}/m);
     expect(main.slice(at, at + 1700)).toContain("console.error('[quality-hint] the card failed to load', err)");
   });
-  it('writes the preset only through the settings dependency, and only the quality field', () => {
-    expect(call).toContain('setQuality: (q) => settingsDeps.set({ ...settings, video: { ...settings.video, quality: q } })');
+  it('writes only through the settings dependency (main.ts hands it the one writer, and the two modules call nothing else)', () => {
+    expect(call).toContain('settings: settingsDeps,');
     expect(call).not.toContain('saveSettings');
+    for (const file of ['./quality-hint.ts', './software-hint.ts']) {
+      const src = readFileSync(new URL(file, import.meta.url), 'utf8');
+      expect(src, file).not.toMatch(/saveSettings|localStorage|SETTINGS_KEY|lions\.settings/);
+      expect(src, file).toMatch(/settings\.set\(/);
+    }
   });
   it('measures and shows only on the shell screens, never on a battlefield', () => {
     expect(call).toContain("inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? '')");

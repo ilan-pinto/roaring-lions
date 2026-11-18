@@ -1,0 +1,144 @@
+/**
+ * The battlefield's one per-frame body (spec §3.3, R9): take runnable frames
+ * from the transport, put each frame's commands through the ownership check
+ * into the sim, run ONE tick, and report that tick back. The frame loop and
+ * `__lions.step` both call this, in single-player and in a room alike, so an
+ * order a tool dispatches through the UI and then steps runs by exactly the
+ * path a player's does.
+ *
+ * Acks and hashes are keyed by the FRAME's tick (R32), never `sim.tickCount`:
+ * the room numbers frames from 0 and knows nothing of how the sim counts.
+ *
+ * B6-6: this module is on the entry chunk (`main.ts` runs every frame through it), so it imports no content: the digest a
+ * room folds in is the step's own `dataDigest`, else `runFramesWith`'s `ownDigest`. `frame-step.ts` is this module plus
+ * the default every Node caller has always had, `shippedContentDigest()` over the eager registry.
+ */
+import { applyFrame, economyRoom, flagSetupRoom, matchDigest, type Faction, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { formations } from '@lions/data';
+import type { Command } from '@lions/sim';
+import { VERSUS_FORMATIONS_OPEN, formationsOpenIn, roomKindOf } from './versus-formations';
+
+/** The slice of `Sim` the body touches. */
+export interface FrameSim {
+  queueCommand(cmd: Command): void;
+  hash(): number;
+}
+
+export interface FrameStep {
+  transport: MatchTransport;
+  sim: FrameSim;
+  seatWorld: SeatWorld;
+  /** The battlefield's own tick: `sim.tick()` and everything presentation hangs off it. */
+  runTick: () => void;
+  /** The room's config; null in single-player, where nothing is hashed. */
+  config: MatchConfig | null;
+  /** Asked after each frame has run and been reported, with the frame's tick:
+   *  true stops the batch there (N1b task 10, a versus match decided on that
+   *  tick). The frames behind it in the batch are not run -- the match is
+   *  over and the caller steps no more. Absent in single-player. */
+  stopAfter?: (tick: number) => boolean;
+  /** Called with each frame BEFORE `applyFrame` queues its commands (N4a
+   *  task 4): the AI harness reads its own seat's stamped commands here to
+   *  settle its order ledger. Absent in the browser. */
+  beforeFrame?: (frame: Frame) => void;
+  /** The match state that lives OUTSIDE the sim (N2-P2): asked once per hash
+   *  tick, after that tick ran, and folded into the reported digest where the
+   *  literal 0 stood. Absent means 0, so a client with nothing to add reports
+   *  exactly what it did before. N2 wires its versus runtime here in one line. */
+  runtimeDigest?: () => number;
+  /** Called after each frame has run and been reported, with the frame's tick and
+   *  the digest just reported (null off a hash tick), AFTER `stopAfter` said to
+   *  go on and before the next frame's commands are applied (snapshot S4 T4, F1).
+   *  The sim therefore stands exactly at the frame boundary: this is where a
+   *  snapshot is cut. It is NOT called on the frame `stopAfter` stops on: the
+   *  deciding frame is never snapshotted. It must not throw into the loop.
+   *  Absent in single-player and in a room that does not produce. */
+  afterFrame?: (tick: number, digest: number | null) => void;
+  /** THIS client's own content digest (ruling L4, N2-P3, `content-digest.ts`),
+   *  folded into every reported hash. Absent means the runner's `ownDigest`
+   *  (`frame-step.ts`'s `runFrames`: `shippedContentDigest()`), computed on the
+   *  first hash tick; a room's battlefield passes it at boot instead, so that
+   *  ~50 ms cold computation is not a hitch at tick 19.
+   *  The room-minted `config.dataDigest` is never folded. */
+  dataDigest?: number;
+}
+
+/** A hash tick closes a window of `hashEveryTicks` frames: ticks 19, 39, ... at 20. */
+export function isHashTick(tick: number, config: MatchConfig | null): boolean {
+  return config !== null && (tick + 1) % config.hashEveryTicks === 0;
+}
+
+/** Runs up to `maxTicks` frames; returns how many ran and how many commands
+ *  the ownership check dropped (a foreign id, or one that names nobody).
+ *  `ownDigest` is asked on a hash tick only, and only when the step carries no
+ *  `dataDigest`. */
+export function runFramesWith(step: FrameStep, maxTicks: number, ownDigest: () => number): { ran: number; dropped: number } {
+  const { transport, sim, seatWorld, runTick, config } = step;
+  let ran = 0;
+  let dropped = 0;
+  for (const f of transport.take(maxTicks)) {
+    step.beforeFrame?.(f);
+    dropped += applyFrame(f, sim, seatWorld).dropped;
+    runTick();
+    ran++;
+    const digest =
+      config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, step.dataDigest ?? ownDigest()) : null;
+    transport.reportTick(f.tick, digest);
+    // stopAfter FIRST, and no afterFrame on the frame that stops the loop (snapshot S4 final review F1): a seat must
+    // never snapshot the DECIDING frame. A restore of that world carries no decision (`matchDecided` is app state,
+    // not in the snapshot), so a reload would run past the end and disagree with the seat that saw it.
+    if (step.stopAfter?.(f.tick) === true) break;
+    step.afterFrame?.(f.tick, digest);
+  }
+  return { ran, dropped };
+}
+
+/** Whether `table` holds formation `id` and lists `faction` among the factions that field it (GH-859 P1a).
+ *  The table is a parameter so a test can hold a faction-gated entry the shipped three do not have. */
+export function formationFielded(table: readonly { readonly id: string; readonly factions: readonly string[] }[], faction: string, id: string): boolean {
+  return table.some((f) => f.id === id && f.factions.includes(faction));
+}
+
+/** What ownership asks of the live sim. Single-player is seat 0 on side 0
+ *  (R10): the same check runs with no room, so there is one code path. */
+export function seatWorldFor(
+  config: MatchConfig | null,
+  sim: {
+    readonly entityCount: number;
+    readonly width: number;
+    readonly height: number;
+    readonly structureCount: number;
+    readonly tunnelCount: number;
+    readonly state: { readonly side: ArrayLike<number> };
+    tunnelOwner(r: number): number;
+  },
+  /** GH-859 P1a: whether a versus room fields formations (default: the gate, `VERSUS_FORMATIONS_OPEN`). Injectable so a test
+   *  can witness the open path, which is P1b's. */
+  versusFormationsOpen: boolean = VERSUS_FORMATIONS_OPEN,
+  /** GH-1381: the faction single-player's seat 0 commands -- the KDF, except a Sarim Free play. A room reads its config. */
+  soloFaction: Faction = 'kdf',
+): SeatWorld {
+  return {
+    width: sim.width,
+    height: sim.height,
+    // Read the counts LIVE: this world is built before structures and tunnels are added to the sim.
+    structureExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
+    tunnelExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
+    sideOfSeat: (seat: Seat) => config?.seats[seat].side ?? 0,
+    // GH-681: single-player is the KDF seat (GH-1381: or Sarim's, in a Sarim Free play); a room reads the seat's own faction.
+    factionOfSeat: (seat: Seat) => config?.seats[seat].faction ?? soloFaction,
+    tunnelOwner: (id: number) => (Number.isInteger(id) ? sim.tunnelOwner(id) : -1),
+    // Security review 559, F1: no mission runtime prices intel in a versus room.
+    versus: config?.mode === 'versus',
+    // N3 Task 4: a KDF-v-Sarim room runs a runtime, so both seats build there.
+    economy: config !== null && economyRoom(config),
+    // GH-976 v2: the set-up commands pass only in a flag room the Worker minted `flagSetup` for.
+    setupRoom: config !== null && flagSetupRoom(config),
+    // GH-859 P1a: a shipped formation whose factions include this seat's own (single-player: KDF) -- and none at all in a
+    // versus room while the gate is closed (the lead's ruling, 29 Oct), so a forced or stale client's formation order drops
+    // on both machines. The protocol still carries the field; P1b opens the gate.
+    formationAllowed: (seat: Seat, id: string) =>
+      formationsOpenIn(config?.mode, versusFormationsOpen, config?.map, roomKindOf(config)) && formationFielded(formations, config?.seats[seat].faction ?? soloFaction, id),
+    sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
+  };
+}

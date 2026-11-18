@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready infantry combat engineer of the Israeli army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, helmet with a plain olive cover, dark brown gloves, black knee pads. His black M4 carbine has its stock extended, 0.84 m long. He holds the carbine in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, in view, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands gripping the one gun, fingers closed, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.81 m tall. Even lighting, no base, one figure. No insignia or text.",
+    "negative_prompt": "one-handed, hand on hip, open hand, spread fingers, extra hand, extra arm, extra fingers, arms touching torso, rifle pressed against chest, hidden hand, vertical foregrip, rifle sling, pistol, rolled sleeves, bare forearms, kneeling, aiming down sights, base, ground, text, insignia, flag, backpack, holster, explosives, walking, striding, running, hand on chest, hand on vest, stock under arm, folded stock, stockless, rucksack, mine detector, tools, camouflage",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1e05f-4a90-7089-b352-57a599ce1a80",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 4203839873,
+    "prompt": "A single game-ready infantry combat engineer of the Israeli army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, helmet with a plain olive cover, dark brown gloves, black knee pads. His black M4 carbine has its stock extended, 0.84 m long. He holds the carbine in BOTH hands at low ready, a hand's width out in front of his chest: butt at the front of his right shoulder, in view, right hand closed round the pistol grip, left hand closed under the handguard ahead of the magazine, barrel pointing forward, muzzle down at the ground ahead. Both hands gripping the one gun, fingers closed, in clear view. Standing still and upright, both feet flat, side by side, head level. Real-world scale, 1.81 m tall. Even lighting, no base, one figure. No insignia or text.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1794765708291,
+    "progress": 100,
+    "started_at": 1794765708304,
+    "finished_at": 1794765776095,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1e05f-4a90-7089-b352-57a599ce1a80/output/model.glb?Expires=4948300800&Signature=caCCS2fDafp6FxMLyqez9zNqGVTxVQs4nHPl6AZ1zkZpznxMA4hhhOZ3fN68Oqad~0mriL6GjQeOlWRBXEeDPNVhgJ4yWFDyaUmbeTMb2RGWHlCW~gzIiEoIUVmt~VTPIpOb4ElFOPXuLNk8~tjlkHzxWSRWCz2WLTr8ofmwO8wa6o4VovAMNKi9EX4BoHQJFmoSvvY0MYfwICz2VHV-J3tpysByuXGyEbzpvKyT9doW25nXLZQ~vx7aD8~SOr2Rtl5md-4zE0fNl2HpznMx~o1mmohcC2ujlH~10cV8sRUA~hy42vkzkTgx82q4XpMs3YMyV0XpUEJ4ufqnmoS27A__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1e05f-4a90-7089-b352-57a599ce1a80/output/preview.png?Expires=4948300800&Signature=XlyblRuuK2ZBczgB5k5ncB6jOlOir6RJy6YEmPXUSJCSDe40ZvUnoD0PW52M7Fp4YuaALPe3C3NhIb8oamCViLwdGCLUHLA-gorvTE-i97-4sJscf3m3CUPN18ZeZxKd2nqbJIKFdPIDfBpSQmsIFadOJcIcAT6YHbqbRNV53nH77LQxP~XJZ32bJtYOUKG8rJJSit~nChAmfL3bRRNF0gUmttwFMAe5uPZKm4nxIqXE5wkHsts4IIUOaPtPjgx4zTb5hO9BaPsKYqTMhIxUJd-z457xPPBD-67uX6AFu5lo~gcAiOqpTGoPHT64TtOEQ6yN32FhcZvJ8KvAGNr1kA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1794765708291,
+    "started_at": 1794765708304,
+    "finished_at": 1794765776095
+  },
+  "usd_estimated": 0.4
+}

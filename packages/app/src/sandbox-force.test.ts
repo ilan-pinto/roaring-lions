@@ -9,7 +9,8 @@
 // should be.
 import { describe, expect, it } from 'vitest';
 import { Sim, TICKS_PER_SECOND } from '@lions/sim';
-import { applyTerrain, kitLevel, maps, parseMap, units, type MapId } from '@lions/data';
+import { applyTerrain, kitLevel, parseMap, units, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import {
   SANDBOX_CIV,
   SANDBOX_ENEMY,

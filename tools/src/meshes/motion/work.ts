@@ -71,7 +71,25 @@ export function worksHeld(rig: Rig, w: string): boolean {
   return rlHands(rig)?.source === 'meshy' && rig.has(`${w}_weapon`) && rig.has(`${w}_hand_L`) && rig.has(`${w}_hand_R`);
 }
 
-export function applyWork(doc: Document, id: string, workers: readonly string[]): string[] {
+/**
+ * A prop drawn in `work` ALONE (`MotionTeam.workShows`: the Yahalom Engineers' charge, GH-826): the bones of `shows` are
+ * keyed to scale 1 through `work`, and every OTHER clip of the file must key each of them to scale 0 on every key, or
+ * this throws: the runtime does not reset a bone a clip leaves unkeyed, so a clip without the key would draw the charge
+ * wherever the last clip left it.
+ */
+function assertHiddenElsewhere(doc: Document, id: string, shows: readonly string[]): void {
+  for (const a of doc.getRoot().listAnimations()) {
+    if (a.getName() === 'work') continue;
+    for (const name of shows) {
+      const ch = a.listChannels().find((c) => c.getTargetNode()?.getName() === name && c.getTargetPath() === 'scale');
+      const vals = ch?.getSampler()?.getOutput()?.getArray();
+      if (!vals || vals.length === 0) throw new Error(`${id}: ${a.getName()} does not key ${name}'s scale, so it would draw a prop that is work's alone`);
+      if (Array.from(vals).some((v) => Math.abs(v) > 1e-6)) throw new Error(`${id}: ${a.getName()} draws ${name} (scale ${Math.max(...Array.from(vals))}); it is work's alone`);
+    }
+  }
+}
+
+export function applyWork(doc: Document, id: string, workers: readonly string[], shows: readonly string[] = []): string[] {
   const root = doc.getRoot();
   for (const a of root.listAnimations()) {
     if (a.getName() !== 'work') continue;
@@ -87,6 +105,8 @@ export function applyWork(doc: Document, id: string, workers: readonly string[])
   const tracks = tracksOf(base);
   const [t0, t1] = clipRange(tracks);
   const nodes = [...new Set([...tracks.values()].map((t) => t.node))];
+  for (const name of shows) if (!nodes.includes(rig.node(name))) nodes.push(rig.node(name));
+  assertHiddenElsewhere(doc, id, shows);
   const held = workers.filter((w) => worksHeld(rig, w));
   /** What a held worker's spine carries: both arms, both fists, the weapon, the neck and the head. */
   const carried = new Map<string, Node[]>(held.map((w) => [w, descendants(rig, rig.node(`${w}_spine`))]));
@@ -115,16 +135,17 @@ export function applyWork(doc: Document, id: string, workers: readonly string[])
       rotateWorld(rig, p, rig.node(`${w}_upperarm_R`), qaxis(lateral, 0.5 * WORK_PUMP_RAD * pump));
       rotateWorld(rig, p, rig.node(`${w}_forearm_R`), qaxis(lateral, WORK_PUMP_RAD * pump));
     }
+    for (const name of shows) p.set(rig.node(name), { ...rig.rest.get(rig.node(name))!, s: 1 });
     return p;
   });
   writeClip(doc, 'work', nodes, times, poses);
   const scene = root.listScenes()[0];
   scene.setExtras({
     ...((scene.getExtras() ?? {}) as Record<string, unknown>),
-    rl_work: { version: WORK_VERSION, workers: [...workers], ...(held.length ? { held: [...held] } : {}) },
+    rl_work: { version: WORK_VERSION, workers: [...workers], ...(held.length ? { held: [...held] } : {}), ...(shows.length ? { shows: [...shows] } : {}) },
   });
   const how = workers.map((w) => `${w} ${held.includes(w) ? 'leans and bobs over it, the weapon in both fists' : 'pumps'}`).join(', ');
-  return [`work: from kneel, ${how}; ${n} frames over ${dur.toFixed(2)} s`];
+  return [`work: from kneel, ${how}; ${n} frames over ${dur.toFixed(2)} s` + (shows.length ? `; ${shows.join(', ')} drawn in work alone` : '')];
 }
 
 /**

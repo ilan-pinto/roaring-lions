@@ -61,7 +61,7 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { FlowField, fx, type Sim, type TunnelRouteJson } from '@lions/sim';
-import type { maps } from '@lions/data';
+import type { maps } from '@lions/data/content';
 import {
   buildWorld,
   computeAnchors,
