@@ -75,7 +75,9 @@ function sameOriginSnapshotGet(req: Request): boolean {
  * Worker's own class: the no-deploy rollback after the cut); anything else returns `ROOMS`, which is the relay's
  * from the cut on and the game Worker's own before it. The switch never yields `undefined` while `ROOMS` is bound:
  * `'0'` with the lever unbound is `ROOMS`. A code is looked up in this one namespace only; there is no probe of
- * the other, so a flip, like the cut, ends whatever is open in the namespace it leaves (design §7).
+ * the other, so a flip moves only NEW requests: a room still open in the namespace it leaves plays on with its
+ * connected seats, and its reconnects, joins and watches now find no such room (docs/agent-notes/relay-split.md,
+ * "What the flip does to a live relay room").
  * `rooms-of.test.ts` pins it (F5 to F7) and holds today's routes to the byte with the lever unbound.
  */
 export function roomsOf(env: Env): DurableObjectNamespaceLike | undefined {
