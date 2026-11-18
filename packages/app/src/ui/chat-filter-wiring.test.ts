@@ -1,0 +1,297 @@
+// GH-1417 S2: the chat word filter is a LAZY chunk. `chat-filter.ts` and its word lists (`@lions/data/chat-filters`, the
+// data/chat/filter.<lang>.json files) once sat on the entry's static imports and put the entry chunk 21 KB over the main-chunk guard
+// (`pnpm --filter @lions/tools webgpu:bundle`, whose ceiling never rises). That census is the byte gate; this is the cheap one that names
+// the cause. It walks the app's STATIC import graph from the page's entry (`main.ts`, from index.html) through the source, following
+// relative paths and `@lions/*` package exports, and skipping `import type` and dynamic `import()`; the filter and the lists must not be
+// reached. The fallback behind the lazy load is tested in `chat-filter-gate.test.ts` and `chat-inbox.test.ts`. Each file's imports are
+// read by the TypeScript parser, not a regex (review finding 4: a comment inside an import's braces hid it from the regex).
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import ts from 'typescript';
+import { describe, expect, it } from 'vitest';
+
+const ROOT = resolve(__dirname, '../../../..');
+const PACKAGES = join(ROOT, 'packages');
+const ENTRY = join(ROOT, 'packages/app/src/main.ts');
+/** The room's own chunk (PR 1505, `versus-kit.ts`): loaded on demand by `main.ts`, and itself holding the gate, never the filter. */
+const KIT = join(ROOT, 'packages/app/src/versus-kit.ts');
+
+/** `@lions/<pkg>` and `@lions/<pkg>/<sub>`, through that package's `exports`. */
+function resolvePackage(spec: string): string | null {
+  const m = /^@lions\/([^/]+)(?:\/(.+))?$/.exec(spec);
+  if (m === null) return null;
+  const pkgDir = join(PACKAGES, m[1]);
+  const pj = join(pkgDir, 'package.json');
+  if (!existsSync(pj)) return null;
+  const exportsMap = (JSON.parse(readFileSync(pj, 'utf8')) as { exports?: Record<string, string> }).exports ?? {};
+  const target = exportsMap[m[2] === undefined ? '.' : `./${m[2]}`];
+  return target === undefined ? null : join(pkgDir, target);
+}
+
+function resolveFile(from: string, spec: string): string | null {
+  const bare = spec.replace(/\?.*$/, '');
+  if (bare.startsWith('@lions/')) return resolvePackage(bare);
+  if (!bare.startsWith('.')) return null; // a node_modules package: not the app's source
+  const base = resolve(dirname(from), bare);
+  for (const c of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]) if (existsSync(c) && statSync(c).isFile()) return c;
+  return null;
+}
+
+/**
+ * The specifiers of the VALUE imports and re-exports of one source file, from its top-level statements as the TypeScript parser reads
+ * them, so a comment anywhere in a statement neither hides nor fakes one. `import type` and `export type` are skipped (erased);
+ * `import { type A }` is followed, since `verbatimModuleSyntax` keeps that import; a dynamic `import()` is an expression, never a
+ * statement, so it is not followed.
+ */
+function valueImports(file: string, src: string): string[] {
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, false, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const out: string[] = [];
+  for (const st of sf.statements) {
+    const spec = ts.isImportDeclaration(st)
+      ? (st.importClause?.isTypeOnly === true ? undefined : st.moduleSpecifier)
+      : ts.isExportDeclaration(st) && !st.isTypeOnly ? st.moduleSpecifier : undefined;
+    if (spec !== undefined && ts.isStringLiteral(spec)) out.push(spec.text);
+  }
+  return out;
+}
+
+function staticClosure(entry: string): Set<string> {
+  const seen = new Set<string>();
+  const todo = [entry];
+  while (todo.length > 0) {
+    const file = todo.pop() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    if (!/\.(ts|tsx)$/.test(file)) continue; // JSON, CSS and assets import nothing
+    for (const spec of valueImports(file, readFileSync(file, 'utf8'))) {
+      const next = resolveFile(file, spec);
+      if (next !== null && !seen.has(next)) todo.push(next);
+    }
+  }
+  return seen;
+}
+
+const rel = (f: string): string => relative(ROOT, f).split('\\').join('/');
+
+describe('the import reader (finding 4)', () => {
+  it('sees every value import form, comments included, and skips type-only imports, dynamic imports and comments', () => {
+    const src = [
+      "import a from './a';",
+      "import {\n  MASK, // the marker\n  /* and */ filterLine,\n} from './b';",
+      "import * as c from './c';",
+      "import './d';",
+      "import { type E } from './e';",
+      "export { f } from './f';",
+      "export * from './g';",
+      "export * as h from './h';",
+      "import type { X } from './x1';",
+      "import type * as Y from './x2';",
+      "export type { Z } from './x3';",
+      "// import { no } from './x4';",
+      "/* import { no } from './x5'; */",
+      "const lazy = () => import('./x6');",
+      "const s = \"import { no } from './x7'\";",
+    ].join('\n');
+    // Literal oracle: the specifiers as written above, in order.
+    expect(valueImports('fixture.ts', src)).toEqual(['./a', './b', './c', './d', './e', './f', './g', './h']);
+  });
+});
+
+describe('the chat word filter stays off the entry chunk, and off the versus kit\'s (GH-1417 S2)', () => {
+  const closure = [...staticClosure(ENTRY)].map(rel);
+  // Since PR 1505 the gate, the inbox and the seat labels sit behind the kit's dynamic import; the filter stays behind the gate's own.
+  const kitClosure = [...staticClosure(KIT)].map(rel);
+
+  it('the walks are not vacuous: the entry reaches the data index and its JSON; the kit reaches the gate, the inbox, the seat labels', () => {
+    for (const f of ['packages/data/src/index.ts', 'data/palette.json', 'packages/net/src/index.ts']) expect(closure, f).toContain(f);
+    expect(closure.length).toBeGreaterThan(200);
+    for (const f of ['packages/app/src/ui/chat-filter-gate.ts', 'packages/app/src/ui/chat-inbox.ts', 'packages/app/src/net/seat-label.ts', 'packages/net/src/index.ts']) {
+      expect(kitClosure, f).toContain(f);
+    }
+  });
+
+  it('neither walk reaches chat-filter.ts, nor the lists module, nor any data/chat list', () => {
+    for (const [name, c] of [['entry', closure], ['kit', kitClosure]] as const) {
+      expect(c, name).not.toContain('packages/app/src/ui/chat-filter.ts');
+      expect(c, name).not.toContain('packages/data/src/chat-filters.ts');
+      expect(c.filter((f) => f.startsWith('data/chat/')), name).toEqual([]);
+    }
+  });
+
+  it('the gate reaches the filter through one dynamic import, retried, and the data index exports the lists TYPE only', () => {
+    const gate = readFileSync(join(__dirname, 'chat-filter-gate.ts'), 'utf8');
+    expect(gate).toContain("importWithRetry(() => import('./chat-filter'))");
+    expect(gate).not.toMatch(/^import (?!type )[^;]*from '\.\/chat-filter';/m);
+    const data = readFileSync(join(PACKAGES, 'data/src/index.ts'), 'utf8');
+    expect(data).toContain("export type { ChatFilterJson } from './chat-filters';");
+    expect(data).not.toMatch(/data\/chat\//);
+    expect(readFileSync(join(PACKAGES, 'app/src/ui/chat-filter.ts'), 'utf8')).toContain("from '@lions/data/chat-filters';");
+  });
+
+  it('the battlefield asks for the filter for a room and waits for it before the room\'s names and chat are mounted', () => {
+    const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+    // Both through the kit (PR 1505): a config exists only from the kit's `connectMatch`, so `rk()` is loaded wherever they run.
+    const ask = main.indexOf('const chatFilterLoad: Promise<boolean> | null = netConfig !== null ? rk().loadChatFilter() : null;');
+    // CR1: the wait is raced against the boot's signal, so a leave reaches `abandon` without waiting for the chunk.
+    const wait = main.indexOf('if (chatFilterLoad !== null) await rk().untilLoadedOrAborted(chatFilterLoad, req.signal);');
+    const chat = main.indexOf('const chatInbox = room !== null');
+    expect(ask).toBeGreaterThan(0);
+    expect(wait).toBeGreaterThan(ask);
+    expect(chat).toBeGreaterThan(wait);
+    expect(main.slice(wait, wait + 200)).toContain("if (req.signal.aborted) abandon('left while the chat filter loaded');");
+  });
+});
+
+/**
+ * CR9 (review of PR 1492): the names object the battlefield hands the scoreboard and the points panel, as the TypeScript parser
+ * reads `src`. For each `new <ctor>(...)` it names, which argument names the other seat, and whether `theirs` is read at paint time:
+ * a getter, or a property whose value is a function, on the object literal that argument is (directly or through one `const`).
+ * A plain `theirs: seatName(otherSeat)` is captured ONCE at mount, so a name that read as the fallback while the word filter loaded
+ * would never be redrawn as its label.
+ */
+function namesReadLate(file: string, src: string, ctors: readonly string[]): Map<string, 'late' | 'captured' | 'unknown'> {
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // `new X(...)`, `new vk.X(...)` and `new (rk().X)(...)` (PR 1505: the classes come from the versus kit).
+  const ctorName = (n: ts.NewExpression): string | null => {
+    let e: ts.Expression = n.expression;
+    while (ts.isParenthesizedExpression(e)) e = e.expression;
+    if (ts.isIdentifier(e)) return e.text;
+    if (ts.isPropertyAccessExpression(e)) return e.name.text;
+    return null;
+  };
+  const consts = new Map<string, ts.Expression>();
+  const news: ts.NewExpression[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) consts.set(n.name.text, n.initializer);
+    if (ts.isNewExpression(n)) {
+      const c = ctorName(n);
+      if (c !== null && ctors.includes(c)) news.push(n);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  const verdict = (arg: ts.Expression | undefined): 'late' | 'captured' | 'unknown' => {
+    const lit = arg !== undefined && ts.isIdentifier(arg) ? consts.get(arg.text) : arg;
+    if (lit === undefined || !ts.isObjectLiteralExpression(lit)) return 'unknown';
+    const theirs = lit.properties.find((p) => p.name !== undefined && ts.isIdentifier(p.name) && p.name.text === 'theirs');
+    if (theirs === undefined) return 'unknown';
+    if (ts.isGetAccessorDeclaration(theirs)) return 'late';
+    if (ts.isPropertyAssignment(theirs) && (ts.isArrowFunction(theirs.initializer) || ts.isFunctionExpression(theirs.initializer))) return 'late';
+    return 'captured';
+  };
+  const out = new Map<string, 'late' | 'captured' | 'unknown'>();
+  for (const n of news) {
+    const name = ctorName(n) ?? '';
+    // NetScoreboard(host, viewer, names); NetPoints(host, names, explainer).
+    const arg = n.arguments?.[name === 'NetScoreboard' ? 2 : 1];
+    const v = verdict(arg);
+    const prev = out.get(name);
+    out.set(name, prev === undefined || prev === v ? v : 'unknown');
+  }
+  return out;
+}
+
+describe('the scoreboard and the points panel read the other seat\'s name at paint time (GH-1417 S2, CR9)', () => {
+  it('the reader tells a getter from a value captured once (literal fixtures)', () => {
+    const ctors = ['NetScoreboard', 'NetPoints'];
+    const late = "const n = { get theirs(): string { return seatName(1); } };\nnew NetScoreboard(b, 0, n);\nnew NetPoints(b, n, '');";
+    expect(namesReadLate('a.ts', late, ctors)).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'late']]));
+    const once = "const n = { theirs: seatName(1) };\nnew NetScoreboard(b, 0, n);\nnew NetPoints(b, { theirs: 'x' }, '');";
+    expect(namesReadLate('b.ts', once, ctors)).toEqual(new Map([['NetScoreboard', 'captured'], ['NetPoints', 'captured']]));
+    // Comments and strings do not fake one: the parser reads the code.
+    const faked = "// const n = { get theirs() { return '' } };\nconst n = { theirs: seatName(1) /* get theirs() */ };\nnew NetScoreboard(b, 0, n);";
+    expect(namesReadLate('c.ts', faked, ctors)).toEqual(new Map([['NetScoreboard', 'captured']]));
+    // through the kit, as main.ts mounts them since PR 1505
+    const kit = "const n = { get theirs(): string { return vk !== null ? seatName(1) : ''; } };\nnew vk.NetScoreboard(b, 0, n);\nnew (rk().NetPoints)(b, { theirs: seatName(1) }, '');";
+    expect(namesReadLate('d.ts', kit, ctors)).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'captured']]));
+  });
+
+  it('main.ts mounts both with names whose `theirs` is a getter', () => {
+    const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+    expect(namesReadLate('main.ts', main, ['NetScoreboard', 'NetPoints'])).toEqual(new Map([['NetScoreboard', 'late'], ['NetPoints', 'late']]));
+  });
+});
+
+/**
+ * Review of PR 1492: the HUD feed's sink, as the TypeScript parser reads `src`. For each `onChat` hook whose function calls
+ * `<inbox>.deliver(seat, text, sink)`, every `hud.note(...)` inside that sink must sit behind the battlefield's `disposed` flag: in the
+ * THEN branch of `if (!disposed)`, or after an `if (disposed) return;` in a block that holds it. A line the inbox held while the
+ * filter loaded is handed back LATER (`chat-inbox.ts`, `hold`), so it can arrive after the battlefield's disposer ran and its HUD is
+ * gone. 'none' when no such sink is found, so a reshaped hook reads red rather than vacuously guarded.
+ */
+function feedSinkGuard(file: string, src: string): 'guarded' | 'unguarded' | 'none' {
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const isNotDisposed = (e: ts.Expression): boolean =>
+    ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.ExclamationToken && ts.isIdentifier(e.operand) && e.operand.text === 'disposed';
+  const isBailOnDisposed = (s: ts.Statement): boolean => {
+    if (!ts.isIfStatement(s) || !ts.isIdentifier(s.expression) || s.expression.text !== 'disposed') return false;
+    const t = s.thenStatement;
+    return ts.isReturnStatement(t) || (ts.isBlock(t) && t.statements.length === 1 && ts.isReturnStatement(t.statements[0]));
+  };
+  const guarded = (call: ts.Node, sink: ts.Node): boolean => {
+    for (let child: ts.Node = call, n: ts.Node = call.parent; child !== sink; child = n, n = n.parent) {
+      if (ts.isIfStatement(n) && n.thenStatement === child && isNotDisposed(n.expression)) return true;
+      if (ts.isBlock(n)) {
+        const at = n.statements.indexOf(child as ts.Statement);
+        if (n.statements.slice(0, at).some(isBailOnDisposed)) return true;
+      }
+    }
+    return false;
+  };
+  // Every `hud.note(...)` call, each with the sink it sits in.
+  const notes: { call: ts.CallExpression; sink: ts.Node }[] = [];
+  const inSink = (n: ts.Node, sink: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'note'
+      && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'hud') notes.push({ call: n, sink });
+    ts.forEachChild(n, (c) => inSink(c, sink));
+  };
+  const inHook = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'deliver' && n.arguments.length === 3) {
+      const sink = n.arguments[2];
+      if (ts.isArrowFunction(sink) || ts.isFunctionExpression(sink)) inSink(sink, sink);
+    }
+    ts.forEachChild(n, inHook);
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && (n.name.text === 'onChat' || n.name.text === 'onQuick')
+      && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))) inHook(n.initializer);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  if (notes.length === 0) return 'none';
+  return notes.every(({ call, sink }) => guarded(call, sink)) ? 'guarded' : 'unguarded';
+}
+
+describe('the HUD feed\'s chat sink checks `disposed` before it writes (review of PR 1492)', () => {
+  const hook = (sink: string): string => `room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, ${sink}) });`;
+
+  it('the reader tells a guarded sink from an unguarded one (literal fixtures)', () => {
+    expect(feedSinkGuard('a.ts', hook("(shown) => { if (!disposed) hud.note(line(shown), 'info'); }"))).toBe('guarded');
+    expect(feedSinkGuard('b.ts', hook("(shown) => { if (disposed) return; hud.note(line(shown), 'info'); }"))).toBe('guarded');
+    expect(feedSinkGuard('c.ts', hook("function (shown) { if (disposed) { return; } hud.note(line(shown), 'info'); }"))).toBe('guarded');
+    // the review's mutation, and the sink with no check at all
+    expect(feedSinkGuard('d.ts', hook("(shown) => { if (true) hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('e.ts', hook("(shown) => hud.note(line(shown), 'info')"))).toBe('unguarded');
+    // the note in the ELSE branch, the check the wrong way round, a bail that does not bail, a check after the write
+    expect(feedSinkGuard('f.ts', hook("(shown) => { if (!disposed) {} else hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('g.ts', hook("(shown) => { if (disposed) hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('h.ts', hook("(shown) => { if (disposed) log(); hud.note(line(shown), 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('i.ts', hook("(shown) => { hud.note(line(shown), 'info'); if (disposed) return; }"))).toBe('unguarded');
+    // a second, unguarded note beside a guarded one
+    expect(feedSinkGuard('j.ts', hook("(shown) => { if (!disposed) hud.note(a, 'info'); hud.note(b, 'info'); }"))).toBe('unguarded');
+    // comments and strings do not fake the check; a sink that writes no note, or no deliver at all, is no sink
+    expect(feedSinkGuard('k.ts', hook("(shown) => { /* if (!disposed) */ hud.note('if (!disposed)', 'info'); }"))).toBe('unguarded');
+    expect(feedSinkGuard('l.ts', hook('(shown) => { log(shown); }'))).toBe('none');
+    expect(feedSinkGuard('m.ts', "room.setHooks({ onChat: (seat, text) => { if (!disposed) hud.note(text, 'info'); } });")).toBe('none');
+    // the preset-phrase hook (S1b's onQuick) is a sink too: guarded beside a guarded onChat, and an unguarded one is caught
+    const both = (quick: string): string =>
+      `room.setHooks({ onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(a, 'info'); }), onQuick: (seat, id) => chatInbox.deliver(seat, phrase(id), ${quick}) });`;
+    expect(feedSinkGuard('n.ts', both("(shown) => { if (!disposed) hud.note(b, 'info'); }"))).toBe('guarded');
+    expect(feedSinkGuard('o.ts', both("(shown) => hud.note(b, 'info')"))).toBe('unguarded');
+  });
+
+  it('main.ts\'s feed sink writes to the HUD only while the battlefield is not disposed', () => {
+    const main = readFileSync(join(__dirname, '..', 'main.ts'), 'utf8');
+    expect(feedSinkGuard('main.ts', main)).toBe('guarded');
+  });
+});

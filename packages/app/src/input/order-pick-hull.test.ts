@@ -22,7 +22,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim, fx, type SimEvent } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units } from '@lions/data';
+import { applyTerrain, parseMap, units } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { validateCommand, type SeatWorld } from '@lions/net';
 import { screenToWorldThree, worldToScreenThree } from '@lions/render/three-camera';
 import { WORLD_Y_PER_LIFT_PIXEL, type Camera, type Viewport } from '@lions/render/project';

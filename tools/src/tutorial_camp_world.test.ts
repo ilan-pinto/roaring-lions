@@ -22,7 +22,8 @@
 // if anyone walks into z_muster before beat 9 and spawns him early.
 import { describe, expect, it } from 'vitest';
 import { START_LAYOUT } from './mission-harness';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, units } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, units } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { tutorials } from '@lions/data';
 import { fx, type Fx } from '../../packages/sim/src/fixed';
 import { Sim, TICKS_PER_SECOND } from '../../packages/sim/src/sim';

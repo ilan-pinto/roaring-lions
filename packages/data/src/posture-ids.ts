@@ -10,3 +10,11 @@ export type PostureId = (typeof POSTURE_IDS)[number];
 /** The campaign-ledger key the posture lives under (design §6). Read from the ledger ONLY: no URL
  *  flag reaches it, so no dev flag can change how a campaign mission scores. */
 export const DIFFICULTY_LEDGER_KEY = 'campaign.difficulty';
+
+/** The posture a campaign ledger names (here, beside the key, so the board, the brigade screen and the resume check can
+ *  read it without pulling the applier into their chunk): `easier`, `standard` or `harder`; anything else (absent, an unknown
+ *  string, a wrong type: an old save, a hand-edited one) reads as Standard (ruling D2). */
+export function postureOf(ledger: Readonly<Record<string, unknown>> | null | undefined): PostureId {
+  const v = ledger?.[DIFFICULTY_LEDGER_KEY];
+  return typeof v === 'string' && (POSTURE_IDS as readonly string[]).includes(v) ? (v as PostureId) : 'standard';
+}

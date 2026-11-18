@@ -4,7 +4,8 @@
  * app can ask for.
  */
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import type { AudioManifest } from '@lions/render';
 import manifestJson from '../../../data/audio.json';
 import { readFileSync } from 'node:fs';
@@ -34,6 +35,17 @@ const EXPECTED: Record<keyof typeof maps, AmbienceBed> = {
   qarn_hadid: 'ridge',
   qarn_hadid_2: 'ridge',
   qarn_hadid_3: 'ridge',
+  qasr_liwan: 'town',
+  qasr_liwan_2: 'town',
+  qasr_liwan_3: 'town',
+  qasr_liwan_4: 'town',
+  qasr_liwan_5: 'town',
+  // The Bir Tarsha maps: the gate town is 4.25% built (houses, sheds, two apartment blocks), under the 5% rule, so it plays 'open' although it is a town in the fiction; the strip is 1.4% and 1.8%.
+  bir_tarsha: 'open',
+  bir_tarsha_2: 'open',
+  bir_tarsha_3: 'open',
+  bir_tarsha_4: 'open',
+  bir_tarsha_5: 'open',
   rujm_sawda: 'open',
   tel_marum: 'ridge',
   tel_marum_1: 'ridge',
@@ -98,7 +110,7 @@ describe('the ambience bed a map plays (A11)', () => {
       .filter((m) => m.terrain !== 'highland')
       .map((m) => builtShare(m));
     for (const s of shares) expect(Math.abs(s - TOWN_BUILT_SHARE)).toBeGreaterThan(0.004);
-    expect(Math.max(...shares.filter((s) => s < TOWN_BUILT_SHARE))).toBeCloseTo(0.042, 3); // beit_sahwan_outskirts
+    expect(Math.max(...shares.filter((s) => s < TOWN_BUILT_SHARE))).toBeCloseTo(0.0425, 3); // bir_tarsha (0.04253), beit_sahwan_outskirts 0.042 just under it
     expect(Math.min(...shares.filter((s) => s >= TOWN_BUILT_SHARE))).toBeCloseTo(0.055, 3); // beit_sahwan_4
   });
 

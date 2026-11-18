@@ -5,7 +5,7 @@
 // map, or a route whose ends nobody can walk to, look fine in a diff and are
 // useless in the browser.
 import { describe, expect, it } from 'vitest';
-import { maps } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { sandboxAnchors } from './sandbox-anchors';
 import {
   sandboxDitchRows,

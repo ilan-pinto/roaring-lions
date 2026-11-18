@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/overlay_ops.schema.json",
   "title": "Mission overlay operations",
-  "description": "The CLOSED set of operations a mission overlay may apply to a mission's JSON before the runtime is built (GH-1394 difficulty postures, GH-1395 challenge amendments: one applier, `applyOverlays` in packages/data/src/overlays.ts). There is no generic 'set any path': every operation names the one field it moves, and none touches tuning, a primary objective's seconds, Conduct (`roe`), `fail_below`, an objective's id, type or target, or a tag. A new operation is a change to this schema AND to the applier's exhaustive switch, made once. Integers and keys only.",
+  "description": "The CLOSED set of operations a mission overlay may apply to a mission's JSON before the runtime is built (GH-1394 difficulty postures, GH-1395 challenge amendments: one applier, `applyOverlays` in packages/data/src/overlays.ts). There is no generic 'set any path': every operation names the one field it moves, and none touches tuning, a primary objective's seconds, Conduct scoring, an objective's id, type or target, or a tag. The POSTURES (data/difficulty/postures.json) never touch `roe.fail_below`, `starting_force` or `resources`. The AMENDMENTS (data/challenges/) may, through `raise_fail_below`, `remove_starting`, `scale_resources` and `set_intel_start`, and only in the restricting direction: tools/validate_challenges.mjs (`restrictionFailure`) refuses any amendment operation that points the other way, for every operation in this set. A new operation is a change to this schema AND to the applier's exhaustive switch, made once. Integers and keys only.",
   "$defs": {
     "ratio": {
       "type": "integer",
@@ -15,7 +15,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["op", "num", "den"],
-          "description": "time_limit_s := ceil(time_limit_s * num / den). Only the `withdrawn` backstop moves; a primary's own clock does not.",
+          "description": "time_limit_s := ceil(time_limit_s * num / den). Only the `withdrawn` backstop moves; a primary's own clock does not. A posture's operation alone: no amendment may carry it, in either direction (the lead dropped Tight clock, PR 1524; tools/validate_challenges.mjs refuses it).",
           "properties": {
             "op": { "const": "scale_time_limit" },
             "num": { "$ref": "#/$defs/ratio" },
@@ -82,10 +82,52 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["op", "wave"],
-          "description": "A per-mission amendment (GH-1395 `own`): appends one enemy wave, in mission.schema.json's wave shape (validated there once applied). Amendments run AFTER the posture, so an added wave is never thinned by Easier.",
+          "description": "A per-mission amendment (GH-1395 `own`): appends one enemy wave, in mission.schema.json's wave shape (`$ref` to it here, and the overlaid mission is validated against mission.schema.json again by tools/src/challenges.test.ts). Amendments run AFTER the posture, so an added wave is never thinned by Easier.",
           "properties": {
             "op": { "const": "add_wave" },
-            "wave": { "type": "object" }
+            "wave": { "$ref": "mission.schema.json#/properties/enemy/properties/waves/items" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "by"],
+          "description": "GH-1395 amendment (Clean hands): roe.fail_below := min(80, fail_below + by), so the two-star Conduct floor (fail_below + 20) never passes 100. Only ever UP: a lower floor would pay more Conduct credit (creditsFor reads Conduct over the floor). A mission that declares no fail_below is left alone, and the challenge validator refuses to offer it there.",
+          "properties": {
+            "op": { "const": "raise_fail_below" },
+            "by": { "type": "integer", "minimum": 1, "maximum": 20 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "unit", "count"],
+          "description": "GH-1395 amendment (Light order, Medics stay back): removes `count` bodies of `unit` from the starting force, from the LAST untagged top-level placements of that unit first; a placement brought to 0 is dropped. A tagged placement is never touched (rule A3), nor a passenger. It only ever lowers creditsFor's `fielded`. Throws when the mission has fewer untagged bodies of `unit` than `count` (an authoring error).",
+          "properties": {
+            "op": { "const": "remove_starting" },
+            "unit": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+            "count": { "type": "integer", "minimum": 1, "maximum": 4 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "num", "den"],
+          "description": "GH-1395 amendment (Thin purse): resources.logistics_start and resources.logistics_rate_per_min := floor(x * num / den), each where declared. Income zones and the supply corridor are untouched. The challenge validator holds num < den.",
+          "properties": {
+            "op": { "const": "scale_resources" },
+            "num": { "$ref": "#/$defs/ratio" },
+            "den": { "$ref": "#/$defs/ratio" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "value"],
+          "description": "GH-1395 amendment (No eyes): resources.intel_start := min(intel_start, value), where declared. Only ever down.",
+          "properties": {
+            "op": { "const": "set_intel_start" },
+            "value": { "type": "integer", "minimum": 0 }
           }
         }
       ]

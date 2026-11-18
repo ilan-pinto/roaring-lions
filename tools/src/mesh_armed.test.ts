@@ -31,6 +31,7 @@ const MESHES = `${REPO}art/meshes/`;
  * rule as everywhere: when a build gains a weapon, its entry must go. `gear` marks a man who works the team's crew weapon.
  */
 const RIGID_DEMO = fileURLToPath(new URL('./fixtures/demo_squad_rigid_422df13dd.glb', import.meta.url));
+const RIGID_YAHALOM = fileURLToPath(new URL('./fixtures/yahalom_squad_rigid_7dae29e2f.glb', import.meta.url));
 
 const UNARMED_EXEMPT: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   at_team: { at_spot: 'spotter: only a box of binoculars (role metal), held by nothing' },
@@ -46,10 +47,8 @@ const UNARMED_EXEMPT: Readonly<Record<string, Readonly<Record<string, string>>>>
   officer_infantry: { maya: 'officer with no weapon part at all' },
   recoilless_team: { rcl_load: 'loader: no round, no weapon' },
   recon_zikit: { zk_radio: 'radio operator: a radio (metal), no rifle', zk_spot: 'spotter: nothing in hand' },
-  yahalom_squad: {
-    yah_a: 'detector bearer: a pole (metal, webbing), no carbine',
-    yah_ak: 'yah_a\'s second build (the kneel clips): the same pole, still no carbine',
-  },
+  // yahalom_squad left 17 Nov 2026 (GH-826 unit "Yahalom"): both Yahalom Engineers carry the Meshy body's carbine, and the
+  // kneeling twin `yah_ak` is gone. The unarmed detector bearer and his twin are read off the frozen rigid file below.
   manpad_team: { mpd_spot: 'spotter: a scope (metal), no weapon' },
 };
 
@@ -114,5 +113,11 @@ describe('G8 can fail (constructed inputs)', () => {
     const demo = readGlb(`${MESHES}demo_squad.glb`);
     expect(unarmedBuilds(demo)).toEqual([]);
     expect(unarmedBuilds(rebindVertices(demo, 'demo_a_weapon', 'demo_b_spine'))).toEqual(['demo_a']);
+  });
+  it('the frozen rigid Yahalom Engineers read their detector bearer and his kneeling twin unarmed; the shipped two are both armed', () => {
+    expect(unarmedBuilds(readGlb(RIGID_YAHALOM)).sort()).toEqual(['yah_a', 'yah_ak']);
+    const yah = readGlb(`${MESHES}yahalom_squad.glb`);
+    expect(unarmedBuilds(yah)).toEqual([]);
+    expect(unarmedBuilds(rebindVertices(yah, 'yah_a_weapon', 'yah_b_spine'))).toEqual(['yah_a']);
   });
 });

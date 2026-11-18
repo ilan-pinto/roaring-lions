@@ -1,7 +1,8 @@
 // packages/app/src/ui/outcome-moment.test.ts
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyMissionLocale, missions } from '@lions/data';
+import { applyMissionLocale } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import { t } from '../i18n/t';
 import { isDialogOpen } from './confirm';

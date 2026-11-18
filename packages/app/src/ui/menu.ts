@@ -5,15 +5,18 @@ import type { LedgerData } from '@lions/sim';
 // being handed a list. A list passed in is a list that can be passed WRONG --
 // and the whole point of this screen is that adding a map to `data/maps/`
 // makes it playable from the UI with no edit here. `terrain-parity.test.ts`
-// takes `Object.keys(maps)` the same way, for the same reason.
-import { maps, parseMap, type MapJson } from '@lions/data';
+// takes `Object.keys(maps)` the same way, for the same reason. Since B6-6 the
+// enumeration is the synchronous manifest's (`mapManifest`, generated from the
+// registry, so the same ids in the same order); only the card PICTURES need a
+// map's JSON, and the shell loads those by id before it mounts the screen.
+import { mapManifest, parseMap, type MapJson } from '@lions/data';
 import { campaignComplete } from '../campaign-close';
 import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
 import { hasKey, t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import { footBack, screenFoot } from './foot';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
-import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
+import { SANDBOX_FLAGS, SANDBOX_SIDES, type SandboxFlagName, type SandboxSide } from '../sandbox-help';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
@@ -43,6 +46,12 @@ import type { ResumeBlock } from './resume-row';
  *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
  *  list and fails if an entry names no shipped map. */
 export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
+
+/** The maps the Free Play picker shows a card for, in manifest order: what the shell loads (by id) before it mounts the
+ *  picker, so every card can paint its ground. */
+export function freePlayMapIds(): string[] {
+  return Object.keys(mapManifest).filter((id) => !UNLISTED_MAP_IDS.has(id));
+}
 
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
@@ -121,6 +130,9 @@ export interface CampaignOptions {
   signal?: AbortSignal;
   /** GH-1393: builds the saved mission's Resume row above the footer. Absent, no row (and nothing is read). The row's code is NOT imported here: it rides in the lazy save kit (mission-save-kit.ts), so the board hands in a builder. */
   resume?: ResumeBlock;
+  /** GH-1394 slice 2 (ruling D10): builds the campaign posture chip under the theatre line. Absent, no chip. Its code rides in
+   *  the lazy `ui/posture-ui.ts` chunk, so the board hands in a builder, as for `resume`. */
+  posture?: () => { el: HTMLElement; dispose(): void };
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -422,6 +434,8 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   // them here keeps `worldMap`/`worldMap3d` themselves unaware of this
   // screen's layout.
   boardEl.prepend(wordmarkEl, theatre);
+  const postureChip = opts.posture?.() ?? null;
+  if (postureChip !== null) theatre.after(postureChip.el);
   wrap.appendChild(boardEl);
 
   // PA-20: the board's one primary call to action -- the next open mission, a
@@ -454,6 +468,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   stage.appendChild(wrap);
   return () => {
     resumeBlock?.dispose();
+    postureChip?.dispose();
     wrap.remove();
   };
 }
@@ -479,8 +494,13 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
  *  card should read like an internal name -- a map is shown by its human
  *  name alone, an opt-in extra by a player's sentence alone, and neither the map id
  *  nor the free-play URL it builds prints anywhere on the screen (the flag
- *  name is still on the label's `title`, for the curious who hover it). */
-export function showSandbox(stage: HTMLElement): Disposer {
+ *  name is still on the label's `title`, for the curious who hover it).
+ *
+ *  `previews` is each listed map's JSON, loaded by the shell (B6-6: no map JSON
+ *  is on the entry chunk). A card whose map is not in it -- every card, when the
+ *  maps would not load -- reads and launches exactly the same without its
+ *  picture, as it does where there is no canvas. */
+export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string, MapJson>> = {}): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
@@ -492,6 +512,55 @@ export function showSandbox(stage: HTMLElement): Disposer {
   theatre.className = 'rl-menu__theatre';
   theatre.textContent = t('menu.sandbox.title');
   wrap.appendChild(theatre);
+
+  // --- the side (GH-1381) -------------------------------------------------
+  // Which force you command: the KDF (the default, every link that names no
+  // side) or Sarim, who fields the versus room's Sarim force against its KDF
+  // one. The versus lobby's own segmented radio group, its own legend and its
+  // own side names and blurbs, so the two screens call a side the same thing.
+  let side: SandboxSide = 'kdf';
+  const sides = document.createElement('fieldset');
+  sides.className = 'rl-versus__sides rl-sandbox__sides';
+  const sidesLegend = document.createElement('legend');
+  sidesLegend.className = 'rl-versus__label';
+  sidesLegend.textContent = t('versus.lobby.side.pick');
+  sides.appendChild(sidesLegend);
+  const sideRadios: { side: SandboxSide; input: HTMLInputElement }[] = [];
+  for (const f of SANDBOX_SIDES) {
+    const label = document.createElement('label');
+    label.className = 'rl-versus__side';
+    label.dataset.side = f;
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.className = 'rl-versus__side-radio';
+    radio.name = 'rl-free-play-side';
+    radio.value = f;
+    radio.checked = f === side;
+    const name = document.createElement('span');
+    name.className = 'rl-versus__side-name';
+    name.textContent = t('versus.faction', { f });
+    label.append(radio, name);
+    sides.appendChild(label);
+    sideRadios.push({ side: f, input: radio });
+  }
+  const sideBlurb = document.createElement('p');
+  sideBlurb.className = 'rl-sandbox__side-blurb';
+  sides.appendChild(sideBlurb);
+  // What Free play has without being asked (`SANDBOX_FLAGS[].freePlayDefault`: field works, the lead's
+  // ask of 18 Nov 2026): stated under the side pick, in the table's own sentence, rather than offered
+  // as a box that could only ever be ticked. A KDF-only one is not said while Sarim is picked, since a
+  // Sarim Free play does not have it (`freePlayDefaults`).
+  const defaults: { el: HTMLElement; kdfOnly: boolean }[] = [];
+  for (const f of SANDBOX_FLAGS) {
+    if (f.freePlayDefault !== true) continue;
+    const line = document.createElement('p');
+    line.className = 'rl-sandbox__default';
+    line.dataset.defaultFlag = f.name;
+    line.textContent = t(f.labelKey);
+    sides.appendChild(line);
+    defaults.push({ el: line, kdfOnly: f.kdfOnly === true });
+  }
+  wrap.appendChild(sides);
 
   // --- the options --------------------------------------------------------
   // Behind a closed "Options" disclosure, one quiet line ABOVE the maps
@@ -512,8 +581,10 @@ export function showSandbox(stage: HTMLElement): Disposer {
   devHint.className = 'rl-sandbox__dev-hint';
   devHint.textContent = t('menu.sandbox.options.hint');
   flagBox.appendChild(devHint);
-  const boxes: { name: SandboxFlagName; input: HTMLInputElement }[] = [];
+  const boxes: { name: SandboxFlagName; input: HTMLInputElement; kdfOnly: boolean }[] = [];
   for (const f of SANDBOX_FLAGS) {
+    // On whatever a box says, so not a box (stated under the side pick above).
+    if (f.freePlayDefault === true) continue;
     const label = document.createElement('label');
     label.className = 'rl-sandbox__flag';
     // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
@@ -527,8 +598,15 @@ export function showSandbox(stage: HTMLElement): Disposer {
     blurb.textContent = t(f.labelKey);
     label.append(input, blurb);
     flagBox.appendChild(label);
-    boxes.push({ name: f.name, input });
+    boxes.push({ name: f.name, input, kdfOnly: f.kdfOnly === true });
   }
+  // GH-1381: why a box is greyed while Sarim is picked. Tied to each such box, shown only then.
+  const kdfOnlyNote = document.createElement('p');
+  kdfOnlyNote.className = 'rl-sandbox__dev-hint';
+  kdfOnlyNote.id = 'rl-free-play-kdf-only';
+  kdfOnlyNote.textContent = t('freePlay.side.kdfOnly');
+  kdfOnlyNote.hidden = true;
+  flagBox.appendChild(kdfOnlyNote);
   dev.appendChild(flagBox);
   wrap.appendChild(dev);
 
@@ -543,15 +621,15 @@ export function showSandbox(stage: HTMLElement): Disposer {
   // copy-link and the browser's own history all behave.
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav rl-mapcards';
-  const catalogue = maps as Record<string, MapJson>;
+  const catalogue = mapManifest as Readonly<Record<string, { readonly name: string }>>;
   const links: { id: string; a: HTMLAnchorElement }[] = [];
-  for (const id of Object.keys(catalogue)) {
-    if (UNLISTED_MAP_IDS.has(id)) continue;
+  for (const id of freePlayMapIds()) {
     const a = document.createElement('a');
     a.className = 'rl-btn rl-menu__item rl-mapcard';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
-    const preview = mapPreviewCanvas(catalogue[id]);
+    const json = Object.hasOwn(previews, id) ? previews[id] : undefined;
+    const preview = json === undefined ? null : mapPreviewCanvas(json);
     if (preview) a.appendChild(preview);
     const text = document.createElement('span');
     text.className = 'rl-mapcard__text';
@@ -576,11 +654,26 @@ export function showSandbox(stage: HTMLElement): Disposer {
   wrap.appendChild(nav);
 
   const refresh = (): void => {
+    side = sideRadios.find((r) => r.input.checked)?.side ?? 'kdf';
+    sideBlurb.textContent = t(`versus.lobby.faction.${side}.blurb`);
+    // A KDF-only extra cannot be had on the Sarim side (`sideFlags`): its box is greyed, and
+    // `routes.sandbox` leaves it off the link whatever it says, so a box ticked before the
+    // switch is still ticked when the KDF comes back.
+    const sarim = side === 'sarim';
+    kdfOnlyNote.hidden = !sarim;
+    for (const d of defaults) d.el.hidden = sarim && d.kdfOnly;
+    for (const b of boxes) {
+      if (!b.kdfOnly) continue;
+      b.input.disabled = sarim;
+      if (sarim) b.input.setAttribute('aria-describedby', kdfOnlyNote.id);
+      else b.input.removeAttribute('aria-describedby');
+    }
     const on: Partial<Record<SandboxFlagName, boolean>> = {};
     for (const b of boxes) on[b.name] = b.input.checked;
-    for (const l of links) l.a.href = routes.sandbox(l.id, on);
+    for (const l of links) l.a.href = routes.sandbox(l.id, on, side);
   };
   for (const b of boxes) b.input.addEventListener('change', refresh);
+  for (const r of sideRadios) r.input.addEventListener('change', refresh);
   refresh();
 
   // The one footer row (`foot.ts`, GH-498), sticky: the map list is long, and

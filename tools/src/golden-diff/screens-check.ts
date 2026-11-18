@@ -41,6 +41,7 @@ import {
   FREEZE_FRAME_LOOP_SCRIPT,
   FREEZE_FRAME_LOOP_STATEMENTS,
   REPAINT_SCRIPT,
+  captureFreePlayPath,
   hideHudExceptCanvas,
 } from './capture-protocol';
 import { colourRegister, registerDelta, withinRegister, type Register } from './register';
@@ -204,6 +205,17 @@ const MENU_HOST_REGISTER_TOLERANCE = 0.1;
 /** The map the diorama draws (`data/front/menu_diorama.json`) -- vote 3's
  *  "mission" half frames this SAME ground, never a copy of its rows. */
 const MENU_HOST_MISSION_MAP = 'beit_sahwan_outskirts';
+/** The URL vote 3 boots: that map's sandbox, opted out of the free-play defaults (`captureFreePlayPath`, the lead's
+ *  ruling of 18 Nov 2026), so the register reads the frame it read before field works went on by default. */
+export function menuHostMissionUrl(baseUrl: string): string {
+  return new URL(captureFreePlayPath(MENU_HOST_MISSION_MAP), baseUrl).toString();
+}
+
+/** Vote 3's navigation to its sandbox: the one place the vote opens it, so `free-play-opt-out.test.ts` can drive
+ *  this very call with a recording page and see the URL the vote really opens. */
+export async function gotoMenuHostMission(page: Pick<Page, 'goto'>, baseUrl: string): Promise<void> {
+  await page.goto(menuHostMissionUrl(baseUrl), { waitUntil: 'load' });
+}
 
 interface MenuHostDomState {
   readonly host: string | null;
@@ -390,8 +402,9 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
     // Then the sandbox of the diorama's own map, at the host's own camera
     // and zoom, overlays off, fog revealed, HUD stripped -- camera-for-camera
     // is the whole point (register.ts's own header, spec M17).
-    const missionUrl = new URL(`free-play/${MENU_HOST_MISSION_MAP}`, baseUrl).toString();
-    await page.goto(missionUrl, { waitUntil: 'load' });
+    // Opted out of the free-play defaults (field works: the dock and a demolition squad), so the register reads
+    // the frame it read before that default (`CAPTURE_FREE_PLAY_OPT_OUT`, the lead's ruling of 18 Nov 2026).
+    await gotoMenuHostMission(page, baseUrl);
     await page
       .waitForFunction(
         () => (window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer !== undefined,
