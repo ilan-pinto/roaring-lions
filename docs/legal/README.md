@@ -27,7 +27,7 @@ Brackets `[LIKE THIS]` belong to the lead or the lawyer: the operator's legal na
 ## Re-check this pack when
 
 - PRs 1481, 1492 or 1502 merge, or change their wording;
-- `PURCHASES_OPEN` is flipped (the lead ruled on 18 Nov 2026 that coin-bought units work everywhere, PvP included; terms Q20), or matched-kit rooms start fielding owned kit;
+- `PURCHASES_OPEN` is flipped (the lead ruled on 18 Nov 2026 that coin-bought units work everywhere, PvP included, and that standard-kit rooms stay equal; terms Q20), or the code that decides which rooms field owned kit changes;
 - ragdolls are switched on in a quality preset;
 - public rooms or matchmaking open (lead ruling D10);
 - avatar uploads are served;
