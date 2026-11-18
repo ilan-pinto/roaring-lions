@@ -42,6 +42,7 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures } from './validate_objectives.mjs';
@@ -1069,6 +1070,9 @@ const garrisonableSymbols = new Set(
     failures.push(...productionFailures(mi, map, structureCatalogue, enemyUnitsById, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
+    // GH-1438 E13 (b): no ground side-0 unit starts within 4.5 tiles of a civilian, a muster marker or a gate
+    // centre. This is the AUTHORED spread; the laid-out reading is tools/src/validate_force_to_gate.test.ts.
+    failures.push(...authoredForceToGateFailures(mi, map, structureCatalogue?.types, unitsById, rel(file)));
     // Field works (#277 Task 8): rules 2-4.
     failures.push(...fieldWorksKeyFailures(mi, structureCatalogue, rel(file)));
     {
