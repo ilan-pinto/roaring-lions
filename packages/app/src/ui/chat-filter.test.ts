@@ -83,6 +83,33 @@ describe('the matcher, on a fixture list', () => {
     expect(shown('и b l a r g')).toBe('и ***');
   });
 
+  it('step 6, TWO lone words beside the spaced letters are split off too (GH-1527)', () => {
+    // Literal oracle: "uavex", "avex", "yablarg", "ablarg", "vexia", "vexi" are no entry, so only a reading that splits off two catches these.
+    expect(hidden('u a v e x')).toBe(true); // text-speak "you a ..."
+    expect(shown('y a b l a r g')).toBe('y a ***'); // Spanish "y a ..."
+    expect(hidden('I a v e x')).toBe(true);
+    expect(hidden('a a v e x')).toBe(true);
+    expect(shown('и я b l a r g')).toBe('и я ***'); // Russian "и я ..."
+    expect(hidden('v e x I a')).toBe(true);
+    expect(shown('b l a r g o u')).toBe('*** o u');
+    // both edges at once, two each
+    expect(hidden('u a v e x I a')).toBe(true);
+    // only LONE words split off, at either end: a letter that is no word on its own still joins, behind or after a lone one
+    expect(shown('b l a r g x')).toBe('b l a r g x');
+    expect(shown('z x b l a r g')).toBe('z x b l a r g');
+    expect(shown('b l a r g x z')).toBe('b l a r g x z');
+    expect(shown('a x b l a r g')).toBe('a x b l a r g');
+    expect(shown('b l a r g x a')).toBe('b l a r g x a');
+    // still never trimmed below two letters: with a one-letter entry (a fixture only; no shipped list has one), "u a q" is one run "uaq"
+    // less one edge, "aq" or "ua", and never "q"
+    const q = compileFilter([{ lang: 'en', hide: ['q'], mask: [], allow: [] }], () => true);
+    for (const s of ['u a q', 'q I a', 'a q', 'q a']) expect(filterLine(q, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+    expect(filterLine(q, 'well q then', { mask: true }).kind).toBe('hide'); // the fixture does hide its entry
+    expect(shown('u a b')).toBe('u a b');
+    // three lone words is beyond the fixed bound, by design (the cost stays a fixed number of readings)
+    expect(shown('o u a b l a r g')).toBe('o u a b l a r g');
+  });
+
   it('step 7, repeated letters: a LONGER stretched spelling matches, a shorter word never does', () => {
     expect(hidden('zorrrgoooon')).toBe(true);
     expect(shown('blaaaarg')).toBe(MASK);
@@ -216,6 +243,28 @@ describe('the shipped lists', () => {
     for (const e of short) expect(filterLine(shipped, `you are a ${[...e].join(' ')}`, { mask: false }).kind, e).toBe('hide');
   });
 
+  it('a short English hide entry spelled out behind TWO lone words still hides (GH-1527)', () => {
+    // Literal oracle: a ruled in-house entry, four letters, behind text-speak "u a", Spanish "y a", and "I a".
+    expect(filterLine(shipped, 'u a d y k e', { mask: false })).toEqual({ kind: 'hide' });
+    expect(filterLine(shipped, 'y a d y k e', { mask: false })).toEqual({ kind: 'hide' });
+    expect(filterLine(shipped, 'I a d y k e', { mask: false })).toEqual({ kind: 'hide' });
+    expect(filterLine(shipped, 'd y k e I a', { mask: false })).toEqual({ kind: 'hide' });
+    // and every short single-word hide entry the same way, behind and after each pair (25 entries at the time of writing; the floor
+    // keeps the sweep from passing empty)
+    const short = en.hide.filter((e) => !e.includes(' ') && [...e].length < SUBSTRING_MIN);
+    expect(short.length).toBeGreaterThanOrEqual(20);
+    let n = 0;
+    for (const pair of ['u a', 'y a', 'I a', 'a a', 'o u']) {
+      for (const e of short) {
+        const spaced = [...e].join(' ');
+        expect(filterLine(shipped, `${pair} ${spaced}`, { mask: false }).kind, `${pair} ${e}`).toBe('hide');
+        expect(filterLine(shipped, `${spaced} ${pair}`, { mask: false }).kind, `${e} ${pair}`).toBe('hide');
+        n++;
+      }
+    }
+    expect(n).toBe(5 * short.length);
+  });
+
   it('a run of three trims to a two-letter entry: "you are a s m" masks s&m (CR3, the 3-letter boundary)', () => {
     // Literal oracle: a shipped two-letter mask entry; "asm" and "smi" are no entry, so only the trimmed reading catches these.
     expect(en.mask).toContain('s&m');
@@ -231,6 +280,8 @@ describe('the shipped lists', () => {
     const reader = shippedFilter('ru');
     expect(filterLine(reader, 'и ж о п а', { mask: true })).toEqual({ kind: 'show', text: 'и ***', masked: true });
     expect(filterLine(reader, 'я ж о п а', { mask: true })).toEqual({ kind: 'show', text: 'я ***', masked: true });
+    // GH-1527: "и я" ("and I") before it; "ияжопа" and "яжопа" are no entry, so only a reading that splits off two catches it
+    expect(filterLine(reader, 'и я ж о п а', { mask: true })).toEqual({ kind: 'show', text: 'и я ***', masked: true });
   });
 
   it('leaves ordinary RTS chat alone: dropped entries, allow words, and short hide words inside longer ones', () => {
@@ -241,6 +292,22 @@ describe('the shipped lists', () => {
       'classic assault on the pass', 'title fight', 'analysis', 'cumulative', 'Scunthorpe',
     ]) {
       expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+    }
+  });
+
+  it('GH-1527: splitting off two lone words makes no false positive of short chat, the dropped words, or "classic" and "assault"', () => {
+    // Literal oracle: ordinary lines, several with runs of lone letters for the wider split to work on.
+    const lines = [
+      'a b c', 'u a b c', 'a b c u a', 'go go', 'go go go', 'gg', 'g g', 'gg wp', 'o7', 'o 7', 'u ok', 'u ok?', 'i u a o e', 'a a a a',
+      'o o o', 'u a o k', 'y a b c', 'и я в с у к о', 'classic', 'assault', 'u a classic assault', 'y a assault', 'a u t o',
+    ];
+    for (const s of lines) expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+    // every entry the review dropped as an ordinary RTS word, plainly and behind two lone words
+    expect(en.dropped.length).toBeGreaterThan(20);
+    for (const e of en.dropped) {
+      for (const s of [`well ${e} then`, `u a ${e}`, `y a ${e} o u`]) {
+        expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+      }
     }
   });
 
