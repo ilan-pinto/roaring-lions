@@ -95,15 +95,15 @@ Play a match against the computer without needing a friend.
   (never an automatic change) to lower the quality preset if frames run slow. We will not claim "300 units
   at 60 fps" anywhere until measured figures support it.
 - **A free demo on Steam**, a trailer and store screenshots.
-- **Cosmetics that buy no power.** A first shelf of things such as emblems, colour sets and banners. Nothing
-  you can buy changes how a unit fights.
+- **Roar coins buy units.** Coins can buy units and their upgrade tiers, as the credits you earn in play
+  can. Everything coins buy can also be earned by playing: the intended pace is about twelve full campaigns
+  to own every unit and tier with earned credits.
+- **A first shelf of cosmetics**, such as emblems, colour sets and banners. A cosmetic changes only how
+  something looks.
 - **Crash reporting**, with an opt-out, and clearer terms and privacy pages.
 
 ## What we are not planning
 
-- **No selling of power.** At launch, paid coins buy cosmetics only. The lane that would sell units or
-  upgrade tiers stays closed. Units and tiers are earned with in-game credits, and the intended pace is about
-  twelve full campaigns to own everything.
 - **No third playable side for now.** There are two: KDF and Sarim.
 - **No playable opposition sides in the campaign.** Sarim and any other opposing side are playable in
   versus, skirmish and free play only.
@@ -216,9 +216,11 @@ report feature, the draft sign-in age) were read from the repository.
 
 ### Basis
 
-Built only from the lead's rulings of 16 Nov 2026 on GH-1378 (all twelve) and from the open issues of the
-"80 programme". Issue GH-1420 sets the constraint: the roadmap promises only what a ticket covers. There is
-no GitHub label `roadmap-80` (the label list has none); the programme issues were found by the sentence
+Built only from the lead's rulings of 16 Nov 2026 on GH-1378 (all twelve), the lead's ruling of 18 Nov 2026
+("I want users to be able to use coins to buy new units. That's the leading rule.", relayed on GH-1378 and
+GH-1415, which reverses the first half of ruling 6), and from the open issues of the "80 programme". Issue
+GH-1420 sets the constraint: the roadmap promises only what a ticket covers. There is no GitHub label
+`roadmap-80` (the label list has none); the programme issues were found by the sentence
 "reach 80 on all twelve audit dimensions" in their bodies. They carry a phase (P1 to P6) in their body, not a
 GitHub milestone.
 
@@ -239,7 +241,8 @@ GitHub milestone.
 | 3 | The note under that bullet (objective design and a unit that fits the cost band may proceed) |
 | 4 | "Income and production on at least half the missions" |
 | 5 | "A few missions where the enemy has a camp" |
-| 6 | "No selling of power"; about twelve campaigns |
+| 6 | About twelve campaigns (the ownership target stands). Its first half, "paid coins buy cosmetics only at launch", was reversed on 18 Nov, so the draft's "No selling of power" bullet is gone |
+| 18 Nov | "Roar coins buy units" |
 | 7 | Launch languages (the gate A14 wishlist figure is internal and left off the page) |
 | 8 | The premise line and the no-real-names rule; no store copy is written here |
 | 9 | Ambience beds |
@@ -269,3 +272,8 @@ GitHub milestone.
 2. Ranked play (GH-1399) is phase 6 and listed as later, undated.
 3. Voiced briefings (GH-1404) is a large item with no ruling; kept, undated.
 4. Whether to name the languages and Steam publicly before the store page exists.
+5. **Coins and matches against a person (HOLD FOR LEAD).** "Roar coins buy units" says nothing about where a
+   bought unit may be fielded. Today a matched versus room (the default) ignores everything a player owns,
+   and a friends' room whose host turns on "bring your brigade" fields what each player owns, coin-bought
+   included (ruled 11 Oct, D4). Whether paid coins, once purchases open, reach a match against a person is
+   the lead's call; the page promises neither way until he makes it.
