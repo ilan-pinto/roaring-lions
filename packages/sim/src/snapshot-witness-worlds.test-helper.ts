@@ -12,6 +12,7 @@ import {
 import type { MissionRuntime } from './mission';
 import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
 import { sinkAdvance, sinkDrive, sinkWorld } from './runtime-sink-world.test-helper';
+import { VW_TICKS, versusWorksAdvance, versusWorksDrive, versusWorksWorld } from './runtime-versus-works-world.test-helper';
 import type { Sim } from './sim';
 import type { WitnessHooks, WitnessWorld } from './snapshot-witness';
 
@@ -125,6 +126,30 @@ export const FORWARD_WORLD: RuntimeWorldSpec = {
     },
     advance: (w) => {
       forwardAdvance({ sim: w.sim, rt: w.runtime });
+    },
+    hashEvery: 20,
+  },
+};
+
+/**
+ * The versus works world (the lead's ruling, 18 Nov 2026): a WORKS-ONLY runtime, both sides raising from their own purses.
+ * The only world in which the side-1 rows (`worksOfferList1`, `worksPending1`, `worksSites1`, `appendedAnchors1`) hold a value
+ * other than their build value: a cut at 3 (both sides staking), 100 (side 1's camp mid-build), 150 (its line appended),
+ * 200 (a side-1 post charged and walking) and 330 (that post cancelled part-built) restores each state.
+ */
+export const VERSUS_WORKS_WORLD: RuntimeWorldSpec = {
+  name: `the versus works world (${VW_TICKS} ticks)`,
+  ticks: VW_TICKS,
+  hooks: {
+    build: (): RuntimeWorld => {
+      const { sim, rt } = versusWorksWorld();
+      return { sim, runtime: rt };
+    },
+    drive: (w, t) => {
+      versusWorksDrive(w.sim, w.runtime, t);
+    },
+    advance: (w) => {
+      versusWorksAdvance({ sim: w.sim, rt: w.runtime });
     },
     hashEvery: 20,
   },

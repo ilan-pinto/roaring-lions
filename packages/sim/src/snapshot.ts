@@ -1,6 +1,6 @@
 import { HASH_SEED, hashWord } from './hash';
 import type { MissionRuntime } from './mission';
-import { MAX_RUNTIME_BYTES, encodeRuntimeSection, parseRuntimeSection, planRuntime, runtimeSchemaDigest } from './runtime-snapshot';
+import { MAX_RUNTIME_BYTES, encodeRuntimeSection, parseRuntimeSection, planRuntime, runtimeSchemaDigest, worksOnlyRuntime } from './runtime-snapshot';
 import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type Command, type FieldPoolKeys, type RuntimeCommand, type Sim } from './sim';
 import {
   RNG_SNAPSHOT_SCHEMA,
@@ -633,7 +633,7 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}, runtime?: MissionRu
   w.u32(sim.height);
   w.u8(self.hasBoulders ? 1 : 0);
   w.u8(runtime === undefined ? 0 : 1);
-  w.u32(runtime === undefined ? 0 : runtimeSchemaDigest());
+  w.u32(runtime === undefined ? 0 : runtimeSchemaDigest(worksOnlyRuntime(runtime)));
   writeString(w, meta.build ?? '', 'meta.build');
   writeString(w, meta.matchId ?? '', 'meta.matchId');
 
@@ -736,7 +736,7 @@ function restoreInner(sim: Sim, bytes: Uint8Array, runtime: MissionRuntime | und
   if (hasRuntime === 1 && runtime === undefined) throw new SnapshotRefused('the snapshot carries a runtime, this world has none');
   if (hasRuntime === 0 && runtime !== undefined) throw new SnapshotRefused('the snapshot carries no runtime, this world has one');
   if (hasRuntime === 0 && runtimeDigest !== 0) throw new SnapshotRefused('runtime schema digest set on a snapshot with no runtime');
-  if (hasRuntime === 1 && runtimeDigest !== runtimeSchemaDigest()) {
+  if (hasRuntime === 1 && runtime !== undefined && runtimeDigest !== runtimeSchemaDigest(worksOnlyRuntime(runtime))) {
     throw new SnapshotRefused('runtime schema digest differs: written by a build with another runtime table');
   }
   if (runtime !== undefined && (runtime as unknown as { sim: unknown }).sim !== sim) throw new SnapshotRefused('the runtime does not belong to this sim');

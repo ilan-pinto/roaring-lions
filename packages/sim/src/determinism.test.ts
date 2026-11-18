@@ -3,6 +3,7 @@ import { fx } from './fixed';
 import { hashWord } from './hash';
 import { MissionRuntime } from './mission';
 import { enqueue } from './production';
+import { VW_TICKS, versusWorksAdvance, versusWorksDrive, versusWorksWorld } from './runtime-versus-works-world.test-helper';
 import {
   ECO_CAMP,
   ECO_CAMP_S1,
@@ -1796,5 +1797,34 @@ describe('determinism of a set-up world (600-tick replay, GH-976)', () => {
 
   it('the pinned hash', () => {
     expect(setupWorld(SETUP_SEED).hash).toBe(SETUP_WORLD_PIN);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Versus field works (the lead's ruling, 18 Nov 2026): a WORKS-ONLY runtime, KDF v KDF, both sides raising from their own
+// 1,000-logistics purse (`runtime-versus-works-world.test-helper.ts`). The pin folds the sim hash, the runtime digest and the
+// economy hash (which carries side 1's purse, both sides' counts and side 1's appended line) at every 20th tick. Born here;
+// every pin above is unmoved by the change that added it (the per-side works state is folded and carried only under
+// `ctx.worksOnly`).
+const VERSUS_WORKS_WORLD_PIN = 3369289937;
+
+function versusWorksReplay(): number {
+  const { sim, rt } = versusWorksWorld();
+  let h = 0;
+  for (let t = 0; t < VW_TICKS; t++) {
+    versusWorksDrive(sim, rt, t);
+    versusWorksAdvance({ sim, rt });
+    if (t % 20 === 19) h = hashWord(hashWord(hashWord(h, sim.hash() | 0), rt.digest() | 0), rt.economyHash() | 0);
+  }
+  return h >>> 0;
+}
+
+describe('determinism of the versus works world (400-tick replay, works-only runtime)', () => {
+  it('two runs agree', () => {
+    expect(versusWorksReplay()).toBe(versusWorksReplay());
+  });
+
+  it('the pinned hash', () => {
+    expect(versusWorksReplay()).toBe(VERSUS_WORKS_WORLD_PIN);
   });
 });
