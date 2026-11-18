@@ -66,6 +66,10 @@
     "north_exit": [
       40,
       2
+    ],
+    "wounded_evac": [
+      5,
+      17
     ]
   },
   "zones": {

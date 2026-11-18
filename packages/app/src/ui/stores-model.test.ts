@@ -311,8 +311,8 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
   const one = (unlock: UnlockGate, credits = 99999) => unitItem(gated(unlock), input({ units: [gated(unlock)], credits }));
   it('the bounds are what play can reach: conduct tops out at 100, a mission grades to 3 stars', () => {
     expect(PLAY_MAX_CONDUCT).toBe(100);
-    expect(LADDER_MISSIONS).toBe(34);
-    expect(PLAY_MAX_STARS).toBe(102);
+    expect(LADDER_MISSIONS).toBe(38);
+    expect(PLAY_MAX_STARS).toBe(114);
   });
   it('a Conduct floor above 100 is off sale, and 100 is not', () => {
     const off = one({ roeMin: 101, price: 500 });
@@ -321,8 +321,8 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
     expect(one({ roeMin: 100, price: 500 }).state).toBe('affordable');
   });
   it('a star floor above 3 a mission over the ladder is off sale, and the ceiling itself is not', () => {
-    expect(one({ starsMin: 103, price: 500 }).state).toBe('offSale');
-    expect(one({ starsMin: 102, price: 500 }).state).toBe('affordable');
+    expect(one({ starsMin: 115, price: 500 }).state).toBe('offSale');
+    expect(one({ starsMin: 114, price: 500 }).state).toBe('affordable');
   });
   it('a price that no number of campaigns can pay is off sale', () => {
     expect(one({ roeMin: 50, price: Number.POSITIVE_INFINITY }).state).toBe('offSale');
@@ -341,7 +341,7 @@ describe('G1 can fail: an item play cannot reach goes off sale (GH-1385)', () =>
     expect(reachableByPlay({ roeMin: 90, starsMin: 44, price: 4250 })).toBe(true);
     expect(reachableByPlay({ price: 9000 })).toBe(true); // past one campaign of pay (8,115), still finite
     expect(reachableByPlay({ roeMin: 101 })).toBe(false);
-    expect(reachableByPlay({ starsMin: 103 })).toBe(false);
+    expect(reachableByPlay({ starsMin: 115 })).toBe(false);
     expect(reachableByPlay({ price: -1 })).toBe(false);
   });
   it('every shipped priced KDF unit is on sale (26 of them), so the predicate is read against the real catalogue', () => {

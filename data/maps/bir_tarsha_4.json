@@ -82,6 +82,10 @@
     "far_gate_point": [
       42,
       26
+    ],
+    "wounded_evac": [
+      5,
+      17
     ]
   },
   "zones": {
