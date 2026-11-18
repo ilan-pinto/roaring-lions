@@ -54,6 +54,6 @@ describe('the ragdoll scenario frames the showcase it exists for', () => {
     expect(spec.maxDiffPixels).toBe(40);
     expect(spec.maxMeanAbsChannelDelta).toBe(0.004);
     // One check, the `ragdolls` layer, pending its first CI readings (infinite floors; `baseline.test.ts`'s PENDING).
-    expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['ragdolls', 'soft-depth']); // GH-1400: + the temporary soft-depth probe
+    expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['ragdolls']);
   });
 });

@@ -2020,6 +2020,39 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
       'moves it per process. Ceilings carried from aftermath; NO baseline yet: the first comes from CI at the ' +
       'post-merge bless, after the lead has seen it (GH-1223).',
   },
+  'soft-smoke': {
+    // GH-1400, `SOFT_SMOKE_SCENARIO`: the soft-particle G-visual witness. No baseline exists in ANY environment: it ships
+    // in the change that adds it, and the first comes from CI and the post-merge bless after the lead has seen it. CI's
+    // `visual` job is red until then (the `fogged`, `aftermath`, `rubble` and `ragdoll` precedent). Do not bless from the
+    // branch.
+    //
+    // 40 px / 0.004 is `aftermath`'s own ceiling, carried over: the same map, camera, zoom and tick, plus a smoke field
+    // aged on a FIXED frame. Re-derive it from the first CI readings, as GH-803 did; if two captures of one commit
+    // disagree past it, that is a finding about the smoke field's clock, not a number to widen.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'soft-depth',
+        // The WORLD view only: the HUD strip (top 48 px) and the minimap (from x 1170) are out. The one-run probe's
+        // `aftermath` and `relief` readings were all minimap pixels, so a whole-frame check could pass on the minimap.
+        region: { x: 0, y: 48, w: 1170, h: 852 },
+        // PENDING (`baseline.test.ts`): infinite floors, so this check FAILS and prints its reading until three CI
+        // readings are written into `MEASURED` and the floors become a third of the smallest.
+        minDiffPixels: Number.POSITIVE_INFINITY,
+        minMeanAbsChannelDelta: Number.POSITIVE_INFINITY,
+        rationale:
+          'GH-1400 G-visual: hiding the soft-particle depth fade (`soft-depth`: both legacy consumers back on their shipped ' +
+          'programs) must move the world view where twelve smoke fields stand on the ground. PENDING its first three CI ' +
+          'readings; the floors will be a third of the smallest. Falsified (on CI only) by forcing the fade to 1.',
+      },
+    ],
+    rationale:
+      "whole frame, aftermath's qarn_hadid framing @ (34.5,32), zoom 2.2, tick 300, plus twelve rocket landings aged 720 ms " +
+      'on a fixed 16 ms frame: smoke billows on the ground, the soft-particle fade\'s witness (GH-1400). Ceilings carried ' +
+      'from aftermath; NO baseline yet: the first comes from CI at the post-merge bless, after the lead has seen it.',
+  },
   dusk: {
     // NOT GATED, deliberately and from birth (spec §3.6: "`dusk` is a
     // report-only capture"), the same way `combat` is NOT GATED as a finding
@@ -2096,29 +2129,11 @@ const BLOOM_ZERO_CHECK: LayerCheckSpec = {
  * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved. */
 const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
 
-/**
- * GH-1400, TEMPORARY: the MEASUREMENT push for the soft-particle G-visual check. Soft particles are on at `high` (the capture
- * preset) since `SOFT_PARTICLES_PRESET_LIVE`, and the design (soft-particles section 6) predicts which gated frames have a smoke-pass
- * billow or band-2 dust in them, but nobody has measured it. A `zero` check on every gated scenario goes red exactly where the
- * fade moves pixels and prints by how much. The next commit keeps a FLOOR check (a third of the smallest of three CI readings)
- * on the frame that moves, and deletes this. Not a gate: it exists for one CI run.
- */
-const SOFT_DEPTH_ZERO_PROBE: LayerCheckSpec = {
-  kind: 'zero',
-  layer: 'soft-depth',
-  minMeanAbsChannelDelta: 0,
-  minDiffPixels: 0,
-  rationale:
-    'GH-1400 MEASUREMENT (temporary, one CI run): hiding the soft-particle depth fade (`soft-depth`, both legacy consumers back ' +
-    'on their shipped programs). Red here means the fade moves this frame, and the reading is the floor candidate.',
-};
-
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = Object.fromEntries(
-  Object.entries(BASELINES_DECLARED).map(([id, spec]) => {
-    const bloom = BLOOM_ZERO_SCENARIOS.includes(id) && isGated(spec) ? [BLOOM_ZERO_CHECK] : [];
-    const soft = isGated(spec) ? [SOFT_DEPTH_ZERO_PROBE] : [];
-    return [id, bloom.length + soft.length === 0 ? spec : { ...spec, layerChecks: [...(spec.layerChecks ?? []), ...bloom, ...soft] }];
-  })
+  Object.entries(BASELINES_DECLARED).map(([id, spec]) => [
+    id,
+    BLOOM_ZERO_SCENARIOS.includes(id) && isGated(spec) ? { ...spec, layerChecks: [...(spec.layerChecks ?? []), BLOOM_ZERO_CHECK] } : spec,
+  ])
 );
 
 /** `gated` defaults to true so a new entry has to opt OUT of the gate rather

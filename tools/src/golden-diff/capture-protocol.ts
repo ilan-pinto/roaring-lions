@@ -731,6 +731,46 @@ export const RAGDOLL_SCENARIO: Scenario = {
   zoom: 2.2,
 };
 
+/** GH-1400: the soft-particle G-visual witness, the frame where a billow meets the ground (the soft-particles design, gate
+ *  G-visual). No other gated frame has one in its WORLD view: a one-run probe (`soft-depth` zero checks on every gated
+ *  scenario, ci.yml run 44300457135) read 0 px on six, 0-2 px perceptual on the vehicle family, and 251 / 167 px on
+ *  `aftermath` / `relief`, every one of those pixels in the MINIMAP, not the world.
+ *
+ *  `aftermath`'s own map, camera, zoom and tick (no unit or live effect in frame, 0 px over 22 fresh-process captures), and
+ *  NOT `&decals`, so `aftermath` does not move. At the capture tick, twelve `rocket` landings go down on a 4 x 3 lattice
+ *  round the camera through `spawnShellLandingAt` (the body every landing runs), then 45 frames at a FIXED 16 ms age them
+ *  720 ms of FX time, past the fireball, the blast light, the shake and the hit-stop, with the smoke billows still standing
+ *  on the ground. The flipbook draws from a SEEDED stream, and no frame-clock time from the real loop is spent on it
+ *  (the frame loop is frozen before boot): the one exception is `step(0)`'s own repaint at the latched frame time.
+ *
+ *  REFUSES (throws, a gated capture failure) when no billow is live or no soft-particle snapshot exists: a witness of the
+ *  fade with nothing to fade, or with soft particles off, must not read as a pass.
+ *
+ *  No baseline exists in any environment: the first comes from CI and the post-merge bless, after the lead has looked at it.
+ *  CI's `visual` job is red until then (the `fogged`, `aftermath`, `rubble` and `ragdoll` precedent). Do not bless from the
+ *  branch. */
+export const SOFT_SMOKE_SCENARIO: Scenario = {
+  id: 'soft-smoke',
+  description:
+    "aftermath's own map, camera, zoom and tick (qarn_hadid @ (34.5,32), zoom 2.2, tick 300), plus twelve rocket landings " +
+    'aged 720 ms at a fixed 16 ms frame: smoke billows standing on the ground, the soft-particle fade\'s witness (GH-1400).',
+  sandboxMap: 'qarn_hadid',
+  cameraTile: [34.5, 32],
+  ticks: 20, // unused when targetTick is set
+  targetTick: 300,
+  zoom: 2.2,
+  orders: {
+    atTick: 300,
+    commands: [
+      '{ const r = window.__lions.renderer; ' +
+        "for (let i = 0; i < 12; i++) r.spawnShellLandingAt('rocket', 30.75 + (i % 4) * 2.5, 29.5 + Math.floor(i / 4) * 2.5); " +
+        'for (let i = 0; i < 45; i++) r.frame(1, 16); ' +
+        "if (!(r.flipbook && r.flipbook.liveCount > 0)) throw new Error('soft-smoke: no flipbook billow is live'); " +
+        "if (!r.softDepth) throw new Error('soft-smoke: no soft-particle snapshot (soft particles are off at this preset)'); }",
+    ],
+  },
+};
+
 /** `QUIET_SCENARIO`'s own map/camera/tick, replayed under the dusk preset
  *  (ground plan 2, Task 11, spec §3.6). Deliberately not a new framing: the
  *  whole point of this scenario is to let a human compare the SAME shot
@@ -779,6 +819,7 @@ export const SCENARIOS: readonly Scenario[] = [
   AFTERMATH_SCENARIO,
   RUBBLE_SCENARIO,
   RAGDOLL_SCENARIO,
+  SOFT_SMOKE_SCENARIO,
   DUSK_SCENARIO,
   COMBAT_SCENARIO,
 ];
