@@ -12,7 +12,8 @@
  * `versusAnchors`: seat 0 stands on the friendly anchor, seat 1 on the
  * hostile one. The picture is the free-play picker's own painter.
  */
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { FACTION_MATCHUP_MAPS, type Seat } from '@lions/net';
 import { t } from '../i18n/t';
 import { versusAnchors } from '../net/versus-seats';

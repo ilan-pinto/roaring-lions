@@ -10,7 +10,7 @@ import { MISSION_SAVE_VERSION, serializeSuspended, type SuspendedMission } from 
 import { SUSPEND_KEY, discardSuspended, openSuspendStore, readSuspended, savedMissionOtherThan, writeSuspended, type KeyStore } from './mission-save-store';
 import { SIM_EPOCH, SNAPSHOT_FORMAT } from '@lions/sim';
 import { digestOf } from './mission-save';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 const MISSION = Object.keys(missions)[0] ?? 'beit_sahwan_0_tutorial';
 const record = (over: Partial<SuspendedMission> = {}): SuspendedMission => ({
@@ -184,6 +184,17 @@ describe('savedMissionOtherThan: would a Save replace somebody else\'s save?', (
     savedMissionOtherThan(s, MISSION);
     expect(s.sets.length).toBe(before);
     expect(s.data.has(SUSPEND_KEY)).toBe(true);
+  });
+});
+
+describe('the store module keeps each function\'s own doc (a function inserted between a JSDoc and its function steals it)', () => {
+  const src = readFileSync(join(__dirname, 'mission-save-store.ts'), 'utf8');
+  it('discardSuspended is documented by its own "Removes the record" line, directly above it', () => {
+    expect(src).toMatch(/\/\*\* Removes the record\.[^\n]*\*\/\nexport function discardSuspended\(/);
+  });
+  it('savedMissionOtherThan is documented by its own block, directly above it', () => {
+    expect(src).toMatch(/\*\/\nexport function savedMissionOtherThan\(/);
+    expect(src).toMatch(/\/\*\*\n \* The mission whose save is stored now[\s\S]*?\*\/\nexport function savedMissionOtherThan\(/);
   });
 });
 

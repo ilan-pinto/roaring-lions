@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { reloadMenuHref, routes } from './links';
 import { matchPath, STICKY_QUERY_KEYS, stripBase } from './router';
-import { readFlags, unknownParams } from '../sandbox-help';
+import { readFlags, sandboxSideOf, unknownParams } from '../sandbox-help';
 
 describe('routes', () => {
   it('spells every route once, under the base', () => {
@@ -54,6 +54,21 @@ describe('routes', () => {
     // produce two different URLs for one pick.
     expect(routes.sandbox('tel_marum', { sur: true, roe: true })).toBe('/free-play/tel_marum?roe&sur');
     expect(routes.sandbox('tel_marum', { sur: false })).toBe('/free-play/tel_marum');
+  });
+
+  it('GH-1381: a Sarim pick ends with side=sarim and carries no KDF-only flag; the KDF writes no side at all', () => {
+    expect(routes.sandbox('tel_marum', { civ: true, roe: true }, 'kdf')).toBe(routes.sandbox('tel_marum', { civ: true, roe: true }));
+    expect(routes.sandbox('tel_marum', { civ: true, roe: true }, 'kdf')).toBe('/free-play/tel_marum?roe&civ');
+    expect(routes.sandbox('tel_marum', undefined, 'sarim')).toBe('/free-play/tel_marum?side=sarim');
+    expect(routes.sandbox('tel_marum', { civ: true, tunnel: true, kit: true, works: true, sur: true, roe: true }, 'sarim')).toBe(
+      '/free-play/tel_marum?roe&civ&side=sarim',
+    );
+    // And it parses back: the router's map, the side, and only the flags the link kept.
+    const url = new URL(routes.sandbox('wadi_tarfan', { ditch: true, tunnel: true }, 'sarim'), 'http://localhost:5173');
+    expect(matchPath('/free-play/:map', stripBase('/', url.pathname))).toEqual({ map: 'wadi_tarfan' });
+    expect(sandboxSideOf(url.searchParams, true)).toEqual({ value: 'sarim' });
+    expect(Object.entries(readFlags(url.searchParams)).filter(([, on]) => on).map(([k]) => k)).toEqual(['ditch']);
+    expect(unknownParams(url.searchParams)).toEqual([]);
   });
 
   it('round-trips through the router and the flag parser it was built for', () => {

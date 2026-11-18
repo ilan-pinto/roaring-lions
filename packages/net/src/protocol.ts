@@ -19,6 +19,18 @@ export const LOG_PART_CHARS = 256 * 1024;
 export const MAX_CMDS_PER_SEAT_PER_FRAME = 4;
 /** A chat line, in UTF-16 code units (what `String.length` counts). */
 export const CHAT_MAX_CHARS = 280;
+/**
+ * Quick chat (GH-1417 S1b, the lead's D12): a fixed menu of preset phrases, sent by ID, never as text. The room relays the id and each
+ * client draws its own language's phrase (`net.quick.<id>` in en.json), so there is no free text to filter and the room can check a
+ * line against this list: the only chat a future public room would allow. Append-only in spirit: an id the other build lacks is
+ * refused by `parseServerMsg` (builds must match to share a room anyway).
+ */
+export const QUICK_CHAT_IDS = ['gl', 'gg', 'wp', 'ty', 'sorry', 'ready', 'wait', 'attack', 'defend', 'help', 'nice', 'rematch'] as const;
+export type QuickChatId = (typeof QUICK_CHAT_IDS)[number];
+/** Whether `v` is one of the preset phrase ids. */
+export function isQuickChatId(v: unknown): v is QuickChatId {
+  return typeof v === 'string' && (QUICK_CHAT_IDS as readonly string[]).includes(v);
+}
 /** How long one pause lasts before the room ends it by itself. */
 export const PAUSE_MS = 90_000;
 /** Pauses each seat may call in one match. */
@@ -73,6 +85,8 @@ export type ClientMsg =
   | { t: 'resume' }
   | { t: 'surrender' }
   | { t: 'chat'; text: string }
+  /** Quick chat (GH-1417 S1b): a preset phrase by id. */
+  | { t: 'quick'; id: QuickChatId }
   /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. `result` is what
    *  it decided, by SEAT (GH-1075 A3); absent from a client built before it, whose report never agrees with anything. */
   | { t: 'over'; tick: number; result?: OverResult }
@@ -131,6 +145,7 @@ export type ServerMsg =
    *  know, and the client says why once per pause. */
   | { t: 'cmdRefused' }
   | { t: 'chat'; seat: Seat; text: string }
+  | { t: 'quick'; seat: Seat; id: QuickChatId }
   /** A versus seat's socket went mid-match: it forfeits in `remainingMs`
    *  unless it comes back (`FORFEIT_MS`). Sent to both seats when it goes, and
    *  to a seat that rejoins while the other is still gone. */
@@ -368,6 +383,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'resume': return { t: 'resume' };
     case 'surrender': return { t: 'surrender' };
     case 'chat': return isStr(m.text) && m.text.length <= CHAT_MAX_CHARS ? { t: 'chat', text: m.text } : null;
+    case 'quick': return isQuickChatId(m.id) ? { t: 'quick', id: m.id } : null;
     case 'over': {
       if (!isInt(m.tick) || m.tick < 0) return null;
       if (m.result === undefined) return { t: 'over', tick: m.tick };
@@ -481,6 +497,7 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
     case 'cmdRefused': return { t: 'cmdRefused' };
     case 'chat': return isSeat(m.seat) && isStr(m.text) ? { t: 'chat', seat: m.seat, text: m.text } : null;
+    case 'quick': return isSeat(m.seat) && isQuickChatId(m.id) ? { t: 'quick', seat: m.seat, id: m.id } : null;
     case 'dropped': return isSeat(m.seat) && isInt(m.remainingMs) && m.remainingMs >= 0 ? { t: 'dropped', seat: m.seat, remainingMs: m.remainingMs } : null;
     case 'back': return isSeat(m.seat) ? { t: 'back', seat: m.seat } : null;
     case 'ended': {

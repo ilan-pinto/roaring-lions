@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, type MapId } from '@lions/data';
+import { applyTerrain, parseMap, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { Sim } from '@lions/sim';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
 import { standMapStructures } from '../map-sim';

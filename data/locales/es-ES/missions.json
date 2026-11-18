@@ -1,0 +1,2112 @@
+{
+  "beit_sahwan_0_tutorial": {
+    "name": "Puesta a punto",
+    "briefing": "Aquí nada está en disputa todavía. El batallón le ha asignado un rincón de la zona de instrucción, una escuadra de fusileros y un dron sobre el otro lado del campo de tiro para que le sirva de observador. El resto llega por partes, a medida que avance. Aprenda para qué sirve cada elemento. Nada de lo que pierda aquí sale de la plantilla, y nada de lo que aprenda aquí sale gratis después. Trabaje a su ritmo; aquí fuera nada corre contra el reloj.",
+    "sections": {
+      "situation": "Aquí nada está en disputa todavía. El batallón le ha asignado un rincón de la zona de instrucción, una escuadra de fusileros y un dron sobre el otro lado del campo de tiro para que le sirva de observador.",
+      "mission": "El resto llega por partes, a medida que avance. Aprenda para qué sirve cada elemento.",
+      "notes": "Nada de lo que pierda aquí sale de la plantilla, y nada de lo que aprenda aquí sale gratis después. Trabaje a su ritmo; aquí fuera nada corre contra el reloj."
+    },
+    "debrief": {
+      "victory": "Eso es todo lo que el batallón va a entregarle. La semana que viene nada de esto es una demostración."
+    },
+    "objectives": {
+      "work_up": "Completar la zona de instrucción",
+      "bring_them_in": "Llevar a los dos civiles al refugio"
+    },
+    "triggers": {
+      "contact_east": "Contacto al este, a campo abierto",
+      "contacts_ahead": "Cuatro contactos en el campo de tiro",
+      "deliver_second_squad": "Llega la segunda escuadra de fusileros",
+      "enter_rocks": "Llega un jeep por la carretera",
+      "deliver_mortar": "Llega el equipo de mortero",
+      "contact_by_the_clinic": "Enemigo excavando junto a la clínica",
+      "digger_at_the_camp": "Alguien excava junto al campamento"
+    },
+    "src": {
+      "name": "09192e96",
+      "briefing": "21004df7",
+      "objectives.work_up": "fadba5cc",
+      "objectives.bring_them_in": "49b6d5ef",
+      "triggers.contact_east": "a42dbd8b",
+      "triggers.contacts_ahead": "8592ff52",
+      "triggers.deliver_second_squad": "b82a6738",
+      "triggers.enter_rocks": "02ed4c51",
+      "triggers.deliver_mortar": "5f150bba",
+      "triggers.contact_by_the_clinic": "42f88625",
+      "triggers.digger_at_the_camp": "6414a27e",
+      "debrief.victory": "84b7cb6b",
+      "sections.situation": "0aeb69b0",
+      "sections.mission": "db2abc87",
+      "sections.notes": "7561fe3b"
+    }
+  },
+  "beit_sahwan_1_recon": {
+    "name": "Beit Sahwan I — Reconocimiento",
+    "briefing": "Antes de que nada se mueva sobre Beit Sahwan, Idit necesita la imagen: seis posiciones de guarnición y la pareja de ATGM que domina la carretera este. Identificar exige mantener la vista sobre una posición, no un vistazo. El batallón ha agregado uno de cada medio que posee — blindados, un IFV, morteros, exploradores y un dron —, así que use esta aproximación para aprender sus herramientas. Lance el dron hacia el este, mantenga atrás los medios pesados como pantalla y no se deje trabar en combate decisivo. Al mortero no le importa quién esté debajo. Lo que averigüe y a quién traiga de vuelta es con lo que la brigada combatirá la semana que viene.",
+    "sections": {
+      "situation": "Antes de que nada se mueva sobre Beit Sahwan, Idit necesita la imagen: seis posiciones de guarnición y la pareja de ATGM que domina la carretera este. Identificar exige mantener la vista sobre una posición, no un vistazo.",
+      "mission": "El batallón ha agregado uno de cada medio que posee — blindados, un IFV, morteros, exploradores y un dron —, así que use esta aproximación para aprender sus herramientas.",
+      "execution": "Lance el dron hacia el este, mantenga atrás los medios pesados como pantalla y no se deje trabar en combate decisivo.",
+      "notes": "Al mortero no le importa quién esté debajo. Lo que averigüe y a quién traiga de vuelta es con lo que la brigada combatirá la semana que viene."
+    },
+    "debrief": {
+      "victory": "Es la primera vez que el distrito está en un tablero. Todo lo que venga después es elegir por dónde entrar."
+    },
+    "objectives": {
+      "picture": "Identificar seis posiciones de guarnición",
+      "hvt_seen": "Identificar la pareja de ATGM que domina la carretera este",
+      "find_the_column": "Identificar la pista al norte de la carretera"
+    },
+    "objective_say": {
+      "picture": "Seis posiciones, y todas colocadas a propósito. Eso es un plan de fuegos, no una línea de piquetes.",
+      "hvt_seen": "La pareja de ATGM cubre toda la carretera este. Llevan en esa posición tiempo de sobra para tener tarjeta de tiro."
+    },
+    "triggers": {
+      "hunt_the_scouts": "Exploradores enemigos cazan al dron"
+    },
+    "trigger_say": {
+      "hunt_the_scouts": "Los dos technicals han dejado la carretera este y corren hacia la zona de concentración. Cazan al dron, no a usted."
+    },
+    "src": {
+      "name": "06bf94d8",
+      "briefing": "a69918cf",
+      "objectives.picture": "d9d3e148",
+      "objectives.hvt_seen": "1b7d3ec3",
+      "objectives.find_the_column": "1a0b4baa",
+      "triggers.hunt_the_scouts": "255b9f64",
+      "debrief.victory": "f9b3eaaa",
+      "sections.situation": "2ced46e8",
+      "sections.mission": "08bda4b5",
+      "sections.execution": "0788c41b",
+      "sections.notes": "e6ef8ccf",
+      "objective_say.picture": "2d3d69cb",
+      "objective_say.hvt_seen": "7b7a64a8",
+      "trigger_say.hunt_the_scouts": "f40723f1"
+    }
+  },
+  "beit_sahwan_2_foothold": {
+    "name": "Beit Sahwan II — Cabeza de puente",
+    "briefing": "El batallón tiene su posición en las terrazas occidentales y Ashwar lo sabe. Idit lee tierra extraída en el cauce seco bajo la línea: tierra removida que avanza hacia ustedes, lo que significa que una cuadrilla está abriendo ahora mismo un pozo desde el pueblo. Tome la cresta de la terraza alta y manténgala cinco minutos mientras los zapadores se atrincheran a su espalda. El corredor entrega refuerzos: gástelos bien; lo que sobreviva esta noche despejará el pueblo mañana. Usted ocupa la terraza alta y todo lo que envíen tiene que trepar fuera del cauce para alcanzarlo. Ashwar cavó este terreno durante años antes de que la guerra llegara, y una ruta que emerja en el lecho del cauce bajo su muro vale más para ellos que todos los hombres que gastarán delante. Mantenga con vida a los zapadores Yahalom; son el único equipo capaz de derribar un túnel.",
+    "sections": {
+      "situation": "El batallón tiene su posición en las terrazas occidentales y Ashwar lo sabe. Idit lee tierra extraída en el cauce seco bajo la línea: tierra removida que avanza hacia ustedes, lo que significa que una cuadrilla está abriendo ahora mismo un pozo desde el pueblo.",
+      "mission": "Tome la cresta de la terraza alta y manténgala cinco minutos mientras los zapadores se atrincheran a su espalda.",
+      "execution": "El corredor entrega refuerzos: gástelos bien; lo que sobreviva esta noche despejará el pueblo mañana. Usted ocupa la terraza alta y todo lo que envíen tiene que trepar fuera del cauce para alcanzarlo. Ashwar cavó este terreno durante años antes de que la guerra llegara, y una ruta que emerja en el lecho del cauce bajo su muro vale más para ellos que todos los hombres que gastarán delante.",
+      "notes": "Mantenga con vida a los zapadores Yahalom; son el único equipo capaz de derribar un túnel."
+    },
+    "debrief": {
+      "victory": "Gastaron los hombres de una noche en una línea que no querían, para comprar un día en un pozo que sí querían."
+    },
+    "objectives": {
+      "hold_west": "Mantener la cresta de la terraza alta cinco minutos",
+      "collapse_tunnel": "Derrumbar el túnel que Ashwar cava bajo el acceso"
+    },
+    "objective_say": {
+      "collapse_tunnel": "Esa es una ruta que no recuperarán este año."
+    },
+    "triggers": {
+      "flank_delivery_rolls": "Technical sube por el carril norte",
+      "flank_delivery_drops": "Equipo RPG desmonta antes de la línea"
+    },
+    "trigger_say": {
+      "flank_delivery_rolls": "Un technical recorre el carril norte con pasajeros a bordo. Eso es un taxi, no un vehículo artillado.",
+      "flank_delivery_drops": "Ha dejado un equipo RPG antes de su línea y ha dado media vuelta."
+    },
+    "wave_say": {
+      "1": "Segunda tanda desde el centro del pueblo, por la misma pista que la primera.",
+      "2": "Technicals desde la línea de morteros. Solo tienen una carretera al este y siguen usándola."
+    },
+    "src": {
+      "name": "1f3d0fae",
+      "briefing": "dfd7170c",
+      "objectives.hold_west": "9d60b14f",
+      "objectives.collapse_tunnel": "442823a4",
+      "triggers.flank_delivery_rolls": "131a11b3",
+      "triggers.flank_delivery_drops": "ffa7ef5c",
+      "debrief.victory": "87631977",
+      "sections.situation": "95d0f0d1",
+      "sections.mission": "b003c902",
+      "sections.execution": "a66cfd9f",
+      "sections.notes": "d320d7fc",
+      "objective_say.collapse_tunnel": "537e3e43",
+      "trigger_say.flank_delivery_rolls": "156a09bc",
+      "trigger_say.flank_delivery_drops": "a18b2fe5",
+      "wave_say.1": "e12c07ba",
+      "wave_say.2": "20d6f67c"
+    }
+  },
+  "beit_sahwan_3_clearance": {
+    "name": "Beit Sahwan III — Despeje",
+    "briefing": "La imagen de Idit va con usted: al menos una posición AT excavada en el acceso occidental y la célula ATGM que domina la carretera este. El plan de fuegos es de Nadir Sahim; su sección lo registra como SPADE. Una compañía reducida tantea el casco antiguo. Identifique la guarnición antes de comprometer blindados, destruya esa célula antes de que pueda moverse el convoy siguiente, y después tome el centro del pueblo y manténgalo. Mantener significa ningún enemigo en el centro del pueblo a menos de seis casillas de su gente allí. Una célula de la que se mantiene a seis casillas no detiene el reloj, y no se le pedirá sacarla. El distrito no está vacío: los residentes se refugian entre los edificios y la clínica del bloque sur está protegida. Sahim lo sabe: ocupa una posición dentro del propio bloque de la clínica, a las puertas del centro del pueblo que usted debe tomar. El casco antiguo son manzanas de mampostería con escombros en cada callejón. Solo la infantería puede usar esos callejones, así que los blindados se quedan en los dos bulevares y nada ve más allá de tres a cinco casillas. Se juzgará el armamento pesado cerca de cualquiera de los dos: los fusiles y el arma remota del Eitan pueden servir allí dentro. El cañón automático y el fuego de carro de combate no: acérquelos y se le cobrará cada segundo que puedan verlo. Hay zapadores agregados: pueden derribar un edificio guarnecido sobre sus defensores, pero deben permanecer junto a él el tiempo suficiente para colocar las cargas. La milicia ocupa las propias casas: los disparos no las atraviesan, así que cada edificio debe derribarse o despejarse. Cuidado con lo que arrase: la sala comunal no es un objetivo.",
+    "sections": {
+      "situation": "La imagen de Idit va con usted: al menos una posición AT excavada en el acceso occidental y la célula ATGM que domina la carretera este. El plan de fuegos es de Nadir Sahim; su sección lo registra como SPADE.",
+      "mission": "Una compañía reducida tantea el casco antiguo. Identifique la guarnición antes de comprometer blindados, destruya esa célula antes de que pueda moverse el convoy siguiente, y después tome el centro del pueblo y manténgalo. Mantener significa ningún enemigo en el centro del pueblo a menos de seis casillas de su gente allí. Una célula de la que se mantiene a seis casillas no detiene el reloj, y no se le pedirá sacarla.",
+      "execution": "El distrito no está vacío: los residentes se refugian entre los edificios y la clínica del bloque sur está protegida. Sahim lo sabe: ocupa una posición dentro del propio bloque de la clínica, a las puertas del centro del pueblo que usted debe tomar. El casco antiguo son manzanas de mampostería con escombros en cada callejón. Solo la infantería puede usar esos callejones, así que los blindados se quedan en los dos bulevares y nada ve más allá de tres a cinco casillas. Se juzgará el armamento pesado cerca de cualquiera de los dos: los fusiles y el arma remota del Eitan pueden servir allí dentro. El cañón automático y el fuego de carro de combate no: acérquelos y se le cobrará cada segundo que puedan verlo. Hay zapadores agregados: pueden derribar un edificio guarnecido sobre sus defensores, pero deben permanecer junto a él el tiempo suficiente para colocar las cargas. La milicia ocupa las propias casas: los disparos no las atraviesan, así que cada edificio debe derribarse o despejarse.",
+      "notes": "Cuidado con lo que arrase: la sala comunal no es un objetivo."
+    },
+    "debrief": {
+      "victory": "El pueblo es nuestro y el bloque sigue en pie. Ambas cosas eran el objetivo.",
+      "defeat": "La Conducta cayó por debajo de cuarenta en el bloque de la clínica. Eso es la misión, y también las tres siguientes."
+    },
+    "objectives": {
+      "picture": "Hacerse con la imagen: identificar cuatro posiciones de guarnición",
+      "kill_atgm": "Destruir la célula ATGM que domina la carretera este",
+      "take_town": "Tomar el centro del pueblo y mantenerlo 20 segundos"
+    },
+    "objective_say": {
+      "kill_atgm": "La carretera este está libre de ella. El convoy puede moverse cuando usted lo ordene.",
+      "take_town": "El centro del pueblo es nuestro. Nadie entra en el bloque sur por ningún motivo."
+    },
+    "triggers": {
+      "reserve_counterattack": "La reserva sur ataca el centro del pueblo"
+    },
+    "trigger_say": {
+      "reserve_counterattack": "La célula sur ha abandonado su bloque y corre hacia el centro del pueblo. Ha decidido que puede permitírselo."
+    },
+    "src": {
+      "name": "d4c3847b",
+      "briefing": "535b9893",
+      "objectives.picture": "b16746a0",
+      "objectives.kill_atgm": "9f6c1178",
+      "objectives.take_town": "c15b9f38",
+      "triggers.reserve_counterattack": "d2fe8fa0",
+      "debrief.victory": "5f4863a7",
+      "debrief.defeat": "d465cfe9",
+      "sections.situation": "97cf6655",
+      "sections.mission": "3833b6f6",
+      "sections.execution": "120ac4d3",
+      "sections.notes": "768019bf",
+      "objective_say.kill_atgm": "deba2d94",
+      "objective_say.take_town": "ebaefdfd",
+      "trigger_say.reserve_counterattack": "f6a37ec0"
+    }
+  },
+  "beit_sahwan_4_subterranean": {
+    "name": "Beit Sahwan IV — Subterráneo",
+    "briefing": "El pueblo es nuestro y los combates no han cesado. Los disparos llegan desde terreno vacío, los tiradores se han ido antes del eco, y la razón está bajo sus pies. Nadir Sahim minó este distrito años antes de que llegáramos y no lo ha abandonado. Ocupa la boca del pozo norte en el fondo de la vieja cantera de caliza, con cuatro personas a su lado que están fuera de alcance desde la primera mañana. El punto de recogida está a tres casillas de su línea de partida, y se cuentan en cuanto lo alcanzan. Cuatro minutos para las personas y cinco para las rutas; la segunda no espera a la primera. Idit tiene cuatro rutas bajo el pueblo, y una se está reabriendo ahora mismo: tierra extraída que avanza hacia el oeste por la carretera principal. Los escombros detienen al Namer y al Eitan en todas partes salvo en la carretera principal, el pedregal del lado sur de la cantera es solo para infantería, y la rampa de acarreo de su muro este es la única entrada para vehículos de ruedas. El foso no ve por encima de su propio borde, y usted sí puede ver dentro de él. La tierra removida es algo que cualquier soldado sabe leer. Un equipo de cohetes vigila a los cuatro; el cañón del Namer responde a eso y le hace perder la misión. Nada pesado a menos de dos casillas de ellos. Solo el dron o los zapadores pueden decirle por dónde corren las otras tres, y solo mientras alguien las esté mirando. Yahalom debe permanecer inmóvil a campo abierto junto a una ruta para colocar la carga, así que su supervivencia es una decisión que usted toma con todo lo demás que tiene. Saque a la gente, tome el terreno donde él se encuentra y después derribe las cuatro.",
+    "sections": {
+      "situation": "El pueblo es nuestro y los combates no han cesado. Los disparos llegan desde terreno vacío, los tiradores se han ido antes del eco, y la razón está bajo sus pies. Nadir Sahim minó este distrito años antes de que llegáramos y no lo ha abandonado. Ocupa la boca del pozo norte en el fondo de la vieja cantera de caliza, con cuatro personas a su lado que están fuera de alcance desde la primera mañana.",
+      "mission": "El punto de recogida está a tres casillas de su línea de partida, y se cuentan en cuanto lo alcanzan. Cuatro minutos para las personas y cinco para las rutas; la segunda no espera a la primera.",
+      "execution": "Idit tiene cuatro rutas bajo el pueblo, y una se está reabriendo ahora mismo: tierra extraída que avanza hacia el oeste por la carretera principal. Los escombros detienen al Namer y al Eitan en todas partes salvo en la carretera principal, el pedregal del lado sur de la cantera es solo para infantería, y la rampa de acarreo de su muro este es la única entrada para vehículos de ruedas. El foso no ve por encima de su propio borde, y usted sí puede ver dentro de él. La tierra removida es algo que cualquier soldado sabe leer. Un equipo de cohetes vigila a los cuatro; el cañón del Namer responde a eso y le hace perder la misión. Nada pesado a menos de dos casillas de ellos. Solo el dron o los zapadores pueden decirle por dónde corren las otras tres, y solo mientras alguien las esté mirando. Yahalom debe permanecer inmóvil a campo abierto junto a una ruta para colocar la carga, así que su supervivencia es una decisión que usted toma con todo lo demás que tiene.",
+      "notes": "Saque a la gente, tome el terreno donde él se encuentra y después derribe las cuatro."
+    },
+    "aftermath": "Cuatro rutas bajo Beit Sahwan, y el hombre que las cavó salió de la última con las manos vacías. La brigada se llevó el expediente y no dijo nada más. El perímetro es nuestro. El enclave no.",
+    "hostages_place": "la boca del pozo",
+    "debrief": {
+      "victory": "Cuatro rutas, y las cuatro eran suyas. Eso es el Marj.",
+      "defeat": "La Conducta cayó por debajo de cuarenta con ellos allí de pie. Él no necesita ganar estas; solo necesita estar a su lado."
+    },
+    "objectives": {
+      "bring_it_down": "Derrumbar todas las rutas bajo el distrito",
+      "read_the_ground": "Localizar a la cuadrilla que reabre la ruta occidental de Sahim",
+      "get_them_out": "Sacar a cinco personas al punto de recogida antes de que caigan las rutas",
+      "take_the_shaft_head": "Mantener la boca del pozo hasta que Sahim salga de ella",
+      "find_spade": "Localizar a Nadir Sahim en la boca del pozo"
+    },
+    "objective_say": {
+      "read_the_ground": "Esa es la cuadrilla de la ruta oeste. Mantiene a sus excavadores cerca de la obra, y así lo encontramos.",
+      "get_them_out": "Cinco en el punto de recogida. Es la primera vez que este distrito devuelve a alguien.",
+      "take_the_shaft_head": "La boca del pozo es suya y él está en el lado equivocado. Cuatro años cavando y ahora está sobre la superficie."
+    },
+    "objective_say_on_fail": {
+      "bring_it_down": "Se acabó el tiempo y aún queda terreno bajo este pueblo que no es nuestro.",
+      "get_them_out": "Se acabó el tiempo con la gente. Nada bajo este pueblo vale lo que acabamos de no hacer."
+    },
+    "wave_say": {
+      "1": "Lo último que puede enviar la línea de mortero. Después gastará a los que tiene bajo tierra."
+    },
+    "src": {
+      "name": "c9abe1be",
+      "briefing": "8ce1b9df",
+      "objectives.bring_it_down": "e5bb2d06",
+      "objectives.read_the_ground": "4acfd52d",
+      "objectives.get_them_out": "132b3d66",
+      "objectives.take_the_shaft_head": "a7d2e8b7",
+      "objectives.find_spade": "da8ec255",
+      "aftermath": "f882c5da",
+      "hostages_place": "83b376f3",
+      "debrief.victory": "fc41956d",
+      "debrief.defeat": "84df9ce7",
+      "sections.situation": "9bb63df3",
+      "sections.mission": "3f2accd6",
+      "sections.execution": "d5a8f0e2",
+      "sections.notes": "0dc13301",
+      "objective_say.read_the_ground": "a3cb3dba",
+      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.take_the_shaft_head": "72ea9cfa",
+      "objective_say_on_fail.bring_it_down": "68b7b2f2",
+      "objective_say_on_fail.get_them_out": "232994e9",
+      "wave_say.1": "c220fa50"
+    }
+  },
+  "beit_sahwan_breach": {
+    "name": "Beit Sahwan — First Light",
+    "briefing": "Llegaron al amanecer, desde el Marj, por todos los accesos a la vez. Lo que queda de la compañía está dentro del recinto de la carretera de Beit Sahwan: dos puertas, ambas en la carretera, y dos caras ciegas que atravesarán directamente en lugar de rodearlas. Dos cosas importan esta mañana. Mantenga el patio hasta que la columna de relevo nos alcance, a cinco minutos. Y las aldeas están fuera del alambre: las familias que viven en ellas no tienen otro sitio adonde ir, así que meta al menos dos dentro antes de que se cierre el cerco, porque nadie volverá por ellas después. Lleve algo rápido: una familia corre hacia el recinto cuando uno de los nuestros está a menos de cuatro casillas, o bajo fuego. El equipo sanitario Nemala está cedido: un herido tiene un minuto, y lo atiende y lo lleva a la parte trasera del patio.",
+    "sections": {
+      "situation": "Llegaron al amanecer, desde el Marj, por todos los accesos a la vez. Lo que queda de la compañía está dentro del recinto de la carretera de Beit Sahwan: dos puertas, ambas en la carretera, y dos caras ciegas que atravesarán directamente en lugar de rodearlas.",
+      "mission": "Dos cosas importan esta mañana. Mantenga el patio hasta que la columna de relevo nos alcance, a cinco minutos. Y las aldeas están fuera del alambre: las familias que viven en ellas no tienen otro sitio adonde ir, así que meta al menos dos dentro antes de que se cierre el cerco, porque nadie volverá por ellas después.",
+      "notes": "Lleve algo rápido: una familia corre hacia el recinto cuando uno de los nuestros está a menos de cuatro casillas, o bajo fuego. El equipo sanitario Nemala está cedido: un herido tiene un minuto, y lo atiende y lo lleva a la parte trasera del patio."
+    },
+    "dispatch": "Beit Sahwan, antes del amanecer. Nadir Sahim pasó cuatro años cavando bajo el Marj y una mañana gastándolo: todos los accesos a la vez y cuatro aldeas fuera del alambre. El oficial de mayor graduación que seguía dentro era un capitán.",
+    "debrief": {
+      "victory": "Once estaban fuera del alambre al amanecer. Dos entraron.",
+      "defeat": "El recinto cayó a las 0-algo. No conseguí la hora."
+    },
+    "objectives": {
+      "survive_relief": "Resistir hasta que llegue la columna de relevo",
+      "evac_settlements": "Meter dos familias dentro del alambre antes de que se cierre el cerco"
+    },
+    "objective_say": {
+      "evac_settlements": "Dos dentro. Cierren la puerta tras ellas."
+    },
+    "objective_say_on_fail": {
+      "evac_settlements": "El cerco está cerrado. Lo que siga fuera, fuera queda."
+    },
+    "triggers": {
+      "villages_rise": "Se alza la aldea del nordeste",
+      "they_take_the_south_village": "Se alza la aldea del sudeste",
+      "they_come_for_the_west_families": "La esquina oeste va a por las familias",
+      "the_last_village_goes": "Se alza la última esquina de aldea"
+    },
+    "trigger_say": {
+      "villages_rise": "La esquina nordeste se mueve y no se mueve contra nosotros. Esas posiciones estaban ocupadas antes del amanecer, no después.",
+      "they_take_the_south_village": "En el sudeste, el mismo segundo. No hacen cola en las puertas: van a las casas.",
+      "they_come_for_the_west_families": "La esquina oeste se ha levantado y va hacia las casas. Si algo suyo va a ir hacia allí, es ahora.",
+      "the_last_village_goes": "Esa es la última esquina. Las cuatro aldeas están ya dentro de su línea, no de la nuestra.",
+      "the_ring_closes": "Las esquinas vuelven por donde vinieron y no vuelven con las manos vacías."
+    },
+    "wave_say": {
+      "0": "Todos los accesos a la vez. Aquí no hay esfuerzo principal: no lo necesita.",
+      "2": "Es una escuadra suicida avanzando hacia la cara noroeste. Lo que haya ahí fuera, ahí fuera está ya.",
+      "4": "Ahora al sudeste. Misma cara, otra esquina: está leyendo cuál ha reforzado usted."
+    },
+    "src": {
+      "name": "db53752d",
+      "briefing": "a792d059",
+      "objectives.survive_relief": "635b361c",
+      "objectives.evac_settlements": "4ea16990",
+      "triggers.villages_rise": "7821028c",
+      "triggers.they_take_the_south_village": "2cad659a",
+      "triggers.they_come_for_the_west_families": "e01eeb04",
+      "triggers.the_last_village_goes": "3849b448",
+      "dispatch": "f457ec60",
+      "debrief.victory": "8953a12a",
+      "debrief.defeat": "369939b9",
+      "sections.situation": "fd262b37",
+      "sections.mission": "b5c071e5",
+      "sections.notes": "90c8cd72",
+      "objective_say.evac_settlements": "f6fdb7cf",
+      "objective_say_on_fail.evac_settlements": "a54ddb42",
+      "trigger_say.villages_rise": "67cfcd43",
+      "trigger_say.they_take_the_south_village": "80097386",
+      "trigger_say.they_come_for_the_west_families": "8531a6cd",
+      "trigger_say.the_last_village_goes": "0f1e1842",
+      "trigger_say.the_ring_closes": "247c685b",
+      "wave_say.0": "c22390a2",
+      "wave_say.2": "1a1f05a7",
+      "wave_say.4": "6a792482"
+    }
+  },
+  "deir_amun_1_recon": {
+    "name": "Deir Amun I — Leer el terreno",
+    "briefing": "Deir Amun son nueve casas y un patio de bombas al borde de un cauce seco, y ahora no vive nadie en ellas. Lo que queda es el cruce: todas las rutas de este distrito confluyen en la carretera este bajo ese pueblo. Una cuadrilla trabaja esta mañana en la ruta occidental. Encuéntrela, averigüe por dónde discurre y derríbela en cuatro minutos. Tengo sus rutas sobre papel y el papel no es identificación. Una ruta figura en el tablero solo mientras alguien con un detector la está mirando, y vuelve a ser un rumor en cuanto dejan de hacerlo. Esta se está cavando ahora, así que arroja tierra por el fondo de la vaguada, y la tierra removida es algo que cualquier soldado sabe leer. Las que terminó antes de la guerra no arrojan nada. Dos caminos al oeste y no son la misma carretera. El lecho son veintisiete casillas a pie y nada en la terraza puede ver dentro; el arcén son treinta y siete para cualquier cosa con ruedas. Los zapadores colocan una carga quietos a campo abierto, a dos casillas de la ruta, durante ocho segundos. Llévelos allí con algo que pueda disparar y derribe la ruta oeste.",
+    "sections": {
+      "situation": "Deir Amun son nueve casas y un patio de bombas al borde de un cauce seco, y ahora no vive nadie en ellas. Lo que queda es el cruce: todas las rutas de este distrito confluyen en la carretera este bajo ese pueblo.",
+      "mission": "Una cuadrilla trabaja esta mañana en la ruta occidental. Encuéntrela, averigüe por dónde discurre y derríbela en cuatro minutos.",
+      "execution": "Tengo sus rutas sobre papel y el papel no es identificación. Una ruta figura en el tablero solo mientras alguien con un detector la está mirando, y vuelve a ser un rumor en cuanto dejan de hacerlo. Esta se está cavando ahora, así que arroja tierra por el fondo de la vaguada, y la tierra removida es algo que cualquier soldado sabe leer. Las que terminó antes de la guerra no arrojan nada. Dos caminos al oeste y no son la misma carretera. El lecho son veintisiete casillas a pie y nada en la terraza puede ver dentro; el arcén son treinta y siete para cualquier cosa con ruedas. Los zapadores colocan una carga quietos a campo abierto, a dos casillas de la ruta, durante ocho segundos.",
+      "notes": "Llévelos allí con algo que pueda disparar y derribe la ruta oeste."
+    },
+    "dispatch": "Todo lo que entró alguna vez en el Marj pasó por Deir Amun. La gente se fue en la primera semana de guerra; las rutas del distrito no, y las seis confluyen en la carretera este bajo nueve casas vacías.",
+    "debrief": {
+      "victory": "Una ruta abajo y la cuadrilla con ella. Cinco más en una hoja de papel escrita por un hombre que lleva una semana en una celda.",
+      "defeat": "La ruta sigue abierta y la cuadrilla sigue trabajando en ella. Nadie les ha dicho que paren y no queda nadie que pueda."
+    },
+    "objectives": {
+      "find_the_crew": "Localizar a la cuadrilla de la ruta occidental",
+      "bring_down_the_west": "Derrumbar la ruta occidental en cuatro minutos",
+      "find_the_chief": "Localizar al jefe de excavación en la escombrera",
+      "find_the_gap_gun": "Identificar al equipo de cohetes sobre el paso oeste",
+      "screen_out": "Permanecer cinco minutos en el campo"
+    },
+    "objective_say": {
+      "find_the_crew": "Esa es la cuadrilla, y siguen trabajando. Nadie les ha dicho que paren, y el hombre que lo habría hecho está en una celda de la brigada.",
+      "bring_down_the_west": "Ruta oeste abajo. Una de seis, y las otras cinco están en un papel que nunca se ha contrastado con el terreno.",
+      "find_the_chief": "Ese es el hombre que dirige la excavación, de pie sobre su propia escombrera. Es el único aquí abajo que sabe adónde van las seis.",
+      "find_the_gap_gun": "Equipo de cohetes apuntando al paso oeste, una de las dos vías a través de la línea de roca. Está en el tablero y la semana que viene no tendrá primer disparo."
+    },
+    "objective_say_on_fail": {
+      "bring_down_the_west": "Cuatro minutos, y la ruta sigue abierta y sigue creciendo. Tendrán otras doce casillas de ella cuando alguien vuelva."
+    },
+    "triggers": {
+      "the_crew_stops_digging_and_turns_round": "Cuadrilla de excavación pasa al combate",
+      "the_bed_is_a_road_and_it_is_theirs": "Milicia aparece en el lecho del wadi"
+    },
+    "trigger_say": {
+      "the_crew_stops_digging_and_turns_round": "La cuadrilla ha dejado de cavar. Suben al arcén con la sección que los cubría.",
+      "the_bed_is_a_road_and_it_is_theirs": "Hay una sección en el lecho a su espalda. Ese cauce no es terreno muerto para ellos: es una carretera, y es suya."
+    },
+    "wave_say": {
+      "0": "Dos secciones bajan por el paso oeste hacia la cabecera de la vaguada. No defienden una aldea; no hay nadie en ella. Defienden la obra."
+    },
+    "src": {
+      "name": "ed153c67",
+      "briefing": "dcbe8f6e",
+      "objectives.find_the_crew": "e6e4d453",
+      "objectives.bring_down_the_west": "959b7632",
+      "objectives.find_the_chief": "296dabc3",
+      "objectives.find_the_gap_gun": "64ae0561",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.the_crew_stops_digging_and_turns_round": "53f35b44",
+      "triggers.the_bed_is_a_road_and_it_is_theirs": "ddb562ab",
+      "dispatch": "7df96ed9",
+      "debrief.victory": "11e7f75d",
+      "debrief.defeat": "8cc8a97c",
+      "sections.situation": "94c6c7c0",
+      "sections.mission": "b17d2967",
+      "sections.execution": "c0f8efd0",
+      "sections.notes": "e883c5e9",
+      "objective_say.find_the_crew": "aa801827",
+      "objective_say.bring_down_the_west": "78f8064c",
+      "objective_say.find_the_chief": "f03d1528",
+      "objective_say.find_the_gap_gun": "ab646084",
+      "objective_say_on_fail.bring_down_the_west": "fa0328cc",
+      "trigger_say.the_crew_stops_digging_and_turns_round": "bf4e0c2d",
+      "trigger_say.the_bed_is_a_road_and_it_is_theirs": "2f6f7e27",
+      "wave_say.0": "d2fd0523"
+    }
+  },
+  "deir_amun_2_foothold": {
+    "name": "Deir Amun II — Colocar las cargas",
+    "briefing": "El patio de bombas es un recinto amurallado sobre un espolón dentro de una curva en S del wadi, con una sola puerta, al sur, y una ruta sube hasta él. El lecho rodea tres lados del espolón. La boca está dentro del muro, así que el terreno que le mandan mantener es una puerta. Mantenga el patio cuatro minutos y derribe esa ruta en esos mismos cuatro minutos. Ningún reloj espera al otro. La ruta está abastecida, y quien esté en ella sale en el lecho del wadi a su espalda en lugar de por su puerta, y el resto sube por el lecho desde el oeste y el este. Lo harán mientras sus zapadores están arrodillados sobre la boca. Dos equipos Yahalom, y la carga son ocho segundos de quietud que se reinician en cuanto se mueven. Envíe a ambos y el patio queda débil; envíe a uno y trabaja bajo ataque, que es lo mismo que no trabajar. El campamento está en la orilla este del espolón, a cuatro casillas del vado central, y solo ese vado se interpone entre él y el lecho este. No todo lo que viene hacia el sur viene por el patio. Mantenga la puerta, derribe la ruta y ponga algo entre ellos y el campamento.",
+    "sections": {
+      "situation": "El patio de bombas es un recinto amurallado sobre un espolón dentro de una curva en S del wadi, con una sola puerta, al sur, y una ruta sube hasta él. El lecho rodea tres lados del espolón. La boca está dentro del muro, así que el terreno que le mandan mantener es una puerta.",
+      "mission": "Mantenga el patio cuatro minutos y derribe esa ruta en esos mismos cuatro minutos. Ningún reloj espera al otro.",
+      "execution": "La ruta está abastecida, y quien esté en ella sale en el lecho del wadi a su espalda en lugar de por su puerta, y el resto sube por el lecho desde el oeste y el este. Lo harán mientras sus zapadores están arrodillados sobre la boca. Dos equipos Yahalom, y la carga son ocho segundos de quietud que se reinician en cuanto se mueven. Envíe a ambos y el patio queda débil; envíe a uno y trabaja bajo ataque, que es lo mismo que no trabajar. El campamento está en la orilla este del espolón, a cuatro casillas del vado central, y solo ese vado se interpone entre él y el lecho este. No todo lo que viene hacia el sur viene por el patio.",
+      "notes": "Mantenga la puerta, derribe la ruta y ponga algo entre ellos y el campamento."
+    },
+    "debrief": {
+      "victory": "El patio es nuestro y la puerta bajo él está cerrada. Construyó este lugar para que mantener un terreno y pisar una puerta fueran el mismo acto.",
+      "defeat": "Mantuvimos el patio cuatro minutos y dejamos abierto el paso bajo él. Todo lo que hicimos hoy lo hicimos de pie sobre su carretera."
+    },
+    "objectives": {
+      "hold_the_yard": "Mantener el patio de bombas cuatro minutos",
+      "shut_the_door": "Derrumbar la ruta bajo el patio de bombas en cuatro minutos",
+      "take_the_store_yard": "Tomar el recinto de almacenes y mantenerlo 15 segundos",
+      "kill_the_gap_gun": "Eliminar al equipo de cohetes sobre el barranco oeste"
+    },
+    "objective_say": {
+      "hold_the_yard": "Patio de bombas mantenido, cuatro minutos. Una puerta, y siguió siendo nuestra.",
+      "shut_the_door": "La ruta bajo el patio está abajo. Lo que siguiera en ella no saldrá por ningún sitio.",
+      "take_the_store_yard": "Recinto de almacenes despejado. La carretera este se vigila ahora desde nuestro lado.",
+      "kill_the_gap_gun": "El barranco oeste está despejado. Es una de las dos vías de bajada de la meseta, y el hombro sobre él veía toda la curva."
+    },
+    "objective_say_on_fail": {
+      "shut_the_door": "Cuatro minutos con la carga y la boca sigue abierta dentro del muro. Mantenemos un patio con una puerta en el suelo."
+    },
+    "triggers": {
+      "the_village_comes_down_to_the_yard": "La aldea baja hacia el patio",
+      "the_yard_party_falls_back_up_the_lane": "La partida del patio se repliega por el callejón",
+      "a_charge_squad_comes_down_the_lane": "Escuadra suicida baja por el callejón"
+    },
+    "trigger_say": {
+      "the_village_comes_down_to_the_yard": "La aldea baja por el callejón hacia el patio. Hay nueve casas allí arriba y ni una persona en ellas; cada cuerpo de esa calle es un combatiente.",
+      "the_yard_party_falls_back_up_the_lane": "La partida del patio ha salido de la casa de bombas y va hacia el norte por el callejón.",
+      "a_charge_squad_comes_down_the_lane": "Escuadra suicida bajando por el callejón. Saque a los zapadores de la boca o ponga algo entre él y ellos."
+    },
+    "wave_say": {
+      "2": "Dos secciones cruzan el vado central. No van al patio: van al campamento de la orilla, y el campamento está a cuatro casillas de ese vado."
+    },
+    "src": {
+      "name": "24460084",
+      "briefing": "2ba86986",
+      "objectives.hold_the_yard": "f4c130b6",
+      "objectives.shut_the_door": "f9255fd1",
+      "objectives.take_the_store_yard": "7bfc6da9",
+      "objectives.kill_the_gap_gun": "ea5b9816",
+      "triggers.the_village_comes_down_to_the_yard": "e2f10393",
+      "triggers.the_yard_party_falls_back_up_the_lane": "6c8178fd",
+      "triggers.a_charge_squad_comes_down_the_lane": "75d841cf",
+      "debrief.victory": "9a5daaea",
+      "debrief.defeat": "dacfcb6a",
+      "sections.situation": "2e1d3aa0",
+      "sections.mission": "22fae957",
+      "sections.execution": "06498404",
+      "sections.notes": "4536fc86",
+      "objective_say.hold_the_yard": "19da2adc",
+      "objective_say.shut_the_door": "bd1a841d",
+      "objective_say.take_the_store_yard": "36809b62",
+      "objective_say.kill_the_gap_gun": "a0e65e76",
+      "objective_say_on_fail.shut_the_door": "ae54ef59",
+      "trigger_say.the_village_comes_down_to_the_yard": "e9cde5c1",
+      "trigger_say.the_yard_party_falls_back_up_the_lane": "d1105aa7",
+      "trigger_say.a_charge_squad_comes_down_the_lane": "85d173ba",
+      "wave_say.2": "6c3c74cc"
+    }
+  },
+  "deir_amun_3_subterranean": {
+    "name": "Deir Amun III — Las cuatro",
+    "briefing": "Hay cuatro rutas bajo este pueblo y todas se terminaron antes de la guerra, así que ninguna arroja escombro. Lo único que puede encontrarlas es un hombre con un detector y línea de visión despejada hasta el terreno bajo el que discurren. No puede mantener las cuatro a la vez. El contacto se pierde unos dieciséis segundos después de que el último ojo lo suelta, y el dron es un indicador, no un explorador: igual que un fusilero, queda ciego tras un edificio. Trabájelas en un orden y cúmplalo. Derrumbar una mata a quien esté dentro, así que lo que derribe primero decide cuál de las demás emerge a su espalda. Una de ellas aflora en su propia carretera hacia el este. Lo que deje en pie ahí está en pie bajo sus blindados. El pueblo se asienta en el borde bajo la meseta y usted desciende hacia él por dos barrancos, así que por una vez el jefe queda detrás: en la escombrera al sur del pueblo, un nivel por encima del terreno circundante, sobre suelo levantado por sus propias cuadrillas. No se esconde bajo tierra ni la abandonará. El cañón del Lavi y el mortero se cobran por cada diez segundos en ese pueblo y no hay nada en él que valga ese dinero. Los fusiles y la cincuenta del Eitan son gratis. Derribe las cuatro en cinco minutos y saque al jefe de esa escombrera.",
+    "sections": {
+      "situation": "Hay cuatro rutas bajo este pueblo y todas se terminaron antes de la guerra, así que ninguna arroja escombro. Lo único que puede encontrarlas es un hombre con un detector y línea de visión despejada hasta el terreno bajo el que discurren. No puede mantener las cuatro a la vez.",
+      "execution": "El contacto se pierde unos dieciséis segundos después de que el último ojo lo suelta, y el dron es un indicador, no un explorador: igual que un fusilero, queda ciego tras un edificio. Trabájelas en un orden y cúmplalo. Derrumbar una mata a quien esté dentro, así que lo que derribe primero decide cuál de las demás emerge a su espalda. Una de ellas aflora en su propia carretera hacia el este. Lo que deje en pie ahí está en pie bajo sus blindados. El pueblo se asienta en el borde bajo la meseta y usted desciende hacia él por dos barrancos, así que por una vez el jefe queda detrás: en la escombrera al sur del pueblo, un nivel por encima del terreno circundante, sobre suelo levantado por sus propias cuadrillas. No se esconde bajo tierra ni la abandonará. El cañón del Lavi y el mortero se cobran por cada diez segundos en ese pueblo y no hay nada en él que valga ese dinero. Los fusiles y la cincuenta del Eitan son gratis.",
+      "notes": "Derribe las cuatro en cinco minutos y saque al jefe de esa escombrera."
+    },
+    "aftermath": "Seis rutas bajo el cruce, y por la mañana ninguna llevaba a ninguna parte. La brigada puso una tercera estrella en la hoja y no dijo nada más. El Marj está en calma. Sur no.",
+    "debrief": {
+      "victory": "Las cuatro, y el expediente de este distrito se cierra esta noche. Capturar al hombre nunca detuvo nada de esto: el terreno era lo que él era, y ya no queda nada de él aquí abajo.",
+      "defeat": "El pueblo se asienta sobre cuatro rutas abiertas y volvemos a casa. Este distrito funcionará mañana exactamente igual que ayer."
+    },
+    "objectives": {
+      "all_four": "Derrumbar las cuatro rutas bajo el pueblo en cinco minutos",
+      "kill_the_chief": "Matar al jefe de excavación en la escombrera",
+      "clear_the_ground": "Bonificación: despejar toda unidad Ashwar sobre el suelo antes de que caiga el último objetivo principal",
+      "screen_out": "Permanecer en el campo cinco minutos"
+    },
+    "objective_say": {
+      "all_four": "Las cuatro, abajo. Ya no queda nada bajo este pueblo, y es lo último del distrito.",
+      "kill_the_chief": "El jefe ha caído en su propia escombrera. Excavaba según un plan trazado antes de la guerra por un hombre que lleva años sin ver este terreno.",
+      "clear_the_ground": "Nada suyo queda en pie sobre el suelo de Deir Amun."
+    },
+    "objective_say_on_fail": {
+      "all_four": "Cinco minutos. Lo que siga abierto bajo ese pueblo queda abierto para siempre, y no queda nadie a quien haya que decirle por dónde corre."
+    },
+    "triggers": {
+      "the_village_comes_out_of_its_houses": "El pueblo sale a las callejas",
+      "he_falls_back_onto_his_own_spoil": "El jefe retrocede a su escombrera",
+      "a_charge_squad_comes_for_the_engineers": "Escuadra suicida va a por los zapadores"
+    },
+    "trigger_say": {
+      "the_village_comes_out_of_its_houses": "Han salido de las casas y avanzan por las callejas entre las bocas.",
+      "he_falls_back_onto_his_own_spoil": "Ha vuelto a la escombrera. Es el único terreno elevado bajo el borde y sus propias cuadrillas lo levantaron con las rutas que usted ha venido a derribar.",
+      "a_charge_squad_comes_for_the_engineers": "Escuadra suicida en las callejas, y sus zapadores son lo único en este mapa que debe quedarse quieto. Cúbralos o muévalos."
+    },
+    "wave_say": {
+      "1": "Un equipo de cohetes y un technical por el camino del flanco oeste. Es lo último que pueden enviar los flancos; después gastará lo que hay bajo tierra."
+    },
+    "src": {
+      "name": "04638a31",
+      "briefing": "0344e36c",
+      "objectives.all_four": "7904dd51",
+      "objectives.kill_the_chief": "7902bafd",
+      "objectives.clear_the_ground": "1648fbd1",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.the_village_comes_out_of_its_houses": "637cad50",
+      "triggers.he_falls_back_onto_his_own_spoil": "b152e511",
+      "triggers.a_charge_squad_comes_for_the_engineers": "7f82a4bd",
+      "aftermath": "4a2a183a",
+      "debrief.victory": "5324aabc",
+      "debrief.defeat": "59eda46d",
+      "sections.situation": "848ff873",
+      "sections.execution": "45d2a4db",
+      "sections.notes": "f7899bc0",
+      "objective_say.all_four": "82e2a57c",
+      "objective_say.kill_the_chief": "aa976227",
+      "objective_say.clear_the_ground": "fa257086",
+      "objective_say_on_fail.all_four": "7aab39b1",
+      "trigger_say.the_village_comes_out_of_its_houses": "73b6492d",
+      "trigger_say.he_falls_back_onto_his_own_spoil": "a84adbc5",
+      "trigger_say.a_charge_squad_comes_for_the_engineers": "8dc8b4da",
+      "wave_say.1": "8176c86d"
+    }
+  },
+  "ein_qasab_1_recon": {
+    "name": "Ein Qasab I — Las calzadas",
+    "briefing": "Con los vados bajo el agua, el tráfico del corredor ha quedado reducido a este pantano: dos calzadas sobre el cañaveral y nada más que pueda usar una rueda. Un camión en una calzada no puede salirse de ella, así que durante una semana el Rif no puede dispersarse. Ponga al francotirador en la cresta oeste y construya el cuadro: cuatro de las posiciones que cubren las calzadas. Mantenga el dron lejos de la cresta este, donde un camión antiaéreo domina el cielo hasta once casillas. Hay cuatro porteadores ahí fuera, dos cargados en la calzada sur y dos en el patio del caserío esperando la suya. Toda carga en ese camino esta noche es una familia. Lleve tres al refugio antes de que se mueva la próxima carga. El Eitan los alcanza antes y pasa de largo lo que haya en el cañaveral para lograrlo; a pie es más lento, va a cubierto y gasta hombres que el cuadro necesita. Lo que marque junto a estas calzadas esta noche queda marcado. Si se lo encuentra de nuevo esta semana, no dispara primero. Cada proyectil que meta en ese cañaveral se cobra donde cae, y los porteadores están a su lado.",
+    "dispatch": "Llegaron las lluvias tras la pista del ganado y los dos vados quedaron bajo el agua. Jubran Hallaq no para por el tiempo. Sus cargas bajaron a las viejas calzadas del pantano; donde no pasa un camión, las llevan los vecinos.",
+    "debrief": {
+      "victory": "Cuatro posiciones, y los porteadores en el refugio en vez de bajo una carga. Es la primera semana de la guerra en que el Rif ha tenido que quedarse quieto por nosotros.",
+      "defeat": "Salimos del pantano sin lo suficiente. Lo que cruce esas calzadas esta noche cruzará con personas debajo."
+    },
+    "objectives": {
+      "picture": "Identificar cuatro posiciones que cubren las calzadas",
+      "get_the_carriers_home": "Llevar tres porteadores al refugio antes de que se mueva la próxima carga",
+      "find_the_reed_cell": "Localizar la célula oculta en el cañaveral junto a la calzada sur"
+    },
+    "objective_say": {
+      "picture": "Cuatro, y todas atadas a las dos calzadas de un modo u otro. Una célula del Rif sin adónde conducir es, por una vez, una posición.",
+      "get_the_carriers_home": "Tres en el refugio. Lo que suba ahora a esa calzada sube sin ellos.",
+      "find_the_reed_cell": "Esa es la célula del cañaveral, oculta junto a la calzada de los porteadores. Ya está en el cuadro y, donde se oculte más adelante esta semana, no dispara primero."
+    },
+    "objective_say_on_fail": {
+      "get_the_carriers_home": "La próxima carga se mueve y están debajo. Estábamos a lo ancho de un pantano."
+    },
+    "triggers": {
+      "the_track_patrol_turns_for_the_hamlet": "Patrulla de la pista gira hacia el caserío",
+      "the_riders_pull_back_along_the_south_causeway": "Ruedas de la calzada sur dan media vuelta"
+    },
+    "trigger_say": {
+      "the_track_patrol_turns_for_the_hamlet": "La patrulla de la pista este ha girado hacia el caserío. Es un technical en una pista, así que viene por el único camino que tiene, y usted ve cuál.",
+      "the_riders_pull_back_along_the_south_causeway": "Ruedas desde el sureste a la calzada sur, y ya dan media vuelta. Nada con ruedas puede salir de ese camino aquí, así que la salida es por donde entraron."
+    },
+    "wave_say": {
+      "0": "Dos vehículos desde el noreste, y ambos han bajado a la calzada norte. Aquí no hay otro sitio por donde pase una rueda, y todo el que venga después hará lo mismo.",
+      "2": "Dos más desde el sureste, y van al caserío, no hacia usted. Vienen a cargar el patio."
+    },
+    "src": {
+      "name": "d0b7053a",
+      "briefing": "7e7a64ce",
+      "objectives.picture": "903a39db",
+      "objectives.get_the_carriers_home": "1f43b1fd",
+      "objectives.find_the_reed_cell": "7ca534e6",
+      "triggers.the_track_patrol_turns_for_the_hamlet": "387c7ae7",
+      "triggers.the_riders_pull_back_along_the_south_causeway": "2e988dd6",
+      "dispatch": "ca2a3a86",
+      "debrief.victory": "fc483edd",
+      "debrief.defeat": "c9d026d2",
+      "objective_say.picture": "1f40ddec",
+      "objective_say.get_the_carriers_home": "96909de2",
+      "objective_say.find_the_reed_cell": "14fe9b1d",
+      "objective_say_on_fail.get_the_carriers_home": "6bab0633",
+      "trigger_say.the_track_patrol_turns_for_the_hamlet": "4e0f02fc",
+      "trigger_say.the_riders_pull_back_along_the_south_causeway": "cab48e2c",
+      "wave_say.0": "c75118a0",
+      "wave_say.2": "96e2b100"
+    }
+  },
+  "ein_qasab_2_foothold": {
+    "name": "Ein Qasab II — Terreno muerto",
+    "briefing": "La granja de esta hondonada es el puesto de etapa del camino de invierno, y sus cajas de drones esperan en su granero a que pare la lluvia. Las crestas a ambos lados se alzan cuatro niveles sobre ella, y nada de las colinas del norte está a la vista hasta que las corona. Mantenga la hondonada cinco minutos y queme el granero dentro de esos mismos cinco. Las cargas de los zapadores son limpias y lentas bajo fuego; el mortero y el Namer son rápidos, y cada proyectil cerca de ese patio se cobra. Una familia está en el patio entre la casa y el granero, a dos casillas de la célula que hay dentro. Hay un camión en el collado norte y, identificado hoy, es un arma conocida sobre la cabecera de la calzada, no un primer disparo. Tiene la logística para un puesto avanzado. Si lo entierra en la hondonada no ve nada; si lo pone en la cresta ve venir al enemigo, desde fuera del terreno que debe mantener. Toda rueda del este pasa por un único hueco de dos casillas en el dique. Desde el norte, es el collado para las ruedas y la cresta para la infantería. El granero es la orden; la casa y la familia a su lado cuentan en la valoración.",
+    "debrief": {
+      "victory": "La granja es nuestra y el granero es ceniza. Lo que cruce ahora esas crestas baja hacia nosotros, y lo vemos antes en el horizonte.",
+      "defeat": "Hemos salido de la granja y han vuelto a la hondonada. Desde la cresta no se ve lo que meten en ella."
+    },
+    "objectives": {
+      "hold_the_hollow": "Mantener la hondonada de la granja cinco minutos",
+      "burn_the_barn": "Quemar el granero y las cajas en cinco minutos",
+      "mark_the_saddle_truck": "Identificar el camión del collado norte"
+    },
+    "objective_say": {
+      "hold_the_hollow": "Cinco minutos en la hondonada, sin oposición. La granja es de la brigada el resto de la semana.",
+      "burn_the_barn": "Cajas, combustible y raíles de lanzamiento, bajo el heno. Los enjambres sobre la pista del ganado salieron de graneros como este, y este esperaba a que parase la lluvia.",
+      "mark_the_saddle_truck": "Esa es la dotación del collado. Esté donde esté aparcado cuando lleguemos a la cabecera de la calzada, ya está en el cuadro."
+    },
+    "objective_say_on_fail": {
+      "burn_the_barn": "Cinco minutos, y el granero sigue en pie con las cajas dentro. Cuando pare la lluvia, vuelan."
+    },
+    "triggers": {
+      "the_saddle_truck_comes_down_to_the_farm": "El camión del collado baja a la granja",
+      "riders_come_through_the_dyke_gap": "Vehículos entran por el hueco del dique"
+    },
+    "trigger_say": {
+      "the_saddle_truck_comes_down_to_the_farm": "El camión del collado ha empezado a bajar por la pista norte hacia la granja. Si va a ser identificado en este terreno, es ahora.",
+      "riders_come_through_the_dyke_gap": "Vehículos por el hueco del dique, de uno en uno, porque no da para más. Es la única puerta de ese lado."
+    },
+    "wave_say": {
+      "1": "Dos células cruzan a pie la cresta norte. Desde la granja no están ahí hasta que aparecen en el horizonte.",
+      "4": "Un enjambre desde las colinas del norte. No todas las cajas de este camino estaban en ese granero."
+    },
+    "src": {
+      "name": "322a7c7d",
+      "briefing": "49c95d88",
+      "objectives.hold_the_hollow": "0e3318ca",
+      "objectives.burn_the_barn": "a8f3dd66",
+      "objectives.mark_the_saddle_truck": "6f7c3df2",
+      "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
+      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "debrief.victory": "b2ba2fe4",
+      "debrief.defeat": "32fc814e",
+      "objective_say.hold_the_hollow": "508ceba4",
+      "objective_say.burn_the_barn": "0737ed7e",
+      "objective_say.mark_the_saddle_truck": "3867b98c",
+      "objective_say_on_fail.burn_the_barn": "3031c576",
+      "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
+      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "wave_say.1": "acefef7d",
+      "wave_say.4": "ebf45e47"
+    }
+  },
+  "ein_qasab_3_buildup": {
+    "name": "Ein Qasab III — Un solo camino",
+    "briefing": "Bajo el caserío, la ciénaga son dos canales de cañaveral con una sola calzada sobre ellos, y todos sus vehículos cruzan por ella. El hombre de Hallaq en el camino de invierno está en el patio de la cabecera de la calzada, con el granero de existencias a su lado. Queme las existencias, mantenga la cabecera de la calzada cuatro minutos y mate o capture a ese hombre. El campamento construye lo que usted paga, y todo lo que construya con ruedas sube por ese único camino en fila india, bajo la terraza. En cuanto ponga el pie en el extremo norte del islote del molino, él huye hacia el camino norte, que sube por el caserío. Vino con Inteligencia para una cortina de humo; un barrido del terreno muerto tras el borde cuesta la mitad más. Compre infantería. Una escuadra vadea donde un Namer no puede, y un equipo AT enviado pronto por la isla oeste llega al borde antes que él. Las células del cañaveral vadearán hacia la puerta del campamento y el camino de suministro; mientras una esté en la puerta, el campamento no construye nada. Lo que marcó esta semana en las calzadas y en el collado vuelve con su emboscada gastada. Deténgalo más allá del caserío, o persígalo por él y pague cada disparo.",
+    "debrief": {
+      "victory": "Un solo camino, y las existencias son ceniza al final de él. Cuando baje el agua, habrá un invierno de carga menos en el corredor que la que él cargó.",
+      "defeat": "Volvimos por la calzada sin aquello por lo que la cruzamos. Cuando se abran los vados, la orilla norte irá al este con lo que aún tenga encima."
+    },
+    "objectives": {
+      "kill_hallaqs_man": "Matar o capturar al hombre de Hallaq en el camino de invierno",
+      "hold_the_head": "Mantener la cabecera de la calzada cuatro minutos",
+      "burn_the_stock": "Quemar el granero de existencias en cinco minutos y medio",
+      "take_the_mill": "Tomar el islote del molino y mantenerlo 15 segundos"
+    },
+    "objective_say": {
+      "kill_hallaqs_man": "Ese es el hombre de Hallaq en el camino de invierno. Sabía qué calzada soportaría un camión y qué noche, y nadie más en esa orilla lo sabe.",
+      "hold_the_head": "Cabecera de la calzada mantenida, cuatro minutos. El camino es nuestro hasta la terraza.",
+      "burn_the_stock": "Las existencias arden y los manifiestos no. Toda carga de ese granero iba dirigida a un patio al este del pueblo de Wadi Halam, y allí iba la carga de este invierno.",
+      "take_the_mill": "Hay familias en el molino. El caserío las envió al único edificio de la ciénaga con un piso sobre el agua, y todos sus vehículos se detienen a su lado."
+    },
+    "objective_say_on_fail": {
+      "burn_the_stock": "Cinco minutos y medio, y las existencias siguen en pie. Cuando se abran los vados, salen hacia el este llenas."
+    },
+    "triggers": {
+      "the_reserve_comes_over_the_lip": "La reserva baja por el borde",
+      "hallaqs_man_runs_for_the_north_road": "El hombre de Hallaq huye por el camino norte"
+    },
+    "trigger_say": {
+      "the_reserve_comes_over_the_lip": "Había una reserva tras el borde, en terreno que nada al sur de las casas puede ver. Baja hacia la cabecera.",
+      "hallaqs_man_runs_for_the_north_road": "Huye hacia el camino norte, que sube por el caserío. Deténgalo más allá de las casas si puede llegar; dentro de ellas, cada disparo se cobra."
+    },
+    "wave_say": {
+      "1": "Dos células vadean desde el cañaveral este hacia el embarcadero sur. No van a por la cabecera; van a por su camino.",
+      "3": "Una célula y un equipo RPG desde el cañaveral oeste, hacia la puerta del campamento. Mientras algo suyo esté en ella, el campamento no construye nada.",
+      "5": "Dos células vadean hacia el molino. Si las familias siguen dentro, ahí está ahora este combate."
+    },
+    "src": {
+      "name": "e7123f0c",
+      "briefing": "f7318575",
+      "objectives.kill_hallaqs_man": "b76f7429",
+      "objectives.hold_the_head": "9d894ecc",
+      "objectives.burn_the_stock": "3db8c089",
+      "objectives.take_the_mill": "72bf5ea0",
+      "triggers.the_reserve_comes_over_the_lip": "54d852cf",
+      "triggers.hallaqs_man_runs_for_the_north_road": "ebe7b593",
+      "debrief.victory": "1e57089b",
+      "debrief.defeat": "cd314f6c",
+      "objective_say.kill_hallaqs_man": "b3639869",
+      "objective_say.hold_the_head": "2533ffaf",
+      "objective_say.burn_the_stock": "d50e9682",
+      "objective_say.take_the_mill": "be23bc5d",
+      "objective_say_on_fail.burn_the_stock": "7cdbdc52",
+      "trigger_say.the_reserve_comes_over_the_lip": "8e570f09",
+      "trigger_say.hallaqs_man_runs_for_the_north_road": "a1ab7d7c",
+      "wave_say.1": "107bf76b",
+      "wave_say.3": "32c25541",
+      "wave_say.5": "f3aec150"
+    }
+  },
+  "khan_rafid_1_recon": {
+    "name": "Khan Rafid I — Números de casa",
+    "briefing": "Khan Rafid tiene números de casa, día de mercado, una clínica y una sala comunal, y cada una de esas cosas es la razón por la que lo eligió. El hombre que lo eligió responde preguntas en la brigada, y ninguna de sus respuestas dice quién tiene la ciudad esta semana. Lleve el dron por el centro e identifique los puestos en los dos callejones del Old Town. Puede cubrir ambos en una salida; nada en tierra puede, porque un callejón de una casilla de ancho ve a lo largo de su eje y en ningún otro sitio. El tercer puesto es una célula de misiles a diecinueve casillas al este por Main Street, y Main Street es la única carretera que cruza esta ciudad. Recorre todo el ancho, es recta y no tiene cobertura. Cuatro personas están detenidas en los callejones del Old Town, a treinta casillas y más allá de la carretera y del distrito. Lleve a dos de ellas de vuelta al distrito en cuatro minutos. El jeep y el Eitan llevan dos cada uno, y nadie embarca hasta que un soldado esté a menos de cuatro casillas. El camino de vuelta desde ahí son nueve casillas y el de ida treinta, que es todo este reloj. Traiga los puestos y no cruce esa calle dos veces por una imagen que ya tiene.",
+    "sections": {
+      "situation": "Khan Rafid tiene números de casa, día de mercado, una clínica y una sala comunal, y cada una de esas cosas es la razón por la que lo eligió. El hombre que lo eligió responde preguntas en la brigada, y ninguna de sus respuestas dice quién tiene la ciudad esta semana.",
+      "mission": "Lleve el dron por el centro e identifique los puestos en los dos callejones del Old Town. Puede cubrir ambos en una salida; nada en tierra puede, porque un callejón de una casilla de ancho ve a lo largo de su eje y en ningún otro sitio.",
+      "execution": "El tercer puesto es una célula de misiles a diecinueve casillas al este por Main Street, y Main Street es la única carretera que cruza esta ciudad. Recorre todo el ancho, es recta y no tiene cobertura. Cuatro personas están detenidas en los callejones del Old Town, a treinta casillas y más allá de la carretera y del distrito. Lleve a dos de ellas de vuelta al distrito en cuatro minutos. El jeep y el Eitan llevan dos cada uno, y nadie embarca hasta que un soldado esté a menos de cuatro casillas. El camino de vuelta desde ahí son nueve casillas y el de ida treinta, que es todo este reloj.",
+      "notes": "Traiga los puestos y no cruce esa calle dos veces por una imagen que ya tiene."
+    },
+    "dispatch": "El hombre que preparó el Marj lleva una semana en la brigada, respondiendo preguntas. Siete kilómetros costa arriba, la ciudad que construyó para esto resiste, y nadie en ella ha recibido una orden nueva desde la mañana de su captura.",
+    "debrief": {
+      "victory": "Dos en el distrito y dos aún en el callejón. Cuatro plazas, una calle y treinta casillas: esa aritmética no mejora por ser más valiente.",
+      "defeat": "Nadie en tierra llegó a esos callejones a tiempo, y el dron no saca a nadie. La imagen que sí trajimos es la de una ciudad en la que aún vive gente."
+    },
+    "objectives": {
+      "find_the_watch": "Identificar los tres puestos que cubren el cruce del distrito",
+      "get_two_in": "Llevar dos familias al distrito en cuatro minutos",
+      "find_the_west_lane": "Identificar al equipo de cohetes de la calleja oeste",
+      "find_the_east_lane": "Identificar al equipo de cohetes de la calleja este",
+      "find_the_block_commander": "Hallar a quien da las órdenes en esta manzana",
+      "screen_out": "Permanecer en el campo cinco minutos"
+    },
+    "objective_say": {
+      "find_the_watch": "Tres puestos, y ninguno puede meter un proyectil dentro del distrito. Todos pueden meterlo sobre cualquiera que cruce hacia él. No es un accidente del terreno; se dispuso así.",
+      "get_two_in": "Dos tras el muro. Lo que siga en ese callejón no merece una segunda carrera por la calle.",
+      "find_the_west_lane": "Equipo de cohetes en la calleja oeste, en una vía de una casilla con casas a ambos lados. Ya está en el cuadro y la semana próxima no dispara primero.",
+      "find_the_east_lane": "La calleja este es el reflejo de aquella. Dos callejas, dos equipos, y la única tercera vía al norte pasa por el recinto en el que no se nos permite combatir.",
+      "find_the_block_commander": "Ese es quien da las órdenes en esta manzana, y no ha recibido ninguna desde la boca del pozo. Mantiene una ciudad según un plan que ya nadie escribe."
+    },
+    "objective_say_on_fail": {
+      "get_two_in": "Cuatro minutos, y nadie en tierra llegó a tiempo. Ahora son problema de otro, y no queda nadie en esta ciudad a quien le toque."
+    },
+    "triggers": {
+      "the_compound_was_never_empty": "La milicia entra por la puerta norte",
+      "he_gives_up_the_crossing": "El grupo del distrito retrocede al zoco"
+    },
+    "trigger_say": {
+      "the_compound_was_never_empty": "Una sección entra por la puerta norte. El recinto nunca estuvo vacío: lleva haciendo pasar hombres por él desde antes de que cruzáramos el perímetro.",
+      "he_gives_up_the_crossing": "El grupo por delante del distrito retrocede al zoco. El cruce está abierto.",
+      "they_move_the_families_off": "El callejón está vacío. Nadie peleó por ellas; las sacaron de él mientras el dron sobrevolaba el zoco."
+    },
+    "wave_say": {
+      "0": "Dos secciones por la carretera norte hacia los callejones del zoco. Nadie las llamó: es una orden permanente que llega a tiempo, de antes de que nadie estuviera en esta carretera para anularla."
+    },
+    "src": {
+      "name": "6c7ae658",
+      "briefing": "c4d8589e",
+      "objectives.find_the_watch": "2d32661f",
+      "objectives.get_two_in": "a5b7d277",
+      "objectives.find_the_west_lane": "709c7017",
+      "objectives.find_the_east_lane": "24668d07",
+      "objectives.find_the_block_commander": "f632fa63",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.the_compound_was_never_empty": "f9350477",
+      "triggers.he_gives_up_the_crossing": "d9826247",
+      "dispatch": "38d9b38d",
+      "debrief.victory": "21907b77",
+      "debrief.defeat": "a087e4df",
+      "sections.situation": "ff59697a",
+      "sections.mission": "818db491",
+      "sections.execution": "90d659c3",
+      "sections.notes": "d3600c42",
+      "objective_say.find_the_watch": "4bf71847",
+      "objective_say.get_two_in": "fd79f9e0",
+      "objective_say.find_the_west_lane": "4eda0da0",
+      "objective_say.find_the_east_lane": "cf5d134c",
+      "objective_say.find_the_block_commander": "6613142c",
+      "objective_say_on_fail.get_two_in": "ebcf0a39",
+      "trigger_say.the_compound_was_never_empty": "88598ed9",
+      "trigger_say.he_gives_up_the_crossing": "3d62378f",
+      "trigger_say.they_move_the_families_off": "96da2d17",
+      "wave_say.0": "19a8a3a6"
+    }
+  },
+  "khan_rafid_2_foothold": {
+    "name": "Khan Rafid II — El distrito",
+    "briefing": "El distrito mide nueve casillas por siete, con cuatro puertas y un muro bajo, y se alza sobre un montículo dentro de una circunvalación. El muro detiene a los hombres y no las balas, y nada en el montículo se oculta de la carretera: una célula en el zoco puede disparar a ese recinto por encima del muro, usted puede responder, y solo uno de los dos paga por ello. No hay nada en ese distrito que merezca la pena tomar y aun así va a mantenerlo cuatro minutos. El reloj es acumulativo y se detiene en cuanto algo hostil está dentro del muro con usted. Seis personas en tres grupos: dos grupos al norte del distrito en el Old Town y uno en la llanura al sur de la circunvalación. Cuatro deben estar dentro de ese muro en cinco minutos; el muro admite a las seis. Los fusiles y la cincuenta del Eitan son gratis dentro del recinto. El cañón del Namer no: se cobra por cada diez segundos que dispare allí dentro, y esta misión se pierde por debajo de cuarenta y cinco. Así que la infantería y el Eitan limpian el distrito y el Namer mantiene la circunvalación fuera de él. A ciento veinte por minuto, el campamento le compra tres secciones de fusileros o un cañón más que no podrá usar dentro del alambre. Él entrará en ese recinto en cuanto sea suyo, porque es el único lugar donde usted no disparará.",
+    "sections": {
+      "situation": "El distrito mide nueve casillas por siete, con cuatro puertas y un muro bajo, y se alza sobre un montículo dentro de una circunvalación. El muro detiene a los hombres y no las balas, y nada en el montículo se oculta de la carretera: una célula en el zoco puede disparar a ese recinto por encima del muro, usted puede responder, y solo uno de los dos paga por ello.",
+      "mission": "No hay nada en ese distrito que merezca la pena tomar y aun así va a mantenerlo cuatro minutos. El reloj es acumulativo y se detiene en cuanto algo hostil está dentro del muro con usted.",
+      "execution": "Seis personas en tres grupos: dos grupos al norte del distrito en el Old Town y uno en la llanura al sur de la circunvalación. Cuatro deben estar dentro de ese muro en cinco minutos; el muro admite a las seis. Los fusiles y la cincuenta del Eitan son gratis dentro del recinto. El cañón del Namer no: se cobra por cada diez segundos que dispare allí dentro, y esta misión se pierde por debajo de cuarenta y cinco. Así que la infantería y el Eitan limpian el distrito y el Namer mantiene la circunvalación fuera de él. A ciento veinte por minuto, el campamento le compra tres secciones de fusileros o un cañón más que no podrá usar dentro del alambre.",
+      "notes": "Él entrará en ese recinto en cuanto sea suyo, porque es el único lugar donde usted no disparará."
+    },
+    "debrief": {
+      "victory": "Cuatro dentro del muro y el muro resistió. Es el primer recinto de este distrito en el que hemos estado sin desmontarlo.",
+      "defeat": "Mantuvimos un recinto cuatro minutos y no metimos a nadie en él. El reloj nunca estuvo en el terreno; estaba en las familias, y siempre lo estuvo."
+    },
+    "objectives": {
+      "hold_the_ward": "Mantener el distrito cuatro minutos",
+      "get_four_in": "Llevar cuatro familias al distrito en cinco minutos",
+      "take_the_market": "Tomar el mercado y mantenerlo 15 segundos",
+      "kill_the_west_lane": "Matar al equipo de cohetes de la calleja oeste"
+    },
+    "objective_say": {
+      "hold_the_ward": "Distrito mantenido, cuatro minutos. Nada salió de ese recinto que no sacáramos nosotros.",
+      "get_four_in": "Cuatro dentro del muro. Hay sitio para las otras dos y ochenta segundos de reloj; esa decisión es suya, no mía.",
+      "take_the_market": "La plaza del mercado es nuestra. La circunvalación queda cortada al este del distrito.",
+      "kill_the_west_lane": "La calleja oeste está despejada. Es una de las dos vías al norte que no pasan por el recinto."
+    },
+    "objective_say_on_fail": {
+      "get_four_in": "Cinco minutos. Mantuvimos el recinto y no metimos a nadie, que es la única forma en que esto iba a perderse."
+    },
+    "triggers": {
+      "they_walk_into_the_ward": "El enemigo entra en el distrito",
+      "the_block_pulls_back_into_the_souk": "La manzana retrocede al zoco",
+      "a_charge_squad_comes_for_the_gate": "Escuadra suicida va a por la puerta"
+    },
+    "trigger_say": {
+      "they_walk_into_the_ward": "Entran en el distrito. No lo rodean ni van a las puertas: entran, porque es el único terreno de este mapa donde sus armas son las que le cuestan.",
+      "the_block_pulls_back_into_the_souk": "El grupo por delante del recinto ha vuelto al zoco. No han terminado; se acortan.",
+      "a_charge_squad_comes_for_the_gate": "Una escuadra suicida, fuera del zoco, hacia la puerta. Es lo único de este mapa que puede matar a una familia dentro del muro, y le da igual de qué lado del muro muera."
+    },
+    "wave_say": {
+      "0": "Dos secciones por la carretera norte hacia la puerta. Cada dos minutos, puntuales, haya o no algo que combatir en la puerta.",
+      "2": "Dos más en la puerta norte, y las familias aún caminan hacia ella. No les apunta a ellas; apunta a la puerta, y ellas están en ella."
+    },
+    "src": {
+      "name": "f241f9e5",
+      "briefing": "5eed97d8",
+      "objectives.hold_the_ward": "ecfb4cf1",
+      "objectives.get_four_in": "f4aab7a4",
+      "objectives.take_the_market": "b28a55c6",
+      "objectives.kill_the_west_lane": "452429fb",
+      "triggers.they_walk_into_the_ward": "c435409d",
+      "triggers.the_block_pulls_back_into_the_souk": "7fa1a33f",
+      "triggers.a_charge_squad_comes_for_the_gate": "04457c18",
+      "debrief.victory": "b22c4550",
+      "debrief.defeat": "7c7500f1",
+      "sections.situation": "8b1bd87e",
+      "sections.mission": "3e3af3f3",
+      "sections.execution": "66c9984c",
+      "sections.notes": "6d72c4b5",
+      "objective_say.hold_the_ward": "c8bcc3fa",
+      "objective_say.get_four_in": "d1fc4072",
+      "objective_say.take_the_market": "29c59c82",
+      "objective_say.kill_the_west_lane": "f66ffcd6",
+      "objective_say_on_fail.get_four_in": "826b4e90",
+      "trigger_say.they_walk_into_the_ward": "760c3b8f",
+      "trigger_say.the_block_pulls_back_into_the_souk": "39fa9376",
+      "trigger_say.a_charge_squad_comes_for_the_gate": "9296a6ad",
+      "wave_say.0": "b5bcb928",
+      "wave_say.2": "91a7c780"
+    }
+  },
+  "khan_rafid_3_clearance": {
+    "name": "Khan Rafid III — Lo que se conserva",
+    "briefing": "El hombre que manda este bloque está dentro de la sala comunal del distrito, y la sala es el único edificio de aquí al que nada nuestro disparará por iniciativa propia. Nadie que actúe por su cuenta le dispara, abre brecha en él ni lo derriba. No dispone de nadie que pueda arrasarla, y es deliberado. Hiera a su gente con la fuerza suficiente y la abandonará por su propio pie, que es la única manera de que salga. Son las mismas células en otro barrio: el lado este de la ciudad, donde el zoco desemboca en huertos amurallados. Lo que identificó la semana pasada vuelve con su emboscada gastada; lo que no identificó dispara primero. Tome el zoco y manténgalo veinte segundos sin interrupción. Mantener significa que no haya ningún enemigo en el zoco a menos de seis casillas de su gente allí. Una célula de la que se mantenga a seis casillas no detiene el reloj, y no se le pedirá que la desaloje. Hay ocho familias en ese barrio, tres de los cuatro grupos encerrados en huertos amurallados con una sola abertura en cada muro, y seis de ellas deben estar dentro del distrito en cinco minutos. Los transportes llevan once entre todos, así que el reloj es lo único que se interpone entre usted y las ocho. Nada embarca hasta que un soldado esté a menos de cuatro casillas. Toda estructura que derribe aquí se factura al doble de lo habitual, y ocho casas son esta misión. El mínimo es cincuenta y una casa derribada no se recupera. Tome el zoco, métalos dentro y esté en condiciones de decir qué sigue en pie.",
+    "sections": {
+      "situation": "El hombre que manda este bloque está dentro de la sala comunal del distrito, y la sala es el único edificio de aquí al que nada nuestro disparará por iniciativa propia. Nadie que actúe por su cuenta le dispara, abre brecha en él ni lo derriba. No dispone de nadie que pueda arrasarla, y es deliberado. Hiera a su gente con la fuerza suficiente y la abandonará por su propio pie, que es la única manera de que salga. Son las mismas células en otro barrio: el lado este de la ciudad, donde el zoco desemboca en huertos amurallados. Lo que identificó la semana pasada vuelve con su emboscada gastada; lo que no identificó dispara primero.",
+      "mission": "Tome el zoco y manténgalo veinte segundos sin interrupción. Mantener significa que no haya ningún enemigo en el zoco a menos de seis casillas de su gente allí. Una célula de la que se mantenga a seis casillas no detiene el reloj, y no se le pedirá que la desaloje.",
+      "execution": "Hay ocho familias en ese barrio, tres de los cuatro grupos encerrados en huertos amurallados con una sola abertura en cada muro, y seis de ellas deben estar dentro del distrito en cinco minutos. Los transportes llevan once entre todos, así que el reloj es lo único que se interpone entre usted y las ocho. Nada embarca hasta que un soldado esté a menos de cuatro casillas. Toda estructura que derribe aquí se factura al doble de lo habitual, y ocho casas son esta misión. El mínimo es cincuenta y una casa derribada no se recupera.",
+      "notes": "Tome el zoco, métalos dentro y esté en condiciones de decir qué sigue en pie."
+    },
+    "debrief": {
+      "victory": "Seis de los ocho dentro del distrito, y la ciudad sigue en pie. Anotaré a los otros dos, igual que anoté a los del recinto.",
+      "defeat": "El zoco es nuestro y el distrito está vacío. Habría preferido lo contrario, y la semana próxima alguien me preguntará cuál elegí."
+    },
+    "objectives": {
+      "take_the_souk": "Tomar el zoco y mantenerlo 20 segundos",
+      "get_six_in": "Llevar seis familias al distrito en cinco minutos",
+      "kill_the_block_commander": "Matar al jefe del bloque si logra sacarlo de la sala",
+      "take_the_store": "Tomar el almacén amurallado del borde norte y mantenerlo 15 segundos"
+    },
+    "objective_say": {
+      "take_the_souk": "Zoco mantenido. El casco antiguo es nuestro, de la calle Mayor a la carretera norte.",
+      "get_six_in": "Seis en el distrito. Llevo esta cuenta desde la primera mañana de la guerra y es la mejor de todas.",
+      "kill_the_block_commander": "Ha caído en la calle, frente a la sala. Podía haberse quedado en ese edificio el resto de la guerra y habríamos tenido que darle la espalda.",
+      "take_the_store": "Recinto del almacén despejado. Nada baja ya por la carretera norte hacia esta ciudad sin cruzar por nosotros."
+    },
+    "objective_say_on_fail": {
+      "get_six_in": "Cinco minutos, y seis de ellos no estaban dentro del muro al agotarse. Tomamos terreno hoy y no conservamos aquello a lo que veníamos."
+    },
+    "triggers": {
+      "the_souk_empties_into_its_own_alleys": "La guarnición del zoco se forma en callejones",
+      "he_walks_out_of_the_hall": "El grupo de la sala se repliega al zoco",
+      "a_rocket_team_moves_into_the_east_lane": "Equipo RPG pasa al callejón este"
+    },
+    "trigger_say": {
+      "the_souk_empties_into_its_own_alleys": "La guarnición ha salido de las manzanas y se forma en los callejones.",
+      "he_walks_out_of_the_hall": "Ha salido de la sala y se dirige al zoco. No iba a marcharse por nosotros; se marcha porque ya no queda nadie en el bloque con quien mantenerlo.",
+      "a_rocket_team_moves_into_the_east_lane": "Equipo de cohetes al callejón este, el que da al huerto este. Nada se mueve por él sobre ruedas hasta que alguien lo despeje."
+    },
+    "wave_say": {
+      "2": "Dos secciones en la puerta norte del distrito, y dentro hay familias. Mete fusiles en el único recinto de este mapa al que no se puede responder con un cañón."
+    },
+    "src": {
+      "name": "5f3d8126",
+      "briefing": "770732b3",
+      "objectives.take_the_souk": "f0441801",
+      "objectives.get_six_in": "98e7ee68",
+      "objectives.kill_the_block_commander": "52d5bf99",
+      "objectives.take_the_store": "63a513f7",
+      "triggers.the_souk_empties_into_its_own_alleys": "da3a3175",
+      "triggers.he_walks_out_of_the_hall": "b46ff5ca",
+      "triggers.a_rocket_team_moves_into_the_east_lane": "ad64bc6f",
+      "debrief.victory": "b6f020f1",
+      "debrief.defeat": "568e268c",
+      "sections.situation": "a42883b8",
+      "sections.mission": "f415ebab",
+      "sections.execution": "a45a7efa",
+      "sections.notes": "cbabc690",
+      "objective_say.take_the_souk": "3a242a46",
+      "objective_say.get_six_in": "6070a956",
+      "objective_say.kill_the_block_commander": "5c23861e",
+      "objective_say.take_the_store": "be6f79b0",
+      "objective_say_on_fail.get_six_in": "00ecb0d7",
+      "trigger_say.the_souk_empties_into_its_own_alleys": "2222ace5",
+      "trigger_say.he_walks_out_of_the_hall": "5e108903",
+      "trigger_say.a_rocket_team_moves_into_the_east_lane": "0aed17ba",
+      "wave_say.2": "2b48cacc"
+    }
+  },
+  "qarn_hadid_1_recon": {
+    "name": "Qarn Hadid I — Ambas puertas",
+    "briefing": "El muro que cruza este paso tiene dos vías: un hombro en la cresta y un portillo a nivel de la llanura por el que pasa la carretera. Alguien ha abierto un foso contracarro en el portillo, así que su infantería va por abajo y sus vehículos por arriba. Haga pasar el dron por el portillo e identifique el puesto sobre cada puerta. Puede obtener ambos en una salida; nada en tierra puede, porque ninguna puerta ve a la otra desde ningún alcance de este mapa. Lo que el dron no puede comprar es la bolsa oriental. Un equipo de misiles en el canchal la cubre hasta trece casillas, solo contra aire, y la batería que protege está en una hondonada donde nada de aquí ve. Cuatro familias están detenidas en la carretera del paso, al este de la zona de concentración, dentro del arco de esa batería. Lleve dos de ellas de vuelta a la zona de concentración en cuatro minutos. El jeep y el Eitan llevan dos cada uno, y esos mismos hombres son los únicos que pueden llegar a algo al este. Conducir es como se gana ese reloj; caminar es como se pierde. Traiga de vuelta los puestos de ambas puertas, y no compre la bolsa con el dron.",
+    "sections": {
+      "situation": "El muro que cruza este paso tiene dos vías: un hombro en la cresta y un portillo a nivel de la llanura por el que pasa la carretera. Alguien ha abierto un foso contracarro en el portillo, así que su infantería va por abajo y sus vehículos por arriba.",
+      "mission": "Haga pasar el dron por el portillo e identifique el puesto sobre cada puerta. Puede obtener ambos en una salida; nada en tierra puede, porque ninguna puerta ve a la otra desde ningún alcance de este mapa.",
+      "execution": "Lo que el dron no puede comprar es la bolsa oriental. Un equipo de misiles en el canchal la cubre hasta trece casillas, solo contra aire, y la batería que protege está en una hondonada donde nada de aquí ve. Cuatro familias están detenidas en la carretera del paso, al este de la zona de concentración, dentro del arco de esa batería. Lleve dos de ellas de vuelta a la zona de concentración en cuatro minutos. El jeep y el Eitan llevan dos cada uno, y esos mismos hombres son los únicos que pueden llegar a algo al este. Conducir es como se gana ese reloj; caminar es como se pierde.",
+      "notes": "Traiga de vuelta los puestos de ambas puertas, y no compre la bolsa con el dron."
+    },
+    "dispatch": "Doce kilómetros de carretera de paso unen Tel Marum con la cuenca, y durante dos semanas la brigada los ha rodeado. Nadie combatió nunca por esa carretera. Alguien pasó por ella con una máquina, la tasó y siguió.",
+    "debrief": {
+      "victory": "Este es el primer terreno donde el mapa fue la inteligencia. Podría decirle qué puerta podían usar sus vehículos antes de que nadie viera a un hombre en ella.",
+      "defeat": "Teníamos cuatro minutos y dos vehículos y los gastamos en el muro. El grupo de la carretera estuvo a once casillas todo el tiempo."
+    },
+    "objectives": {
+      "find_the_high_gate_post": "Identificar el puesto sobre la puerta alta",
+      "find_the_low_gate_post": "Identificar el puesto sobre la puerta baja",
+      "get_the_road_party_clear": "Sacar a dos familias de la carretera del paso en cuatro minutos",
+      "find_the_tube": "Encontrar la batería de cohetes en la hondonada tras la línea de partida",
+      "find_the_bench_post": "Identificar al observador de la repisa de cantos rodados",
+      "find_the_ditch_gun": "Identificar la pareja ATGM sobre el extremo oeste del foso",
+      "screen_out": "Permanecer en el campo cinco minutos"
+    },
+    "objective_say": {
+      "find_the_high_gate_post": "El puesto sobre el hombro cubre ocho de las veinte casillas de esa puerta y ninguna de la otra. Desde donde está, la puerta baja no existe.",
+      "find_the_low_gate_post": "El del portillo está en cobertura densa y la cubre entera, veinte casillas de veinte. Todo lo que cruce por abajo cruza ante él.",
+      "get_the_road_party_clear": "Dos en la zona de concentración. Lo que siga en esa carretera no vale una segunda salida al este.",
+      "find_the_tube": "La batería está en el fondo de la hondonada a su espalda, de su lado del muro. Nada aquí ve esa hondonada y no hace falta: sus ojos están ocho casillas adelante, en la repisa de cantos rodados.",
+      "find_the_bench_post": "Ese es el ojo del tubo. Quítelo de la repisa y la batería dispara al último lugar que le indicaron.",
+      "find_the_ditch_gun": "Pareja ATGM diecisiete casillas pasado el portillo, apuntada al extremo oeste de un segundo foso que nadie ha estado lo bastante cerca para dibujar. Esas armas ya están en el tablero."
+    },
+    "objective_say_on_fail": {
+      "get_the_road_party_clear": "Cuatro minutos, y nadie en tierra llegó a esa carretera a tiempo. Ahora los moverá otro."
+    },
+    "triggers": {
+      "something_is_living_in_the_scree": "Fusileros emergen del canchal",
+      "he_will_not_leave_the_tube": "El mortero se repliega a la plaza"
+    },
+    "trigger_say": {
+      "something_is_living_in_the_scree": "Hay una sección entre las rocas y no entró tras usted. Esa bolsa se mantiene desde antes de que nadie subiera por esta carretera.",
+      "he_will_not_leave_the_tube": "El tubo ha salido de la hondonada y va hacia la puerta alta. No deja uno en un suelo al que se pueda llegar a pie.",
+      "they_move_the_road_party_off": "La carretera está vacía. Nadie combatió por ella: los sacaron mientras el dron estaba sobre el muro."
+    },
+    "wave_say": {
+      "0": "Una sección baja al portillo desde el cruce. Refuerzan la puerta baja mientras usted aún la fotografía."
+    },
+    "src": {
+      "name": "7a3a54e2",
+      "briefing": "bdc4e830",
+      "objectives.find_the_high_gate_post": "6f64523d",
+      "objectives.find_the_low_gate_post": "b86074b3",
+      "objectives.get_the_road_party_clear": "17c34eda",
+      "objectives.find_the_tube": "3efe67f3",
+      "objectives.find_the_bench_post": "938c3255",
+      "objectives.find_the_ditch_gun": "f53e7ee0",
+      "objectives.screen_out": "b9e77a97",
+      "triggers.something_is_living_in_the_scree": "6be3e275",
+      "triggers.he_will_not_leave_the_tube": "c13f6700",
+      "dispatch": "8562db7e",
+      "debrief.victory": "be5dc6bd",
+      "debrief.defeat": "c651b60d",
+      "sections.situation": "bc3239f7",
+      "sections.mission": "2e9be8f1",
+      "sections.execution": "366561fd",
+      "sections.notes": "0b9326ee",
+      "objective_say.find_the_high_gate_post": "08e4d3fa",
+      "objective_say.find_the_low_gate_post": "4a027513",
+      "objective_say.get_the_road_party_clear": "3982aa52",
+      "objective_say.find_the_tube": "b17c19bb",
+      "objective_say.find_the_bench_post": "605c561e",
+      "objective_say.find_the_ditch_gun": "ca8f022a",
+      "objective_say_on_fail.get_the_road_party_clear": "cf9ecbc4",
+      "trigger_say.something_is_living_in_the_scree": "82429683",
+      "trigger_say.he_will_not_leave_the_tube": "f6cf9612",
+      "trigger_say.they_move_the_road_party_off": "1a2a3f53",
+      "wave_say.0": "4c977b56"
+    }
+  },
+  "qarn_hadid_2_foothold": {
+    "name": "Qarn Hadid II — El hombro",
+    "briefing": "La puerta alta está cerrada. Cuatro casillas de hormigón vertido cruzan la cresta del hombro: el dron trajo de vuelta hombres, no mampostería, así que nunca estuvo en el tablero. El camino hasta ella son tres tramos de zigzag tallados en la roca, cada uno amurallado respecto al siguiente, y nada en un tramo ve el siguiente. La infantería cruza, pues, por abajo, y cruza sola. El portillo es un corte recto de dieciséis casillas a través del muro, abierto a pie desde el primer segundo y cubierto desde su boca norte de punta a punta, así que los ven todo el trayecto. Ese hormigón se vertió antes de que la brigada estuviera en Sur. Él no guarneció este paso: lo tasó, y fijó un precio distinto para hombres y vehículos. Los zapadores derriban el parapeto en cinco minutos o esto se acabó. Hasta que caiga, nada con ruedas u orugas pasa al norte del muro, y el campamento a su espalda es el único sitio del que sale algo nuevo. Compre en consecuencia: un Namer comprado a los dos minutos no puede usar una carretera que los zapadores aún no han abierto. Después mantenga ambas puertas tres minutos. Nada que cruce el portillo puede recibir apoyo desde el hombro, ni al revés. Envíelos de todos modos, y sepa cuánto tiempo están solos.",
+    "sections": {
+      "situation": "La puerta alta está cerrada. Cuatro casillas de hormigón vertido cruzan la cresta del hombro: el dron trajo de vuelta hombres, no mampostería, así que nunca estuvo en el tablero. El camino hasta ella son tres tramos de zigzag tallados en la roca, cada uno amurallado respecto al siguiente, y nada en un tramo ve el siguiente. La infantería cruza, pues, por abajo, y cruza sola. El portillo es un corte recto de dieciséis casillas a través del muro, abierto a pie desde el primer segundo y cubierto desde su boca norte de punta a punta, así que los ven todo el trayecto. Ese hormigón se vertió antes de que la brigada estuviera en Sur. Él no guarneció este paso: lo tasó, y fijó un precio distinto para hombres y vehículos.",
+      "mission": "Los zapadores derriban el parapeto en cinco minutos o esto se acabó.",
+      "execution": "Hasta que caiga, nada con ruedas u orugas pasa al norte del muro, y el campamento a su espalda es el único sitio del que sale algo nuevo. Compre en consecuencia: un Namer comprado a los dos minutos no puede usar una carretera que los zapadores aún no han abierto. Después mantenga ambas puertas tres minutos. Nada que cruce el portillo puede recibir apoyo desde el hombro, ni al revés.",
+      "notes": "Envíelos de todos modos, y sepa cuánto tiempo están solos."
+    },
+    "debrief": {
+      "victory": "La cresta es una carretera. Costó cinco minutos inmóviles bajo fuego convertirla en una, y él la vertió en una tarde un año antes de que llegáramos.",
+      "defeat": "El hormigón sigue en el hombro. Todo lo que enviamos por la puerta baja está al otro lado de un muro que nunca abrimos."
+    },
+    "objectives": {
+      "open_the_shoulder": "Arrasar el parapeto de la puerta alta en cinco minutos",
+      "hold_the_gates": "Mantener ambas puertas tres minutos",
+      "take_the_hollow": "Tomar la hondonada tras la línea de partida y mantenerla 15 segundos",
+      "kill_the_bench_post": "Matar al observador de la repisa de cantos rodados"
+    },
+    "objective_say": {
+      "open_the_shoulder": "Parapeto abajo y la cresta es una carretera. Nada con orugas ha tenido una desde que llegamos a este paso.",
+      "hold_the_gates": "Ambas puertas mantenidas. Esta noche nada cruzó este muro que no hayamos pasado nosotros.",
+      "take_the_hollow": "La hondonada está vacía. Se llevó el tubo al norte por una puerta que usted aún no ha abierto, y mientras ocupe esta no puede traerlo de vuelta.",
+      "kill_the_bench_post": "Repisa despejada. La batería conserva su tarjeta de tiro y nadie que la lea en voz alta."
+    },
+    "objective_say_on_fail": {
+      "open_the_shoulder": "Cinco minutos. El hormigón sigue en pie, los blindados no han avanzado una casilla al norte y los hombres que cruzaron por abajo siguen allí."
+    },
+    "triggers": {
+      "the_shoulder_garrison_walks_to_the_notch": "La guarnición del hombro pasa al portillo",
+      "he_takes_the_tube_into_the_village": "La batería se desplaza a la plaza"
+    },
+    "trigger_say": {
+      "the_shoulder_garrison_walks_to_the_notch": "La sección del parapeto lo ha abandonado y ha ido al este, al portillo. Lleva cinco minutos abriendo una puerta que han dejado de defender.",
+      "he_takes_the_tube_into_the_village": "La batería se desplaza a la plaza del pueblo. No estará donde el dron la tuvo por última vez y aún alcanza ambas puertas."
+    },
+    "wave_say": {
+      "2": "Dos secciones más salen de la plaza, y van al portillo, no al hombro. Combate por la puerta que usted no eligió."
+    },
+    "src": {
+      "name": "146d8d1b",
+      "briefing": "d8803b7b",
+      "objectives.open_the_shoulder": "eeffcd2b",
+      "objectives.hold_the_gates": "875abd57",
+      "objectives.take_the_hollow": "0c2a6e44",
+      "objectives.kill_the_bench_post": "c94224d5",
+      "triggers.the_shoulder_garrison_walks_to_the_notch": "f0dcc9b2",
+      "triggers.he_takes_the_tube_into_the_village": "90bfb77c",
+      "debrief.victory": "9dbf9fcb",
+      "debrief.defeat": "c1f21efa",
+      "sections.situation": "eac88bd7",
+      "sections.mission": "127a2a60",
+      "sections.execution": "e3015e58",
+      "sections.notes": "99b2654e",
+      "objective_say.open_the_shoulder": "c71d1c34",
+      "objective_say.hold_the_gates": "02514e17",
+      "objective_say.take_the_hollow": "924b173d",
+      "objective_say.kill_the_bench_post": "bfff50a2",
+      "objective_say_on_fail.open_the_shoulder": "75c4e5c7",
+      "trigger_say.the_shoulder_garrison_walks_to_the_notch": "1b42da77",
+      "trigger_say.he_takes_the_tube_into_the_village": "9341ef93",
+      "wave_say.2": "f16b8903"
+    }
+  },
+  "qarn_hadid_3_clearance": {
+    "name": "Qarn Hadid III — El camino del pueblo",
+    "briefing": "Hay un segundo foso y no está en las puertas. Abrió una línea contracarro por los campos en la propia aproximación al pueblo, con la población detrás y dos pasos estrechos por los extremos. Dos caminos a esa población y usted toma uno. Diecisiete casillas por el extremo oeste, veintitrés por el este a través de la arboleda espinosa, y en la arboleda hay un ojo. El extremo oeste discurre bajo el cerro aterrazado; un puesto en su hombro este ve cuatro de sus siete casillas, y el Kornet bajo el puesto ve las siete. Lo que identificó aquí la semana pasada vuelve con su emboscada gastada; lo que no identificó dispara primero. Tome primero el cerro con infantería y los blindados entrarán tras usted. Tómelo en segundo lugar y entrarán bajo un Kornet. El mástil de allí arriba ve la puerta del hombro y la última curva de su propio camino, y nada más en este mapa: ni el pueblo ni el cruce. Vigila poco; cuenta a la cuenca lo que vieron los ojos de aquí. Tome el pueblo y manténgalo, y mate al equipo de retransmisión del cerro. Mantener significa que no haya ningún enemigo en el pueblo a menos de seis casillas de su gente allí. Un puesto del que se mantenga a seis casillas no detiene el reloj, y no se le pedirá que lo desaloje. Hay tres familias y el patio al que van es el de la propia clínica. Ese patio está señalizado: el armamento pesado que caiga en él se factura por proyectil, y permanecen dentro cinco minutos. Abra el camino: todo lo que haga esta brigada después de este pueblo está al otro lado.",
+    "sections": {
+      "situation": "Hay un segundo foso y no está en las puertas. Abrió una línea contracarro por los campos en la propia aproximación al pueblo, con la población detrás y dos pasos estrechos por los extremos. Dos caminos a esa población y usted toma uno. Diecisiete casillas por el extremo oeste, veintitrés por el este a través de la arboleda espinosa, y en la arboleda hay un ojo. El extremo oeste discurre bajo el cerro aterrazado; un puesto en su hombro este ve cuatro de sus siete casillas, y el Kornet bajo el puesto ve las siete. Lo que identificó aquí la semana pasada vuelve con su emboscada gastada; lo que no identificó dispara primero.",
+      "execution": "Tome primero el cerro con infantería y los blindados entrarán tras usted. Tómelo en segundo lugar y entrarán bajo un Kornet. El mástil de allí arriba ve la puerta del hombro y la última curva de su propio camino, y nada más en este mapa: ni el pueblo ni el cruce. Vigila poco; cuenta a la cuenca lo que vieron los ojos de aquí. Tome el pueblo y manténgalo, y mate al equipo de retransmisión del cerro. Mantener significa que no haya ningún enemigo en el pueblo a menos de seis casillas de su gente allí. Un puesto del que se mantenga a seis casillas no detiene el reloj, y no se le pedirá que lo desaloje. Hay tres familias y el patio al que van es el de la propia clínica. Ese patio está señalizado: el armamento pesado que caiga en él se factura por proyectil, y permanecen dentro cinco minutos.",
+      "notes": "Abra el camino: todo lo que haga esta brigada después de este pueblo está al otro lado."
+    },
+    "debrief": {
+      "victory": "El camino está abierto. Lo trazó un hombre que nunca ha estado aquí, y abrirlo costó una escalada, una demolición y una clínica llena de gente.",
+      "defeat": "El foso sigue cruzando los campos y el mástil sigue en la colina. Lo que se diga mañana a los cañones de la cuenca, se lo dirán deprisa."
+    },
+    "objectives": {
+      "take_the_village": "Tomar el pueblo y mantenerlo 20 segundos",
+      "kill_the_relay": "Matar al equipo de retransmisión del cerro aterrazado",
+      "get_the_families_clear": "Llevar tres familias del pueblo al patio de la clínica en cinco minutos",
+      "take_the_terraces": "Tomar las terrazas y mantenerlas 15 segundos",
+      "find_the_grove_post": "Identificar el puesto de la arboleda espinosa"
+    },
+    "objective_say": {
+      "take_the_village": "Pueblo mantenido. La carretera del paso va ahora de la zona de concentración a la cuenca sin detenerse.",
+      "kill_the_relay": "El mástil ha caído. Nunca vio en este mapa más que la puerta alta: era el cable, y desde esta noche los cañones de la cuenca tardan más en recibir aviso.",
+      "get_the_families_clear": "Tres en el patio de la clínica. Nada más pesado que un fusil entra en ese patio mientras ellos estén en él.",
+      "take_the_terraces": "Terrazas nuestras. El camino de los blindados desde el extremo oeste del foso queda sin vigilancia por primera vez.",
+      "find_the_grove_post": "Un puesto en la arboleda espinosa, sobre el extremo este del foso. Entra en el expediente para la cuenca: la misma idea nos espera allí."
+    },
+    "objective_say_on_fail": {
+      "get_the_families_clear": "Cinco minutos. Siguen en el pueblo y el pueblo sigue en disputa, y eso es culpa del plan, no de ellos."
+    },
+    "triggers": {
+      "they_come_out_of_the_square": "La guarnición se forma en la plaza",
+      "the_town_falls_back_onto_the_hill": "El pueblo se repliega a la colina"
+    },
+    "trigger_say": {
+      "they_come_out_of_the_square": "La guarnición ha salido de los edificios y se forma en la plaza.",
+      "the_town_falls_back_onto_the_hill": "Han dejado las casas y subido a las terrazas. Le entrega el pueblo y se queda con la colina que usted debe escalar."
+    },
+    "wave_say": {
+      "2": "Dos secciones salen de la plaza y van a la clínica, no a por usted. Sabe a qué patio dijimos a esas familias que fueran."
+    },
+    "src": {
+      "name": "0f2e18fc",
+      "briefing": "6ec4c9ce",
+      "objectives.take_the_village": "e9be3423",
+      "objectives.kill_the_relay": "3be2ec84",
+      "objectives.get_the_families_clear": "d28bea78",
+      "objectives.take_the_terraces": "972d6559",
+      "objectives.find_the_grove_post": "3ca83b45",
+      "triggers.they_come_out_of_the_square": "637ec8b3",
+      "triggers.the_town_falls_back_onto_the_hill": "1de37f56",
+      "debrief.victory": "1c27cbdb",
+      "debrief.defeat": "f79ad87a",
+      "sections.situation": "4ae7272e",
+      "sections.execution": "208c2d79",
+      "sections.notes": "643a1b90",
+      "objective_say.take_the_village": "e6d97b8f",
+      "objective_say.kill_the_relay": "c38f6689",
+      "objective_say.get_the_families_clear": "8ae2bf10",
+      "objective_say.take_the_terraces": "1b1dbd70",
+      "objective_say.find_the_grove_post": "aba90721",
+      "objective_say_on_fail.get_the_families_clear": "eadb6f69",
+      "trigger_say.they_come_out_of_the_square": "a57281af",
+      "trigger_say.the_town_falls_back_onto_the_hill": "38a15d84",
+      "wave_say.2": "aca7ed1c"
+    }
+  },
+  "qasr_liwan_1_recon": {
+    "name": "Qasr Liwan I — Una casa",
+    "briefing": "Una casa en el borde norte de Qasr Liwan, amurallada, con una sola puerta al callejón, y dentro está una de las personas capturadas en First Light. Eso es todo lo que tengo, y lo tengo desde hace seis horas. Encuentre al guardia de esa puerta, saque después a esa persona por ella y a través de la carretera norte hasta el punto de extracción, a ocho casillas del patio. Tiene cinco minutos. La calle a doce casillas al oeste de la casa duerme, y cualquier cosa nuestra sobre ese patio la despierta, el dron incluido. Despierta sola a los tres minutos de todos modos. Así que la casa se observa desde el callejón, nunca desde arriba. Gaste el dron en el resto del borde. Un mortero del borde está apuntado a ese patio y no alcanza el punto de extracción, así que la salida es la mitad peligrosa. Hay puestos en ambas aproximaciones que no sé situar, y cada uno que identifique es uno que el próximo combate no tendrá que descubrir. Las casas alrededor de esa puerta están habitadas. Nada de lo que trajo pesa lo bastante para costarle allí; una barrera de fuego solicitada, sí, y perder más de diez de Conducta esta noche lo termina todo. Una persona por una puerta; la calle no es el objetivo, así que no la convierta en uno.",
+    "dispatch": "Beit Sahwan está tomado, y el hombre que lo excavó fue capturado en la boca de su pozo. Costa arriba está la ciudad del Marj, Qasr Liwan, preparada durante años para que se combata por ella desde dentro.",
+    "hostages_place": "una casa del borde norte",
+    "debrief": {
+      "victory": "Una persona fuera de Qasr Liwan. Nadie había salido de esta ciudad antes de esta noche, y nadie nos regaló esta.",
+      "defeat": "Esta noche no. El borde norte sabe ya a qué veníamos, y la próxima vez no estará dormido."
+    },
+    "objectives": {
+      "find_the_gate_guard": "Identificar al guardia de la puerta del patio",
+      "walk_one_out": "Sacar a una persona hasta la carretera norte",
+      "keep_the_street": "Perder como máximo 10 de Conducta",
+      "find_the_seam_post": "Identificar el puesto de sacos terreros del cruce de la costa"
+    },
+    "objective_say": {
+      "find_the_gate_guard": "Ese es el guardia, en el callejón ante la única puerta. Un solo hombre en una sola puerta significa que no creen que nadie sepa de esta casa.",
+      "walk_one_out": "Una fuera y en la carretera. Aléjese del borde antes de que acabe de despertar.",
+      "find_the_seam_post": "Puesto de sacos terreros donde la carretera norte llega a la costa, mirando hacia donde vendríamos. Entra en el expediente, y seguirá ahí cuando volvamos a por esa esquina."
+    },
+    "objective_say_on_fail": {
+      "walk_one_out": "Hemos perdido la casa. Una imagen así llega una vez, y no puedo comprarla dos.",
+      "keep_the_street": "Eso pasa de diez en esta calle, y pasar de diez es la noche."
+    },
+    "triggers": {
+      "the_street_heard_the_courtyard": "La calle ha oído el patio",
+      "the_street_wakes": "La calle al oeste de la casa despierta"
+    },
+    "trigger_say": {
+      "the_street_heard_the_courtyard": "La calle al oeste está en pie y avanza hacia la casa. El mortero del borde apunta a ese patio, y cada segundo en él es un segundo bajo ese tubo.",
+      "the_street_wakes": "Tres minutos. La calle al oeste está en pie y camina hacia la casa."
+    },
+    "wave_say": {
+      "0": "Dos jinetes vienen al este por la carretera norte hacia la extracción. El borde está despierto."
+    },
+    "src": {
+      "name": "f070a78d",
+      "briefing": "d6af3c3a",
+      "objectives.find_the_gate_guard": "04e8baef",
+      "objectives.walk_one_out": "015c4c2a",
+      "objectives.keep_the_street": "a2e99ae1",
+      "objectives.find_the_seam_post": "9cdd8259",
+      "triggers.the_street_heard_the_courtyard": "9cd45485",
+      "triggers.the_street_wakes": "308e6efc",
+      "dispatch": "d7d3c95f",
+      "hostages_place": "78700b90",
+      "debrief.victory": "bc90300d",
+      "debrief.defeat": "c863a393",
+      "objective_say.find_the_gate_guard": "439496cf",
+      "objective_say.walk_one_out": "d7860fce",
+      "objective_say.find_the_seam_post": "720731fe",
+      "objective_say_on_fail.walk_one_out": "8b31ce10",
+      "objective_say_on_fail.keep_the_street": "0b37e733",
+      "trigger_say.the_street_heard_the_courtyard": "533df3d1",
+      "trigger_say.the_street_wakes": "5a765ad0",
+      "wave_say.0": "65e0135a"
+    }
+  },
+  "qasr_liwan_2_foothold": {
+    "name": "Qasr Liwan II — El cerco",
+    "briefing": "El cerco de Qasr Liwan se cierra en dos puntos. Al norte es la juntura, donde la carretera norte llega a la costa, y lo que vio la incursión a la casa ya está en su mapa. Al sur es el Tajo, el punto de control al pie de la ciudad, y ambos se mantienen cuatro minutos. Están a cuarenta casillas uno de otro y no puede estar en los dos, así que el campamento está para comprar la segunda fuerza. Ambos están minados por debajo. Salen cuadrillas dentro de la juntura y junto a la carretera de la costa, y cualquier posición con una de ellas en pie deja de contar. Los problemas de la juntura llegan sobre ruedas por la carretera de la costa, así que necesita el equipo antitanque y un jeep; el Tajo son callejones de una casilla, y necesita fusiles. Compre en consecuencia. Nueve residentes están en los callejones del barrio sur. Echan a andar cuando uno de los nuestros está a menos de cuatro casillas, y su camino al refugio pasa por el callejón del punto de control. Seis de ellos han de cruzar en cinco minutos, o el punto de control es un muro. El mortero, el misil antitanque y el cañón del Namer se facturan cerca de esas casas; los fusiles, no.",
+    "dispatch": "La brigada cierra un cerco en torno a Qasr Liwan. Al sur de la ciudad abre un camino a través del enclave, y el camino tiene nombre antes que punto de control: el Tajo. Dividirá el Marj durante el resto de la guerra.",
+    "debrief": {
+      "victory": "El cerco está cerrado y el Tajo abierto, y las primeras personas en cruzar el punto de control fueron las que viven detrás. Todo lo que venga después cruzará ese camino.",
+      "defeat": "Esta noche Qasr Liwan no está cercada. Sus dos extremos tienen un día más, y también todos los que siguen en esos callejones."
+    },
+    "objectives": {
+      "hold_the_seam": "Mantener la juntura cuatro minutos",
+      "hold_the_cut": "Mantener el punto de control del Tajo cuatro minutos",
+      "residents_through": "Pasar a seis residentes al sur del Tajo",
+      "take_the_coast_road": "Tomar la carretera de la costa donde llega al Tajo"
+    },
+    "objective_say": {
+      "hold_the_seam": "La juntura está cerrada. Deje en ella lo bastante para que siga así.",
+      "hold_the_cut": "El Tajo es nuestro. De aquí en adelante no se devuelve.",
+      "residents_through": "Seis han cruzado el punto de control y están al sur del Tajo. El resto del barrio ha visto que se puede hacer.",
+      "take_the_coast_road": "Cruce de la carretera de la costa en nuestro poder. El suministro corre por el Tajo."
+    },
+    "objective_say_on_fail": {
+      "residents_through": "Cinco minutos, y siguen en los callejones. Un punto de control que nadie puede cruzar es un muro."
+    },
+    "triggers": {
+      "the_seam_reserve_comes_up": "La reserva de la juntura sale de las casas",
+      "the_lanes_move_on_the_checkpoint": "Los callejones avanzan hacia el punto de control",
+      "the_seam_reserve_falls_back": "Lo que queda de la reserva se repliega"
+    },
+    "trigger_say": {
+      "the_seam_reserve_comes_up": "Tres más salen de las casas a espaldas de la juntura. Esperaban a que alguien se pusiera sobre ella.",
+      "the_lanes_move_on_the_checkpoint": "Dos avanzan al sur desde los callejones hacia el punto de control."
+    },
+    "wave_say": {
+      "2": "Un technical baja por la carretera de la costa desde el norte, pasa la juntura y sigue hacia el Tajo."
+    },
+    "src": {
+      "name": "0bae5035",
+      "briefing": "184948b2",
+      "objectives.hold_the_seam": "7fab9047",
+      "objectives.hold_the_cut": "4835989f",
+      "objectives.residents_through": "f23feaef",
+      "objectives.take_the_coast_road": "5df8d6d9",
+      "triggers.the_seam_reserve_comes_up": "88c7a671",
+      "triggers.the_lanes_move_on_the_checkpoint": "b759003b",
+      "triggers.the_seam_reserve_falls_back": "400e02f0",
+      "dispatch": "7043ccc4",
+      "debrief.victory": "8e0e8e74",
+      "debrief.defeat": "286b6314",
+      "objective_say.hold_the_seam": "fc38a046",
+      "objective_say.hold_the_cut": "72d1da6c",
+      "objective_say.residents_through": "55f25489",
+      "objective_say.take_the_coast_road": "d953da99",
+      "objective_say_on_fail.residents_through": "9f7db2e7",
+      "trigger_say.the_seam_reserve_comes_up": "805c0427",
+      "trigger_say.the_lanes_move_on_the_checkpoint": "0f074cb5",
+      "wave_say.2": "0dc61826"
+    }
+  },
+  "qasr_liwan_3_buildup": {
+    "name": "Qasr Liwan III — La pausa",
+    "briefing": "La pausa se mantiene cuatro minutos desde que usted se ponga en marcha. Sus líneas están justo más allá del límite de lo que vemos, y allí se quedan salvo que muera uno de los suyos o algo nuestro cruce la calle sur. Cuatro de los capturados son conducidos al terreno abierto al oeste del punto de control. A los noventa segundos, la escolta se retira; vaya entonces y no antes, y traiga a los cuatro al sur a través del Tajo. Desde el sur de esa calle veo el patio de la clínica, y desde ningún sitio más cercano. Cruzarla para mirar, con una escuadra o con el dron, acaba la pausa para todos en ese terreno. Ponga el mortero y el equipo antitanque en emboscada antes de que nada identifique nada, porque un tubo dejado a su propio criterio es la forma en que una pausa acaba. El terreno de la entrega está señalizado, y la Conducta tiene hoy cinco puntos que dar. Cuando acabe, acabará en el terreno avanzado al norte del punto de control, por tres lados, con ruedas un minuto después. El punto de agua al oeste paga ochenta por minuto a quien lo mantenga. Gaste la calma en lo que mantiene ese terreno a los cuatro minutos: antitanque para las ruedas, fusiles para el resto. Los cuatro van primero, porque bajo el fuego no se les puede recomprar.",
+    "dispatch": "Se acordó una pausa a medianoche. Mientras se mantenga nadie dispara a través del Tajo, y por la mañana cuatro de los capturados en First Light serán conducidos al terreno abierto junto a él y devueltos.",
+    "aftermath": "Cuatro devueltos a través del Tajo. Eso es todo lo que compró la pausa, y la brigada no le pidió más.",
+    "hostages_place": "el Tajo",
+    "debrief": {
+      "victory": "Cuatro de vuelta a través del Tajo. Lo que construimos en la calma sostuvo el terreno avanzado cuando la calma acabó.",
+      "defeat": "La pausa ha terminado, y salimos de ella peor de lo que entramos."
+    },
+    "objectives": {
+      "bring_four_across": "Pasar a los cuatro capturados al sur del Tajo",
+      "hold_the_forward_ground": "Mantener el terreno avanzado seis minutos",
+      "keep_the_pause": "Perder como máximo 5 de Conducta",
+      "take_the_water_point": "Tomar el punto de agua al oeste del punto de control",
+      "find_the_yard_watch": "Identificar al vigía del patio de la clínica"
+    },
+    "objective_say": {
+      "bring_four_across": "Cuatro al otro lado. Pase lo que pase ahora en el terreno avanzado, esa parte está hecha.",
+      "hold_the_forward_ground": "Terreno avanzado mantenido. El punto de control vuelve a tener una línea delante.",
+      "take_the_water_point": "Punto de agua en nuestro poder. Paga el próximo combate desde aquí.",
+      "find_the_yard_watch": "Equipo de cohetes en el patio de la clínica, a campo abierto. Entra en el expediente, y no tendrá el primer disparo cuando entremos allí."
+    },
+    "objective_say_on_fail": {
+      "bring_four_across": "No están los cuatro al otro lado, y ese terreno no volverá a estar en calma. No hay segunda entrega.",
+      "keep_the_pause": "Eso son más de cinco de Conducta, y cinco era todo lo que la pausa tenía que dar."
+    },
+    "triggers": {
+      "the_handover_party_steps_back": "La escolta de la entrega se retira",
+      "the_pause_ends": "La pausa ha terminado",
+      "ours_over_the_south_street": "Nuestras unidades están sobre la calle sur",
+      "the_first_of_theirs_down": "Uno de los suyos cae y sus líneas se mueven"
+    },
+    "trigger_say": {
+      "the_handover_party_steps_back": "La escolta se ha retirado hacia la ciudad. Ahora nadie vigila a los cuatro.",
+      "the_pause_ends": "Cuatro minutos. Todo lo que mantuvieron fuera de la vista camina hacia el terreno avanzado.",
+      "ours_over_the_south_street": "Algo nuestro está sobre la calle sur, y sus líneas lo ven. La calma que quedaba se ha ido."
+    },
+    "wave_say": {
+      "2": "Ruedas desde el extremo este de la ciudad, un technical y dos motos, hacia el terreno avanzado."
+    },
+    "src": {
+      "name": "7c1ded11",
+      "briefing": "ea146146",
+      "objectives.bring_four_across": "9ce50f61",
+      "objectives.hold_the_forward_ground": "418606f9",
+      "objectives.keep_the_pause": "e6e20cd5",
+      "objectives.take_the_water_point": "f67be0f5",
+      "objectives.find_the_yard_watch": "ca7e0f4b",
+      "triggers.the_handover_party_steps_back": "5787aea6",
+      "triggers.the_pause_ends": "f2588dad",
+      "triggers.ours_over_the_south_street": "f9cbe8bb",
+      "triggers.the_first_of_theirs_down": "07d201a9",
+      "dispatch": "ff395ba2",
+      "aftermath": "7f38afd4",
+      "hostages_place": "dbaf39e5",
+      "debrief.victory": "348b6657",
+      "debrief.defeat": "521f0f4b",
+      "objective_say.bring_four_across": "ee29c0af",
+      "objective_say.hold_the_forward_ground": "0b8dc45a",
+      "objective_say.take_the_water_point": "0e4d97ab",
+      "objective_say.find_the_yard_watch": "683d543c",
+      "objective_say_on_fail.bring_four_across": "796ba272",
+      "objective_say_on_fail.keep_the_pause": "1444a233",
+      "trigger_say.the_handover_party_steps_back": "1aadb0be",
+      "trigger_say.the_pause_ends": "a35dfc46",
+      "trigger_say.ours_over_the_south_street": "9fea390c",
+      "wave_say.2": "108616c7"
+    }
+  },
+  "qasr_liwan_4_clearance": {
+    "name": "Qasr Liwan IV — El patio de la clínica",
+    "briefing": "La boca del pozo está en el patio de la clínica, el terreno abierto dentro del muro oeste del recinto. Eso es lo que tengo, y es todo lo que tengo. Tome el patio y manténgalo quince segundos sin nada suyo dentro, ponga después a los zapadores junto a la ruta y derríbela. Seis minutos para el pozo. Seis personas están en la explanada al sur de la clínica, y salen por la puerta sur en cuanto uno de los nuestros está a menos de cuatro casillas. Una posición de tiro cubre esa puerta desde el suroeste. Lleve a cinco al refugio junto al punto de control en cinco minutos. Gente primero o patio primero lo elige usted; el patio primero impide que las cuadrillas salgan bajo sus pies. Su posición este está a tres casillas del muro de la clínica. Toda ronda pesada que la falle cae junto a la clínica y se factura. Los fusiles y la coaxial del Lavi son gratis junto a ese muro; su cañón, el cañón del Namer y el misil antitanque, no. Pierda la clínica y habrá gastado más de diez de Conducta de una vez, que es la misión.",
+    "debrief": {
+      "victory": "El pozo está derribado y la clínica sigue en pie, y la salida de la explanada era lo que contaba. El patio tenía un agujero, y ahora es un patio.",
+      "defeat": "Salimos de ese recinto sin hacer el trabajo. El patio vuelve a ser de otros, y también lo que hay debajo."
+    },
+    "objectives": {
+      "take_the_yard": "Tomar y mantener el patio de la clínica",
+      "walk_the_forecourt_out": "Sacar a cinco personas de la explanada de la clínica",
+      "bring_the_shaft_down": "Derribar el pozo del patio de la clínica",
+      "keep_the_clinic": "Perder como máximo 10 de Conducta",
+      "the_yard_commander": "Matar al comandante de la puerta norte del patio"
+    },
+    "objective_say": {
+      "take_the_yard": "El patio es suyo. Los zapadores solo pueden cargar la boca mientras alguien la vigila.",
+      "walk_the_forecourt_out": "Cinco fuera de la explanada y en el refugio. Lo que quede en ese recinto es el combate.",
+      "bring_the_shaft_down": "El pozo está derribado y la clínica en pie. Ese es el trabajo, las dos mitades.",
+      "the_yard_commander": "El comandante del patio ha caído en la puerta norte. Dirigía esa línea de tiro desde fuera de su propio patio."
+    },
+    "objective_say_on_fail": {
+      "walk_the_forecourt_out": "Se acabó el tiempo en la explanada. Quien siga en ella sigue junto al combate.",
+      "bring_the_shaft_down": "Seis minutos, y el patio sigue abierto por debajo. Lo que salga ahora por ahí saldrá junto a esa clínica.",
+      "keep_the_clinic": "Eso pasa de diez junto a una clínica. Nada de ese patio lo merecía."
+    },
+    "triggers": {
+      "the_shore_lane_moves_on_the_yard": "El callejón de la orilla avanza hacia el patio",
+      "the_firing_line_leaves": "Su línea de tiro abandona el recinto"
+    },
+    "trigger_say": {
+      "the_shore_lane_moves_on_the_yard": "Dos del callejón del barrio de la orilla avanzan hacia el patio por la puerta oeste.",
+      "the_firing_line_leaves": "Las posiciones de tiro en torno al recinto se vacían hacia el norte. Lo que queda del combate está en el patio."
+    },
+    "wave_say": {
+      "1": "Un technical y un equipo de cohetes rodean hacia la puerta sur, la puerta por la que sale la gente."
+    },
+    "src": {
+      "name": "c9305840",
+      "briefing": "a8dac19e",
+      "objectives.take_the_yard": "0a5a79eb",
+      "objectives.walk_the_forecourt_out": "d4e32713",
+      "objectives.bring_the_shaft_down": "75dfd8a9",
+      "objectives.keep_the_clinic": "a2e99ae1",
+      "objectives.the_yard_commander": "b7da0c41",
+      "triggers.the_shore_lane_moves_on_the_yard": "27222e35",
+      "triggers.the_firing_line_leaves": "3ca90eca",
+      "debrief.victory": "45e092ba",
+      "debrief.defeat": "e46fee8f",
+      "objective_say.take_the_yard": "709f33ce",
+      "objective_say.walk_the_forecourt_out": "1ecb09ed",
+      "objective_say.bring_the_shaft_down": "9f935331",
+      "objective_say.the_yard_commander": "24a79db5",
+      "objective_say_on_fail.walk_the_forecourt_out": "93bb1f11",
+      "objective_say_on_fail.bring_the_shaft_down": "7e229299",
+      "objective_say_on_fail.keep_the_clinic": "3790b334",
+      "trigger_say.the_shore_lane_moves_on_the_yard": "b6baced1",
+      "trigger_say.the_firing_line_leaves": "c7638e7f",
+      "wave_say.1": "29d761e6"
+    }
+  },
+  "qasr_liwan_5_subterranean": {
+    "name": "Qasr Liwan V — Las bombas",
+    "briefing": "Este terreno se cartografía antes de que nadie entre en él. Tres rutas profundas recorren el subsuelo del barrio de la orilla, y una ruta solo cuenta mientras algo nuestro la vigila: si mira a otro lado, se enfría. Mantenga el patio de bombas del borde oeste tres minutos y el agua entra en el nivel somero. Cuando lo haga, esas cuadrillas salen por los dos extremos del patio, sobre quien esté allí. El agua no llega al nivel profundo. Esas tres se encuentran y se cargan a mano en seis minutos, y una de ellas aún se excava hacia el Tajo. Dos escuadras de zapadores, tres rutas y el patio de bombas piden el mismo minuto, así que elija el orden antes de empezar. Una tercera escuadra de zapadores está en la lista del campamento si la Conducta de la brigada se la ha ganado. Una ruta profunda sale dentro del patio amurallado del depósito de socorro. El depósito no es el objetivo, y esa ruta puede leerse y cargarse desde fuera de su muro. El depósito está señalizado, y derribarlo pierde la misión; también cualquier casa de esta orilla. Los fusiles responden a lo que salga a su lado, y nada más pesado. Primero cartografiar y después cargar: un zapador junto a una ruta que nadie vigila es un hombre a campo abierto para nada.",
+    "aftermath": "Las bombas funcionaron un día y las rutas someras bajo la orilla se inundaron. Las profundas no: la brigada las derribó a mano, un zapador y una ruta vigilada cada vez.",
+    "debrief": {
+      "victory": "La ciudad está cercada y aislada del sur, y lo que hay bajo su orilla es nuestro. Qasr Liwan sigue en pie, y también todos los que sacamos de ella.",
+      "defeat": "Salimos de la orilla con la red aún en manos de la ciudad. Un cerco en el mapa vale lo que valga lo que hay debajo."
+    },
+    "objectives": {
+      "run_the_pumps": "Mantener el patio de bombas tres minutos",
+      "the_deep_routes": "Derrumbar las rutas profundas bajo la orilla",
+      "keep_the_depot": "Perder como máximo 10 de Conducta",
+      "the_grid_chief": "Matar al jefe de la red en la boca del pozo profundo",
+      "find_the_deep_crew": "Encontrar a la cuadrilla que excava hacia el Tajo"
+    },
+    "objective_say": {
+      "the_deep_routes": "Las rutas profundas están derribadas. La orilla es nuestra por arriba y por abajo, hasta donde vemos.",
+      "the_grid_chief": "El jefe de la red ha caído en su propia boca de pozo. Dirigía esa red según un plan trazado antes de la guerra.",
+      "find_the_deep_crew": "Esa es la cuadrilla que excava hacia el Tajo, en el borde sur de la orilla. No está en ningún plan que yo tenga; lo está haciendo."
+    },
+    "objective_say_on_fail": {
+      "the_deep_routes": "Seis minutos, y aún hay una ruta profunda abierta bajo la orilla. El agua nunca llegó a ella, y nosotros tampoco.",
+      "keep_the_depot": "Eso pasa de diez de Conducta en una orilla vacía. Nada de lo que salió por ahí lo merecía."
+    },
+    "wave_say": {
+      "0": "El agua ha entrado. Cuadrillas salen por ambos extremos del patio de bombas, norte y sur.",
+      "2": "Un technical baja por la carretera de la costa desde el borde norte, hacia el patio de bombas."
+    },
+    "src": {
+      "name": "d9cdd102",
+      "briefing": "92e00367",
+      "objectives.run_the_pumps": "f2b60443",
+      "objectives.the_deep_routes": "97903f1b",
+      "objectives.keep_the_depot": "a2e99ae1",
+      "objectives.the_grid_chief": "906629a5",
+      "objectives.find_the_deep_crew": "6b231746",
+      "aftermath": "931eeb5d",
+      "debrief.victory": "2d5b8fad",
+      "debrief.defeat": "50768a57",
+      "objective_say.the_deep_routes": "b3d241ac",
+      "objective_say.the_grid_chief": "97a1cd4c",
+      "objective_say.find_the_deep_crew": "2a4f563a",
+      "objective_say_on_fail.the_deep_routes": "a1bce6da",
+      "objective_say_on_fail.keep_the_depot": "1b92363a",
+      "wave_say.0": "9d6c9af3",
+      "wave_say.2": "2f17eee4"
+    }
+  },
+  "tel_marum_1_recon": {
+    "name": "Tel Marum I — La puerta",
+    "briefing": "Sur empieza en el paso, y el paso está vigilado. Llevan una semana cayendo cohetes en el norte y nadie sabe decir desde dónde, así que esta noche lo averigua. Haga subir el dron por el valle y construya la imagen: dos bolsas ATGM en los espolones del flanco, una sección Grad tras la roca en la cabecera del valle, y quien les facilita los objetivos. Mantenga los vehículos en la hondonada tras la línea de lomas: el fondo del valle al sur de ella queda fuera del alcance de la batería, y todo lo que está al norte no. Hay pastores con el ganado en ese fondo al norte de la hondonada: llévelos al sur, al área de reunión, en cinco minutos, antes de que la batería afine el alcance. Traiga la imagen, no bajas.",
+    "sections": {
+      "situation": "Sur empieza en el paso, y el paso está vigilado. Llevan una semana cayendo cohetes en el norte y nadie sabe decir desde dónde, así que esta noche lo averigua.",
+      "mission": "Haga subir el dron por el valle y construya la imagen: dos bolsas ATGM en los espolones del flanco, una sección Grad tras la roca en la cabecera del valle, y quien les facilita los objetivos.",
+      "execution": "Mantenga los vehículos en la hondonada tras la línea de lomas: el fondo del valle al sur de ella queda fuera del alcance de la batería, y todo lo que está al norte no. Hay pastores con el ganado en ese fondo al norte de la hondonada: llévelos al sur, al área de reunión, en cinco minutos, antes de que la batería afine el alcance.",
+      "notes": "Traiga la imagen, no bajas."
+    },
+    "dispatch": "Una semana despertando el norte con cohetes sin saber desde dónde. La octava mañana un asentamiento recibió nueve antes de que cesaran las sirenas. Ningún lanzamiento visto, ninguna línea trazada. Alguien llevaba mucho tiempo observándolo.",
+    "debrief": {
+      "victory": "Cuatro posiciones y un tubo. Es más de Sur de lo que nadie ha tenido desde que empezó el bombardeo.",
+      "defeat": "Volvimos con parte. La parte que no conseguimos es la que ha estado matando gente."
+    },
+    "objectives": {
+      "find_pocket_east": "Identificar la bolsa ATGM oriental",
+      "find_pocket_west": "Identificar la bolsa ATGM occidental",
+      "find_spotter": "Identificar a quien observa para la batería",
+      "find_battery": "Encontrar la sección Grad tras el muro",
+      "screen_out": "Permanecer en el campo cuatro minutos",
+      "clear_the_valley_floor": "Sacar a los pastores del fondo del valle antes de que la batería afine el alcance"
+    },
+    "objective_say": {
+      "find_spotter": "Ese no es un centinela. Está tumbado e inmóvil en el borde oeste con todo el valle delante, y todo lo que ha caído en el norte cayó porque un hombre hacía eso.",
+      "find_battery": "El tubo está tras la banda rocosa, a treinta y ocho casillas de su línea de partida. Visión seis: nunca ha visto lo que disparaba.",
+      "clear_the_valley_floor": "Pastores fuera del fondo. Sobre lo que ajuste la batería esta noche, no serán ellos."
+    },
+    "objective_say_on_fail": {
+      "clear_the_valley_floor": "La batería llevó su fuego al fondo antes de que los pastores lo despejaran. Ese terreno nunca fue nuestro para gastarlo."
+    },
+    "wave_say": {
+      "0": "Algo ha bajado del muro y camina hacia la hondonada. Saben dónde habría aparcado usted."
+    },
+    "src": {
+      "name": "7701f697",
+      "briefing": "bd7525a4",
+      "objectives.find_pocket_east": "1f62b2d8",
+      "objectives.find_pocket_west": "ce7a3ca6",
+      "objectives.find_spotter": "ad484f95",
+      "objectives.find_battery": "c592ffcf",
+      "objectives.screen_out": "71e40892",
+      "objectives.clear_the_valley_floor": "ab860ab3",
+      "dispatch": "6d65fcf1",
+      "debrief.victory": "91f30124",
+      "debrief.defeat": "11dc8b33",
+      "sections.situation": "8b2c4b8f",
+      "sections.mission": "abe9f3ed",
+      "sections.execution": "679f11e3",
+      "sections.notes": "18bdf677",
+      "objective_say.find_spotter": "c00b4737",
+      "objective_say.find_battery": "8e55c4e6",
+      "objective_say.clear_the_valley_floor": "72adcf4f",
+      "objective_say_on_fail.clear_the_valley_floor": "90be3291",
+      "wave_say.0": "5d9a50d3"
+    }
+  },
+  "tel_marum_2_foothold": {
+    "name": "Tel Marum II — La línea de partida",
+    "briefing": "La imagen dice que el Grad no ve más allá del muro, pero no lo necesita. Dispara donde la línea de Sarim ve, y los mejores ojos sobre ese terreno son los del hombre de la repisa oeste. Tome la aproximación y manténgala cuatro minutos mientras los zapadores marcan la línea de partida a su espalda. Si lo mata, el bombardeo amainará; no es el único par de ojos sobre ese terreno, así que no espere que cese. Los focos del muro disparan desde un depósito de munición en la vaguada que tienen debajo: quémelo en cinco minutos o combatirán toda la noche con lo que contenga. La pendiente sube en tres terrazas y cada talud oculta el terreno de su base al de arriba: no todas las casillas de la aproximación están vigiladas. Elija su terreno antes de que le obliguen.",
+    "sections": {
+      "situation": "La imagen dice que el Grad no ve más allá del muro, pero no lo necesita. Dispara donde la línea de Sarim ve, y los mejores ojos sobre ese terreno son los del hombre de la repisa oeste.",
+      "mission": "Tome la aproximación y manténgala cuatro minutos mientras los zapadores marcan la línea de partida a su espalda. Si lo mata, el bombardeo amainará; no es el único par de ojos sobre ese terreno, así que no espere que cese. Los focos del muro disparan desde un depósito de munición en la vaguada que tienen debajo: quémelo en cinco minutos o combatirán toda la noche con lo que contenga.",
+      "execution": "La pendiente sube en tres terrazas y cada talud oculta el terreno de su base al de arriba: no todas las casillas de la aproximación están vigiladas. Elija su terreno antes de que le obliguen."
+    },
+    "debrief": {
+      "victory": "Un par de ojos menos sobre ese terreno y los proyectiles siguieron cayendo. Eso es el frente, no una mala noche.",
+      "defeat": "No mantuvimos el terreno que marcaban los zapadores. Sin línea de partida no hay paso."
+    },
+    "objectives": {
+      "hold_approach": "Mantener la aproximación cuatro minutos",
+      "kill_spotter": "Matar al observador de la repisa oeste: el bombardeo amainará, no cesará",
+      "burn_the_ammo_point": "Quemar el depósito de munición de la vaguada bajo el muro"
+    },
+    "objective_say": {
+      "hold_approach": "Aproximación mantenida. La línea de partida está marcada y los zapadores han salido del terreno.",
+      "kill_spotter": "Ojos fuera de ese borde. Cuente los próximos treinta segundos: lo que aún caiga lo dirige otro.",
+      "burn_the_ammo_point": "Ese depósito alimentaba los focos del muro. Ahora combaten con lo que les queda en las cartucheras."
+    },
+    "objective_say_on_fail": {
+      "burn_the_ammo_point": "El depósito sigue en pie y todo lo que alimentaba también. Les hemos comprado otra noche de fuego."
+    },
+    "wave_say": {
+      "1": "Cañón sin retroceso bajando al collado ancho. No refuerza el foco: tantea la carretera a su espalda."
+    },
+    "src": {
+      "name": "ce75f33d",
+      "briefing": "31d8c50b",
+      "objectives.hold_approach": "6e951946",
+      "objectives.kill_spotter": "e8b002ce",
+      "objectives.burn_the_ammo_point": "b224d930",
+      "debrief.victory": "1a5ad043",
+      "debrief.defeat": "edf9a4f0",
+      "sections.situation": "e3a8d544",
+      "sections.mission": "6c050743",
+      "sections.execution": "20524e40",
+      "objective_say.hold_approach": "a7d343a2",
+      "objective_say.kill_spotter": "a7fb3c8c",
+      "objective_say.burn_the_ammo_point": "fa64fc10",
+      "objective_say_on_fail.burn_the_ammo_point": "31cbc1ed",
+      "wave_say.1": "82232be9"
+    }
+  },
+  "tel_marum_3_clearance": {
+    "name": "Tel Marum III — El paso",
+    "briefing": "Dos caminos atraviesan el muro y ninguno es gratis. El collado ancho queda bajo ambos focos de Kornet y costará vehículos. El estrecho es diez casillas más largo y ningún misil lo alcanza; los cohetes del Grad sí, a diecisiete. Su boca norte está vigilada y un segundo equipo de fusileros baja hasta ella pronto. A mitad de subida, entre rocas a las que no llega ninguna rueda, un equipo de fusileros guarda el relé que lleva las correcciones a la batería. Lo que no puede hacer es mandarlo todo por ahí: el corredor está obstruido por rocas caídas, practicable a pie y para nada con ruedas u orugas. Los blindados atraviesan el paso o no atraviesan. Atención a la manzana del pueblo tras el paso: está a dos casillas de la batería que se le ordena destruir, el único lugar donde está garantizado que caerá munición pesada. Aún viven en ella tres familias: sáquelas a la aproximación en cinco minutos, antes de que el combate llegue. El relé merece la subida si puede pagarlo en infantería. Tome el paso y saque la batería de la guerra.",
+    "sections": {
+      "situation": "Dos caminos atraviesan el muro y ninguno es gratis. El collado ancho queda bajo ambos focos de Kornet y costará vehículos. El estrecho es diez casillas más largo y ningún misil lo alcanza; los cohetes del Grad sí, a diecisiete. Su boca norte está vigilada y un segundo equipo de fusileros baja hasta ella pronto. A mitad de subida, entre rocas a las que no llega ninguna rueda, un equipo de fusileros guarda el relé que lleva las correcciones a la batería.",
+      "execution": "Lo que no puede hacer es mandarlo todo por ahí: el corredor está obstruido por rocas caídas, practicable a pie y para nada con ruedas u orugas. Los blindados atraviesan el paso o no atraviesan. Atención a la manzana del pueblo tras el paso: está a dos casillas de la batería que se le ordena destruir, el único lugar donde está garantizado que caerá munición pesada.",
+      "notes": "Aún viven en ella tres familias: sáquelas a la aproximación en cinco minutos, antes de que el combate llegue. El relé merece la subida si puede pagarlo en infantería. Tome el paso y saque la batería de la guerra."
+    },
+    "debrief": {
+      "victory": "El paso ya es una carretera. La manzana de detrás sigue en pie, lo único de todo esto sobre lo que me preguntarán.",
+      "defeat": "Conducta cayó por debajo de cuarenta y cinco con la pieza aún disparando. La aparcó ahí para eso y funcionó."
+    },
+    "objectives": {
+      "take_pass": "Tomar el paso y mantenerlo 20 segundos",
+      "kill_battery": "Destruir la sección de Grad",
+      "get_the_block_out": "Sacar a tres familias de la manzana antes de que llegue el combate",
+      "cut_the_relay": "Cortar el relé de la batería en el collado estrecho"
+    },
+    "objective_say": {
+      "take_pass": "Paso mantenido. Nada con ruedas va al norte del muro por otro camino.",
+      "kill_battery": "La pieza ha caído y el norte podrá dormir esta noche. Quien le decía dónde disparar no ha pisado este terreno ni una vez: el expediente lo llama LANTERN.",
+      "get_the_block_out": "Manzana despejada. Tres familias en la aproximación, fuera de su línea de fuego.",
+      "cut_the_relay": "El relé de las rocas está fuera del aire. Quien observaba para este muro desde otro sitio ya no habla con nadie en él."
+    },
+    "objective_say_on_fail": {
+      "get_the_block_out": "La manzana se vino abajo sobre gente que seguía dentro. La pieza de LANTERN nunca fue lo único contra lo que luchábamos allí."
+    },
+    "triggers": {
+      "the_yanshuf_comes_up": "Yanshuf sube a la línea de partida"
+    },
+    "src": {
+      "name": "569547cf",
+      "briefing": "61ac0348",
+      "objectives.take_pass": "1a00d2ba",
+      "objectives.kill_battery": "60c4b369",
+      "objectives.get_the_block_out": "8fcba899",
+      "objectives.cut_the_relay": "3b0382e7",
+      "triggers.the_yanshuf_comes_up": "4352f98d",
+      "debrief.victory": "6bec857b",
+      "debrief.defeat": "47254fe2",
+      "sections.situation": "3b930e4f",
+      "sections.execution": "39de052b",
+      "sections.notes": "db7733b5",
+      "objective_say.take_pass": "5cda3071",
+      "objective_say.kill_battery": "afc021c4",
+      "objective_say.get_the_block_out": "0668ca4e",
+      "objective_say.cut_the_relay": "990e977b",
+      "objective_say_on_fail.get_the_block_out": "755fb911"
+    }
+  },
+  "umm_zeitoun_1_recon": {
+    "name": "Umm Zeitoun I — Terreno frío",
+    "briefing": "Umm Zeitoun es una cuenca: sin muro que la cruce, sin puerta que forzar, atravesable por cualquier punto de su anchura. Idit cuenta cuatro colinas sobre el suelo y cada una domina un trozo distinto. Identifique los cuatro puestos antes de que la brigada ponga nada en este terreno. Envíe el dron por el centro y tome primero las vistas baratas. Dos equipos de misiles cubren la mitad norte, solo contra aire, hasta trece casillas. La cresta no se puede identificar desde fuera de esa envolvente, así que el dron le da gratis las colinas cercanas y esa a cambio de su vida. Tres familias están en los pozos del flanco oeste, a nueve casillas del wadi a pie. Tiene cuatro minutos antes de que otros las muevan. El jeep es lo único que tiene capaz de proteger al dron y lo único que puede sacar a una familia de ese flanco. No podrá hacer ambas cosas.",
+    "sections": {
+      "situation": "Umm Zeitoun es una cuenca: sin muro que la cruce, sin puerta que forzar, atravesable por cualquier punto de su anchura. Idit cuenta cuatro colinas sobre el suelo y cada una domina un trozo distinto.",
+      "mission": "Identifique los cuatro puestos antes de que la brigada ponga nada en este terreno.",
+      "execution": "Envíe el dron por el centro y tome primero las vistas baratas. Dos equipos de misiles cubren la mitad norte, solo contra aire, hasta trece casillas. La cresta no se puede identificar desde fuera de esa envolvente, así que el dron le da gratis las colinas cercanas y esa a cambio de su vida. Tres familias están en los pozos del flanco oeste, a nueve casillas del wadi a pie. Tiene cuatro minutos antes de que otros las muevan. El jeep es lo único que tiene capaz de proteger al dron y lo único que puede sacar a una familia de ese flanco.",
+      "notes": "No podrá hacer ambas cosas."
+    },
+    "debrief": {
+      "victory": "Cuatro puestos en el tablero y dos familias en el wadi. Es la primera noche de este frente que acabamos sosteniendo más de lo que teníamos al empezar.",
+      "defeat": "Estábamos a cuatro casillas de los pozos mirando una colina. Ese es todo el informe."
+    },
+    "objectives": {
+      "find_the_crest": "Identificar el puesto de la cresta norte",
+      "find_the_west_horn": "Identificar el puesto del cuerno occidental",
+      "find_the_east_horn": "Identificar el puesto del cuerno oriental",
+      "find_the_stone_knoll": "Identificar el puesto sobre la loma de piedra",
+      "get_the_wells_clear": "Llevar a dos familias de los pozos al wadi en cuatro minutos",
+      "find_the_missile_team": "Identificar el equipo de misiles que cubre la cuenca",
+      "screen_out": "Permanecer en el campo cuatro minutos"
+    },
+    "objective_say": {
+      "find_the_crest": "Ese es el puesto de la cresta, y lo tengo mientras algo lo esté mirando. Nada nuestro puede mantenerlo desde fuera de trece casillas.",
+      "find_the_west_horn": "El cuerno oeste es un puesto, no un piquete. Está tumbado en el hombro con todo el suelo occidental a sus pies.",
+      "find_the_east_horn": "Lo mismo el cuerno este, al otro lado de la cuenca. Entre los dos no hay línea sobre este suelo que nadie no vea.",
+      "find_the_stone_knoll": "El cercano está en el cobertizo de la loma de piedra, a cuatro casillas de la carretera del wadi. Ese es el ojo que importa a las familias, no a nosotros.",
+      "get_the_wells_clear": "Dos familias en el wadi. Deje en paz el resto de ese flanco; nada más allí fuera vale el jeep.",
+      "find_the_missile_team": "Equipo de misiles en la repisa norte. Solo contra aire, trece casillas: el dron cruza esa línea una vez."
+    },
+    "objective_say_on_fail": {
+      "get_the_wells_clear": "Cuatro minutos. Lo que siga en los pozos ya no nos corresponde moverlo."
+    },
+    "trigger_say": {
+      "they_move_the_families_off": "Los pozos están vacíos y nadie los disputó. Se llevaron a las familias al norte entre las colinas mientras mirábamos las colinas."
+    },
+    "wave_say": {
+      "0": "Una sección de fusileros camina hacia los pozos. No viene a por usted."
+    },
+    "src": {
+      "name": "992e2d0d",
+      "briefing": "c2e1059b",
+      "objectives.find_the_crest": "ea223c39",
+      "objectives.find_the_west_horn": "f7148460",
+      "objectives.find_the_east_horn": "e2ca8245",
+      "objectives.find_the_stone_knoll": "03d0c444",
+      "objectives.get_the_wells_clear": "826dd053",
+      "objectives.find_the_missile_team": "7d7cdab0",
+      "objectives.screen_out": "71e40892",
+      "debrief.victory": "ce126351",
+      "debrief.defeat": "1171e5ff",
+      "sections.situation": "01251766",
+      "sections.mission": "6cce79b2",
+      "sections.execution": "8dfc9c1a",
+      "sections.notes": "64f836f0",
+      "objective_say.find_the_crest": "a5b0679b",
+      "objective_say.find_the_west_horn": "bf36cd76",
+      "objective_say.find_the_east_horn": "d8888765",
+      "objective_say.find_the_stone_knoll": "b6934a4d",
+      "objective_say.get_the_wells_clear": "c12f6d37",
+      "objective_say.find_the_missile_team": "7918bba1",
+      "objective_say_on_fail.get_the_wells_clear": "a6034363",
+      "trigger_say.they_move_the_families_off": "342bbf75",
+      "wave_say.0": "e0cd1d07"
+    }
+  },
+  "umm_zeitoun_2_buildup": {
+    "name": "Umm Zeitoun II — La larga mirada",
+    "briefing": "Sur tiene más de una pieza: esta está al sur de la cuenca y desde allí alcanza la línea de cresta a doce casillas. Idit tiene marcado un observador en la loma de piedra, ocho casillas por delante de esa misma línea. Mantenga la línea de cresta cuatro minutos mientras los zapadores trabajan a su espalda. Es el terreno más alto de esta mitad de la cuenca y la única parte que él puede ver y bombardear; todo lo que tiene delante cae en pendiente, y verlo exige quedar en el horizonte. El terreno del campamento en la hondonada, bajo las terrazas de olivos de la contrapendiente, es ciego para todas las posiciones de este mapa: la cresta se interpone entre él y cualquier cosa de arriba que pueda ver. Lo que ven es la línea. El suministro llega por el borde oeste, por una larga carretera a su retaguardia. Si deja que él se plante en esa carretera sin nadie nuestro cerca, llega a la mitad de ritmo; manténgala despejada y gaste lo que llegue cuando llegue. Arrase el puesto de la loma en cinco minutos, con cargas o con fuego mientras el observador siga en el cobertizo. Si quebranta un tercio de lo que tiene delante, la pieza se retira al norte, fuera del alcance de la línea. Los fusiles apenas rozan sus drones. Un Remetz los abrasa, pero solo parado SOBRE la cresta con cielo abierto; detrás, está ciego. Todo lo demás que compre para lograrlo no está sobre la cresta mientras ocurre.",
+    "sections": {
+      "situation": "Sur tiene más de una pieza: esta está al sur de la cuenca y desde allí alcanza la línea de cresta a doce casillas. Idit tiene marcado un observador en la loma de piedra, ocho casillas por delante de esa misma línea.",
+      "mission": "Mantenga la línea de cresta cuatro minutos mientras los zapadores trabajan a su espalda.",
+      "execution": "Es el terreno más alto de esta mitad de la cuenca y la única parte que él puede ver y bombardear; todo lo que tiene delante cae en pendiente, y verlo exige quedar en el horizonte. El terreno del campamento en la hondonada, bajo las terrazas de olivos de la contrapendiente, es ciego para todas las posiciones de este mapa: la cresta se interpone entre él y cualquier cosa de arriba que pueda ver. Lo que ven es la línea. El suministro llega por el borde oeste, por una larga carretera a su retaguardia. Si deja que él se plante en esa carretera sin nadie nuestro cerca, llega a la mitad de ritmo; manténgala despejada y gaste lo que llegue cuando llegue. Arrase el puesto de la loma en cinco minutos, con cargas o con fuego mientras el observador siga en el cobertizo. Si quebranta un tercio de lo que tiene delante, la pieza se retira al norte, fuera del alcance de la línea.",
+      "notes": "Los fusiles apenas rozan sus drones. Un Remetz los abrasa, pero solo parado SOBRE la cresta con cielo abierto; detrás, está ciego. Todo lo demás que compre para lograrlo no está sobre la cresta mientras ocurre."
+    },
+    "debrief": {
+      "victory": "Cuatro minutos en la línea, un campamento detrás y una colina menos en esta cuenca con un hombre encima.",
+      "defeat": "El cobertizo sigue en pie y todo lo que construimos está a menos de doce casillas de una pieza. Lo construimos donde él miraba."
+    },
+    "objectives": {
+      "hold_the_crest_line": "Mantener la línea de cresta cuatro minutos",
+      "level_the_stone_post": "Derribar el puesto de la loma de piedra en cinco minutos",
+      "kill_the_knoll_eye": "Matar al observador del cobertizo de la loma de piedra",
+      "take_the_stone_knoll": "Tomar la loma de piedra y mantenerla 15 segundos"
+    },
+    "objective_say": {
+      "hold_the_crest_line": "Línea de cresta mantenida cuatro minutos. Los zapadores han salido de ella.",
+      "level_the_stone_post": "Puesto derribado. Nadie sustituye a un observador sobre un montón de bloques: lo sustituyen en la colina siguiente.",
+      "kill_the_knoll_eye": "Puesto de la loma derribado. La carretera del wadi no está observada por primera vez desde que entramos en esta cuenca."
+    },
+    "objective_say_on_fail": {
+      "level_the_stone_post": "Pasaron cinco minutos y el cobertizo sigue en pie. Ha visto todo lo que pusimos en esa línea."
+    },
+    "triggers": {
+      "the_tube_moves_north": "La batería se desplaza al norte"
+    },
+    "trigger_say": {
+      "the_tube_moves_north": "La batería se desplaza al norte. Desde allí hay veintiocho casillas hasta la línea de cresta: eso es lo que compra quitarle un tercio."
+    },
+    "wave_say": {
+      "2": "Un enjambre desde el borde norte, bajo y disperso, va a por la línea. Los fusiles apenas lo rozan. Un Remetz lo abrasa, pero solo con cielo abierto: en la cresta, no detrás, y la cresta está al alcance de la pieza."
+    },
+    "src": {
+      "name": "2409e459",
+      "briefing": "fbf66c13",
+      "objectives.hold_the_crest_line": "191d54ee",
+      "objectives.level_the_stone_post": "98842810",
+      "objectives.kill_the_knoll_eye": "d4213b55",
+      "objectives.take_the_stone_knoll": "85d8c1e0",
+      "triggers.the_tube_moves_north": "50da4f25",
+      "debrief.victory": "007ddf5d",
+      "debrief.defeat": "6f2d31e3",
+      "sections.situation": "bad0baf7",
+      "sections.mission": "ab034ad9",
+      "sections.execution": "389b21c1",
+      "sections.notes": "919c4e1d",
+      "objective_say.hold_the_crest_line": "4afd90f1",
+      "objective_say.level_the_stone_post": "44c25e27",
+      "objective_say.kill_the_knoll_eye": "4c8a4cf5",
+      "objective_say_on_fail.level_the_stone_post": "67ead3f2",
+      "trigger_say.the_tube_moves_north": "b1ae6cd6",
+      "wave_say.2": "fbeabf78"
+    }
+  },
+  "umm_zeitoun_3_clearance": {
+    "name": "Umm Zeitoun III — Cegar",
+    "briefing": "Ambos cuernos están a dieciocho casillas de la cresta y no son el mismo trabajo: el occidental es pedregal y nada con ruedas ni orugas sube por él. El oriental es un glacis desnudo con un equipo de Kornet tendido en él a diez casillas. Mate ambos puestos. Tiene una sola fuerza, no tomará el cuerno occidental con vehículos y debe decidir qué mitad va a pie antes de que nada se mueva. Seis familias están en la aldea del suelo entre ellos, a once casillas del wadi. Nadie dentro de esa manzana ve el exterior ni nada de fuera ve el interior: las casas lo hacen en ambos sentidos. Saque a cuatro de ellas al wadi en cinco minutos. La manzana está señalizada: fusiles, el arma remota y el fusil de francotirador sirven allí, y el cañón automático, el fuego de carro de combate o cualquier cosa de las piezas se imputa contra un suelo de cuarenta y cinco. Su batería está al oeste de la cuenca y desde allí no alcanza la aldea ni la carretera de salida. Si lo expulsa de ese terreno, se va al sur, y el ojo de la loma de piedra puede darle ambas. No se le imputará un cohete que él dispare. Perderá esto igualmente si cuatro de ellas no llegan al wadi.",
+    "sections": {
+      "situation": "Ambos cuernos están a dieciocho casillas de la cresta y no son el mismo trabajo: el occidental es pedregal y nada con ruedas ni orugas sube por él. El oriental es un glacis desnudo con un equipo de Kornet tendido en él a diez casillas.",
+      "mission": "Mate ambos puestos.",
+      "execution": "Tiene una sola fuerza, no tomará el cuerno occidental con vehículos y debe decidir qué mitad va a pie antes de que nada se mueva. Seis familias están en la aldea del suelo entre ellos, a once casillas del wadi. Nadie dentro de esa manzana ve el exterior ni nada de fuera ve el interior: las casas lo hacen en ambos sentidos. Saque a cuatro de ellas al wadi en cinco minutos. La manzana está señalizada: fusiles, el arma remota y el fusil de francotirador sirven allí, y el cañón automático, el fuego de carro de combate o cualquier cosa de las piezas se imputa contra un suelo de cuarenta y cinco. Su batería está al oeste de la cuenca y desde allí no alcanza la aldea ni la carretera de salida. Si lo expulsa de ese terreno, se va al sur, y el ojo de la loma de piedra puede darle ambas. No se le imputará un cohete que él dispare.",
+      "notes": "Perderá esto igualmente si cuatro de ellas no llegan al wadi."
+    },
+    "debrief": {
+      "victory": "Ambos cuernos caídos y cuatro fuera de la manzana, y lo tomamos con fusiles porque la Conducta es el equipamiento.",
+      "defeat": "Conducta cayó por debajo de cuarenta y cinco dentro de la manzana. No necesitaba estar en ella: solo poder alcanzarla."
+    },
+    "objectives": {
+      "kill_the_west_horn": "Eliminar el puesto del cuerno occidental",
+      "kill_the_east_horn": "Eliminar el puesto del cuerno oriental",
+      "get_the_hamlet_out": "Sacar a cuatro familias de la aldea al wadi en cinco minutos",
+      "find_adhal": "Encontrar al hombre al que informan los puestos",
+      "kill_the_knoll_eye": "Eliminar al observador de la loma que domina la carretera del wadi"
+    },
+    "objective_say": {
+      "kill_the_west_horn": "El cuerno oeste está ciego. La mitad del suelo no pertenece a nadie ahora.",
+      "kill_the_east_horn": "El cuerno este está ciego. Lo que dirija desde aquí lo dirige sobre un mapa, no sobre el terreno.",
+      "get_the_hamlet_out": "Cuatro fuera de la manzana. Nada más allí merece un proyectil de las piezas.",
+      "find_adhal": "Ese es Karim Adhal, en la cresta norte, a treinta y cuatro casillas. Dos pueblos de su obra y es la primera vez que alguien tiene su terreno.",
+      "kill_the_knoll_eye": "Loma despejada. Nada en esta cuenca puede poner un proyectil en la carretera del wadi solo con mirarla."
+    },
+    "objective_say_on_fail": {
+      "get_the_hamlet_out": "Se acabó el tiempo en la aldea. Están bajo sus cohetes y no volveremos a cruzar entre ellos."
+    },
+    "triggers": {
+      "he_brings_the_tube_south": "La batería se desplaza al sur",
+      "the_house_was_the_section": "La guarnición sale a la calle"
+    },
+    "trigger_say": {
+      "he_brings_the_tube_south": "La batería viene al sur. Desde esa posición alcanza la aldea a siete casillas y la carretera del wadi a diez, y cada proyectil es suyo.",
+      "the_house_was_the_section": "Han salido de las casas a la calle. No combatirán desde dentro; nunca iban a hacerlo."
+    },
+    "wave_say": {
+      "2": "Está metiendo fusileros en la plaza mientras las familias aún salen de ella."
+    },
+    "src": {
+      "name": "ccc8bf78",
+      "briefing": "679998fe",
+      "objectives.kill_the_west_horn": "f7a9d450",
+      "objectives.kill_the_east_horn": "d9db7188",
+      "objectives.get_the_hamlet_out": "70a3c7e2",
+      "objectives.find_adhal": "34c4e4fe",
+      "objectives.kill_the_knoll_eye": "7a73719c",
+      "triggers.he_brings_the_tube_south": "d3558fba",
+      "triggers.the_house_was_the_section": "f06c08ee",
+      "debrief.victory": "69e9b8d4",
+      "debrief.defeat": "9d30ef44",
+      "sections.situation": "d8f57e58",
+      "sections.mission": "8e20c38c",
+      "sections.execution": "babd0ae0",
+      "sections.notes": "077685fc",
+      "objective_say.kill_the_west_horn": "5aa00b9a",
+      "objective_say.kill_the_east_horn": "6f7aac45",
+      "objective_say.get_the_hamlet_out": "a329e325",
+      "objective_say.find_adhal": "73b8f928",
+      "objective_say.kill_the_knoll_eye": "77fd0e45",
+      "objective_say_on_fail.get_the_hamlet_out": "dbb07d0f",
+      "trigger_say.he_brings_the_tube_south": "ee941e8a",
+      "trigger_say.the_house_was_the_section": "6d364486",
+      "wave_say.2": "2aa15740"
+    }
+  },
+  "umm_zeitoun_4_clearance": {
+    "name": "Umm Zeitoun IV — El depósito",
+    "briefing": "El depósito son tres edificios en la alta repisa norte, siete mil quinientos entre todos. Una rampa sube hasta él desde el sur, y hay un ojo en el espolón junto a la rampa que ve el patio a cinco casillas. Lo que ese ojo ve, la pieza lo bombardea. Derríbelo todo en cinco minutos. No hay buldócer en Sur: son dos grupos de demolición, con cargas de cinco segundos cada vez, quietos a menos de dos casillas de lo que derriban. El hombre al que informan todos los puestos de esta cuenca está en la cumbre al otro lado del barranco, a dieciséis casillas en sentido contrario, y el terreno cae entre usted y él: un camino sube hasta él por el lado oeste y nada con ruedas cruza el barranco desde el depósito. Idit ha tenido su voz durante dos pueblos y nunca su terreno. No puede hacer ambas cosas despacio. Compre un tercer grupo con la logística si quiere el depósito y la cresta dentro de los mismos siete minutos. Cuatro porteadores están en el terreno del depósito y la repisa tras él está a cinco casillas de ellos. A las cargas no les importa quién esté junto al muro: ponga una a menos de dos casillas de ellos y se le imputará, y el grupo arrasará cualquier otra cosa junto a la que se detenga.",
+    "sections": {
+      "situation": "El depósito son tres edificios en la alta repisa norte, siete mil quinientos entre todos. Una rampa sube hasta él desde el sur, y hay un ojo en el espolón junto a la rampa que ve el patio a cinco casillas. Lo que ese ojo ve, la pieza lo bombardea.",
+      "mission": "Derríbelo todo en cinco minutos.",
+      "execution": "No hay buldócer en Sur: son dos grupos de demolición, con cargas de cinco segundos cada vez, quietos a menos de dos casillas de lo que derriban. El hombre al que informan todos los puestos de esta cuenca está en la cumbre al otro lado del barranco, a dieciséis casillas en sentido contrario, y el terreno cae entre usted y él: un camino sube hasta él por el lado oeste y nada con ruedas cruza el barranco desde el depósito. Idit ha tenido su voz durante dos pueblos y nunca su terreno. No puede hacer ambas cosas despacio. Compre un tercer grupo con la logística si quiere el depósito y la cresta dentro de los mismos siete minutos. Cuatro porteadores están en el terreno del depósito y la repisa tras él está a cinco casillas de ellos.",
+      "notes": "A las cargas no les importa quién esté junto al muro: ponga una a menos de dos casillas de ellos y se le imputará, y el grupo arrasará cualquier otra cosa junto a la que se detenga."
+    },
+    "aftermath": "Nada cayó sobre el norte esa mañana, ni la siguiente. Sacaron a Adhal de la cresta con toda la cuenca aún delante. La brigada puso una cuarta estrella en el parte. Las piezas subieron por una carretera, y esa carretera no está en Sur.",
+    "debrief": {
+      "victory": "Dos pueblos, siete misiones y un hombre, y lo único que hizo fue mirarnos.",
+      "defeat": "El depósito sigue en pie y él está en la contrapendiente. Nada cambia en el norte esta noche."
+    },
+    "objectives": {
+      "raze_the_stockpile": "Demoler el arsenal en cinco minutos",
+      "kill_adhal": "Matar a Karim Adhal en la cresta norte",
+      "kill_the_battery": "Destruir la batería de cohetes al norte del depósito",
+      "get_the_porters_clear": "Sacar a tres porteadores del depósito a la repisa norte",
+      "bring_the_relay_down": "Derribar la caseta del relé de la cresta"
+    },
+    "objective_say": {
+      "raze_the_stockpile": "Depósito destruido. Eso era lo que pasaba el muro en Tel Marum, y no volverá a pasar.",
+      "kill_adhal": "Adhal ya no está en la cresta. Nunca disparó un tiro en esta guerra y eligió dónde caía cada uno.",
+      "kill_the_battery": "Batería destruida. A Sur no le queda nada que alcance Kedem.",
+      "get_the_porters_clear": "Los porteadores están en la repisa. Nada nuestro va al norte del patio por ellos.",
+      "bring_the_relay_down": "Caseta del relé derribada."
+    },
+    "objective_say_on_fail": {
+      "raze_the_stockpile": "Cinco minutos. El depósito sigue en pie y los grupos que iban a derribarlo no.",
+      "get_the_porters_clear": "Siguen en el patio y las cargas ya están puestas. Trabaje alrededor de ellos o más despacio."
+    },
+    "triggers": {
+      "the_tube_goes_west": "La batería se desplaza al oeste",
+      "he_goes_over_the_back": "El observador pasa al otro lado de la cresta"
+    },
+    "trigger_say": {
+      "the_tube_goes_west": "Muévala al oeste. Lo que tenía que ver no era la pieza: eso está en la colina desde mucho antes del primer cohete, y no se cierra.",
+      "he_goes_over_the_back": "Está al otro lado de la cresta, fuera de la vista de la cuenca. Quien lo quiera, que suba."
+    },
+    "wave_say": {
+      "1": "Refuerzan la cresta, no el depósito. Para ellos vale más que los cohetes."
+    },
+    "src": {
+      "name": "72cf4fdf",
+      "briefing": "a6735295",
+      "objectives.raze_the_stockpile": "b239c4cf",
+      "objectives.kill_adhal": "77907476",
+      "objectives.kill_the_battery": "8d5be3c8",
+      "objectives.get_the_porters_clear": "0c71b529",
+      "objectives.bring_the_relay_down": "cc42e5dd",
+      "triggers.the_tube_goes_west": "4a4b969c",
+      "triggers.he_goes_over_the_back": "6e3f2deb",
+      "aftermath": "91aaff38",
+      "debrief.victory": "f2ec8060",
+      "debrief.defeat": "16c54177",
+      "sections.situation": "6e41ff22",
+      "sections.mission": "a86dad23",
+      "sections.execution": "d23d9c7b",
+      "sections.notes": "9d13de94",
+      "objective_say.raze_the_stockpile": "7d911477",
+      "objective_say.kill_adhal": "067cee97",
+      "objective_say.kill_the_battery": "d5259ea6",
+      "objective_say.get_the_porters_clear": "c09b576d",
+      "objective_say.bring_the_relay_down": "4146595c",
+      "objective_say_on_fail.raze_the_stockpile": "7bde5edf",
+      "objective_say_on_fail.get_the_porters_clear": "ee08d3e3",
+      "trigger_say.the_tube_goes_west": "654c16eb",
+      "trigger_say.he_goes_over_the_back": "8c2c775f",
+      "wave_say.1": "052f6489"
+    }
+  },
+  "wadi_halam_1_fords": {
+    "name": "Wadi Halam I — Los vados",
+    "briefing": "Naharin se abre en el wadi. Dos vados lo cruzan, y los Rif que trabajan este corredor se dispersan en cuanto los ven: así que el trabajo esta noche es verlos primero. Despliegue una pantalla a través de la línea de árboles, construya la imagen y mantenga la vigilancia del vado cuatro minutos mientras la columna cruza a su espalda: los motoristas seguirán llegando al cruce desde el este todo el tiempo que esté allí. Cuatro de ellos cargan para él en el vado sur esta noche y no pueden salir por sí solos. No persiga lo que huya.",
+    "sections": {
+      "situation": "Naharin se abre en el wadi. Dos vados lo cruzan, y los Rif que trabajan este corredor se dispersan en cuanto los ven: así que el trabajo esta noche es verlos primero.",
+      "mission": "Despliegue una pantalla a través de la línea de árboles, construya la imagen y mantenga la vigilancia del vado cuatro minutos mientras la columna cruza a su espalda: los motoristas seguirán llegando al cruce desde el este todo el tiempo que esté allí.",
+      "execution": "Cuatro de ellos cargan para él en el vado sur esta noche y no pueden salir por sí solos.",
+      "notes": "No persiga lo que huya."
+    },
+    "dispatch": "El corredor hacia Naharin lleva cuatro años cargando con la guerra de otro, y quienes viven en él la cargan a mano. Una aldea dejó de acarrear para Jubran Hallaq la primavera pasada. Nadie en esa carretera ha parado desde entonces.",
+    "debrief": {
+      "victory": "Cuatro emplazamientos, y todos vacíos cuando alguien miró dos veces. Esa es la imagen: aquí no hay nada que tomar, solo una carretera.",
+      "defeat": "Tenemos parte de la imagen y ellos tienen el cruce. Lo que no vimos esta noche irá al este mañana."
+    },
+    "objectives": {
+      "picture": "Identificar cuatro puntos de dispersión",
+      "take_ford": "Mantener la vigilancia del vado cuatro minutos",
+      "screen_out": "Permanecer en el campo los tres primeros minutos y veinte segundos",
+      "get_the_carriers_out": "Sacar a tres cargadores del vado sur al refugio"
+    },
+    "objective_say": {
+      "picture": "Cuatro emplazamientos y ninguno es una posición. Nadie se atrinchera en una carretera que piensa seguir usando: esto es una ruta de transporte con armas aparcadas a lo largo.",
+      "take_ford": "Vigilancia del vado mantenida. La columna está al otro lado del wadi.",
+      "get_the_carriers_out": "Cuatro fuera del vado y del corredor. Estaban en su carretera porque alguien los puso; esta noche no."
+    },
+    "objective_say_on_fail": {
+      "get_the_carriers_out": "El cruce se cerró con ellos aún en él. Estábamos a ocho casillas, mirando hacia otro lado."
+    },
+    "triggers": {
+      "the_bank_patrol_turns_for_the_ford": "Las patrullas de la orilla giran hacia el vado"
+    },
+    "trigger_say": {
+      "the_bank_patrol_turns_for_the_ford": "Ambas patrullas de la orilla han girado hacia el vado norte. No esperaron órdenes y no se quedarán a combatir."
+    },
+    "wave_say": {
+      "0": "Motos desde la pista sur. Noventa segundos de calma, luego un motorista o dos cada medio minuto más o menos: ese es el ritmo, y no cambia.",
+      "4": "Ambos vados a la vez ahora. No intentan sostener el cruce: tantean los cuatro minutos que usted aceptó pasar en él."
+    },
+    "src": {
+      "name": "a4e5ee18",
+      "briefing": "de78a405",
+      "objectives.picture": "a429056e",
+      "objectives.take_ford": "27268eff",
+      "objectives.screen_out": "6e92513d",
+      "objectives.get_the_carriers_out": "c91c245c",
+      "triggers.the_bank_patrol_turns_for_the_ford": "b0d009ed",
+      "dispatch": "44308d00",
+      "debrief.victory": "db9442ce",
+      "debrief.defeat": "aaeda25e",
+      "sections.situation": "42623e0d",
+      "sections.mission": "8909db9f",
+      "sections.execution": "8d4a06f0",
+      "sections.notes": "81c5a8a8",
+      "objective_say.picture": "7c3c8f83",
+      "objective_say.take_ford": "bf78f27c",
+      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
+      "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
+      "wave_say.0": "a8afca11",
+      "wave_say.4": "34e46909"
+    }
+  },
+  "wadi_halam_2_laager": {
+    "name": "Wadi Halam II — Terreno de pasto",
+    "briefing": "Avance hasta el pastizal y atrincherese mientras los zapadores tienden el cruce a su espalda. Es terreno de pasto abierto, cruzado por largos caballones de tierra en franjas: cobertura real si los mantiene, y los Rif conocen el terreno tan bien como usted. Llegarán oleadas de technicals y motos a la caseta de bombeo por los bordes norte, sur y este, y una breve hilera de árboles en la esquina noroeste es el único vado; vigílelo. Acumule cinco minutos de pastizal sin disputa y el corredor es suyo. Hay un cobertizo en el borde oeste del pastizal y es el almacén avanzado de él: cae dentro de los mismos cinco minutos, y la caseta de bombeo con él.",
+    "sections": {
+      "mission": "Avance hasta el pastizal y atrincherese mientras los zapadores tienden el cruce a su espalda.",
+      "execution": "Es terreno de pasto abierto, cruzado por largos caballones de tierra en franjas: cobertura real si los mantiene, y los Rif conocen el terreno tan bien como usted. Llegarán oleadas de technicals y motos a la caseta de bombeo por los bordes norte, sur y este, y una breve hilera de árboles en la esquina noroeste es el único vado; vigílelo. Acumule cinco minutos de pastizal sin disputa y el corredor es suyo.",
+      "notes": "Hay un cobertizo en el borde oeste del pastizal y es el almacén avanzado de él: cae dentro de los mismos cinco minutos, y la caseta de bombeo con él."
+    },
+    "debrief": {
+      "victory": "Pastizal mantenido, cruce tendido. La brigada está al este del wadi por primera vez en esta guerra.",
+      "defeat": "No mantuvimos cinco minutos de un campo. Los zapadores no tienden un cruce en esas condiciones."
+    },
+    "objectives": {
+      "hold_pasture": "Mantener el pastizal cinco minutos",
+      "keep_ford": "Mantener despejado el vado",
+      "burn_store": "Incendiar el almacén avanzado y la caseta de bombeo en cinco minutos"
+    },
+    "objective_say": {
+      "hold_pasture": "Cinco minutos de pastizal sin disputa. El cruce está tendido a su espalda.",
+      "burn_store": "El cobertizo era un almacén avanzado: combustible, cajas, un manifiesto. La mitad de su contenido se reenvió a Sur. Este terreno no es el final de su camino; es la mitad."
+    },
+    "objective_say_on_fail": {
+      "burn_store": "El cobertizo sigue en pie y el pastizal es nuestro. Una de las dos cosas era la misión."
+    },
+    "triggers": {
+      "riders_out_of_the_north": "Technicals atacan por el norte",
+      "fighters_off_the_north_hide": "Combatientes bajan del escondite norte",
+      "riders_out_of_the_south": "Motoristas atacan por el sur",
+      "rpgs_along_the_south_bunds": "Equipos RPG avanzan por los caballones sur",
+      "riders_back_from_the_north": "Los motoristas vuelven por el norte",
+      "fighters_up_from_the_well": "Combatientes suben desde el pozo",
+      "technicals_up_from_the_south": "Technicals suben desde el sur",
+      "technicals_off_the_east_track": "Technicals atacan por el este",
+      "the_last_of_the_motorcycles": "Motos atacan por el sur",
+      "rpgs_off_the_north_hide": "Equipos RPG cierran desde el escondite norte",
+      "riders_round_from_the_east": "Motoristas rodean por el este",
+      "fighters_again_from_the_well": "Más combatientes suben desde el pozo",
+      "the_raiders_break_off_east": "Los asaltantes se retiran hacia el este"
+    },
+    "trigger_say": {
+      "technicals_off_the_east_track": "Tercer punto cardinal en cuatro minutos. No hay dirección desde la que este pastizal esté a salvo, y por eso le dieron un campo y no una colina.",
+      "the_raiders_break_off_east": "Sesenta por ciento y se retiran hacia el este. No es una desbandada: la movilidad es su blindaje, y volverán en los mismos camiones dentro de una semana."
+    },
+    "src": {
+      "name": "3da62788",
+      "briefing": "9b55f604",
+      "objectives.hold_pasture": "f8324418",
+      "objectives.keep_ford": "45dcf0be",
+      "objectives.burn_store": "d92a15ed",
+      "triggers.riders_out_of_the_north": "3f71f3dc",
+      "triggers.fighters_off_the_north_hide": "a96401ab",
+      "triggers.riders_out_of_the_south": "b0960fa1",
+      "triggers.rpgs_along_the_south_bunds": "235b9ed4",
+      "triggers.riders_back_from_the_north": "2772979e",
+      "triggers.fighters_up_from_the_well": "0387c486",
+      "triggers.technicals_up_from_the_south": "27638bbb",
+      "triggers.technicals_off_the_east_track": "fa960e02",
+      "triggers.the_last_of_the_motorcycles": "d16da3cf",
+      "triggers.rpgs_off_the_north_hide": "1091fdeb",
+      "triggers.riders_round_from_the_east": "640409f6",
+      "triggers.fighters_again_from_the_well": "4d898121",
+      "triggers.the_raiders_break_off_east": "f34b84ec",
+      "debrief.victory": "637a8f67",
+      "debrief.defeat": "794a3aaa",
+      "sections.mission": "7e68ec92",
+      "sections.execution": "3da0099b",
+      "sections.notes": "fcac31fe",
+      "objective_say.hold_pasture": "1bdc3ba1",
+      "objective_say.burn_store": "3cc4d92f",
+      "objective_say_on_fail.burn_store": "513a4dc0",
+      "trigger_say.technicals_off_the_east_track": "e1f1cbd7",
+      "trigger_say.the_raiders_break_off_east": "23be1e72"
+    }
+  },
+  "wadi_halam_3_counterraid": {
+    "name": "Wadi Halam III — El camino del ganado",
+    "briefing": "El pastizal es nuestro; ahora contraatacamos. La inteligencia sitúa al comandante local en el escondite norte: el hombre de Jubran Hallaq en este terreno, a bordo de un technical que no dudará en lanzar al ataque si es preciso. Una segunda posición atrincherada al sur cubre el camino del ganado. Abata al comandante, obtenga visión del escondite sur y mantenga los caballones cinco minutos. Lo que queda de la célula local no esperará a que caiga: volverán contra los caballones de uno en uno o de dos en dos camiones, cada medio minuto más o menos, mientras usted siga sobre ellos. Capturar al propio comandante es un problema de movilidad, no de potencia de fuego. Hallaq ha estado enviando drones por este corredor por cajas, así que espere enjambres con el contraataque. Un portador de láser los abate estando quieto; con humo o un muro en medio, queda ciego.",
+    "sections": {
+      "situation": "El pastizal es nuestro; ahora contraatacamos. La inteligencia sitúa al comandante local en el escondite norte: el hombre de Jubran Hallaq en este terreno, a bordo de un technical que no dudará en lanzar al ataque si es preciso. Una segunda posición atrincherada al sur cubre el camino del ganado.",
+      "mission": "Abata al comandante, obtenga visión del escondite sur y mantenga los caballones cinco minutos.",
+      "notes": "Lo que queda de la célula local no esperará a que caiga: volverán contra los caballones de uno en uno o de dos en dos camiones, cada medio minuto más o menos, mientras usted siga sobre ellos. Capturar al propio comandante es un problema de movilidad, no de potencia de fuego. Hallaq ha estado enviando drones por este corredor por cajas, así que espere enjambres con el contraataque. Un portador de láser los abate estando quieto; con humo o un muro en medio, queda ciego."
+    },
+    "debrief": {
+      "victory": "Un comandante, un escondite y un camino lleno de gente. Dos de esas cosas eran las que se nos pidieron.",
+      "defeat": "Está al este con su célula y los caballones vuelven a ser suyos. Gastamos en ello la única semana tranquila que nos dio Naharin."
+    },
+    "objectives": {
+      "kill_amir": "Abatir o capturar al comandante local de Hallaq",
+      "hold_bunds": "Mantener los caballones cinco minutos mientras llega el contraataque",
+      "mark_hides": "Obtener visión del escondite sur",
+      "get_the_herders_out": "Llevar a tres pastores del camino del ganado al refugio"
+    },
+    "objective_say": {
+      "kill_amir": "Ese es el hombre de Hallaq en este terreno. No sabe adónde fueron los cohetes; sabe qué noches estuvieron despejados los vados, y eso nos lleva al depósito.",
+      "hold_bunds": "Caballones mantenidos. Nada de lo que volvió a por ellos sigue en el pastizal.",
+      "mark_hides": "Ese es el escondite, y no pido un segundo. Lo que quede en esos caballones lo leeremos del terreno después; el rebaño del camino no puede esperar a que haya certeza.",
+      "get_the_herders_out": "Rebaño y pastores fuera del camino y dentro de la línea del refugio."
+    },
+    "objective_say_on_fail": {
+      "get_the_herders_out": "El camino está cerrado con ellos aún en él. Elegimos asaltar este terreno; ellos solo viven en él."
+    },
+    "triggers": {
+      "the_commander_runs_for_the_east_track": "El comandante huye hacia el camino este"
+    },
+    "trigger_say": {
+      "the_commander_runs_for_the_east_track": "Huye hacia el camino este y no se detendrá. Abátalo si hay tiro; no pierda los caballones por perseguirlo."
+    },
+    "wave_say": {
+      "2": "El grupo más numeroso hasta ahora va a por la caseta de bombeo, y dos enjambres lo acompañan por el camino este. El grupo quiere el pastizal; los enjambres atacan lo primero que encuentren."
+    },
+    "src": {
+      "name": "9aa2084a",
+      "briefing": "e9c22b15",
+      "objectives.kill_amir": "2652c411",
+      "objectives.hold_bunds": "bb7ee511",
+      "objectives.mark_hides": "d602c45d",
+      "objectives.get_the_herders_out": "127df4db",
+      "triggers.the_commander_runs_for_the_east_track": "3bdd8c22",
+      "debrief.victory": "516cae53",
+      "debrief.defeat": "d1da1f1e",
+      "sections.situation": "66ab1a30",
+      "sections.mission": "e7d902bf",
+      "sections.notes": "d0be643a",
+      "objective_say.kill_amir": "22873f4d",
+      "objective_say.hold_bunds": "b292e34d",
+      "objective_say.mark_hides": "fc1202ba",
+      "objective_say.get_the_herders_out": "ceb6bdc1",
+      "objective_say_on_fail.get_the_herders_out": "d3eebb1e",
+      "trigger_say.the_commander_runs_for_the_east_track": "2171f8ee",
+      "wave_say.2": "1d4aa937"
+    }
+  },
+  "wadi_halam_4_village": {
+    "name": "Wadi Halam IV — Wadi Halam",
+    "briefing": "El pueblo está habitado y la sala comunal está bajo protección: el armamento pesado alcanza más lejos en campo abierto que entre muros, así que cuide lo que solicite. Siete casas están ocupadas: cuatro células de milicianos y tres equipos RPG, y uno de ellos es la guardia del alijo. El pueblo desciende por una ladera hasta un arroyo pedregoso con un único vado, y un par de technicals que esperan en el escondite sur, más allá, correrán hacia el pueblo en cuanto haya contacto: por el vado, no por una carretera. Tome y mantenga el pueblo. Mantener significa que no haya enemigo dentro del pueblo a menos de seis casillas de sus efectivos allí. Una célula de la que se mantenga a seis casillas no detiene el reloj, y no se le pedirá desalojarla. Abata o capture a quien custodie el alijo y saque a las familias hacia el refugio de la carretera oeste antes de que los combates la cierren.",
+    "sections": {
+      "situation": "El pueblo está habitado y la sala comunal está bajo protección: el armamento pesado alcanza más lejos en campo abierto que entre muros, así que cuide lo que solicite. Siete casas están ocupadas: cuatro células de milicianos y tres equipos RPG, y uno de ellos es la guardia del alijo. El pueblo desciende por una ladera hasta un arroyo pedregoso con un único vado, y un par de technicals que esperan en el escondite sur, más allá, correrán hacia el pueblo en cuanto haya contacto: por el vado, no por una carretera.",
+      "mission": "Tome y mantenga el pueblo. Mantener significa que no haya enemigo dentro del pueblo a menos de seis casillas de sus efectivos allí. Una célula de la que se mantenga a seis casillas no detiene el reloj, y no se le pedirá desalojarla.",
+      "execution": "Abata o capture a quien custodie el alijo y saque a las familias hacia el refugio de la carretera oeste antes de que los combates la cierren."
+    },
+    "debrief": {
+      "victory": "Veintitrés puntos. Dieciocho eran la orden y cinco fueron cómo la cumplimos, y solo los cinco son míos.",
+      "defeat": "El pueblo sigue en pie y ellos también. Quien estuviera en esas casas sigue en ellas."
+    },
+    "objectives": {
+      "take_village": "Tomar y mantener el pueblo 20 segundos",
+      "kill_cache_guard": "Abatir o capturar al intendente que custodia el alijo de Hallaq",
+      "evac_families": "Conducir a las familias al refugio antes de que se cierre la carretera"
+    },
+    "objective_say": {
+      "take_village": "Pueblo mantenido. Cada célula bajo un tejado que dejamos en pie sigue en su ventana.",
+      "kill_cache_guard": "No es un combatiente, es un contable con un lanzador. Lo que custodiaba nombra el depósito al este de aquí y dice cuánto sigue lleno.",
+      "evac_families": "Todos ellos están en el refugio."
+    },
+    "objective_say_on_fail": {
+      "evac_families": "La carretera está cerrada y aún hay familias dentro. Nueve no entraron en First Light. Alguien tiene que seguir diciendo la cifra, y no será usted."
+    },
+    "triggers": {
+      "the_technicals_at_the_south_hide_run_for_the_village": "Technicals corren hacia el pueblo"
+    },
+    "trigger_say": {
+      "the_technicals_at_the_south_hide_run_for_the_village": "Dos technicals salen del escondite sur y corren hacia el centro del pueblo."
+    },
+    "src": {
+      "name": "044b6079",
+      "briefing": "f418dcf9",
+      "objectives.take_village": "9169a611",
+      "objectives.kill_cache_guard": "0f40612e",
+      "objectives.evac_families": "5af188e8",
+      "triggers.the_technicals_at_the_south_hide_run_for_the_village": "3c76e19b",
+      "debrief.victory": "b9e35521",
+      "debrief.defeat": "d96c57f3",
+      "sections.situation": "cbf0c7e4",
+      "sections.mission": "33049c99",
+      "sections.execution": "dbd5b6d8",
+      "objective_say.take_village": "13ef3503",
+      "objective_say.kill_cache_guard": "ad4d3f21",
+      "objective_say.evac_families": "a5c462ea",
+      "objective_say_on_fail.evac_families": "36801331",
+      "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
+    }
+  },
+  "wadi_halam_5_depot": {
+    "name": "Wadi Halam V — Destruir el depósito",
+    "briefing": "Ocho estructuras dentro del depósito de Hallaq, una excavadora sin armamento y a elegir ruta. Cuide cuál toma. La línea recta al noreste atraviesa el pueblo, y una D9 nivela lo que queda junto a ella cuando se detiene: las casas caerán una a una sin que nadie lo ordene, y cada una se evalúa. La sala comunal no es objetivo a ningún precio. El depósito se alza sobre un terraplén con una sola rampa, y la carretera del río por el cauce al sur, que sube por esa rampa, solo cuesta algo de tiempo. La D9 no puede defenderse y es lo más lento del mapa: escóltela, no compita con ella. Un equipo RPG guarda la puerta en lo alto de la rampa y tres camiones antiaéreos están dentro de la alambrada; otro equipo RPG está atrincherado en pleno centro del depósito. Los camiones antiaéreos no pueden rayar el blindaje de la D9, pero cualquiera de los equipos RPG le atravesará la hoja de un cohete si trabaja sin escolta. Hay motos preparadas al este y caerán sobre la columna en cuanto avance hacia allí, y seguirán llegando más desde el este y el sur mientras se colocan las cargas. Arrasar el depósito no es el final: los Rif quieren recuperar el terreno, y la columna debe mantener los escombros cuatro minutos contra todo lo que siga llegando. Arrase el depósito, abata o capture a quien guarde la puerta, mantenga lo que quede y conserve la columna intacta.",
+    "sections": {
+      "situation": "Ocho estructuras dentro del depósito de Hallaq, una excavadora sin armamento y a elegir ruta. Cuide cuál toma.",
+      "mission": "La línea recta al noreste atraviesa el pueblo, y una D9 nivela lo que queda junto a ella cuando se detiene: las casas caerán una a una sin que nadie lo ordene, y cada una se evalúa. La sala comunal no es objetivo a ningún precio. El depósito se alza sobre un terraplén con una sola rampa, y la carretera del río por el cauce al sur, que sube por esa rampa, solo cuesta algo de tiempo.",
+      "execution": "La D9 no puede defenderse y es lo más lento del mapa: escóltela, no compita con ella. Un equipo RPG guarda la puerta en lo alto de la rampa y tres camiones antiaéreos están dentro de la alambrada; otro equipo RPG está atrincherado en pleno centro del depósito. Los camiones antiaéreos no pueden rayar el blindaje de la D9, pero cualquiera de los equipos RPG le atravesará la hoja de un cohete si trabaja sin escolta. Hay motos preparadas al este y caerán sobre la columna en cuanto avance hacia allí, y seguirán llegando más desde el este y el sur mientras se colocan las cargas.",
+      "notes": "Arrasar el depósito no es el final: los Rif quieren recuperar el terreno, y la columna debe mantener los escombros cuatro minutos contra todo lo que siga llegando. Arrase el depósito, abata o capture a quien guarde la puerta, mantenga lo que quede y conserve la columna intacta."
+    },
+    "aftermath": "El corredor está cortado. La brigada firmó el expediente al amanecer, a la misma hora del mismo día en que empezó. Le dan los Ari'im: todos, no una compañía en un patio. Idit trae el indicativo en persona: Ari Actual. Cinco estrellas.",
+    "debrief": {
+      "victory": "El depósito era la orden, y nada de eso consta en esta valoración. Lo que diga el número es lo que hizo la columna por el camino.",
+      "defeat": "El depósito sigue en pie y la carretera está abierta. Lo que subió por ella el mes pasado subirá el mes que viene."
+    },
+    "objectives": {
+      "raze_depot": "Arrasar el depósito en cinco minutos",
+      "kill_gate_rpg": "Abatir o capturar a quien guarde la puerta",
+      "hold_depot": "Mantener el patio del depósito cuatro minutos",
+      "no_bleed": "Permanecer en el campo los primeros cinco minutos"
+    },
+    "objective_say": {
+      "raze_depot": "Ocho edificios, y todo lo que había en ellos pasó antes por aquí. Las cargas de Beit Sahwan subieron por esta carretera. También los cohetes que cayeron sobre el norte durante una semana sin que nadie supiera decir desde dónde.",
+      "kill_gate_rpg": "Ese es Jubran Hallaq, en su propia puerta. Todo lo que subió por esta carretera subió por él, y no habría caminado veinte casillas al este para abandonarla.",
+      "hold_depot": "Terreno del depósito mantenido, cuatro minutos. Nada volvió a él."
+    },
+    "objective_say_on_fail": {
+      "raze_depot": "Cinco minutos, y el depósito sigue en pie. Lo que trajimos para derribarlo ya no lo derribará."
+    },
+    "triggers": {
+      "the_motorcycles_come_down_on_the_column": "Motos hostigan la columna",
+      "the_second_engineer_team_comes_up": "Segundo equipo de zapadores sube por el camino"
+    },
+    "trigger_say": {
+      "the_motorcycles_come_down_on_the_column": "Todo lo que cruzó esta cuenca la cruzó por esa carretera. El patio se reconstruye en una estación. La carretera estaba aquí antes que el patio y estará después."
+    },
+    "wave_say": {
+      "2": "Cada vez más fuertes y siempre contra la puerta. Cuatro minutos así y luego dejan de contar y empiezan a llegar."
+    },
+    "src": {
+      "name": "5339b10e",
+      "briefing": "2531b36e",
+      "objectives.raze_depot": "0e781bae",
+      "objectives.kill_gate_rpg": "0884ac1c",
+      "objectives.hold_depot": "b7ec04c2",
+      "objectives.no_bleed": "746c56a0",
+      "triggers.the_motorcycles_come_down_on_the_column": "4cf803cc",
+      "triggers.the_second_engineer_team_comes_up": "db3f0211",
+      "aftermath": "8bf50b8c",
+      "debrief.victory": "69d0b6df",
+      "debrief.defeat": "49ce531c",
+      "sections.situation": "e496ca8e",
+      "sections.mission": "b50acc35",
+      "sections.execution": "c3b9b526",
+      "sections.notes": "5078caff",
+      "objective_say.raze_depot": "49e5b3b6",
+      "objective_say.kill_gate_rpg": "ceeb9f2d",
+      "objective_say.hold_depot": "d344fb0b",
+      "objective_say_on_fail.raze_depot": "5d9219b1",
+      "trigger_say.the_motorcycles_come_down_on_the_column": "90a05dae",
+      "wave_say.2": "65d5795f"
+    }
+  }
+}

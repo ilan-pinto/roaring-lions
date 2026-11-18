@@ -1,13 +1,15 @@
 # All the repo's gates, exactly as contributors run them locally.
 # The determinism job is the interesting one: the same 1000-tick replay must
 # produce the same golden state hash on Linux, macOS, and Windows — that is
-# invariants 2 and 3 made falsifiable.
+# invariants 2 and 3 made falsifiable. (On a pull request, macOS and Windows
+# run only when it changes the sim or the data: see the `changes` job.)
 
 name: ci
 
 on:
   push:
-    branches: [main]
+    # main is production (each push deploys); dev is where every PR lands (lead, 17 Nov 2026).
+    branches: [main, dev]
   pull_request:
 
 # Least privilege by default: a job that needs more (the release bump, the
@@ -63,6 +65,10 @@ jobs:
       # ran by hand and 52 problems built up unseen; a new asset now arrives
       # with its row or this job is red.
       - run: python3 tools/check_provenance_register.py
+      # GH-1415 (c): the commercial asset cut is REPORT ONLY (`pnpm commercial:cut`
+      # lists what a commercial build would leave out and removes nothing); this
+      # is its unit test, fixtures as literals, so the rule cannot drift unseen.
+      - run: python3 tools/test_commercial_asset_cut.py
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
       # Every other mesh gate reads the source, so a shipped file that is
@@ -168,8 +174,12 @@ jobs:
       # rather than defaulted inside the script -- see that file's own docstring
       # for why the two invocations answer different questions and neither
       # replaces the other.
-      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02
+      # GH-1384: a branched tier needs a pick, so each max-tier line runs once per uniform
+      # branch vector (`--branch=1`, `--branch=2`); without one the pass refuses (exit 2).
+      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=1
+      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=2
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=1
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=2
       - run: pnpm balance
       # Headless mission playtests (tools/src/backtest/playtest.ts): each Beit Sahwan/
       # Wadi Halam mission must be winnable by a sensible scripted plan inside its time
@@ -700,21 +710,91 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+  # Does this pull request change the simulation or the game data? GitHub's
+  # macOS runners are the bottleneck (lead, 17 Nov 2026), so on a pull_request
+  # the macOS and Windows determinism legs run only when it does. Linux
+  # determinism runs on every PR; every push to dev and main runs all three.
+  # The list is everything `pnpm test:determinism` reads: the sim and its three
+  # specs (the golden hashes are literals inside them), the data the sim specs
+  # load from data/, the vitest config and setup it runs under, the TypeScript
+  # config, and the install (manifest, lockfile, workspace, patches). ci.yml is
+  # on it so that a CI edit runs everything. tools/src/ci/determinism-paths.test.ts
+  # pins what matches. Only a pull_request is filtered: the paths-filter API
+  # lists the PR's whole diff against its base, not the last push's.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sim: ${{ steps.filter.outputs.sim }}
+    steps:
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        with:
+          filters: |
+            sim:
+              - 'packages/sim/**'
+              - 'packages/sim/src/tuning.ts'
+              - 'packages/sim/src/determinism.test.ts'
+              - 'packages/sim/src/snapshot-witness.test.ts'
+              - 'packages/sim/src/snapshot-witness-runtime.test.ts'
+              - 'data/**'
+              - 'packages/data/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'patches/**'
+              - 'vitest.config.ts'
+              - 'vitest.setup.ts'
+              - 'tsconfig.json'
+              - 'tsconfig.base.json'
+              - '.github/workflows/ci.yml'
+
+  # The matrix stays static, so the three checks keep the same three names on
+  # every run and none can sit pending. A macOS or Windows leg that a PR does
+  # not need runs on ubuntu-latest instead (no macOS runner is queued), skips
+  # every step after the first and reports SUCCESS with a "skipped" summary;
+  # it has run no replay, so read its summary, not its tick. The leg runs
+  # unless the filter said exactly 'false', so an empty output fails safe.
   determinism:
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' || needs.changes.outputs.sim != 'false') && matrix.os || 'ubuntu-latest' }}
+    env:
+      RUN_LEG: ${{ github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' || needs.changes.outputs.sim != 'false' }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Is this leg needed?
+        shell: bash
+        run: |
+          if [ "$RUN_LEG" = "true" ]; then
+            echo "determinism (${{ matrix.os }}): runs (${{ github.event_name }}, sim/data changed: ${{ needs.changes.outputs.sim || 'not filtered' }})"
+          else
+            echo "::notice title=determinism (${{ matrix.os }}) skipped::no sim/data change in this PR; the Linux leg ran the replay"
+            {
+              echo "### determinism (${{ matrix.os }}): skipped"
+              echo ""
+              echo "Skipped: no sim/data change in this pull request (the \`changes\` job's filter). No replay ran on ${{ matrix.os }};"
+              echo "this placeholder ran on ubuntu-latest. determinism (ubuntu-latest) ran the replay, and every push to dev and main runs all three."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: env.RUN_LEG == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: env.RUN_LEG == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - if: env.RUN_LEG == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test:determinism
+      - if: env.RUN_LEG == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: env.RUN_LEG == 'true'
+        run: pnpm test:determinism
 
   # Cuts a version from the commits since the last tag, but only for a commit
   # that already passed every gate on all three platforms — `needs` is what

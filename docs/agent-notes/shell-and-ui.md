@@ -43,7 +43,44 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   the expiry batch 5, the idle select 1, three tombstone pages, ONE guarded delete batch of 17 statements for every member the run
   deletes (up to 40: 20 idle, the rest from tombstones; `deleteDueStatements`, a `due` CTE, so a raced member is spared whole and
   nobody else), and one survivor select when a guard held = 48. The tombstone scan is resumable through a KV cursor
-  (`RECONCILE_CURSOR_KEY`), which moves on only once the delete batch has committed. **Add a sweep and you add its share to that sum, or the test reads red.**
+  (`RECONCILE_CURSOR_KEY`), which moves past a page only once every member queued from it is settled (in a batch that committed, or
+  recorded as failing). **Add a sweep and you add its share to that sum, or the test reads red.** **The one-member fallback (GH-1530):**
+  the one batch is one transaction, so a member whose rows make it fail would hold the other 39, run after run. `reconcile:batchfail`
+  (KV, 7-day TTL, not under `tomb:`) counts consecutive failed shared batches and is deleted when one commits; at
+  `BATCH_FAIL_THRESHOLD` (2) the next run deletes the OLDEST queued member alone. Under the per-statement meter that is all a run can
+  do: one member alone costs the same 17 statements as the shared batch, so the account share and the 48 are unchanged (the fallback is
+  KV calls only). A member whose own delete fails is recorded in `reconcile:failing` (`{ idHash: day }`), left out of every batch for
+  `FAILING_HOLD_DAYS` (7) and then retried alone, never in the shared batch again; the counter clears, so the next run deletes everyone
+  else. The retry is queued FROM THE RECORD (the entry recorded longest ago whose hold is over, one a run, its guard day its tombstone's),
+  so it comes every 7 days whether or not the scan finds the member again; recording settles its page, and on a listing that does not
+  wrap within the hold the scan would not (PR 1540 delta review: above about 8,100 tombstones a wrap takes more than 30 days). An alone run that commits sets the counter to one under the threshold, so the shared batch is tried again next run (a transient
+  failure costs one run of one member). Every run throws while `reconcile:failing` holds ANY entry, whether or not that run found the
+  member (a recorded tombstone-path member is settled, so the cursor moves past its page), so `scheduled()` stays red while a deletion
+  is stuck; recording or re-recording a member also re-puts its tombstone with the same value and a fresh `TOMB_TTL_S`, so a deletion
+  that keeps failing is not dropped when its tombstone would expire (an idle member's is skipped: the idle path wrote it that run). An
+  entry leaves the record when its member's delete commits, when its member row is gone (the route deleted it) or signed in after its
+  tombstone (a cancelled deletion, also when the scan prunes that tombstone in the same run). An entry whose member exists and whose
+  tombstone is readable and not older than its last sign-in is confirmed OWED and never ages out, so a stuck deletion stays red until it
+  is finished or no longer owed; a MISSING or unreadable tombstone keeps the entry red too, but for 30 days only, since nothing then says
+  the deletion is still owed (a cancelled one's tombstone is pruned as well). A KV error reading it keeps the entry and ages nothing. The
+  existence check rides the idle select (a `UNION ALL` over `id_hash IN (...)`, only when the record is not empty), so it adds no D1
+  statement and the 48 stands; the retry it queues replaces that run's shared batch with one 17-statement batch, so it adds none either
+  (metered: 38 in the week-later run of `cron-budget.test.ts`). The 40-entry cap (newest kept) applies when the record is read as well as
+  written; past 40 stuck members the oldest entry leaves the record, its tombstone stays, and the scan finds it again. The re-put writes
+  only the tombstone the member was queued by, so a newer one from the route is never overwritten; KV has no conditional put, so a
+  route `dropCancelled` landing between the re-put's get and put can still bring back a cancelled tombstone until the next scan prunes
+  it, the same class as GH-1534. A
+  `db.batch` that resolved counts as committed even if the survivor tidy-up then throws (no counter rise, no record). A tombstone that
+  does not parse to a numeric day is skipped, logged and counted by BOTH the scan and the survivor step; on the scan it also fails the
+  run (its member is live, so the deletion is owed), without pinning the page. **Known limit (GH-1530): isolation can starve.** Oldest
+  first means an idle member always sorts first (its guard day is the cutoff, `today - 1096`, older than any tombstone-path day), so
+  while idle members keep arriving a bad tombstone-path member (a user-requested deletion whose route batch failed) is never tried alone:
+  each cycle is a failed shared batch and one idle member alone, 0.5 deletions a run, and its page keeps the cursor. That cannot happen
+  until members can be 36 months idle (accounts shipped in 2026). And a recorded retry PRE-EMPTS the whole shared batch: each
+  permanently failing member takes one run in every `FAILING_HOLD_DAYS` (7), so about seven of them, staggered, take every run and the
+  shared batch never runs; a failed recorded retry also clears a counter another bad member was building. Every such run is red. A
+  rotating or bisecting choice of the member tried alone is the follow-up. If the lead rules that a batch counts as one query, a degraded
+  run could try every queued member alone in one run; that is a change to `accountCron` and to the pinned cost, not a constant.
 - **The Settings footer names the build's short commit** (`Build <version> · <sha>`, `settings.buildCommit`;
   `shortCommit` in `build-commit.ts`). The commit is `__APP_COMMIT__`, fixed at BUILD time by
   `packages/app/vite.config.ts`'s `appCommit()`: `WORKERS_CI_COMMIT_SHA` (set by Cloudflare Workers Builds, so the
@@ -146,6 +183,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`unit-text.ts`); roles are chrome. Translators' files are served by `packages/app/vite-plugin-locales.ts`
   (dev middleware and build assets, derived from `data/locales/`, never copied into `assets/`); a
   non-`en` file that does not arrive warns once with its URL (`i18n/overlay-fetch.ts`).
+  Stale translations (GH-1406 part 5): every overlay entry carries `src`, the first 8 hex of the SHA-256 of the English each string was
+  translated from, written into `en/missions.json` and `en/units.json` by `pnpm locales:en -- --write` and checked for every locale by
+  `validate:data` (`sourceHashFailures`, `unitOverlayFailures`), because `wave_say` is keyed by wave INDEX and a reorder or an edit leaves
+  every key valid. The runtime never reads it. Format and translator workflow: `data/locales/README.md`.
 
 <!-- CLAUDE.md lines 322-338, section "Dev instruments" -->
 
@@ -155,11 +196,17 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   The inbox hides everything when `settings.chat.enabled` is false (Settings, Chat; read per line through the one settings reader) and
   a muted seat's lines (per room, never stored: a guest cannot be recognised next room by design). `NetChat` shows the "Mute <name>"
   toggle and, when chat is off, a line saying so instead of the input. `chat-inbox-guard.test.ts` reads the source and fails when a
-  third place hooks `onChat` or a sink stops going through `.deliver(`. Not in this slice, waiting for the lead: word filter,
-  persistent block, report, kill switch.
+  third place hooks `onChat` or a sink stops going through `.deliver(`. Quick chat (S1b, the lead's D12): a select of twelve
+  preset phrases (`QUICK_CHAT_IDS` in `@lions/net`, words in `net.quick.<id>`). The wire carries the ID (`quick` messages, parsed against the
+  list, relayed by the room under the chat rate limit), and each client draws the phrase in its OWN language, through the same inbox
+  (`onQuick` is hooked in the same two places, guarded the same way). Not in this slice, waiting for the lead: word filter, persistent block,
+  report, kill switch, and a room mode that allows quick chat only.
 - **Settings wears the account page (GH-1510).** `ui/settings-panel.ts` draws each section as one of the profile's
-  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too; the classes keep their `rl-profile__` names so the
-  profile's pins and crest echo do not move). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
+  cards (`ui/page-card.ts`, which `ui/profile.ts` uses too). The shared classes were renamed to neutral ones in their
+  own change (GH-1510 Q4): `rl-profile__card` -> `rl-page-card`, `__card-title` -> `rl-page-card__title`,
+  `__card-body` -> `rl-page-card__body`, `__cols` -> `rl-page-cols`, `__col` -> `rl-page-cols__col`, `__col--main` /
+  `--side` -> `rl-page-cols__col--main` / `--side`, one class for one class so no specificity moved. The screens'
+  own modifiers stay theirs (`rl-profile__card--head`, the crest echo's hook; `rl-settings__card--video`). Wide column: Video, Audio; narrow: Accessibility, Privacy, Chat, Language;
   Controls full width under both. The pause menu's Settings tab mounts the same panel, so the drop to one column is a
   container query on `.rl-settings__content` (48rem), not a media query. A new row goes into its section's card body
   (`row(table, ...)` after that section's `table = section(...)`); a new section needs a `SectionKey` and a title strip
@@ -544,9 +591,10 @@ Spec: `docs/superpowers/specs/2026-11-14-admin-account-page-design.md`. The page
 ## The slow-frames suggestion (GH-1413)
 
 `ui/frame-probe.ts` measures, `ui/quality-hint.ts` asks, `settingsDeps.set` is the only write. After the no-graphics notice (`ui/no-gpu.ts`, which owns software renderers) `main.ts` mounts `watchQualityHint`. On a shell screen (menu, campaign, brigade, free-play) it drops 30 frames, measures 90 intervals, and calls frames slow when the **median** interval is at or over 33.4 ms (more than half the frames slow). It then shows one card, "Switch to Low quality" or "Keep my setting", and a preset applies at the NEXT mission's boot (`packages/render/src/quality.ts`), never to a running one.
-- **Nothing automatic (lead, 10 Oct).** Showing the card changes no setting; declining, Escape and a disposed card do not either. `setQuality` is called from the accept button's handler and nowhere else. `quality-hint-wiring.test.ts` pins that `main.ts` writes only through `settingsDeps.set` and only the `quality` field.
+- **Nothing automatic (lead, 10 Oct).** Showing the card changes no setting; declining, Escape and a disposed card do not either. `setQuality` is called from the accept button's handler and nowhere else. `quality-hint-wiring.test.ts` pins that `main.ts` hands the chunk `settings: settingsDeps` and that `quality-hint.ts` and `software-hint.ts` write only through its `set` (never the store or the key).
 - **Why the median.** The declined auto step-down (PERFORMANCE.md) called an opening slow at 5% of intervals over 33.4 ms and would have fired on the reference M3 Pro Retina (11-18% at `high`). Half the frames over the line is above that reading and under the worst throttled cell (64.8%). The constants are those doc readings; no browser measured them for this change (the cloud has none), and the hardware sweep under GH-1413 is what confirms them. Retune in `frame-probe.ts`, with `frame-probe.test.ts`'s Retina and throttled series as the oracle.
 - **Voided, never guessed.** A hidden tab, a 2 s stall, leaving the shell for a mission and 12 s without a full sample all void the sample; a short sample is never slow.
 - **When it may show.** Production build on a real host (`feedbackSends`) or `?qualityhint`; never for a software renderer, a saved Low preset, a player who has answered (browser store key `lions.qualityHint.answered`, set by either button; asked once, ever) or over another dialog. The scrim class `rl-quality-hint` is in `isDialogOpen`'s list.
+- **The software-rendering line (GH-1413 G1).** On a software renderer the same lazy chunk mounts ONE status line instead (`ui/software-hint.ts`, `.rl-software-hint`, not a dialog: no trap, no key swallowed, shown only while `inShell`), "Switch to Low" or "Dismiss". Same gate as the card; not on Low; answered once, ever, in `settings.hints.software` through `settingsDeps.set` (a blocked store keeps the answer for the page only). The renderer is `gpuName()`'s, re-read from a throwaway context through `gl.RENDERER` when that is null or empty (masked); `no-gpu.ts`'s `isSoftwareRenderer` is still the one classifier. **Captures never see it, twice over:** every tool serves on localhost, where the gate is shut, and `tools/src/ui-review/music-off.ts` seeds `hints.software: true` beside `intro.seen`; `music-off.test.ts` feeds that seed to `softwareHintWanted` with the gate forced open.
 
 - **The computer seat (GH-1388).** `/versus` offers "Play a basic computer opponent": the arena's `rush` script as seat 1 of an OFFLINE versus match, no flag and no URL parameter typed by the player. The lobby arms the match in `net/offline-slot.ts` (module state, one realm) and navigates to `/free-play/<map>?net=OFFLINE`; `connectMatch` takes it, and a reload or stray link finds nothing armed (`OfflineMatchGone`, back to `/versus`) and asks no server. `OFFLINE` is seven characters, a real room code is six without `-`, so it cannot collide. **The script and its view moved, not copied:** `order-desk`, `view`, `economy-view`, `win-rule`, `fog-tracker` and the policies (`rush`, `passive`) now live in `packages/app/src/net/computer/`; the same names in `tools/src/net/` are one-line re-exports, so the arena plays the very same code (a test pins `players.rush === rush`). `@lions/render` exports `computeFog` for it. `ComputerSeat` reads only `sideView` (this seat's own fog, the harness's observation) and issues `Command`s through the arena's `OrderDesk` (<= 4 a flush, one flush per 20 ticks), first decision at tick 100 and then every 100 (the arena's realtime cadence). `OfflineMatchTransport` is a `LocalTransport` with a second seat (`local` is true, so pacing, pause and speed are single-player's), and a batch never crosses a decision tick. `main.ts` attaches the world to it and, in the local branch, ends a `versusRoom` match on the sim's own result. It builds nothing: `rush` has no build order, so the opponent fights with the force it starts with, and the lobby note says exactly that. **Mirror pairings only (stalemate sweep, 260 headless runs):** the lobby hides the seat on `kdf`/`sarim` and `offlineConfig` throws for them, because `outcomeOf` counts a side standing while `production.canField(side)`, the human's untouched purse keeps them standing, and the computer never builds, so every economy cell ran to the 25-35 minute cap (0 of 120 ended). Economy pairings wait for a computer that builds. **`ComputerSeat.sweepStragglers`:** `rush` orders only units idle AND within `RUSH_HOME_TILES` of home, so a unit that stopped away from home was never ordered again (32 of 70 passive mirror runs never ended). Each decision the seat attack-moves every own idle, armed, mobile, unrouted unit `rush` did not order, on the nearest contact in its OWN fog, else the enemy camp. `rush` is untouched (`players.rush === rush` and the arena/versus probes depend on it). Normal telemetry rules still apply to the page; the match itself makes no request (a fetch/WebSocket/XHR/beacon spy holds zero over a run to a result).

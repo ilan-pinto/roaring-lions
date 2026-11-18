@@ -77,13 +77,37 @@ describe('the Resume row', () => {
     }
   });
 
+  it('the ledger line claims no more than the code proves: a changed digest is not "a mission was completed"', () => {
+    expect(en['resume.moved.ledger']).toBe('your campaign progress has changed');
+    expect(en['resume.moved.ledger']).not.toMatch(/mission|complet|won|win|victor/i);
+  });
+
   it('a campaign that moved names what changed, in words, and the plain sentence is the fallback', () => {
-    expect(movedText(['ledger'])).toBe('Since you saved: another mission was completed. Discard this save to carry on.');
+    expect(movedText(['ledger'])).toBe('Since you saved: your campaign progress has changed. Discard this save to carry on.');
     expect(movedText(['units', 'upgrades'])).toBe('Since you saved: a unit was bought, an upgrade was bought. Discard this save to carry on.');
     expect(movedText([])).toBe('Your brigade has changed since you saved. Discard this save to carry on.');
     const row = resumeRow(deps({ state: 'refused', reason: 'moved', moved: ['ledger', 'units'] }));
-    expect(row.el!.querySelector('.rl-resume__line')?.textContent).toBe('Since you saved: another mission was completed, a unit was bought. Discard this save to carry on.');
+    expect(row.el!.querySelector('.rl-resume__line')?.textContent).toBe('Since you saved: your campaign progress has changed, a unit was bought. Discard this save to carry on.');
     expect(row.el!.textContent).not.toMatch(/ledger|units|upgrades|moved/); // the internal ids never reach the screen
+  });
+
+  // GH-1394 slice 2 (ruling 6): a save under another posture says so on screen, in its own words, and how to get it back.
+  it('a posture changed since the save has its own line, naming both postures; with anything else changed too, the named sentence', () => {
+    const own = 'This mission was saved on Standard, and the campaign is now on Easier. Set the posture back to Standard to resume it, or discard the save.';
+    expect(resumeRefusalText('moved', ['posture'], { was: 'standard', now: 'easier' })).toBe(own);
+    const row = resumeRow(deps({ state: 'refused', reason: 'moved', moved: ['posture'], posture: { was: 'standard', now: 'easier' } }));
+    expect(row.el!.querySelector('.rl-resume__line')?.textContent).toBe(own);
+    expect([...row.el!.querySelectorAll('button')].map((b) => b.dataset.act)).toEqual(['discard']);
+    expect(movedText(['ledger', 'posture'], { was: 'harder', now: 'easier' })).toBe(
+      'Since you saved: your campaign progress has changed, the posture was changed. Discard this save to carry on.'
+    );
+    expect(movedText(['posture'])).toBe('Since you saved: the posture was changed. Discard this save to carry on.');
+  });
+
+  it('?pseudo=1: the posture line is bracketed', () => {
+    setCatalogue('pseudo', en, pseudo);
+    expect(resumeRefusalText('moved', ['posture'], { was: 'harder', now: 'standard' })).toMatch(/^⟦[\s\S]*⟧$/);
+    expect(movedText(['units', 'posture'])).toMatch(/^⟦[\s\S]*⟧$/);
   });
 
   it('a resume that was tried and failed keeps Resume and says so', () => {

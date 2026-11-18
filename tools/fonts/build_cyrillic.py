@@ -8,6 +8,9 @@ SUBSETS below, downloaded by hand (this tool touches no network):
 
     curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf
     curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-SemiBold.ttf
+    curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/firasans/FiraSans-Regular.ttf
+    curl -sSLO https://raw.githubusercontent.com/google/fonts/main/ofl/firasans/FiraSans-SemiBold.ttf
+    curl -sSLO "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/Oswald%5Bwght%5D.ttf"   # save as Oswald[wght].ttf
 
 Needs fontTools and brotli (`pip install fonttools brotli`; built with
 fonttools 4.68.0, brotli 1.2.1). The output is byte-for-byte reproducible.
@@ -32,12 +35,18 @@ The Latin files are not rebuilt: their bytes stay exactly as shipped, and the
 Cyrillic file is a separate `@font-face` with a `unicode-range`
 (packages/app/src/ui/theme.css), so a Latin glyph can never come from it.
 
-Barlow (body) and Big Shoulders Display (display) are NOT here, because no
-OFL source of either has a Cyrillic glyph: Barlow 1.408 (google/fonts) and
-1.422 (github.com/jpt/barlow, master) map 0 of U+0400-04FF, and Big
-Shoulders Display 2.002 (google/fonts; the upstream README's latest is 2.002)
-maps 0. Substituting another face is a lead decision, not a build step; see
-docs/superpowers/specs/2026-11-16-cjk-font-proposal.md, section 1.
+Barlow (body) and Big Shoulders Display (display) have NO Cyrillic glyph in
+any OFL source (Barlow 1.408 and 1.422 map 0 of U+0400-04FF; Big Shoulders
+Display 2.002 maps 0). The lead's ruling of 17 Nov 2026 (option B of
+docs/superpowers/specs/2026-11-16-cjk-font-proposal.md, section 1) gives each a
+COMPANION: Fira Sans 400/600 for Barlow, Oswald (variable, 200-700) for Big
+Shoulders Display. A companion entry ("companion": True) is a DIFFERENT face
+served under the family's own name with a Cyrillic-only unicode-range, so
+the Latin-match check above does not apply to it (there is no Latin glyph of
+the same design to match); what is checked instead is the pinned sha256 and
+that the source maps the whole range. Its output maps NOTHING outside the
+range, so a Latin glyph can never come from it (font-faces.test.ts reads that
+back off the file).
 """
 import argparse
 import hashlib
@@ -74,6 +83,34 @@ SUBSETS = [
         "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-SemiBold.ttf",
         "sha256": "d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46",
         "unicodes": CYRILLIC,
+    },
+    # Companions (lead ruling 17 Nov 2026, option B): a different face under the family's name, Cyrillic only.
+    {
+        "out": "fira-sans-cyrillic-400.woff2",
+        "family": "Barlow 400",
+        "src": "FiraSans-Regular.ttf",
+        "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/firasans/FiraSans-Regular.ttf",
+        "sha256": "c29556a2719bf613ef3d5e070e40d903a8965d9c081beca1375dc1e6e0f93c23",
+        "unicodes": CYRILLIC,
+        "companion": True,
+    },
+    {
+        "out": "fira-sans-cyrillic-600.woff2",
+        "family": "Barlow 600",
+        "src": "FiraSans-SemiBold.ttf",
+        "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/firasans/FiraSans-SemiBold.ttf",
+        "sha256": "db0321f83eb3e9f527b8af384a1b3fefdc1039cf2b06fd39b3f61492bda9561c",
+        "unicodes": CYRILLIC,
+        "companion": True,
+    },
+    {
+        "out": "oswald-cyrillic.woff2",
+        "family": "Big Shoulders Display 400-900",
+        "src": "Oswald[wght].ttf",
+        "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/Oswald%5Bwght%5D.ttf",
+        "sha256": "5b38c246e255a12f5712d640d56bcced0472466fc68983d2d0410ec0457c2817",
+        "unicodes": CYRILLIC,
+        "companion": True,
     },
 ]
 
@@ -128,11 +165,15 @@ def main():
         got = sha256(src)
         if got != s["sha256"]:
             sys.exit(f"{s['src']}: sha256 {got} is not the recorded {s['sha256']}; refusing a different upstream build")
-        bad = latin_mismatches(os.path.join(FONTS, s["latin"]), src)
+        bad = [] if s.get("companion") else latin_mismatches(os.path.join(FONTS, s["latin"]), src)
         if bad:
             sys.exit(f"{s['src']}: {len(bad)} code points differ from the shipped {s['latin']} "
                      f"(first U+{bad[0]:04X}); not the build the Latin file came from")
         data = build(src, s["unicodes"])
+        if s.get("companion"):
+            outside = sorted(c for c in TTFont(io.BytesIO(data)).getBestCmap() if c not in set(subset.parse_unicodes(s["unicodes"])))
+            if outside:
+                sys.exit(f"{s['out']}: maps U+{outside[0]:04X} outside the Cyrillic range; a companion must map nothing else")
         out = os.path.join(FONTS, s["out"])
         if args.check:
             have = open(out, "rb").read() if os.path.exists(out) else b""

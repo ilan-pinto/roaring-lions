@@ -3,7 +3,7 @@ import en from './i18n/en.json';
 import { pseudo } from './i18n/pseudo';
 import { setCatalogue } from './i18n/t';
 
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 import worldJson from '../../../data/campaign/world.json';
 import commanderJson from '../../../data/campaign/commander.json';
@@ -55,7 +55,7 @@ describe('parseWorld', () => {
     // Moved with the Marj's completion (Khan Rafid + Deir Amun, design.md C3
     // / O-KR1): Sur now opens only once the whole Marj -- Beit Sahwan, Khan
     // Rafid and Deir Amun -- is finished, not two-thirds of it.
-    expect(sur.unlock?.afterMission).toBe('deir_amun_3_subterranean');
+    expect(sur.unlock?.afterMission).toBe('bir_tarsha_5_subterranean');
   });
 
   it('keeps town positions as a fixed pair', () => {
@@ -96,18 +96,18 @@ describe('regionProgress', () => {
     const p = regionProgress(sur, {});
     expect(p.status).toBe('locked');
     expect(p.lockedBecause).toBe('Clear an earlier mission first');
-    expect(p.lockedBecause).not.toContain('deir_amun_3_subterranean');
+    expect(p.lockedBecause).not.toContain('bir_tarsha_5_subterranean');
   });
 
   it('names the gating mission once a resolver can supply its title', () => {
     const p = regionProgress(sur, {}, (id) =>
-      id === 'deir_amun_3_subterranean' ? 'Deir Amun III — All Four' : undefined
+      id === 'bir_tarsha_5_subterranean' ? 'Bir Tarsha V — Under the Fence' : undefined
     );
-    expect(p.lockedBecause).toBe('Clear Deir Amun III — All Four first');
+    expect(p.lockedBecause).toBe('Clear Bir Tarsha V — Under the Fence first');
   });
 
   it('opens once the gating mission is cleared', () => {
-    const p = regionProgress(sur, { 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
+    const p = regionProgress(sur, { 'campaign.completed_missions': ['bir_tarsha_5_subterranean'] });
     expect(p.status).toBe('live');
     expect(p.lockedBecause).toBe(null);
   });
@@ -277,9 +277,9 @@ describe('parseCommander', () => {
   it('maps the authoring spelling (until_mission) onto the runtime one (untilMission)', () => {
     // Moved with Khan Rafid / Deir Amun (design.md C4): the Captain's tenure
     // now runs through all six of those missions too, so the act boundary --
-    // and the third star -- lands at deir_amun_3_subterranean rather than at
-    // beit_sahwan_4_subterranean.
-    expect(commander.ranks[0]!.untilMission).toBe('deir_amun_3_subterranean');
+    // and the third star -- landed at deir_amun_3_subterranean rather than at
+    // beit_sahwan_4_subterranean. Bir Tarsha, the Marj's fourth town (GH-1438), moved it on to bir_tarsha_5_subterranean.
+    expect(commander.ranks[0]!.untilMission).toBe('bir_tarsha_5_subterranean');
     // The last entry is the default and carries no until_mission at all.
     expect(commander.ranks[commander.ranks.length - 1]!.untilMission).toBeUndefined();
   });
@@ -440,7 +440,30 @@ describe('possibleStars', () => {
       produces_it: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
       does_not: { ledger: { requires: [], produces: [] } } as unknown as MissionJson,
     };
-    expect(possibleStars(fakeWorld, missionsById)).toBe(3);
+    expect(possibleStars(fakeWorld, missionsById, {})).toBe(3);
+  });
+
+  // GH-1394 slice 2 (ruling 3): Easier grades to two stars at most, so the count says two a mission there, and a mission
+  // already won at three (on another posture) keeps its three, so the total never reads below what was earned.
+  it('under Easier counts two a mission, a stored three stays three, and Standard and Harder count three', () => {
+    const world2: ParsedWorld = {
+      id: 'test', name: 'Test', art: 'campaign/test.svg',
+      regions: [{ id: 'r1', name: 'R1', faction: 'kdf', doctrine: 'd', towns: [{ id: 't1', name: 'T1', at: [0, 0], missions: ['m1', 'm2', 'tut'] }] }],
+    };
+    const ms: Record<string, MissionJson | undefined> = {
+      m1: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
+      m2: { ledger: { requires: [], produces: ['campaign.mission_results'] } } as unknown as MissionJson,
+      tut: { ledger: { requires: [], produces: [] } } as unknown as MissionJson,
+    };
+    expect(possibleStars(world2, ms, {})).toBe(6);
+    expect(possibleStars(world2, ms, { 'campaign.difficulty': 'harder' })).toBe(6);
+    expect(possibleStars(world2, ms, { 'campaign.difficulty': 'easier' })).toBe(4);
+    const won3 = { 'campaign.difficulty': 'easier', 'campaign.mission_results': { m1: { stars: 3, roe: 90, ticks: 1, lost: 0 } } } as LedgerData;
+    expect(possibleStars(world2, ms, won3)).toBe(5);
+    const town = world2.regions[0]!.towns[0]!;
+    expect(townStars(town, { 'campaign.difficulty': 'easier' })).toEqual({ earned: 0, possible: 6 });
+    expect(townStars(town, won3)).toEqual({ earned: 3, possible: 7 });
+    expect(townStars(town, {})).toEqual({ earned: 0, possible: 9 });
   });
 });
 
@@ -490,7 +513,7 @@ describe('promotionAfter', () => {
     // (design.md C3/C4), and the motivation-layer spec (§4.5) says ranks already
     // live in commander.json matching the act ends -- deir_amun_3_subterranean is
     // that act end today.
-    const p = promotionAfter(commander, world, 'deir_amun_3_subterranean');
+    const p = promotionAfter(commander, world, 'bir_tarsha_5_subterranean');
     expect(p?.rank).toBe('Major');
     expect(p?.stars).toBe(3);
     expect(promotionAfter(commander, world, 'beit_sahwan_1_recon')).toBeNull();
@@ -580,7 +603,7 @@ describe('the Naharin villain ends at the depot (GH-912 G-Q)', () => {
 
 describe('the account of the taken', () => {
   it('subtracts what came back from what was taken, and reads nothing when the world names no number', () => {
-    expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 19, recovered: 5 });
+    expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 24, recovered: 5 }); // Was 19: Bir Tarsha's five (four in III, one in V)
     expect(hostagesAccount({ ...world, taken: undefined }, {})).toBeNull();
   });
   it('is Idit\'s line', () => {

@@ -6,11 +6,15 @@
 // elevationFailures does: validate_data.mjs runs its whole sweep at import time
 // and exits the process -- a test cannot import it. See map_grid.test.ts for
 // the same idiom against the map gate's own elevation check.
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  buildEnglishUnits,
   commanderRankFailures,
+  englishUnitFailures,
   narrativeTextFailures,
   overlayFailures,
+  sourceHash,
   unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
@@ -343,35 +347,109 @@ describe('overlayFailures', () => {
   });
 });
 
+// The oracle for every hash below is node's own SHA-256, written out here; no expected value is read back from `sourceHash`.
+const h8 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 8);
+
+describe('sourceHash (GH-1406 part 5)', () => {
+  it('is the first 8 hex of the SHA-256 of the exact text (literal: sha256("abc") starts ba7816bf)', () => {
+    expect(sourceHash('abc')).toBe('ba7816bf');
+    expect(sourceHash('')).toBe('e3b0c442');
+  });
+  it('moves on a one-character edit, a trailing space and a case change', () => {
+    const base = sourceHash('Hold the ford.');
+    for (const edit of ['Hold the ford', 'Hold the ford. ', 'hold the ford.', 'Hold the fords.']) expect(sourceHash(edit), edit).not.toBe(base);
+  });
+});
+
 describe('unitOverlayFailures (GH-1406)', () => {
-  const ids = new Set(['inf_squad', 'mbt_lavi']);
+  const units = new Map<string, object>([
+    ['inf_squad', { id: 'inf_squad', name: 'Rifle Squad', blurb: 'Holds ground.' }],
+    ['mbt_lavi', { id: 'mbt_lavi', name: 'Lavi' }],
+  ]);
+  const fine = { inf_squad: { name: 'Escouade', blurb: 'Tient.', src: { name: h8('Rifle Squad'), blurb: h8('Holds ground.') } } };
 
   it('passes a well-formed overlay, an empty one, and a null one', () => {
-    expect(unitOverlayFailures('fr/units.json', { inf_squad: { name: 'Escouade', blurb: 'Fantassins.' }, mbt_lavi: { name: 'Lavi' } }, ids)).toEqual([]);
-    expect(unitOverlayFailures('fr/units.json', {}, ids)).toEqual([]);
-    expect(unitOverlayFailures('fr/units.json', null, ids)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', { ...fine, mbt_lavi: { name: 'Lavi', src: { name: h8('Lavi') } } }, units)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', {}, units)).toEqual([]);
+    expect(unitOverlayFailures('fr/units.json', null, units)).toEqual([]);
   });
 
   it('refuses a unit id that is not in data/units (a typo would otherwise do nothing forever)', () => {
-    const out = unitOverlayFailures('fr/units.json', { inf_sqaud: { name: 'x' } }, ids);
+    const out = unitOverlayFailures('fr/units.json', { inf_sqaud: { name: 'x' } }, units);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatch(/inf_sqaud.*not a unit/);
   });
 
-  it('refuses any key but name and blurb: an overlay is text, never stats', () => {
-    const out = unitOverlayFailures('fr/units.json', { inf_squad: { name: 'x', cost: 5 } }, ids);
+  it('refuses any key but name, blurb and src: an overlay is text, never stats', () => {
+    const out = unitOverlayFailures('fr/units.json', { inf_squad: { ...fine.inf_squad, cost: 5 } }, units);
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatch(/"cost".*only name and blurb/);
+    expect(out[0]).toMatch(/"cost".*only name, blurb and src/);
   });
 
   it('refuses an empty, blank or non-string value', () => {
-    expect(unitOverlayFailures('f', { inf_squad: { name: '' } }, ids)).toHaveLength(1);
-    expect(unitOverlayFailures('f', { inf_squad: { blurb: '   ' } }, ids)).toHaveLength(1);
-    expect(unitOverlayFailures('f', { inf_squad: { name: 7 } }, ids)).toHaveLength(1);
+    expect(unitOverlayFailures('f', { inf_squad: { name: '' } }, units).join('\n')).toContain('name must be a non-empty string');
+    expect(unitOverlayFailures('f', { inf_squad: { blurb: '   ' } }, units).join('\n')).toContain('blurb must be a non-empty string');
+    expect(unitOverlayFailures('f', { inf_squad: { name: 7 } }, units).join('\n')).toContain('name must be a non-empty string');
   });
 
   it('reports every failure, not the first', () => {
-    expect(unitOverlayFailures('f', { nope: { name: 'x' }, inf_squad: { name: '', wat: 1 } }, ids)).toHaveLength(3);
+    expect(unitOverlayFailures('f', { nope: { name: 'x' }, inf_squad: { name: '', wat: 1 } }, units)).toHaveLength(3);
+  });
+
+  it('refuses a blurb for a unit that has none (applyUnitLocale would drop it)', () => {
+    expect(unitOverlayFailures('f', { mbt_lavi: { blurb: 'x', src: { blurb: 'abcdef12' } } }, units).join('\n')).toContain('translates blurb, which the unit does not have');
+  });
+
+  describe('the stale-translation guard', () => {
+    it('refuses a translated name or blurb with no src hash, naming the hash to copy', () => {
+      const out = unitOverlayFailures('f', { inf_squad: { name: 'Escouade', blurb: 'Tient.' } }, units).join('\n');
+      expect(out).toContain(`translates name but carries no src hash for it: copy src.name (${h8('Rifle Squad')})`);
+      expect(out).toContain(`translates blurb but carries no src hash for it: copy src.blurb (${h8('Holds ground.')})`);
+    });
+    it('goes red when the English is edited after the translation (a fixture unit whose blurb changed)', () => {
+      const edited = new Map(units);
+      edited.set('inf_squad', { id: 'inf_squad', name: 'Rifle Squad', blurb: 'Holds ground and garrisons.' });
+      expect(unitOverlayFailures('f', fine, units)).toEqual([]);
+      const out = unitOverlayFailures('f', fine, edited);
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain(`blurb is stale: it was translated from English ${h8('Holds ground.')}, and the English is now ${h8('Holds ground and garrisons.')}`);
+    });
+    it('refuses a src that names a field the entry does not translate, an unknown field, a malformed hash and a non-object', () => {
+      const one = (src: unknown) => unitOverlayFailures('f', { inf_squad: { name: 'E', src } }, units).join('\n');
+      expect(one({ name: h8('Rifle Squad'), blurb: h8('Holds ground.') })).toContain('src names blurb, which this entry does not translate');
+      expect(one({ name: h8('Rifle Squad'), cost: 'abcdef12' })).toContain('src carries "cost"');
+      expect(one({ name: 'ABCDEF12' })).toContain('src.name is not 8 lowercase hex characters');
+      expect(one('x')).toContain('src is not an object');
+    });
+  });
+});
+
+describe('the English unit catalogue (GH-1406 part 5)', () => {
+  const units = [
+    { id: 'b_unit', name: 'Bee', blurb: 'Buzzes.' },
+    { id: 'a_unit', name: 'Ay' },
+  ];
+  const good = () => JSON.parse(JSON.stringify(buildEnglishUnits(units))) as Record<string, Record<string, unknown>>;
+  it('is sorted by id, carries each text with its hash, and has no blurb key for a unit with none', () => {
+    expect(good()).toEqual({
+      a_unit: { name: 'Ay', src: { name: h8('Ay') } },
+      b_unit: { name: 'Bee', blurb: 'Buzzes.', src: { name: h8('Bee'), blurb: h8('Buzzes.') } },
+    });
+    expect(Object.keys(good())).toEqual(['a_unit', 'b_unit']);
+  });
+  it('passes itself, and fails on an edit to a text, to a hash, a missing and a stale entry', () => {
+    expect(englishUnitFailures('en/units.json', good(), units)).toEqual([]);
+    const text = good();
+    text.b_unit.blurb = 'Buzzes loudly.';
+    expect(englishUnitFailures('en/units.json', text, units).join('\n')).toContain('unit "b_unit" blurb differs from the unit file');
+    const hash = good();
+    (hash.b_unit.src as Record<string, string>).name = '00000000';
+    expect(englishUnitFailures('en/units.json', hash, units).join('\n')).toContain('unit "b_unit" src.name is not the hash of the unit file');
+    const gone = good();
+    delete gone.a_unit;
+    expect(englishUnitFailures('en/units.json', gone, units).join('\n')).toContain('no entry for unit "a_unit"');
+    expect(englishUnitFailures('en/units.json', { ...good(), ghost: { name: 'x', src: {} } }, units).join('\n')).toContain('"ghost", which is not a unit in data/units (stale)');
+    expect(englishUnitFailures('en/units.json', null, units)).toHaveLength(1);
   });
 });
 
@@ -400,16 +478,33 @@ describe('overlayFailures: dispatch, aftermath, hostages_place, debrief, section
       ],
     ]);
   const bare = () => new Map([['m1', { id: 'm1', objectives: [{ id: 'o1' }], triggers: [{ id: 't1' }] }]]);
+  // The English of `rich()` by path, written out by hand: `stamp` adds the src block an up-to-date translation of it would carry.
+  const ENGLISH: Record<string, string> = {
+    dispatch: 'The dispatch.', aftermath: 'The aftermath.', hostages_place: 'the ford', 'debrief.victory': 'Won.', 'debrief.defeat': 'Lost.',
+    briefing: 'A one. A two.', 'sections.situation': 'A one.', 'sections.mission': 'A two.',
+    'objective_say.o1': 'Held.', 'objective_say_on_fail.o1': 'Gone.', 'trigger_say.t1': 'They come.', 'wave_say.0': 'First.',
+  };
+  const stamp = (entry: Record<string, unknown>): Record<string, unknown> => {
+    const src: Record<string, string> = {};
+    for (const [key, v] of Object.entries(entry)) {
+      if (typeof v === 'string') {
+        if (key in ENGLISH) src[key] = h8(ENGLISH[key]);
+      } else if (v !== null && typeof v === 'object') {
+        for (const k of Object.keys(v)) if (`${key}.${k}` in ENGLISH) src[`${key}.${k}`] = h8(ENGLISH[`${key}.${k}`]);
+      }
+    }
+    return { ...entry, src };
+  };
   const run = (entry: Record<string, unknown>, missions: Map<string, object> = rich()) => overlayFailures('fr/missions.json', { m1: entry }, missions);
 
   it('passes a full, consistent translation of every field', () => {
     expect(
-      run({
+      run(stamp({
         name: 'N', briefing: 'Un. Deux.', sections: { situation: 'Un.', mission: 'Deux.' },
         dispatch: 'D', aftermath: 'A', hostages_place: 'le gué', debrief: { victory: 'V', defeat: 'L' },
         objectives: { o1: 'O' }, objective_say: { o1: 'S' }, objective_say_on_fail: { o1: 'F' },
         triggers: { t1: 'T' }, trigger_say: { t1: 'TS' }, wave_say: { '0': 'W' },
-      })
+      }))
     ).toEqual([]);
   });
   it('rejects a key the overlay does not read (a typo would no-op for ever)', () => {
@@ -460,5 +555,72 @@ describe('overlayFailures: dispatch, aftermath, hostages_place, debrief, section
   it('rejects sections without a briefing, and sections that do not join to the translated briefing exactly', () => {
     expect(run({ sections: { situation: 'Un.', mission: 'Deux.' } }).join('\n')).toContain('translates the sections but not the briefing');
     expect(run({ briefing: 'Un.  Deux.', sections: { situation: 'Un.', mission: 'Deux.' } }).join('\n')).toContain('do not spell the overlay briefing exactly');
+  });
+
+  // GH-1406 part 5: the stale-translation guard. A key says WHICH line; only the hash says which English the translator read.
+  describe('the stale-translation guard', () => {
+    const waveMission = (texts: string[]) => new Map([['m1', { id: 'm1', objectives: [], enemy: { waves: texts.map((t) => ({ say: say(t) })) } }]]);
+
+    it('goes red when the waves are reordered under a wave_say keyed by index (the case the keys alone cannot see)', () => {
+      // translated while the waves read [A, B]; each translation carries the hash of the English at its index
+      const translated = { wave_say: { '0': "A'", '1': "B'" }, src: { 'wave_say.0': h8('A. Hold the ford.'), 'wave_say.1': h8('B. Fall back.') } };
+      expect(run(translated, waveMission(['A. Hold the ford.', 'B. Fall back.']))).toEqual([]);
+      const out = run(translated, waveMission(['B. Fall back.', 'A. Hold the ford.']));
+      expect(out).toHaveLength(2);
+      expect(out[0]).toContain(`"wave_say.0" is stale: it was translated from English ${h8('A. Hold the ford.')}, and the English is now ${h8('B. Fall back.')}`);
+      expect(out[1]).toContain('"wave_say.1" is stale');
+    });
+    it('goes red when a wave is inserted ahead of a translated one', () => {
+      const translated = { wave_say: { '0': "A'" }, src: { 'wave_say.0': h8('A. Hold the ford.') } };
+      expect(run(translated, waveMission(['A. Hold the ford.']))).toEqual([]);
+      expect(run(translated, waveMission(['New first wave.', 'A. Hold the ford.'])).join('\n')).toContain('"wave_say.0" is stale');
+    });
+    it('goes red on an edit to any one source line, however small, in every group', () => {
+      const entry = stamp({
+        briefing: 'Un. Deux.', sections: { situation: 'Un.', mission: 'Deux.' }, dispatch: 'D', aftermath: 'A', hostages_place: 'le gué',
+        debrief: { victory: 'V', defeat: 'L' }, objective_say: { o1: 'S' }, objective_say_on_fail: { o1: 'F' }, trigger_say: { t1: 'TS' }, wave_say: { '0': 'W' },
+      });
+      expect(run(entry)).toEqual([]);
+      const base = rich().get('m1') as Record<string, unknown>;
+      const edited = (patch: Record<string, unknown>): Map<string, object> => new Map([['m1', { ...base, ...patch }]]);
+      const sayEdit = (t: string) => ({ speaker: 'idit', text: t });
+      const cases: [string, Map<string, object>][] = [
+        ['dispatch', edited({ dispatch: 'The dispatch!' })],
+        ['aftermath', edited({ aftermath: 'The aftermath, later.' })],
+        ['hostages_place', edited({ hostages_place: 'the ford ' })],
+        ['debrief.victory', edited({ debrief: { victory: sayEdit('Won!'), defeat: sayEdit('Lost.') } })],
+        ['debrief.defeat', edited({ debrief: { victory: sayEdit('Won.'), defeat: sayEdit('Lost!') } })],
+        ['objective_say.o1', edited({ objectives: [{ id: 'o1', say: sayEdit('Held!'), say_on_fail: sayEdit('Gone.') }, { id: 'o2' }] })],
+        ['objective_say_on_fail.o1', edited({ objectives: [{ id: 'o1', say: sayEdit('Held.'), say_on_fail: sayEdit('Gone!') }, { id: 'o2' }] })],
+        ['trigger_say.t1', edited({ triggers: [{ id: 't1', say: sayEdit('They come!') }, { id: 't2' }] })],
+        ['wave_say.0', edited({ enemy: { waves: [{ say: sayEdit('First!') }, {}] } })],
+        ['sections.situation', edited({ briefing_sections: [{ id: 'situation', text: 'A one!' }, { id: 'mission', text: 'A two.' }] })],
+        ['briefing', edited({ briefing: 'A one. A two!' })],
+      ];
+      for (const [path, ms] of cases) {
+        const out = run(entry, ms).filter((f) => f.includes(`"${path}" is stale`));
+        expect(out, path).toHaveLength(1);
+      }
+    });
+    it('goes red for a translated string that has no src hash, and names the hash to copy', () => {
+      const out = run({ dispatch: 'D', wave_say: { '0': 'W' } });
+      expect(out.join('\n')).toContain(`translates "dispatch" but carries no src hash for it: copy src "dispatch" (${h8('The dispatch.')})`);
+      expect(out.join('\n')).toContain(`translates "wave_say.0" but carries no src hash for it: copy src "wave_say.0" (${h8('First.')})`);
+    });
+    it('needs no hash for a string whose English the mission does not carry (nothing to be stale against)', () => {
+      expect(overlayFailures('fr/missions.json', { m1: { objectives: { o1: 'O' }, triggers: { t1: 'T' } } }, bare())).toEqual([]);
+    });
+    it('refuses a src entry for a path the entry does not translate, a malformed hash, and a src that is not an object', () => {
+      const stamped = stamp({ dispatch: 'D' });
+      expect(run({ ...stamped, src: { ...(stamped.src as object), aftermath: h8('The aftermath.') } }).join('\n')).toContain('src names "aftermath", which this entry does not translate');
+      expect(run({ dispatch: 'D', src: { dispatch: 'XYZ' } }).join('\n')).toContain('is stale');
+      // an uppercase copy of the right hash is wrong twice over: stale against the English, and malformed where the English is absent
+      expect(run({ dispatch: 'D', src: { dispatch: h8('The dispatch.').toUpperCase() } }).join('\n')).toContain('"dispatch" is stale');
+      expect(overlayFailures('fr/missions.json', { m1: { objectives: { o1: 'O' }, src: { 'objectives.o1': 'XYZ' } } }, bare()).join('\n')).toContain('src "objectives.o1" is not 8 lowercase hex characters');
+      expect(run({ dispatch: 'D', src: 'abc' }).join('\n')).toContain('overlay src is not an object');
+    });
+    it('accepts a translation of only some strings, as long as each carries its hash', () => {
+      expect(run(stamp({ dispatch: 'D', wave_say: { '0': 'W' } }))).toEqual([]);
+    });
   });
 });

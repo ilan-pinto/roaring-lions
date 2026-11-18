@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { missions as shippedMissions, structures, units, world } from '@lions/data';
+import { structures, units, world } from '@lions/data';
+import { missions as shippedMissions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import { coinPrice } from './stores-model';
 import { ADDS_TAGS, APP_HEAVY_COLLATERAL, unitAdds, type AddsInput, type AddsTag, type UnitJson, type WeakTag } from './stores-adds';
@@ -30,6 +31,7 @@ const input = (id: string | UnitJson, over: Partial<AddsInput> = {}): AddsInput 
     enemies: ENEMIES,
     open: START,
     ownedTiers: {},
+    ownedPicks: {},
     ledger: {},
     missions: MISSIONS,
     worldMissionIds: WORLD,
@@ -293,10 +295,10 @@ describe('T8 block F: where it can be used', () => {
     const t = mission('m_t', { triggers: [{ on: { kind: 'timer_s', value: 5 }, do: { kind: 'reinforce', units: [{ unit: 'fx_med', count: 1 }] } }] });
     expect(where({ missions: [t], worldMissionIds: ['m_t'] })).toContainEqual({ kind: 'loaned', n: 1 });
   });
-  it('the shipped medic: on loan in 29 missions on a starting ledger, docked in 20 world missions (literals)', () => {
+  it('the shipped medic: on loan in 39 missions on a starting ledger, docked in 25 world missions (literals)', () => {
     const w = unitAdds(input('inf_medic_squad')).where;
-    expect(w).toContainEqual({ kind: 'loaned', n: 29 });
-    expect(w).toContainEqual({ kind: 'dock', n: 20 });
+    expect(w).toContainEqual({ kind: 'loaned', n: 39 }); // Was 34: Bir Tarsha I to V
+    expect(w).toContainEqual({ kind: 'dock', n: 25 }); // Was 23: Bir Tarsha's missions add a dock
   });
   it('the ledger is read: a gate the ledger opens is not a loan, and an upgrade a ledger opens shifts the indices', () => {
     const G: UnitJson = { ...BASE, id: 'fx_gate', name: 'Gate', role: 'support', unlock: { after_mission: 'm_y', price: 100 } } as UnitJson;

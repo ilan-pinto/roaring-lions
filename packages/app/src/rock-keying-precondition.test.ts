@@ -12,7 +12,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as structureCatalogue, type MapId } from '@lions/data';
+import { parseMap, applyTerrain, structures as structureCatalogue, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { DECOR_RIDGE } from '@lions/render/terrain';
 
 const MAP_IDS = Object.keys(maps) as MapId[];

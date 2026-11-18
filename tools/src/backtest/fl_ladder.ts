@@ -24,7 +24,8 @@
 //   after  (NW 10.5, SW  9.5, SE 37.5)  passive  0/100 [100/0/0/0]   naive 99  sensible 100  optimal 100
 // Every winning run reads 5.00 min: the relief hold is a fixed 300 s clock.
 import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type TunnelRouteJson } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { units, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { firstLightPlan } from './plans/beit_sahwan';
 import { START_LAYOUT } from '../mission-harness';
 
