@@ -799,8 +799,8 @@ function baseUrl(port = 5173): string {
  *  the production dock over the canvas and spawns a demolition squad at the friendly anchor. A capture is not a
  *  player: every free-play boot the visual gate photographs opts out with this, so its frame stays the frame it
  *  was before that default (`packages/app/src/sandbox-help.ts`, `freePlayDefault`). A mission ignores it, so only
- *  a sandbox scenario carries it. `capture-protocol.test.ts` pins every scenario URL and the menu-host register's
- *  sandbox against the app's own boot pipeline. */
+ *  a sandbox scenario carries it. `free-play-opt-out.test.ts` pins every scenario URL and the URL the
+ *  menu-host register's vote opens (`screens-check.ts`'s `gotoMenuHostMission`) against the app's own boot pipeline. */
 export const CAPTURE_FREE_PLAY_OPT_OUT = 'works=0';
 
 /** A free-play path a gated capture boots, opted out of the free-play defaults (`CAPTURE_FREE_PLAY_OPT_OUT`):

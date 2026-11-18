@@ -97,13 +97,14 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   offers no box for it: it states it under the side pick, in its `labelKey` sentence (`freePlay.works.on`), and
   hides the line while Sarim is picked. No sim change and no tuning: the logistics are what `&works` gave. A
   free-play boot now draws the production dock and one more unit (the demolition squad at the friendly anchor
-  +3,+2), so every sandbox capture that frames either moves.
+  +3,+2), so every sandbox capture that frames either moves unless it boots with `&works=0` (every gated capture
+  does: next entry).
 - **`&works=0` opts a boot out (the lead's ruling of 18 Nov 2026).** `works=0`, `=off` or `=false` (`FLAG_OFF_VALUES`,
   `envlight`'s grammar) turns the free-play field works OFF for that boot, read by `readFlags` and `freePlayDefaults`
   for a `freePlayDefault` flag only, so `&sur=0` is still ON as it always was. Plain `&works` and no flag stay ON:
   players get works by default. Every free-play boot the visual gate photographs passes it
   (`CAPTURE_FREE_PLAY_OPT_OUT` in `tools/src/golden-diff/capture-protocol.ts`: every sandbox scenario's URL, so
   `golden-baseline`, `visual-backends` and `visual-parity` alike, and the menu-scene-host register's sandbox,
-  `MENU_HOST_MISSION_PATH`), so no gated frame gained the dock or the demolition squad and no baseline moved.
+  `gotoMenuHostMission`), so no gated frame gained the dock or the demolition squad and no baseline moved.
   `tools/src/golden-diff/free-play-opt-out.test.ts` pins it from the scenario table through the app's own
   `legacyRedirect` and `bootFlags`. `ui:routes` and `ui:shots` keep the default ON: they walk the player's path.

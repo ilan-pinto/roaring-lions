@@ -356,8 +356,11 @@ export function freePlayDefaults<K extends SandboxFlagName>(
  *  the new path spelling and the old query spelling cannot drift apart in
  *  which flags they emit or in what order.
  *
- *  The inverse of `readFlags`, and built by iterating the same table, so it
- *  cannot spell a flag in a form the parser does not accept. Flags are appended
+ *  The inverse of `readFlags` for every flag but a `freePlayDefault` one, and
+ *  built by iterating the same table, so it cannot spell a flag in a form the
+ *  parser does not accept. It cannot spell field works OFF: an absent `works`
+ *  is ON in a KDF Free play (`freePlayDefaults`), and only `&works=0` turns it
+ *  off, which this never writes. It has no production caller. Flags are appended
  *  BARE (`&sur`, not `&sur=1`) because that is how they are typed by hand and
  *  what `sandboxHelp` prints — one spelling everywhere, and `unknownParams`
  *  stays silent on anything this produces.

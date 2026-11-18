@@ -4,6 +4,7 @@
 // table itself (so a scenario added without it fails here), and that the app's own boot pipeline -- the legacy
 // `?sandbox=` redirect, then `bootFlags` -- really reads it as "no field works". The oracle is the app's code, not a
 // copy of the rule: a capture URL that the app read as works-on would be the regression.
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { bootFlags } from '../../../packages/app/src/boot-flags';
 import { unknownParams } from '../../../packages/app/src/sandbox-help';
@@ -11,7 +12,7 @@ import { legacyRedirect } from '../../../packages/app/src/shell/router';
 import { GPU_ARMS } from './backend';
 import { BASELINES, isGated } from './baseline';
 import { SCENARIOS, threeUrl } from './capture-protocol';
-import { MENU_HOST_MISSION_PATH } from './screens-check';
+import { gotoMenuHostMission, menuHostMissionUrl } from './screens-check';
 
 /** What the app boots for a URL: the router's legacy redirect, then the boot's own flag pipeline. */
 function bootOf(search: string): { path: string; works: boolean; strays: string[] } {
@@ -55,11 +56,25 @@ describe('every gated free-play capture opts out of the free-play defaults (the 
     }
   });
 
-  it('and the menu-scene-host register boots its sandbox the same way', () => {
-    const url = new URL(MENU_HOST_MISSION_PATH, 'http://localhost:5175/');
+  it('and the menu-scene-host register OPENS its sandbox the same way: the vote\'s own navigation, recorded', async () => {
+    const opened: string[] = [];
+    await gotoMenuHostMission({ goto: async (url: string) => { opened.push(url); return null; } } as never, 'http://localhost:5175/');
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toBe(menuHostMissionUrl('http://localhost:5175/'));
+    const url = new URL(opened[0]);
     expect(url.pathname).toBe('/free-play/beit_sahwan_outskirts');
     expect(url.searchParams.get('works')).toBe('0');
     expect(bootFlags(url.searchParams, { missionId: null, inRoom: false }, () => undefined).flags.works).toBe(false);
+  });
+
+  it('screens-check.ts opens no free-play path but through that navigation (no bare free-play/ anywhere in it)', () => {
+    // Review note 1 (PR 1586, R7): a use site reverted to `free-play/<map>` would bypass the builder the test above
+    // drives. The file spells no free-play path of its own -- `captureFreePlayPath` does -- and the vote calls the one
+    // navigation, so a revert anywhere in the file is a red here.
+    const src = readFileSync(new URL('./screens-check.ts', import.meta.url), 'utf8');
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    expect(code.match(/free-play\//g) ?? []).toEqual([]);
+    expect(code.match(/await gotoMenuHostMission\(page, baseUrl\)/g) ?? []).toHaveLength(1);
   });
 
   it('the same URL without the opt-out WOULD boot field works: the default the pin guards against is real', () => {
