@@ -17,7 +17,7 @@ const at = (re: RegExp): number => main.search(re);
 describe('the resume boot (main.ts bootBattlefield)', () => {
   it('reads and checks the save BEFORE anything is built, and a save that will not start sends the player to the board', () => {
     const load = at(/const got = await loadedKit\.loadResume\(/);
-    const destructure = at(/const \{ boughtUnits, ownedTiers \} = accountState\(\);/);
+    const destructure = at(/const \{ boughtUnits, ownedTiers, ownedPicks \} = accountState\(\);/);
     expect(load).toBeGreaterThan(0);
     expect(load).toBeLessThan(destructure);
     expect(main).toMatch(/if \(!got\.ok\) \{\s*req\.navigate\(routes\.campaign\(\), \{ replace: true \}\);\s*return \(\) => undefined;/);
@@ -78,7 +78,7 @@ describe('Save and quit (main.ts)', () => {
   });
 
   it('what is saved is what the mission was started from, and the shell', () => {
-    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen \}\) \?\? null;/);
+    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen \}\) \?\? null;/);
     expect(main).toMatch(/shell: shellJson\(captureShell\(\{ log: missionLog, deductions, lost: lostThisMission, narratedRoe: narratedRoeReasons, evacuated: evacuatedSoFar, deadlinesWarned, limitWarned \}\)\),/);
   });
 });

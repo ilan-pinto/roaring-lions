@@ -88,6 +88,7 @@ import {
   vfxEmitters,
   menuDiorama,
   structures as structureCatalogue,
+  type BranchPick,
   type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
@@ -151,7 +152,7 @@ import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
 import { answered as promptAnswered, asked as promptAsked, ignored as promptIgnored, readPromptState, shouldAsk, writePromptState } from './feedback/prompt-policy';
-import { ReplayRecorder } from './feedback/replay';
+import { ReplayRecorder, replayStartPicks } from './feedback/replay';
 import { afterAction, promotionsBetween } from './ui/after-action';
 import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
@@ -185,6 +186,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
+import { withGarageBranch } from './branch-bridge';
 import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
@@ -273,6 +275,7 @@ import {
 } from './sandbox-extras';
 import {
   SANDBOX_WORKS_KDF,
+  bootPicks,
   bootTiers,
   sandboxUnitTypes,
 } from './sandbox-force';
@@ -734,6 +737,7 @@ function sandboxSarim(): Promise<typeof SandboxSarim> {
 function accountState(): {
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
+  ownedPicks: Record<string, Record<string, BranchPick>>;
   balance: number;
 } {
   // A blocked store reads as the empty account (`ledger-store.ts`), which has
@@ -1287,7 +1291,7 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades };
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades, picks: a.ownedPicks };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
@@ -1299,7 +1303,7 @@ async function main(): Promise<void> {
           const { account, ok } = buyWithCoins(
             storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
             roar,
-            ask,
+            withGarageBranch(ask),
             Date.now()
           );
           if (ok) {
@@ -1422,6 +1426,7 @@ async function main(): Promise<void> {
         : undefined,
       owned: ownedTiers,
       earned: ledgerStore.readAccount().upgrades,
+      picks: accountState().ownedPicks,
       onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
             // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
@@ -1432,7 +1437,7 @@ async function main(): Promise<void> {
               ?.upgrades?.[track]?.tiers.map((x) => x.price);
             if (prices === undefined) return { ...now(), landed: false };
             const { account, ok } = buyTierWithCredits(
-              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers },
+              { account: ledgerStore.readAccount(), owned: accountState().ownedTiers, roar: ledgerStore.readRoar() },
               prices,
               unitId,
               track,
@@ -1972,7 +1977,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       missionId: req.missionId,
       store: loadedKit.openSuspendStore(() => window.localStorage),
       seed: SIM_SEED,
-      live: { ledger: ledgerStore.readLedger(), unlocks: a.boughtUnits, tiers: a.ownedTiers },
+      live: { ledger: ledgerStore.readLedger(), unlocks: a.boughtUnits, tiers: a.ownedTiers, picks: a.ownedPicks },
     });
     if (req.signal.aborted) return () => undefined;
     if (!got.ok) {
@@ -1981,7 +1986,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     resumed = got.loaded;
   }
-  const { boughtUnits, ownedTiers } = accountState();
+  const { boughtUnits, ownedTiers, ownedPicks } = accountState();
   /** The bought kit, read ONCE from the account through `accountState()`
    *  (WP-S3g §3.4): tiers are type-wide and fixed for the mission (brigade
    *  D3). `upgradePrepass` is one loop that yields both the unit types
@@ -2003,7 +2008,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // GH-1381: the account's kit is the KDF the player commands. In a Sarim Free play the KDF is the opposition, and it
   // fields the base ladder, as a matched versus room's does, never the player's own bought tiers.
   const bootKit = inRoom || playSide === 'sarim' ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
-  const prepass = upgradePrepass(roster, bootKit);
+  /** GH-1384: the branch owned per branched track, read with the tiers and swapped with them under
+   *  `&kit` (`bootPicks`), and dropped wherever the tiers are. Named `branchPicks`, never `picks`: the deploy selection
+   *  below is `picks`. */
+  const branchPicks = inRoom || playSide === 'sarim' ? {} : bootPicks(ownedPicks, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
+  const prepass = upgradePrepass(roster, bootKit, branchPicks);
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -3365,7 +3374,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // cast: TypeScript narrows `deploySelection` to its initial null, since
       // it is assigned only inside the deploy screen's callback.
       const picks = deploySelection as DeploySelection | null;
-      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
+      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
       if (resumed !== null && sk !== null) {
         // The world stands at tick 0, built as for a new mission. The save is written onto it, proved (sim hash and runtime digest equal
         // the saved ones) before a tick runs, and the renderer is re-seeded from it. A refusal leaves this sim half-written: it is dropped.
@@ -3400,6 +3409,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         seed: SIM_SEED,
         ledger: sentLedger,
         tiers: bootKit,
+        // GH-1384: only once branching is open; closed, the replay start is dev's (`replayStartPicks`).
+        ...replayStartPicks(branchPicks),
         unlocks: [...boughtUnits],
         deploy: picks === null ? null : [...picks.chosen],
       });

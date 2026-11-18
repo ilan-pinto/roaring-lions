@@ -73,12 +73,28 @@
         },
         {
           "price": 270,
-          "patch": {
-            "hull.hp": 130,
-            "hull.armor.front": 4,
-            "hull.armor.side": 2,
-            "hull.armor.rear": 2
-          }
+          "branches": [
+            {
+              "id": "run_flat",
+              "label": "garage.branch.jeep_shoded.run_flat",
+              "patch": {
+                "hull.hp": 130,
+                "hull.armor.front": 2,
+                "hull.armor.side": 2,
+                "hull.armor.rear": 2
+              }
+            },
+            {
+              "id": "frontal_plate",
+              "label": "garage.branch.jeep_shoded.frontal_plate",
+              "patch": {
+                "hull.hp": 78,
+                "hull.armor.front": 4,
+                "hull.armor.side": 2,
+                "hull.armor.rear": 2
+              }
+            }
+          ]
         }
       ]
     },

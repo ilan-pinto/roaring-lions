@@ -76,6 +76,7 @@ export function addsInput(unitId: string, input: StoreInput): AddsInput | null {
     enemies: s.enemies,
     open,
     ownedTiers: input.owned ?? {},
+    ownedPicks: input.ownedPicks ?? {},
     ledger: input.ledger,
     missions: s.missions,
     worldMissionIds: s.worldMissionIds,

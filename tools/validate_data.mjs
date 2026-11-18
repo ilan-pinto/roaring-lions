@@ -20,6 +20,7 @@
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
+//   data/units/** branched upgrade tiers: B1-B7 and the C1 cap in tools/validate_branches.mjs (GH-1384)
 //   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
 //                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   data/chat/filter.*.json against data/schemas/chat_filter.schema.json, plus the provenance,
@@ -41,14 +42,16 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
-import { objectiveFailures } from './validate_objectives.mjs';
+import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
 import { chatFilterFailures } from './validate_chat_filters.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
@@ -113,29 +116,6 @@ function unitHasPath(unit, path) {
     }
   }
   return cur !== undefined;
-}
-
-// Compares tier `curr` against the tier immediately before it (`prev`) and
-// returns one description string per field that regressed — a lower price,
-// a lower delta on a path both tiers touch, or a path `prev` patched that
-// `curr` drops entirely (which the brief's rule (c) counts as lower, since
-// dropping it is indistinguishable from patching it back to zero).
-function tierRegressions(prev, curr) {
-  const whats = [];
-  if (curr.price < prev.price) {
-    whats.push(`price ${curr.price} < ${prev.price}`);
-  }
-  const prevPatch = prev.patch ?? {};
-  const currPatch = curr.patch ?? {};
-  for (const path of Object.keys(prevPatch)) {
-    const prevVal = prevPatch[path];
-    if (!(path in currPatch)) {
-      whats.push(`${path} missing (was ${prevVal})`);
-    } else if (currPatch[path] < prevVal) {
-      whats.push(`${path} ${currPatch[path]} < ${prevVal}`);
-    }
-  }
-  return whats;
 }
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -431,27 +411,7 @@ const garrisonableSymbols = new Set(
           `${rel(file)}: upgrades are only valid on faction 'kdf' units`
         );
       }
-      for (const [trackName, track] of Object.entries(u.upgrades)) {
-        const tiers = track.tiers ?? [];
-        tiers.forEach((tier, i) => {
-          for (const path of Object.keys(tier.patch ?? {})) {
-            if (!unitHasPath(u, path)) {
-              failures.push(
-                `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
-                  `which this unit does not have`
-              );
-            }
-          }
-        });
-        for (let i = 1; i < tiers.length; i++) {
-          for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
-            failures.push(
-              `${rel(file)}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
-                `tier ${i} (${what})`
-            );
-          }
-        }
-      }
+      failures.push(...upgradeTierFailures(rel(file), u, unitHasPath));
     }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
@@ -797,71 +757,7 @@ const garrisonableSymbols = new Set(
               `leaving the mission unwinnable and unlosable at once.`
           );
         }
-        const rect = map.zones?.[o.target];
-        if (!rect) {
-          failures.push(
-            `${rel(file)}: raze "${o.id}" names zone "${o.target}", which map "${mi.map.file}" does not declare`
-          );
-        } else {
-          const [zx, zy, zw, zh] = rect;
-          // Keyed by "typeId:reason" so a type that trips more than one reason (today
-          // only `wall`, which is both low_profile and per_tile) gets a message for
-          // each reason instead of the first reason found silently winning.
-          const bad = new Map();
-          // One check for both sources of a structure inside the zone. `via`
-          // names where the structure came from, because the fix differs: a
-          // map symbol is edited in the map, a placed body in the mission.
-          const flag = (typeId, x, y, via) => {
-            const spec = structureCatalogue.types[typeId];
-            if (spec.low_profile && !bad.has(`${typeId}:low_profile`)) {
-              bad.set(
-                `${typeId}:low_profile`,
-                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile ` +
-                  `at (${x},${y})${via}. A demolisher will not level it unattended.`
-              );
-            }
-            if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE && !bad.has(`${typeId}:protected`)) {
-              bad.set(
-                `${typeId}:protected`,
-                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected ` +
-                  `(roe_penalty ${spec.roe_penalty}) at (${x},${y})${via}. A demolisher will not level it unattended.`
-              );
-            }
-            if (spec.per_tile && !bad.has(`${typeId}:per_tile`)) {
-              bad.set(
-                `${typeId}:per_tile`,
-                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile ` +
-                  `at (${x},${y})${via}: every tile is its own structure, so this raze zone is N separate ` +
-                  `demolish orders, not one.`
-              );
-            }
-          };
-          for (let y = zy; y < zy + zh; y++) {
-            for (let x = zx; x < zx + zw; x++) {
-              const sym = map.rows?.[y]?.[x];
-              const typeId = structureSymbols.get(sym);
-              if (!typeId) continue;
-              flag(typeId, x, y, '');
-            }
-          }
-          // Mission-placed bodies too (2026-09-07, Qarn Hadid design G1): the
-          // runtime raises `structures[]` BEFORE the objective snapshot
-          // (`MissionRuntime.raiseMissionStructures`), so a wall or fence a
-          // mission drops inside its own raze zone is exactly as unrazeable as
-          // one drawn in the map rows -- and until this loop the gate never saw
-          // it. `at` is the top-left tile, `size` the footprint (default 1x1).
-          for (const placed of mi.structures ?? []) {
-            if (!placed?.type || !Array.isArray(placed.at)) continue;
-            const [px, py] = placed.at;
-            const [pw, ph] = placed.size ?? [1, 1];
-            const ox = Math.max(px, zx);
-            const oy = Math.max(py, zy);
-            if (ox >= Math.min(px + pw, zx + zw) || oy >= Math.min(py + ph, zy + zh)) continue;
-            if (!structureCatalogue.types[placed.type]) continue; // the schema check reports that
-            flag(placed.type, ox, oy, ', placed by the mission\'s "structures"');
-          }
-          for (const msg of bad.values()) failures.push(msg);
-        }
+        failures.push(...razeZoneFailures(o, mi, map, structureCatalogue, structureSymbols, PROTECTED_ROE, rel(file)));
       }
       if (o.type === 'collapse') {
         // A primary collapse needs a deadline for the same reason a primary
@@ -1102,6 +998,8 @@ const garrisonableSymbols = new Set(
     failures.push(...triggerLabelFailures(mi, rel(file)));
     // #540: the time limit, twice the target and clear of every primary deadline.
     failures.push(...timeLimitFailures(mi, rel(file)));
+    // GH-1438 E10: at most 160 authored entities, so the sim's 256 lifetime slots keep 96 for runtime spawns.
+    failures.push(...entityBudgetFailures(mi, rel(file)));
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
@@ -1535,6 +1433,13 @@ const garrisonableSymbols = new Set(
   const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
+}
+
+// --- branched upgrade tiers (GH-1384): B1-B7 per branched track, and the C1 cap ------------
+{
+  const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const unitFiles = jsonFilesIn(join(ROOT, 'data/units')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...validateBranches(unitFiles, { en }));
 }
 
 // --- chat word lists (GH-1417 S2): provenance, licence record and tiers -------

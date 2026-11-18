@@ -34,11 +34,13 @@ describe('previewDeltas (F5, R-6)', () => {
     for (const raw of Object.values(units)) {
       const u = raw as unknown as UpgradableUnit;
       for (const [track, spec] of Object.entries(u.upgrades ?? {})) {
+        // GH-1384: a branched rung previews the branch it would buy; both are swept.
+        for (const pick of [1, 2] as const)
         for (let owned = 0; owned <= spec.tiers.length; owned++) {
-          const from = applyUpgrades(u, { [track]: owned });
+          const from = applyUpgrades(u, { [track]: owned }, { [track]: pick });
           for (let tier = owned + 1; tier <= spec.tiers.length; tier++) {
-            const to = applyUpgrades(u, { [track]: tier });
-            const d = previewDeltas(u, track, owned, tier);
+            const to = applyUpgrades(u, { [track]: tier }, { [track]: pick });
+            const d = previewDeltas(u, track, owned, tier, pick);
             for (const path of PANEL_PATHS) {
               const a = readPath(from, path);
               const b = readPath(to, path);
@@ -102,7 +104,7 @@ describe('statPanel', () => {
     el.querySelector<HTMLElement>(`.rl-garage__stat[data-path="hull.hp"] ${sel}`);
 
   it('draws base and kit as two segments, and says what the kit added', () => {
-    const p = statPanel(inf, applyUpgrades(inf, { armour: 1 }), max);
+    const p = statPanel(inf, applyUpgrades(inf, { armour: 1 }, {}), max);
     expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe('428');
     expect(row(p.el, '.rl-garage__stat-fill')?.style.width).toBe('20%');
     expect(row(p.el, '.rl-garage__stat-kit')?.style.width).toBe('1.4%');
@@ -113,7 +115,7 @@ describe('statPanel', () => {
     expect(row(statPanel(inf, inf, max).el, '.rl-garage__stat-kitn')?.hidden).toBe(true);
   });
   it('previews on top of what is bought, and clears', () => {
-    const p = statPanel(inf, applyUpgrades(inf, { armour: 1 }), max);
+    const p = statPanel(inf, applyUpgrades(inf, { armour: 1 }, {}), max);
     p.preview(new Map([['hull.hp', 32]]));
     expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe('428 → 460');
     expect(row(p.el, '.rl-garage__stat-delta')?.style.width).toBe('1.6%');

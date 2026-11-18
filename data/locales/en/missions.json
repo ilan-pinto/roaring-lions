@@ -307,6 +307,244 @@
       "wave_say.4": "6a792482"
     }
   },
+  "bir_tarsha_1_recon": {
+    "name": "Bir Tarsha I — The Gate Road",
+    "briefing": "Bir Tarsha has one road, and the road ends at a gate in the Fence. I can read the garrison at that gate from here, and I cannot read who mans the works that run east along the Fence Road. Identify the garrison at the gate. Then walk six of the eight residents in the west quarter out to the refuge in the north-west. They walk once one of ours is within four tiles of them, or once a round lands near them, and the second way is the one I would not choose. The east works are the other way, and the crew on them is not a thing I can see. Shepherd first, look east second. Five minutes for the residents, six for the picture. South of the gate is the Fence, and past it are the Badlands. The edge of them is a flagged line, and a round that lands over it is the costliest one you can fire this morning. Six out and the gate named. A crew you did not find is a crew the next fight finds for you.",
+    "dispatch": "The brigades went home in the spring and came back in the autumn. The last stronghold of the Marj stands at its southern end, against a fence that nobody fires across.",
+    "debrief": {
+      "victory": "The gate has a name and six are out of the west quarter. The works along the Fence Road are still half a picture, and half is what you gave me.",
+      "defeat": "Not this morning. The gate is awake now, and the west quarter is where it was left."
+    },
+    "objectives": {
+      "identify_the_gate": "Identify the garrison at the gate",
+      "six_out": "Walk six residents out to the refuge",
+      "find_the_crew": "Identify the crew on the east works"
+    },
+    "objective_say": {
+      "identify_the_gate": "That is the garrison on the road: a rifle cell, a missile team and a rocket team. The blocks behind them hold more, and I cannot read what.",
+      "six_out": "Six out. The west quarter is quiet, and it has one less reason to be a target.",
+      "find_the_crew": "Marked. That is the crew on the east works, and the next time we come down this road I can tell you which posts are theirs."
+    },
+    "objective_say_on_fail": {
+      "six_out": "The quarter is closed to us now. There is no second morning for a walk like that, and the people in it know it."
+    },
+    "triggers": {
+      "bt1_works_stir": "The east works are stirring"
+    },
+    "trigger_say": {
+      "bt1_works_stir": "Movement on the east works. Whoever is on them has heard the gate, and from here on they are looking west."
+    },
+    "src": {
+      "name": "f3fdcde5",
+      "briefing": "88ddedf2",
+      "objectives.identify_the_gate": "d9707246",
+      "objectives.six_out": "3a8da360",
+      "objectives.find_the_crew": "c41423af",
+      "triggers.bt1_works_stir": "ef9652d0",
+      "dispatch": "a2eb4b3b",
+      "debrief.victory": "7c6194ed",
+      "debrief.defeat": "eb6cc2f8",
+      "objective_say.identify_the_gate": "6ebe588c",
+      "objective_say.six_out": "987a4a0b",
+      "objective_say.find_the_crew": "29cab91e",
+      "objective_say_on_fail.six_out": "4faec83a",
+      "trigger_say.bt1_works_stir": "284a5f99"
+    }
+  },
+  "bir_tarsha_2_foothold": {
+    "name": "Bir Tarsha II — The Gate",
+    "briefing": "The gate is a two-tile gap in the Fence between two concrete blocks, and it is yours if you can keep it for four minutes. I expect two pushes, both from the east end of the Fence Road, and the second harder than the first. Hold the gate for four minutes. The camp buys infantry and a Lavi, and you will want both. Ten residents are on the cross road north of the safe quarter, and it is the one quarter in the town that is nobody's. They walk in once one of ours is within four tiles of them. Seven in inside five minutes, or the quarter is a wall and not a quarter. Do not put a mortar round near it to buy the gate. Their mortar is on the east firing position and it is laid on the cross road. The Badlands edge is behind you, and a round that lands across the Fence costs more than any you can spend here. The terminal's roof is worth fifteen seconds if you can spare the rifles. The gate comes first.",
+    "debrief": {
+      "victory": "The gate is ours, and the safe quarter is still a quarter. The camp stays, and the next time that road is open it will be open from our side.",
+      "defeat": "The gate is theirs again, and the quarter with it. The camp does not carry; the ground does."
+    },
+    "objectives": {
+      "hold_the_gate": "Hold the gate for four minutes",
+      "seven_in": "Walk seven residents into the safe quarter",
+      "take_the_roof": "Hold the terminal's roof for fifteen seconds"
+    },
+    "objective_say": {
+      "take_the_roof": "The roof is ours. Every window on the Fence Road is now looking at us from our own side."
+    },
+    "objective_say_on_fail": {
+      "seven_in": "The quarter is not open. A gate with nobody behind it is a wall, and there is nothing left in this town for us to hold it for."
+    },
+    "wave_say": {
+      "0": "First push, from the east end of the Fence Road. It is the lighter of two, and it is meant to show us where the weight goes.",
+      "1": "Second push. A charge squad is walking with it, and it is walking at the terminal, not at you."
+    },
+    "src": {
+      "name": "047d92cc",
+      "briefing": "3c9585ab",
+      "objectives.hold_the_gate": "3b702112",
+      "objectives.seven_in": "b9262fb4",
+      "objectives.take_the_roof": "aa6994ea",
+      "debrief.victory": "c75f8043",
+      "debrief.defeat": "44dc7ef9",
+      "objective_say.take_the_roof": "775a2764",
+      "objective_say_on_fail.seven_in": "f50a9a3b",
+      "wave_say.0": "538f84ae",
+      "wave_say.1": "cf14548d"
+    }
+  },
+  "bir_tarsha_3_clearance": {
+    "name": "Bir Tarsha III — Two Houses",
+    "briefing": "Two apartment blocks stand ten tiles apart in the camp quarter, with two of the people taken at First Light in each. I can place both doors and the guard on each, and nothing inside. Take out the guard on each door, and bring three of the four to the extraction on the north edge inside six minutes. Fewer than three is a loss. Anyone on the ground round either block warns the other inside twenty seconds, and their firing positions cover the lane between. A missile team on each roof looks into any yard you cross. So split and go in together, or take one and fight for the second. The second is slower, louder and dearer. Both blocks are lived in, and the one that holds the taken holds the neighbours as well. A cannon round into either is fourteen Conduct. Fifteen is the line. One hit on a block is fourteen, and a second hit ends the mission.",
+    "aftermath": "Three came back from the camp quarter, or four, and the Marj counted each of them.",
+    "hostages_place": "the north of the camp quarter",
+    "debrief": {
+      "victory": "Three or four came back down the lane. Two houses were never meant to be taken at once, and the camp quarter has that to remember.",
+      "defeat": "Not today. The blocks are warned and the lane is covered, and the people in them are exactly where they were."
+    },
+    "objectives": {
+      "bring_three_out": "Bring three of the four taken out to the extraction",
+      "guard_west": "Take out the guard on the west block",
+      "guard_east": "Take out the guard on the east block",
+      "keep_the_blocks": "Lose no more than 15 Conduct"
+    },
+    "objective_say": {
+      "bring_three_out": "Three on the north edge. I will count them again when you are clear of the lane.",
+      "guard_west": "West door is open. Do not stop in the yard.",
+      "guard_east": "East door is open. The lane is the dangerous half."
+    },
+    "objective_say_on_fail": {
+      "bring_three_out": "There are not three to bring any more. Whatever this was, it was not a count we could afford to be wrong about.",
+      "keep_the_blocks": "That is past fifteen. A block with a cannon round in it is not the thing we came to carry out."
+    },
+    "triggers": {
+      "bt3_west_warns_east": "The east block has been warned",
+      "bt3_east_warns_west": "The west block has been warned"
+    },
+    "trigger_say": {
+      "bt3_west_warns_east": "Shots at the west block. The east block heard them, and it is moving a team to its yard.",
+      "bt3_east_warns_west": "The west block heard that. Twenty seconds is what the lane gives them to cross it."
+    },
+    "src": {
+      "name": "e20dc6fb",
+      "briefing": "534c5b2d",
+      "objectives.bring_three_out": "623156a6",
+      "objectives.guard_west": "854ed4cf",
+      "objectives.guard_east": "13239920",
+      "objectives.keep_the_blocks": "bd39ccda",
+      "triggers.bt3_west_warns_east": "4e4a551f",
+      "triggers.bt3_east_warns_west": "a9b2dcf9",
+      "aftermath": "cadca5b2",
+      "hostages_place": "dd8b8617",
+      "debrief.victory": "4dfe491e",
+      "debrief.defeat": "acfe79bc",
+      "objective_say.bring_three_out": "fd15eecc",
+      "objective_say.guard_west": "d086a22c",
+      "objective_say.guard_east": "9f97b1be",
+      "objective_say_on_fail.bring_three_out": "2b77ddd6",
+      "objective_say_on_fail.keep_the_blocks": "b77daa93",
+      "trigger_say.bt3_west_warns_east": "e42e3f7e",
+      "trigger_say.bt3_east_warns_west": "f7b11b1c"
+    }
+  },
+  "bir_tarsha_4_clearance": {
+    "name": "Bir Tarsha IV — The Blade Line",
+    "briefing": "Between the Fence and the hamlet is a belt of works thirty tiles long: firing positions, posts, workshops and berms. If you found the east works crew I can say which are theirs, and if you did not, all of them are. Four D9s are yours for this, and the battalion goes with them. Level every work in the belt and bring the blades through to the far gate, and lose two blades and the work is over. A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as anything of ours enters the belt, and it is meant to be answered into a house. Do not answer into a house. A house is six Conduct, two are twelve, and a third is the mission. A T-wall closes the road at the east end, and a D9 will cut it where wheels cannot cross it. Until it is down the far gate is out of reach, and three shafts in the belt vent behind whoever is looking at the wall. Berms are low and a blade will not take one by passing it, so each is an order. Shafts down, works level, blades through.",
+    "debrief": {
+      "victory": "The belt is level and the blades are through. Nothing stands on the Fence Road that was not put there by the people who left it.",
+      "defeat": "Not this time. Whatever was left standing on the Fence Road is still facing the gate, and the blades that did not come back are not ours to count."
+    },
+    "objectives": {
+      "blades": "Bring the four blades through to the far gate",
+      "clear_works": "Level the works along the Fence Road in six and a half minutes",
+      "drop_shafts": "Bring down the three shafts in the works",
+      "keep_the_hamlet": "Lose no more than 12 Conduct"
+    },
+    "objective_say": {
+      "blades": "Blades through the fence line. Count them on the far side.",
+      "clear_works": "The belt is level. Everything on that strip is flat except the wall.",
+      "drop_shafts": "Three shafts down. Nothing in the belt runs under the road any more."
+    },
+    "objective_say_on_fail": {
+      "blades": "That is two blades gone. With half the line left, the work cannot be finished from the near side.",
+      "keep_the_hamlet": "That is past twelve. There is a house in the count that should not be in it."
+    },
+    "triggers": {
+      "bt4_lee_opens": "Fire is coming from the hamlet's lee",
+      "bt4_vent_opens": "A shaft has opened behind the escort"
+    },
+    "trigger_say": {
+      "bt4_lee_opens": "Missile teams out of the hamlet's lee, on the lane. The houses stand behind them, and that is where they want the answer to go.",
+      "bt4_vent_opens": "A shaft vented behind you, south of the hamlet. It has been waiting for the blades to pass."
+    },
+    "src": {
+      "name": "52569982",
+      "briefing": "8cdb9e35",
+      "objectives.blades": "b251e5af",
+      "objectives.clear_works": "8c5027e7",
+      "objectives.drop_shafts": "640cbdbf",
+      "objectives.keep_the_hamlet": "d311f8ba",
+      "triggers.bt4_lee_opens": "84d673af",
+      "triggers.bt4_vent_opens": "f314e93e",
+      "debrief.victory": "ad10e460",
+      "debrief.defeat": "72d3cfe6",
+      "objective_say.blades": "8f5230c9",
+      "objective_say.clear_works": "57c8d0c4",
+      "objective_say.drop_shafts": "f6ef41d9",
+      "objective_say_on_fail.blades": "0f7334b0",
+      "objective_say_on_fail.keep_the_hamlet": "61843c4e",
+      "trigger_say.bt4_lee_opens": "60e098ea",
+      "trigger_say.bt4_vent_opens": "faedceb3"
+    }
+  },
+  "bir_tarsha_5_subterranean": {
+    "name": "Bir Tarsha V — Under the Fence",
+    "briefing": "Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.",
+    "aftermath": "The Fence Road is quiet, and the border it ran beside is only a fence again. The Marj is not finished with, but it is behind the brigade, and the brigade has somewhere else to go.",
+    "hostages_place": "the Fence Road",
+    "debrief": {
+      "victory": "The routes under the Fence Road are down. What was left of the Marj went north, and the brigade did not follow.",
+      "defeat": "Not tonight. The routes are still open under the Fence, and the dusk is theirs now."
+    },
+    "objectives": {
+      "all_five": "Bring down the five routes under the Fence Road in six and a half minutes",
+      "keep_the_surface": "Lose no more than 10 Conduct",
+      "walk_the_person_out": "Walk the person in the chamber out to the refuge",
+      "take_the_commander": "Take the block commander"
+    },
+    "objective_say": {
+      "all_five": "All five down. The Fence Road runs over nothing.",
+      "walk_the_person_out": "One out and walking. That is the one that counts, and it is not on any clock.",
+      "take_the_commander": "The post is ours. The routes under it can be taken in any order now."
+    },
+    "objective_say_on_fail": {
+      "all_five": "The clock is out. Whatever is still open under the Fence is open to anyone.",
+      "keep_the_surface": "That is past ten. The houses above the routes are the count now."
+    },
+    "triggers": {
+      "bt5_commander_moves": "The block commander is pulling north",
+      "bt5_chamber_reached": "The chamber is in reach"
+    },
+    "trigger_say": {
+      "bt5_commander_moves": "The post east of the ridge is emptying north. Whoever left it carries the remnant with him, and he is not coming back.",
+      "bt5_chamber_reached": "You are at the chamber. Walk that one person out before you touch the last route."
+    },
+    "src": {
+      "name": "28e9fa4c",
+      "briefing": "ceaf14ff",
+      "objectives.all_five": "4b291f6a",
+      "objectives.keep_the_surface": "a2e99ae1",
+      "objectives.walk_the_person_out": "206e8e8f",
+      "objectives.take_the_commander": "d0bcd665",
+      "triggers.bt5_commander_moves": "1ee8d313",
+      "triggers.bt5_chamber_reached": "8682e9e0",
+      "aftermath": "73b6922f",
+      "hostages_place": "11fbe44a",
+      "debrief.victory": "4f00f68d",
+      "debrief.defeat": "d6031d9e",
+      "objective_say.all_five": "e8d4a327",
+      "objective_say.walk_the_person_out": "72f26f2b",
+      "objective_say.take_the_commander": "6c1de051",
+      "objective_say_on_fail.all_five": "131d4246",
+      "objective_say_on_fail.keep_the_surface": "6f65eace",
+      "trigger_say.bt5_commander_moves": "50c5f458",
+      "trigger_say.bt5_chamber_reached": "453d8c4e"
+    }
+  },
   "deir_amun_1_recon": {
     "name": "Deir Amun I — Read the Ground",
     "briefing": "Deir Amun is nine houses and a pump yard on the lip of a dry watercourse, and nobody lives in any of it now. What is left is the junction: every route in this district joins the road east under that village. A crew is working the western route this morning. Find them, find where it runs, and put it down inside four minutes. I have his routes on paper and paper is not identification. A route is on the board only while somebody with a detector is looking at it, and it goes back to a rumour the moment they stop. This one is being dug now, so it is throwing spoil along the gully floor, and disturbed earth is something any soldier can read. The ones he finished before the war throw nothing at all. Two ways west and they are not the same road. The bed is twenty-seven tiles on foot and nothing on the terrace can see into it; the shoulder is thirty-seven for anything on wheels. The engineers set a charge standing still in the open, two tiles from the route, for eight seconds. Get them there with something that can shoot, and bring the west route down.",
@@ -451,7 +689,7 @@
       "execution": "Contact goes cold about sixteen seconds after the last eye leaves it, and the drone is a pointer rather than a scout, blind behind a building exactly like a rifleman. Work them in an order and mean it. Bringing one down kills whoever is stocked in it, so what you drop first decides which of the rest comes up behind you. One of them surfaces on your own road east. Whatever you leave standing there is standing under your armour. The village sits on the lip below the plateau and you come down at it through two ravines, so the chief is behind it for once: on the spoil field south of the village, a level above the ground around it, on ground his own crews raised. He does not go underground and he will not leave it. The Lavi's gun and the mortar are billed by the ten seconds in that village and there is nothing in it worth the money. Rifles and the Eitan's fifty are free.",
       "notes": "Bring all four down inside five minutes, and take the chief off that spoil."
     },
-    "aftermath": "Six routes under the junction, and by morning none of them went anywhere. Brigade put a third star on the slip and said nothing else about it. The Marj is quiet. Sur is not.",
+    "aftermath": "Six routes under the junction, and by morning none of them went anywhere. The brigades went home in the spring, and one battalion stayed on the Cut. The Marj was quiet until the autumn.",
     "debrief": {
       "victory": "All four, and the file on this district closes tonight. Taking the man never stopped any of it — the ground was the thing he was, and there is none of it left under here now.",
       "defeat": "The village is standing on four open routes and we are going home. This district works tomorrow exactly the way it worked yesterday."
@@ -493,7 +731,7 @@
       "triggers.the_village_comes_out_of_its_houses": "637cad50",
       "triggers.he_falls_back_onto_his_own_spoil": "b152e511",
       "triggers.a_charge_squad_comes_for_the_engineers": "7f82a4bd",
-      "aftermath": "4a2a183a",
+      "aftermath": "d729db81",
       "debrief.victory": "5324aabc",
       "debrief.defeat": "59eda46d",
       "sections.situation": "848ff873",
@@ -1826,7 +2064,7 @@
     "objective_say": {
       "picture": "Four sites and not one of them is a position. Nobody digs in on a road he means to keep using — this is a haulage route with guns parked along it.",
       "take_ford": "Ford watch held. The column is across the wadi.",
-      "get_the_carriers_out": "Four of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not."
+      "get_the_carriers_out": "Three of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not."
     },
     "objective_say_on_fail": {
       "get_the_carriers_out": "The crossing shut with them still on it. We were eight tiles away and looking the other way."
@@ -1858,7 +2096,7 @@
       "sections.notes": "81c5a8a8",
       "objective_say.picture": "7c3c8f83",
       "objective_say.take_ford": "bf78f27c",
-      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say.get_the_carriers_out": "02bed465",
       "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
       "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
       "wave_say.0": "a8afca11",
@@ -2017,7 +2255,7 @@
     "objective_say": {
       "take_village": "Village is held. Every cell under a roof we left standing is still at its window.",
       "kill_cache_guard": "That is not a fighter, that is a book-keeper with a launcher. What he was holding names the depot east of here and says how much of it is still full.",
-      "evac_families": "Every one of them is at the refuge."
+      "evac_families": "Three of them are at the refuge."
     },
     "objective_say_on_fail": {
       "evac_families": "The road is shut and there are still families inside it. Nine did not come in at First Light. Somebody has to keep saying the number, and it is not going to be you."
@@ -2042,7 +2280,7 @@
       "sections.execution": "dbd5b6d8",
       "objective_say.take_village": "13ef3503",
       "objective_say.kill_cache_guard": "ad4d3f21",
-      "objective_say.evac_families": "a5c462ea",
+      "objective_say.evac_families": "dbb160b1",
       "objective_say_on_fail.evac_families": "36801331",
       "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
     }
