@@ -38,8 +38,17 @@ export interface TrackEntitlement {
   paidTiers: number;
 }
 
-export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign' | 'backfill';
-const EARN_SOURCES: readonly string[] = ['welcome', 'first_win', 'star', 'campaign', 'backfill'];
+export type EarnSource = 'welcome' | 'first_win' | 'star' | 'campaign' | 'backfill' | 'challenge';
+const EARN_SOURCES: readonly string[] = ['welcome', 'first_win', 'star', 'campaign', 'backfill', 'challenge'];
+
+/** One mission's lifetime record. `challenge` (GH-1395, lead ruling D1): its challenge's 10 coins have been paid,
+ *  once per account; written only when true, so a record that never paid one keeps its old shape byte for byte. */
+export interface EarnMission {
+  won: boolean;
+  stars: number;
+  challenge?: true;
+}
+
 
 export type RoarReceipt =
   | { kind: 'earn'; id: string; at: number; coins: CoinSplit; source: EarnSource; missionId?: string }
@@ -56,8 +65,8 @@ export interface EarnRecord {
   /** The one-time back-payment from the campaign ledger has been settled
    *  (`roarBackfill`), whether it paid or not. Lives here, in the wallet, never in a slot. */
   backfilled: boolean;
-  /** Per mission: won at least once, and the best stars ever paid for. */
-  missions: Record<string, { won: boolean; stars: number }>;
+  /** Per mission: won at least once, the best stars ever paid for, and whether its challenge has paid (GH-1395). */
+  missions: Record<string, EarnMission>;
 }
 
 export interface RoarWallet {
@@ -151,7 +160,7 @@ export function migrateRoar(raw: unknown): RoarWallet {
   if (isObj(earn.missions)) {
     for (const [id, v] of Object.entries(earn.missions)) {
       if (!isObj(v)) continue;
-      out.earn.missions[id] = { won: v.won === true, stars: isNonNegInt(v.stars) ? Math.min(v.stars, 3) : 0 };
+      out.earn.missions[id] = { won: v.won === true, stars: isNonNegInt(v.stars) ? Math.min(v.stars, 3) : 0, ...(v.challenge === true ? { challenge: true as const } : {}) };
     }
   }
   if (Array.isArray(raw.receipts)) {

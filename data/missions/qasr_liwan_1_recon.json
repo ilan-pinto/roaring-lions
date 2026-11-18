@@ -1,0 +1,312 @@
+{
+  "id": "qasr_liwan_1_recon",
+  "name": "Qasr Liwan I — One House",
+  "hostages_place": "a house on the north edge",
+  "town": "qasr_liwan",
+  "phase": "recon",
+  "target_minutes": 6,
+  "time_limit_s": 720,
+  "start_layout": "assembly",
+  "start_front": "W",
+  "map": {
+    "file": "qasr_liwan",
+    "time_of_day": "night",
+    "player_start": [
+      44,
+      2
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions",
+      "civ.hostages_recovered"
+    ]
+  },
+  "briefing": "One house on the north edge of Qasr Liwan, walled, with a single gate onto the lane, and one of the people taken at First Light is inside it. That is the whole of what I have, and I have had it for six hours. Find the guard on that gate, then walk that one person out through it and across the north road to the extraction, eight tiles from the courtyard. You have five minutes. The street twelve tiles west of the house is asleep, and anything of ours over that courtyard wakes it, the drone included. It wakes on its own in three minutes regardless. So the house is looked at from the lane, never from above it. Spend the drone on the rest of the edge. A mortar on the edge is laid on that courtyard and cannot reach the extraction, so the walk out is the dangerous half. There are posts on both approaches I cannot place, and each one you find is one the next fight does not have to. The houses round that gate are lived in. Nothing you brought is heavy enough to cost you there, a called barrage is, and more than ten Conduct lost tonight ends it. One person out of one gate; the street is not the objective, so do not make it one.",
+  "dispatch": "Beit Sahwan is held, and the man who dug it was taken at its shaft head. Up the coast road is the Marj's city, Qasr Liwan, prepared for years to be fought for from inside.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "One out of Qasr Liwan. Nobody had come back out of this city before tonight, and nobody gave us this one."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "Not tonight. The north edge knows now what we came for, and it will not be asleep the next time."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "recon_drone",
+      "count": 1,
+      "at": [
+        44.5,
+        3.5
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        43.5,
+        2.5
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        44.5,
+        1.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "jeep_shoded",
+      "count": 1,
+      "at": [
+        45.5,
+        2.5
+      ]
+    },
+    {
+      "unit": "apc_eitan",
+      "count": 1,
+      "at": [
+        45.5,
+        4.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        43.5,
+        4.5
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "find_the_gate_guard",
+      "type": "locate",
+      "primary": true,
+      "target": "ql_house_guard",
+      "text": "Identify the guard on the courtyard gate",
+      "say": {
+        "speaker": "idit",
+        "text": "That is the guard, on the lane outside the only gate. One man on one gate means they do not think anybody knows about this house."
+      }
+    },
+    {
+      "id": "walk_one_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "ql_extract",
+      "count": 1,
+      "seconds": 300,
+      "hostages": true,
+      "text": "Walk one person out to the north road",
+      "say": {
+        "speaker": "shai",
+        "text": "One out and on the road. Get clear of the edge before it finishes waking."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "The house is gone from us. A picture like that one comes once, and I do not get to buy it twice."
+      }
+    },
+    {
+      "id": "keep_the_street",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 10,
+      "text": "Lose no more than 10 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is past ten on this street, and past ten is the night."
+      }
+    },
+    {
+      "id": "find_the_seam_post",
+      "type": "locate",
+      "primary": false,
+      "target": "ql_post_seam",
+      "carries": true,
+      "text": "Identify the sandbag post at the coast junction",
+      "say": {
+        "speaker": "idit",
+        "text": "Sandbag post where the north road meets the coast, facing the way we would come round. It goes on the board, and it will still be there when we come back for that corner."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "ql_lane"
+    ]
+  },
+  "civilians": {
+    "refuge": "ql_extract_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          18.5,
+          9.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          19.5,
+          5.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_house_guard"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          14.5,
+          7.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 3
+        },
+        "tag": "ql_lane_rpg"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          6.5,
+          11.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "street"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          7.5,
+          2.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_post_seam"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          32.5,
+          5.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_post_tower"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          3.5,
+          13.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "tag": "ql_post_coast"
+      },
+      {
+        "unit": "mortar_crew",
+        "count": 1,
+        "at": [
+          8.5,
+          15.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "ql_mortar"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 210,
+        "to": "ql_extract_point",
+        "units": [
+          {
+            "unit": "moto_rpg",
+            "count": 2,
+            "from": "north_road_w"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Two riders coming east along the north road toward the extraction. The edge is awake."
+        }
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "the_street_heard_the_courtyard",
+      "label": "The street heard the courtyard",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "ql_house_yard"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "street",
+        "to": "the_house"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The street west of you is up and moving on the house. The mortar on the edge is laid on that courtyard, and every second in it is a second under that tube."
+      }
+    },
+    {
+      "id": "the_street_wakes",
+      "label": "The street west of the house is waking",
+      "on": {
+        "kind": "timer_s",
+        "value": 180
+      },
+      "do": {
+        "kind": "commit",
+        "group": "street",
+        "to": "the_house"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Three minutes. The street to the west is up and walking to the house."
+      }
+    }
+  ]
+}

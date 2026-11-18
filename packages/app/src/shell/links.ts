@@ -17,7 +17,7 @@
  * prints or the one a player copies out of the URL bar, so `flagQuery` joins
  * the names itself.
  */
-import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
+import { SANDBOX_FLAGS, type SandboxFlagName, type SandboxSide } from '../sandbox-help';
 import { STICKY_QUERY_KEYS } from './router';
 
 const BASE: string = import.meta.env.BASE_URL;
@@ -29,11 +29,15 @@ function href(path: string, query?: URLSearchParams): string {
 
 /** Bare flags (`?tunnel&sur`), never `=1` -- `readFlags` tests presence.
  *  Iterates `SANDBOX_FLAGS` rather than the caller's object, so the order is
- *  the table's and one pick has exactly one URL. */
-function flagQuery(on: Partial<Record<SandboxFlagName, boolean>> | undefined): string {
-  if (!on) return '';
-  const names = SANDBOX_FLAGS.filter((f) => on[f.name] === true).map((f) => f.name);
-  return names.length > 0 ? `?${names.join('&')}` : '';
+ *  the table's and one pick has exactly one URL.
+ *
+ *  GH-1381: a Sarim pick ends with `side=sarim` (a value, after the flags) and
+ *  carries no `kdfOnly` flag, which that side drops (`sideFlags`); the KDF, the
+ *  default, writes no `side` at all, so every KDF link is the one it always was. */
+function flagQuery(on: Partial<Record<SandboxFlagName, boolean>> | undefined, side: SandboxSide = 'kdf'): string {
+  const names = on ? SANDBOX_FLAGS.filter((f) => on[f.name] === true && !(side === 'sarim' && f.kdfOnly === true)).map((f) => f.name) : [];
+  const parts = side === 'sarim' ? [...names, 'side=sarim'] : names;
+  return parts.length > 0 ? `?${parts.join('&')}` : '';
 }
 
 export const routes = {
@@ -41,8 +45,8 @@ export const routes = {
   campaign: (): string => href('/campaign'),
   brigade: (): string => href('/brigade'),
   freePlay: (): string => href('/free-play'),
-  sandbox: (map: string, on?: Partial<Record<SandboxFlagName, boolean>>): string =>
-    `${href(`/free-play/${encodeURIComponent(map)}`)}${flagQuery(on)}`,
+  sandbox: (map: string, on?: Partial<Record<SandboxFlagName, boolean>>, side?: SandboxSide): string =>
+    `${href(`/free-play/${encodeURIComponent(map)}`)}${flagQuery(on, side)}`,
   mission: (id: string, opts: { tutorial?: boolean; fresh?: boolean; resume?: boolean } = {}): string => {
     const q = new URLSearchParams();
     if (opts.resume) q.set('resume', '1');

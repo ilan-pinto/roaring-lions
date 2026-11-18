@@ -18,7 +18,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId, type MapJson } from '@lions/data';
+import { parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { composeTerrainFrom, type ComposedTerrainBuild } from '@lions/render/three';
 import {
   CHUNKED_ABOVE_TILES,

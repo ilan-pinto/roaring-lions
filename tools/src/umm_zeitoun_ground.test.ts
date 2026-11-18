@@ -19,7 +19,8 @@
 //        sees the yard at five tiles; the summit is sixteen tiles across a ravine nothing
 //        wheeled crosses; the porters are five tiles from the shelf behind them.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

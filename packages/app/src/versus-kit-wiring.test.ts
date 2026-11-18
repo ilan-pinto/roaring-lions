@@ -90,7 +90,7 @@ describe('the versus kit boundary', () => {
     // the load sits ahead of the first use of `flags`, the transport and the world
     const load = main.search(/const vk: typeof VersusKit \| null = inRoom/);
     expect(load).toBeGreaterThan(0);
-    expect(load).toBeLessThan(main.search(/const flags = roomFlags\(/));
+    expect(load).toBeLessThan(main.search(/const \{ side: playSide, flags \} = bootFlags\(/));
     expect(load).toBeLessThan(main.search(/match = spectate !== undefined/));
     // single-player takes a LocalTransport without the kit (connectMatch's own `net === null` answer)
     expect(main).toMatch(/vk === null \? \{ transport: new LocalTransport\(\), seat: null, config: null \} : await vk\.connectMatch\(/);

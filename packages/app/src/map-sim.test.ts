@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, structures } from '@lions/data';
+import { parseMap, structures } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { standMapStructures } from './map-sim';
 
 const map = parseMap(maps.beit_sahwan_outskirts);

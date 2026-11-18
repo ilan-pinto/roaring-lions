@@ -19,7 +19,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { maps, type MapJson } from '@lions/data';
+import { type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { SANDBOX_FLAGS, readFlags, unknownParams } from '../sandbox-help';
 import { matchPath, stripBase } from '../shell/router';
 import { UNLISTED_MAP_IDS, showMenu, showSandbox } from './menu';
@@ -38,7 +39,7 @@ const listedIds = (): string[] => Object.keys(maps).filter((id) => !HELD_OUT.inc
 
 const render = (): HTMLElement => {
   const stage = document.createElement('div');
-  showSandbox(stage);
+  showSandbox(stage, maps as Record<string, MapJson>);
   return stage;
 };
 
@@ -72,12 +73,12 @@ describe('the map list', () => {
   });
 
   it("holds the Ein Qasab town's maps out of the picker until P3 ships their art (GH-871, GH-912)", () => {
-    // 41 maps ship (Was 40: Milh Flats (large), GH-920 B3); the picker lists 38 (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
-    expect(Object.keys(maps)).toHaveLength(41);
+    // 46 maps ship (Was 41: the five Qasr Liwan maps; 40 before Milh Flats (large), GH-920 B3); the picker lists 43 (Was 38 before Qasr Liwan listed its five) (Was 37 before B7 opened Milh Flats (large)). Literals, not read off the code.
+    expect(Object.keys(maps)).toHaveLength(46);
     for (const id of HELD_OUT) expect(Object.keys(maps)).toContain(id);
     const stage = render();
     const links = mapLinks(stage);
-    expect(links).toHaveLength(38);
+    expect(links).toHaveLength(43);
     for (const id of HELD_OUT) {
       expect(links.map((a) => a.dataset.map)).not.toContain(id);
       // Nothing on the screen links to it either, by any spelling of the route.
@@ -227,6 +228,23 @@ describe('the map cards (PA-25)', () => {
         expect(c, id).not.toBeNull();
         expect([c?.width, c?.height], id).toEqual([m.width, m.height]);
       }
+    });
+
+    it("is absent for a map the shell could not load (B6-6), and every card still reads and launches", () => {
+      const ctx = { fillStyle: '', fillRect() {} };
+      HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+      const stage = document.createElement('div');
+      showSandbox(stage);
+      expect(mapLinks(stage).map((a) => a.dataset.map)).toEqual(listedIds());
+      expect(stage.querySelectorAll('canvas').length).toBe(0);
+      const card = stage.querySelector('a[data-map="tel_marum"]');
+      expect(card?.querySelector('.rl-mapcard__name')?.textContent).toBe(maps.tel_marum.name);
+      expect(card?.getAttribute('href')).toBe('/free-play/tel_marum');
+      // One loaded map paints its card and only its card.
+      const one = document.createElement('div');
+      showSandbox(one, { tel_marum: maps.tel_marum as MapJson });
+      expect(one.querySelectorAll('canvas').length).toBe(1);
+      expect(one.querySelector('a[data-map="tel_marum"] canvas')).not.toBeNull();
     });
 
     it('is simply absent, and the card still reads and launches, where there is no canvas', () => {
@@ -404,5 +422,66 @@ describe('reaching it', () => {
     expect(foot?.classList.contains('rl-foot')).toBe(true);
     expect(foot?.classList.contains('rl-foot--sticky')).toBe(true);
     expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).not.toBeNull();
+  });
+});
+
+describe('GH-1381: the side pick', () => {
+  const pick = (stage: HTMLElement, side: string): void => {
+    const radio = stage.querySelector<HTMLInputElement>(`input.rl-versus__side-radio[value="${side}"]`);
+    if (!radio) throw new Error(`no radio for ${side}`);
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change'));
+  };
+  const box = (stage: HTMLElement, flag: string): HTMLInputElement => {
+    const b = stage.querySelector<HTMLInputElement>(`input[data-flag="${flag}"]`);
+    if (!b) throw new Error(`no checkbox for &${flag}`);
+    return b;
+  };
+
+  it('is one radio group, KDF then Sarim, under the versus lobby legend, KDF picked', () => {
+    const stage = render();
+    const radios = Array.from(stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio'));
+    expect(radios.map((r) => [r.value, r.checked])).toEqual([['kdf', true], ['sarim', false]]);
+    expect(new Set(radios.map((r) => r.name)).size).toBe(1);
+    const group = radios[0].closest('fieldset');
+    expect(group?.querySelector('legend')?.textContent).toBe('Pick your side');
+    expect(radios.map((r) => r.closest('label')?.textContent)).toEqual(['KDF', 'Sarim']);
+    expect(group?.querySelector('.rl-sandbox__side-blurb')?.textContent).toBe(en['versus.lobby.faction.kdf.blurb']);
+  });
+
+  it('leaves every card link the KDF link it always was until Sarim is picked', () => {
+    const stage = render();
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum');
+    toggle(stage, 'tunnel');
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
+  });
+
+  it('a Sarim pick puts side=sarim on every card, greys the KDF-only boxes and drops them from the link', () => {
+    const stage = render();
+    toggle(stage, 'tunnel');
+    toggle(stage, 'civ');
+    pick(stage, 'sarim');
+    for (const a of mapLinks(stage)) expect(a.getAttribute('href'), a.dataset.map).toMatch(/[?&]side=sarim$/);
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?civ&side=sarim');
+    for (const f of ['tunnel', 'sur', 'kit', 'works']) {
+      expect(box(stage, f).disabled, f).toBe(true);
+      expect(box(stage, f).getAttribute('aria-describedby'), f).toBe('rl-free-play-kdf-only');
+    }
+    for (const f of ['roe', 'civ', 'ditch']) expect(box(stage, f).disabled, f).toBe(false);
+    const note = stage.querySelector<HTMLElement>('#rl-free-play-kdf-only');
+    expect(note?.hidden).toBe(false);
+    expect(note?.textContent).toBe(en['freePlay.side.kdfOnly']);
+    expect(stage.querySelector('.rl-sandbox__side-blurb')?.textContent).toBe(en['versus.lobby.faction.sarim.blurb']);
+  });
+
+  it('back to the KDF: the boxes open again, still ticked, and the link is the KDF one', () => {
+    const stage = render();
+    toggle(stage, 'tunnel');
+    pick(stage, 'sarim');
+    pick(stage, 'kdf');
+    expect(box(stage, 'tunnel').disabled).toBe(false);
+    expect(box(stage, 'tunnel').hasAttribute('aria-describedby')).toBe(false);
+    expect(stage.querySelector<HTMLElement>('#rl-free-play-kdf-only')?.hidden).toBe(true);
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
   });
 });

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MissionRuntime, Sim, TICKS_PER_SECOND, compileFormation, type FormationJson, type MissionJson } from '@lions/sim';
-import { applyTerrain, assemblyLayout, maps, missions, parseMap, units } from '@lions/data';
+import { applyTerrain, assemblyLayout, parseMap, units } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { standMapStructures } from '../map-sim';
 import {
   DEADLINE_WARN_TICKS,

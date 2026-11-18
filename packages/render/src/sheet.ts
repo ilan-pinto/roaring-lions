@@ -29,9 +29,12 @@
  *
  *  `fall`/`fallAlt` (2026-09-17, design D3) are the supplied death animations, one-shot, played only by `units/mesh-death.ts` — `resolveClip` never returns them: a fall is a transition with an end. (`down` was what suppression looped until pass C2/C4; it is `pinned` now, and `down` is the civilians' living crawl and the evacuation's pose.) `fallAlt` pairs with `wreckAlt`.
  *
- *  Only `art/meshes/sarim_rifles.glb` ships `wreckAlt` or `fallAlt`
- *  today; every other GLB's `applyMeshClip` call simply never resolves to
- *  them, exactly like `work` on a sheet that never declares it. */
+ *  Only the files in `FALL_ALT_FILES` (`tools/src/mesh_gait.test.ts`,
+ *  "exactly the captured teams carry fall and fallAlt") ship `wreckAlt` and
+ *  `fallAlt` (the same file also holds that `fallAlt` implies `wreckAlt`,
+ *  and, on a file with `fall`, the reverse); every other GLB's
+ *  `applyMeshClip` call simply never resolves to them, exactly like `work`
+ *  on a sheet that never declares it. */
 export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'moveFire' | 'wreckAlt'
   | 'fall' | 'fallAlt'
   // The kneel (motion pass, 5 Oct): mesh-only, built by `pnpm motion:meshes`.

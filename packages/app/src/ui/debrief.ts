@@ -88,6 +88,8 @@ export interface DebriefOptions {
   /** The rating prompt (GH-464), mounted in the foot above the nav. Built and
    *  disposed by the caller; this only places it. */
   prompt?: HTMLElement;
+  /** GH-1394 (D11): a defeat's one line suggesting Easier, already worded (`ui/posture-ui.ts` decides whether). Words only. */
+  suggestion?: string;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -197,6 +199,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     verdict.appendChild(why);
   }
   b.appendChild(verdict);
+  if (!won && o.suggestion) b.appendChild(el('p', 'rl-aar__suggest', o.suggestion));
 
   // --- the ladder (a win) ---------------------------------------------------
   if (r.ladder.length > 0) {
