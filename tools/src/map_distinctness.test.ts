@@ -1,6 +1,6 @@
 // GH-382: every campaign mission is played on its own ground. See map_distinctness.ts for the
-// metric (feature identity over all eight orientations, plus elevation). The only excuse is the NAMED_EXCEPTIONS list (one entry,
-// lead's ruling 17 Nov 2026), with a demotion assertion below.
+// metric (feature identity over all eight orientations, plus elevation). The only excuse is the NAMED_EXCEPTIONS list (two entries,
+// the lead's rulings of 17 and 18 Nov 2026), with a demotion assertion below.
 import { describe, expect, it } from 'vitest';
 import {
   FEATURE_GATE,
@@ -36,7 +36,7 @@ describe('map distinctness', () => {
   it('the named exceptions are needed, real and closed: each excused pair is still alike, each id is a campaign mission, and only those pairs are excused', () => {
     const rows = allPairs(campaignMissions());
     const ids = new Set(campaignMissions().map((m) => m.mission));
-    expect(NAMED_EXCEPTIONS.length).toBe(1);
+    expect(NAMED_EXCEPTIONS.length).toBe(2);
     for (const e of NAMED_EXCEPTIONS) {
       expect(e.reason.length, 'a reason').toBeGreaterThan(20);
       for (const m of e.missions) expect(ids.has(m), `${m} is a campaign mission`).toBe(true);
@@ -47,6 +47,7 @@ describe('map distinctness', () => {
       'bir_tarsha_1_recon~bir_tarsha_2_foothold',
       'bir_tarsha_1_recon~bir_tarsha_3_clearance',
       'bir_tarsha_2_foothold~bir_tarsha_3_clearance',
+      'bir_tarsha_4_clearance~bir_tarsha_5_subterranean',
     ]);
     for (const e of NAMED_EXCEPTIONS)
       for (const a of e.missions)

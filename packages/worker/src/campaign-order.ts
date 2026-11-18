@@ -23,6 +23,7 @@ export const MISSION_TARGET_MINUTES: Readonly<Record<string, number>> = {
   bir_tarsha_1_recon: 6,
   bir_tarsha_2_foothold: 7,
   bir_tarsha_3_clearance: 6,
+  bir_tarsha_4_clearance: 7,
   bir_tarsha_5_subterranean: 7,
   ein_qasab_1_recon: 6,
   ein_qasab_2_foothold: 7,
