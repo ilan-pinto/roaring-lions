@@ -64,13 +64,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyTerrain,
-  maps,
-  missions,
   parseMap,
   structures as structureCatalogue,
   units,
   type MapJson,
 } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { Sim } from '@lions/sim';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { missionWorld } from './mission-harness';

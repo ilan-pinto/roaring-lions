@@ -48,7 +48,6 @@ import {
 } from '@lions/sim';
 import {
   units,
-  maps,
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
@@ -57,6 +56,7 @@ import {
   vfxEmitters,
   type ParsedMap,
 } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 // Renderer-side imports are all relative paths INTO packages/render/src --
 // never through `@lions/render`'s package specifier (tools/ does not depend

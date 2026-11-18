@@ -7,7 +7,8 @@
 // gated witness (a challenge plan per mission that wins the challenge on 30 seeds, the passive plan losing it) is
 // slice 2's. This module holds only the pure judgement, so it can be falsified on literals.
 
-import { amendmentOps, applyOverlays, challengeOf, missions, type ChallengeTerm, type ChallengeWin, type OverlayMission } from '@lions/data';
+import { amendmentOps, applyOverlays, challengeOf, type ChallengeTerm, type ChallengeWin, type OverlayMission } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 /** One run as the reading needs it: `RunRecord`'s fields. */
 export interface ChallengeRunRecord {

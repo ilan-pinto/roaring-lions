@@ -24,8 +24,6 @@ import {
 } from '@lions/sim';
 import {
   units,
-  maps,
-  missions,
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
@@ -40,6 +38,7 @@ import {
   type ChallengeTerm,
   type PostureId,
 } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { withReliefOnLoan } from '../../../packages/app/src/posture';
 import { runRowOf } from '../../../packages/app/src/challenge';
 import { reliefTriggerIndices } from '@lions/data';

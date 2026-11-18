@@ -12,11 +12,11 @@ import {
   amendmentOps,
   applyOverlays,
   missionChallenges,
-  missions,
   POSTURE_IDS,
   TICKS_PER_TARGET_MINUTE,
   type PostureId,
 } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { creditsFor, MissionRuntime, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
 import { timeLimitFailures } from '../validate_time_limit.mjs';
 import { missionStage } from './mission-harness';
@@ -111,7 +111,7 @@ describe('A1: what an amendment moves, it moves the restricting way, and nothing
 describe('every shipped mission at every posture passes the mission schema (PM review of PR 1504, hand-off 3)', () => {
   // Nothing else validates a mission AFTER the overlays: validate:data sees the authored files only.
   const all = Object.keys(missions);
-  it('covers the 30 shipped missions', () => expect(all.length).toBe(30));
+  it('covers the 35 shipped missions', () => expect(all.length).toBe(35));
   it.each(POSTURE_IDS.flatMap((p) => all.map((id) => [`${id} at ${p}`, id, p] as const)))('%s', (_, id, p) => {
     const m = applyOverlays(raw(id), { posture: p });
     expect(validateMission(m), JSON.stringify(validateMission.errors)).toBe(true);

@@ -300,7 +300,7 @@ const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
  * `missions` is a `Map` from mission id to its parsed JSON, the same shape `validate_data.mjs`'s own
  * sweep builds.
  */
-export function overlayFailures(file, overlay, missions) {
+export function overlayFailures(file, overlay, missions, opts = {}) {
   const out = [];
   for (const [missionId, o] of Object.entries(overlay ?? {})) {
     const mission = missions.get(missionId);
@@ -378,14 +378,14 @@ export function overlayFailures(file, overlay, missions) {
           else text(`section "${id}"`, v);
         }
         const missing = have.filter((sec) => o.sections[sec.id] === undefined).map((sec) => sec.id);
-        if (missing.length > 0) out.push(`${at} overlay gives some sections but not "${missing.join('", "')}": all or none, or the briefing and its sections stop agreeing`);
+        if (missing.length > 0) (opts.staged === true && opts.lag ? opts.lag : out).push(`${at} overlay gives some sections but not "${missing.join('", "')}": all or none, or the briefing and its sections stop agreeing`);
         else if (o.briefing === undefined) out.push(`${at} overlay translates the sections but not the briefing: they must join to it`);
         else if (have.map((sec) => o.sections[sec.id]).join(' ') !== o.briefing) {
           out.push(`${at} overlay sections joined with one space do not spell the overlay briefing exactly`);
         }
       }
     }
-    out.push(...sourceHashFailures(at, o, mission));
+    out.push(...sourceHashFailures(at, o, mission, opts));
   }
   return out;
 }
@@ -398,8 +398,10 @@ export function overlayFailures(file, overlay, missions) {
  * the mission's current English. Strings with no English source on the mission (an objective with no `text` in a bare test fixture)
  * have nothing to be stale against and need no hash; `src` may name only paths the entry translates.
  */
-function sourceHashFailures(at, o, mission) {
+function sourceHashFailures(at, o, mission, opts = {}) {
   const out = [];
+  // A STAGED language (`locale_staging.mjs`) may lag the English: a missing or stale hash goes to `opts.lag`, not to the failures.
+  const lagOut = opts.staged === true && opts.lag ? opts.lag : out;
   if (o.src !== undefined && !isRecord(o.src)) return [`${at} overlay src is not an object`];
   const src = o.src ?? {};
   const translated = new Map([...entryPaths(o)].filter(([, t]) => isText(t)));
@@ -409,9 +411,9 @@ function sourceHashFailures(at, o, mission) {
     if (want === undefined) continue;
     const have = src[path];
     if (have === undefined) {
-      out.push(`${at} overlay translates "${path}" but carries no src hash for it: copy src "${path}" (${want}) from data/locales/en/missions.json`);
+      lagOut.push(`${at} overlay translates "${path}" but carries no src hash for it: copy src "${path}" (${want}) from data/locales/en/missions.json`);
     } else if (have !== want) {
-      out.push(`${at} overlay "${path}" is stale: it was translated from English ${have}, and the English is now ${want}; re-translate it, then set src "${path}" to ${want}`);
+      lagOut.push(`${at} overlay "${path}" is stale: it was translated from English ${have}, and the English is now ${want}; re-translate it, then set src "${path}" to ${want}`);
     }
   }
   for (const [path, h] of Object.entries(src)) {
@@ -534,8 +536,9 @@ export function englishCatalogueFailures(file, catalogue, missions) {
  * unit's English text, and it fails when that is absent or the English has since been edited. A `blurb` for a unit that has none is a
  * failure too (`applyUnitLocale` drops it). `units` is a Map from unit id to its parsed JSON.
  */
-export function unitOverlayFailures(file, overlay, units) {
+export function unitOverlayFailures(file, overlay, units, opts = {}) {
   const out = [];
+  const lagOut = opts.staged === true && opts.lag ? opts.lag : out;
   for (const [unitId, o] of Object.entries(overlay ?? {})) {
     const unit = units.get(unitId);
     if (unit === undefined) {
@@ -562,8 +565,8 @@ export function unitOverlayFailures(file, overlay, units) {
     for (const k of ['name', 'blurb']) {
       if (!isText(o?.[k]) || typeof unit[k] !== 'string') continue;
       const want = sourceHash(unit[k]);
-      if (src[k] === undefined) out.push(`${at} overlay translates ${k} but carries no src hash for it: copy src.${k} (${want}) from data/locales/en/units.json`);
-      else if (src[k] !== want) out.push(`${at} overlay ${k} is stale: it was translated from English ${src[k]}, and the English is now ${want}; re-translate it, then set src.${k} to ${want}`);
+      if (src[k] === undefined) lagOut.push(`${at} overlay translates ${k} but carries no src hash for it: copy src.${k} (${want}) from data/locales/en/units.json`);
+      else if (src[k] !== want) lagOut.push(`${at} overlay ${k} is stale: it was translated from English ${src[k]}, and the English is now ${want}; re-translate it, then set src.${k} to ${want}`);
     }
     for (const [k, h] of Object.entries(src)) {
       if (k !== 'name' && k !== 'blurb') out.push(`${at} overlay src carries "${k}"; it may carry only name and blurb`);

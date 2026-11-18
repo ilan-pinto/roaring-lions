@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tools",
     "lint": "eslint .",
     "validate:data": "node tools/validate_data.mjs",
+    "content:manifest": "node tools/content_manifest.mjs",
     "locales:en": "node tools/locales_en.mjs",
     "validate:meshes": "python3 tools/validate_mesh_assets.py && python3 tools/test_lod_twin_gate.py && python3 tools/test_inf_kit_pierce.py && python3 tools/test_inf_kit_standoff.py && python3 tools/test_inf_kit_mesh.py && python3 tools/test_review_build.py",
     "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",

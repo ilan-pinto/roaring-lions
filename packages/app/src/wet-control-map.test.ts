@@ -24,7 +24,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId, type MapJson } from '@lions/data';
+import { parseMap, applyTerrain, structures as structureCatalogue, paletteColor, type MapId, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { composeTerrainFrom, type ComposedTerrainBuild } from '@lions/render/three';
 import { buildControlMap, CONTROL_TEXELS_PER_TILE as N, marshWaterAt } from '@lions/render/terrain';
 import { rendererOptionsFor } from './renderer-options';
@@ -55,8 +56,8 @@ const terrainOf = (id: MapId): string | undefined => (maps[id] as MapJson).terra
 const shipped = (Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) !== 'wetland');
 
 describe('no shipped map allocates control C', () => {
-  it('there are 38 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
-    expect(shipped.length).toBe(38); // Was 37: Milh Flats (large), GH-920 B3 (36 before Wadi Tarfan (large))
+  it('there are 43 non-wetland maps, and the wetland ones are the three Ein Qasab maps (GH-912)', () => {
+    expect(shipped.length).toBe(43); // Was 38 before the five Qasr Liwan maps; 37: Milh Flats (large), GH-920 B3 (36 before Wadi Tarfan (large))
     expect((Object.keys(maps) as MapId[]).filter((id) => terrainOf(id) === 'wetland').sort()).toEqual(['ein_qasab', 'ein_qasab_3', 'jebel_matar']);
   });
 

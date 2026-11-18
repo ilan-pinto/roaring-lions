@@ -11,7 +11,7 @@
  *   replays, Conduct points, time, losses, versus: 0
  *
  * That caps a lifetime at 100 + 10 per mission + 5 per star + 100 + 10 per challenge:
- * 830 coins over the 29 missions and the 68 stars the playtest ladder reaches, 890 with
+ * 940 coins over the 34 missions and the 80 stars the playtest ladder reaches, 1,000 with
  * the six-mission challenge pilot, and one campaign buys the dearest unit in the Stores
  * (800). `roar_earn.test.ts` pins that against the ladder and the challenge index (gate
  * G-E2). Conduct is paid through the second star (the Conduct line), so a Conduct point

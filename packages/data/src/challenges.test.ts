@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { missions } from './index';
+import { missions } from './content';
 import { applyOps, applyOverlays, POSTURE_IDS, FAIL_BELOW_CEILING, type OverlayMission } from './overlays';
 import {
   amendmentOps,

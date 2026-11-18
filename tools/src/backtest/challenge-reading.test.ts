@@ -1,6 +1,7 @@
 // GH-1395 slice 1: the report-only challenge reading's pure judgement, on literals.
 import { describe, expect, it } from 'vitest';
-import { challengeMissionIds, missions } from '@lions/data';
+import { challengeMissionIds } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { challengeLimit, challengeLine, tallyChallenge, winTerms } from './challenge-reading';
 
 describe('tallyChallenge', () => {

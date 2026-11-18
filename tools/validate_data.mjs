@@ -48,6 +48,7 @@ import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
+import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
@@ -69,6 +70,8 @@ import {
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
+import { chromeCatalogueFailures } from './validate_chrome_catalogue.mjs';
+import { shippedLocaleIds, stagingOpts } from './locale_staging.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -232,6 +235,10 @@ const schemas = {
 };
 
 let checked = 0;
+// GH-1406: a STAGED language (not in LOCALES) may lag the English; its lag is collected here per language and REPORTED at the end, never a failure.
+const shippedLocales = shippedLocaleIds(ROOT);
+const localeLag = new Map();
+const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
@@ -1230,7 +1237,10 @@ const garrisonableSymbols = new Set(
     if (!file.endsWith('missions.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    {
+      const lang = basename(dirname(file));
+      failures.push(...overlayFailures(rel(file), overlay, missionsById, stagingOf(lang)));
+    }
     // GH-1406 part 2: the `en` file is the GENERATED template, so it must match the mission files exactly.
     if (basename(dirname(file)) === 'en') failures.push(...englishCatalogueFailures(rel(file), overlay, [...missionsById.values()]));
     checked += 1;
@@ -1254,12 +1264,34 @@ const garrisonableSymbols = new Set(
     if (!file.endsWith('units.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitsById));
+    {
+      const lang = basename(dirname(file));
+      failures.push(...unitOverlayFailures(rel(file), overlay, unitsById, stagingOf(lang)));
+    }
     if (basename(dirname(file)) === 'en') failures.push(...englishUnitFailures(rel(file), overlay, [...unitsById.values()]));
     checked += 1;
   }
   if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
     failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
+  }
+}
+
+// --- chrome catalogues (GH-1406) --------------------------------------------
+// packages/app/src/i18n/<id>.json beside en.json: every key of en.json and nothing else, the same {placeholders} and ICU shape in every
+// value (`chromeCatalogueFailures`). A locale with no file ships none and plays in English.
+{
+  const i18nDir = join(ROOT, 'packages/app/src/i18n');
+  const en = loadJson(join(i18nDir, 'en.json'));
+  if (en) {
+    for (const entry of readdirSync(i18nDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'en.json') continue;
+      const file = join(i18nDir, entry.name);
+      const tr = loadJson(file);
+      if (!tr) continue;
+      const lang = entry.name.slice(0, -'.json'.length);
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(lang)));
+      checked += 1;
+    }
   }
 }
 
@@ -1493,6 +1525,12 @@ const garrisonableSymbols = new Set(
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
 }
+
+// --- the synchronous content manifest (B6-6) ----------------------------------
+// packages/data/src/content-manifest.ts is GENERATED from the map and mission files (tools/content_manifest.mjs): the
+// app's entry chunk reads it instead of the JSON. Regenerated here and compared byte for byte, so a map or a mission
+// edited without `pnpm content:manifest -- --write` fails, and so does a hand-edit of the manifest.
+failures.push(...contentManifestFailures(ROOT));
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 //
@@ -1764,5 +1802,12 @@ if (failures.length > 0) {
   console.error(`\nDATA GATE FAILED — ${failures.length} issue(s):\n`);
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
+}
+// A staged language that lags the English is REPORTED (the translator's worklist is `pnpm locales:pending -- <lang>`), and passes.
+for (const [lang, lines] of localeLag) {
+  if (lines.length === 0) continue;
+  console.log(`locale ${lang} (staged, not in LOCALES) lags the English by ${lines.length} item(s); report only, nothing here fails. Worklist: pnpm locales:pending -- ${lang}`);
+  for (const l of lines.slice(0, 10)) console.log(`    ${l}`);
+  if (lines.length > 10) console.log(`    ... and ${lines.length - 10} more`);
 }
 console.log(`data gate passed: ${checked} file(s) validated, palette keys resolved`);

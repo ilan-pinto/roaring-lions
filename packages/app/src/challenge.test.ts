@@ -1,7 +1,8 @@
 // GH-1395 slice 1: whether a won run beat its challenge, the campaign mark, and the coins end to end through the
 // guest store and the signed-in outbox (checks C8, C11, C13, C14 of the design).
 import { describe, expect, it } from 'vitest';
-import { missions, CHALLENGE_LEDGER_KEY, DIFFICULTY_LEDGER_KEY, challengeOf } from '@lions/data';
+import { CHALLENGE_LEDGER_KEY, DIFFICULTY_LEDGER_KEY, challengeOf } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { LedgerData, MissionJson } from '@lions/sim';
 import { starsEarned } from '@lions/sim';
 import worldJson from '../../../data/campaign/world.json';

@@ -15,7 +15,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchupAllowed } from '@lions/net';
 import { formationsOpenIn } from '../../packages/app/src/net/versus-formations';
-import { maps, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
+import { versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { build, cellSketch, serialise } from '../maps/rujm_sawda/build.mjs';
 import { verifyRujmSawda, shipped } from './rujm_sawda_verify';
 

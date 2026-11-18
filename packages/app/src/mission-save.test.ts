@@ -11,7 +11,7 @@ import { gunzipCapped, gzipBytes } from '@lions/net';
 import { economyStreamConfig, economyStreamFrames } from './net/economy-stream.test-helper';
 import { runFrames, seatWorldFor } from './net/frame-step';
 import { buildMatchWorld, matchTick, type MatchWorld } from './net/match-world';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { restoreSim } from '@lions/sim';
 import {
   MISSION_SAVE_VERSION,

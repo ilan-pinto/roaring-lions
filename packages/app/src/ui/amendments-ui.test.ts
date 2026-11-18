@@ -4,7 +4,8 @@
 // every chrome string through t() (C12, under the pseudo-locale). Every check was seen red under a one-line mutation.
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { challengeOf, missions } from '@lions/data';
+import { challengeOf } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { LedgerData, MissionJson } from '@lions/sim';
 import worldJson from '../../../../data/campaign/world.json';
 import en from '../i18n/en.json';

@@ -3,7 +3,8 @@
 // (once per account, never on Easier). The DOM halves are in `ui/amendments-ui.test.ts`; main.ts's wiring in
 // `posture-wiring.test.ts`. Every check was seen red under a one-line mutation of the implementation (the commit lists them).
 import { describe, expect, it } from 'vitest';
-import { challengeOf, DIFFICULTY_LEDGER_KEY, missions } from '@lions/data';
+import { challengeOf, DIFFICULTY_LEDGER_KEY } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { LedgerData, MissionJson } from '@lions/sim';
 import { starsEarned } from '@lions/sim';
 import worldJson from '../../../data/campaign/world.json';
