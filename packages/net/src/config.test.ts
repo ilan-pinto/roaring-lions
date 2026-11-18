@@ -84,6 +84,43 @@ describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type sha
   });
 });
 
+describe('validateConfig: SeatConfig.picks (GH-1384), optional, bounded as tiers is', () => {
+  const withPicks = (picks: unknown) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], kit: 'brigade', tiers: { mbt_lavi: { firepower: 3 } }, picks }, CONFIG.seats[1]] });
+  it('absent reads as before (a config from before it still parses), and a nested branch map round-trips', () => {
+    expect(validateConfig(JSON.parse(JSON.stringify(CONFIG)))).toEqual(CONFIG);
+    expect(Object.keys(CONFIG.seats[0])).not.toContain('picks');
+    expect(validateConfig(withPicks({ mbt_lavi: { firepower: 2 } }))?.seats[0].picks).toEqual({ mbt_lavi: { firepower: 2 } });
+    expect(validateConfig(withPicks({ mbt_lavi: { firepower: 1 }, apc_kipod: { armour: 2 } }))).not.toBeNull();
+    expect(validateConfig(withPicks({}))).not.toBeNull();
+  });
+  it('every leaf is exactly 1 or 2: a branch, never a tier', () => {
+    for (const leaf of [0, 3, 1.5, -1, '1', null, true, NaN]) expect(validateConfig(withPicks({ mbt_lavi: { firepower: leaf } })), String(leaf)).toBeNull();
+  });
+  it('refuses the flat shape, arrays and null', () => {
+    expect(validateConfig(withPicks({ mbt_lavi: 2 }))).toBeNull();
+    expect(validateConfig(withPicks([]))).toBeNull();
+    expect(validateConfig(withPicks({ mbt_lavi: [2] }))).toBeNull();
+    expect(validateConfig(withPicks(null))).toBeNull();
+  });
+  it('is bounded: at most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks an id (64 and 8, literal)', () => {
+    expect([TIERS_MAX_TYPES, TIERS_MAX_TRACKS]).toEqual([64, 8]);
+    const ids = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`u${i}`, { armour: 1 }]));
+    const tracks = (n: number) => ({ mbt_lavi: Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, 2])) });
+    expect(validateConfig(withPicks(ids(64)))).not.toBeNull();
+    expect(validateConfig(withPicks(ids(65)))).toBeNull();
+    expect(validateConfig(withPicks(tracks(8)))).not.toBeNull();
+    expect(validateConfig(withPicks(tracks(9)))).toBeNull();
+  });
+  it('refuses __proto__, constructor and prototype as a key at either level', () => {
+    const parsed = (text: string) => validateConfig(withPicks(JSON.parse(text)));
+    for (const key of ['__proto__', 'constructor', 'prototype']) {
+      expect(parsed(`{"${key}": {"firepower": 1}}`), `type ${key}`).toBeNull();
+      expect(parsed(`{"mbt_lavi": {"${key}": 1}}`), `track ${key}`).toBeNull();
+    }
+    expect(parsed('{"proto": {"firepower": 1}}')).not.toBeNull();
+  });
+});
+
 describe('fnv1a32', () => {
   it('is the standard FNV-1a of the UTF-8 bytes', () => {
     expect(fnv1a32('')).toBe(0x811c9dc5 | 0);

@@ -84,7 +84,7 @@ import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, recordOf, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { writeMatchRecord, type RecordSeat } from './record';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatSpecials, type SeatTiers } from './room-fields';
+import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, picksOpen, seatKindField, seatPicksField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatPicks, type SeatSpecials, type SeatTiers } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -149,6 +149,11 @@ interface RoomMeta {
    *  (`seatTiersField`). Recorded whatever the kit rule; `mintConfig` reads it only for a KDF
    *  seat in a `brigade` room. */
   claims: [SeatTiers, SeatTiers];
+  /** GH-1384: each seat's branch picks, from `/create` and `/join`, cleaned against the branched tracks and that
+   *  seat's own `claims` (`seatPicksField`). Recorded whatever the kit rule, like `claims`, and read by `mintConfig`
+   *  under the same KDF-seat-in-a-brigade-room rule. Present only while branching is open (`picksOpen`): a closed
+   *  room's stored meta has no such key, which is dev's bytes. */
+  picks?: [SeatPicks, SeatPicks];
   /** GH-1102: the Store specials each seat claims to own, from `/create` and `/join`, cleaned
    *  against the shipped table (`seatSpecialsField`). Recorded whatever the kit rule, like
    *  `claims`; `seatSpecials` reads it only for a human KDF seat in a `brigade` versus room. */
@@ -188,6 +193,9 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     // so what a revived room mints is never more than `seatTiersField` lets through.
     kit: m.mode === 'versus' ? kitField(m.kit) : 'matched',
     claims: Array.isArray(m.claims) && m.claims.length === 2 ? [seatTiersField(m.claims[0]), seatTiersField(m.claims[1])] : [seatTiersField(null), seatTiersField(null)],
+    // GH-1384: open only. A room from before the picks (or one a closed build stored) has none; stored picks are cleaned
+    // again, against the claims cleaned just above, as the tiers are.
+    ...(picksOpen() ? { picks: storedPicks(m) } : {}),
     // A room from before GH-1102 owns no specials; a stored claim is cleaned again, as the tiers are.
     owned: Array.isArray(m.owned) && m.owned.length === 2 ? [seatSpecialsField(m.owned[0]), seatSpecialsField(m.owned[1])] : [[], []],
     // A room from before win modes is annihilation; a stored mode is read through the same field as a client's.
@@ -196,6 +204,13 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     members: Array.isArray(m.members) && m.members.length === 2 ? [seatMemberShape(m.members[0]), seatMemberShape(m.members[1])] : [null, null],
     botModels: Array.isArray(m.botModels) && m.botModels.length === 2 ? [storedBotModel(m.botModels[0]), storedBotModel(m.botModels[1])] : [null, null],
   };
+}
+/** GH-1384: a stored pair of picks, cleaned again against the stored claims (each cleaned as `legacyMeta` cleans it). */
+function storedPicks(m: Partial<RoomMeta>): [SeatPicks, SeatPicks] {
+  const claims = Array.isArray(m.claims) && m.claims.length === 2 ? [seatTiersField(m.claims[0]), seatTiersField(m.claims[1])] : [seatTiersField(null), seatTiersField(null)];
+  const pair: unknown = m.picks;
+  const at = (i: 0 | 1): unknown => (Array.isArray(pair) && pair.length === 2 ? pair[i] : null);
+  return [seatPicksField(at(0), claims[0]), seatPicksField(at(1), claims[1])];
 }
 /** The room trusts nothing it is sent or stored: a declared model is parsed again, and a malformed one is null. */
 function storedBotModel(v: unknown): BotModel | null {
@@ -507,6 +522,9 @@ export class MatchRoom {
       const s = st.seats[seat];
       const faction = mode === 'versus' ? st.factions[seat] : 'kdf';
       const tiers: SeatTiers = kit === 'brigade' && faction === 'kdf' ? this.meta?.claims[seat] ?? {} : {};
+      // GH-1384: the seat's branch picks under the SAME rule as its tiers (the lead's Q10: a friends' brigade room carries
+      // them, a matched room neither), minted only while branching is open and then always, `{}` where the tiers are `{}`.
+      const picks = picksOpen() ? { picks: kit === 'brigade' && faction === 'kdf' ? this.meta?.picks?.[seat] ?? {} : {} } : {};
       // GH-1102: the seat's Store specials, less the ones a versus room cannot field. A refused one is
       // logged here, at the one mint, and both seats were shown it in the lobby (`lobbyFor`).
       const unlocks: string[] = [];
@@ -515,7 +533,7 @@ export class MatchRoom {
         if (why === null) unlocks.push(id);
         else console.log('MatchRoom: brigade special refused', st.code, seat, id, why);
       }
-      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks, player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
+      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, ...picks, unlocks, player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
     // `dataDigest: 0` stays in the wire format, but no client folds it (L4):
     // each folds the digest of its own content.
@@ -871,6 +889,7 @@ export class MatchRoom {
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens(), kinds: [seatKindField(body.kind), 'human'], pace: paceField(body.pace),
         kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)], owned: [seatSpecialsField(body.specials), []],
+        ...(picksOpen() ? { picks: [seatPicksField(body.picks, seatTiersField(body.tiers)), seatPicksField(null, seatTiersField(null))] as [SeatPicks, SeatPicks] } : {}),
         ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }),
         members: [seatMemberShape(body.member), null], botModels: [seatBotModel(seatKindField(body.kind), seatMemberShape(body.member), body.botModel), null] };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
@@ -917,6 +936,7 @@ export class MatchRoom {
         return Response.json({ error: 'build_mismatch', build: meta.build }, { status: 412 });
       }
       this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)], owned: [meta.owned[0], seatSpecialsField(body.specials)],
+        ...(picksOpen() ? { picks: [meta.picks?.[0] ?? seatPicksField(null, meta.claims[0]), seatPicksField(body.picks, seatTiersField(body.tiers))] as [SeatPicks, SeatPicks] } : {}),
         members: [meta.members[0], seatMemberShape(body.member)], botModels: [meta.botModels[0], seatBotModel(seatKindField(body.kind), seatMemberShape(body.member), body.botModel)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });

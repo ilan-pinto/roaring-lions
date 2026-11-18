@@ -1,4 +1,4 @@
-import { applyTerrain, branchedTracks, doctrines, flagBlockOf, formations, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type BranchPick, type MapJson, type ParsedMap, type SetupKitPiece, type UpgradableUnit } from '@lions/data';
+import { applyTerrain, BRANCHES_OPEN, branchedTracks, doctrines, flagBlockOf, formations, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type BranchPick, type MapJson, type ParsedMap, type SetupKitPiece, type UpgradableUnit } from '@lions/data';
 import { maps } from '@lions/data/content';
 import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
@@ -136,9 +136,13 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const specialsBySide = [seatSpecials(seats[0]), seatSpecials(seats[1])] as const;
   const appended = appendedSpecials(roster, specialsBySide);
   const walked: readonly RosterUnit[] = appended.length === 0 ? roster : [...roster, ...appended];
+  const tiersBySide = [seatKitTiers(seats[0], walked), seatKitTiers(seats[1], walked)] as const;
+  // GH-1384: each side's branch picks, from the config alone (`seatKitPicksOf`); the closed build's are slice 1's
+  // stand-in, a function of the tiers, so they never split a type the tiers do not.
+  const picksBySide = [seatKitPicksOf(seats[0], tiersBySide[0], walked), seatKitPicksOf(seats[1], tiersBySide[1], walked)] as const;
   const kitBySide = [
-    seatPrepass(walked, seatKitTiers(seats[0], walked)),
-    seatPrepass(walked, seatKitTiers(seats[1], walked)),
+    upgradePrepass(walked, tiersBySide[0], picksBySide[0]),
+    upgradePrepass(walked, tiersBySide[1], picksBySide[1]),
   ] as const;
   const typeOf = new Map<string, number>();
   for (let k = 0; k < roster.length; k++) typeOf.set(roster[k].id, sim.addUnitType(localizedUnit(kitBySide[0].registered[k])));
@@ -151,7 +155,11 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     // The ONE "same kit" predicate, shared with the renderer's `templateKey`
     // so it never draws one kit on an id whose two sim types differ, nor loads
     // a second template for an id whose two sim types are one.
-    if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
+    // GH-1384: and the same picks. Two seats on the same tiers but different branches run two sim types; the
+    // renderer still draws them from ONE template there (`templateKey` keys on tiers), which is right, because
+    // both branches draw the tier's one set of kit parts (the lead's Q6). The same predicate serves: a pick table
+    // is a track -> positive number table, and an absent pick reads as none on both sides.
+    if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id]) && sameTrackTiers(picksBySide[0][u.id], picksBySide[1][u.id])) return;
     typeOf1.set(u.id, sim.addUnitType(localizedUnit(kitBySide[1].registered[k])));
   };
   for (let k = 0; k < roster.length; k++) copyForSide1(k);
@@ -464,11 +472,11 @@ export function seatKitTiers(seat: SeatConfig | undefined, roster: readonly Rost
 }
 
 /**
- * GH-1384 slice 1: the branch a seat fields on each branched track its CLEANED tiers hold at the
- * branched tier. The room claim carries no picks yet (`SeatConfig.picks` is the net slice), and
- * every account this build can make holds branch 1 there (the migration's legacy default, the lead's
- * Q8, and the Garage's one Buy, `GARAGE_BRANCH`), so this is branch 1, derived from the config alone:
- * both machines compute the same table, and a matched seat (`{}` tiers) fields none.
+ * GH-1384 slice 1's stand-in, which the CLOSED build keeps: branch 1 on each branched track the seat's CLEANED
+ * tiers hold at the branched tier, derived from the config alone, so both machines compute the same table and a
+ * matched seat (`{}` tiers) fields none. While branching is closed `applyUpgrades` reads a branched tier as its
+ * envelope whatever the pick, so this table changes no stat; it is kept so the closed prepass is dev's to the
+ * argument. An OPEN build reads the seat's own `picks` instead (`seatKitPicksOf`).
  */
 export function seatKitPicks(tiers: Readonly<Record<string, Readonly<Record<string, number>>>>, roster: readonly RosterUnit[]): Record<string, Record<string, BranchPick>> {
   const out: Record<string, Record<string, BranchPick>> = {};
@@ -484,10 +492,42 @@ export function seatKitPicks(tiers: Readonly<Record<string, Readonly<Record<stri
   return out;
 }
 
-/** One seat's prepass: its cleaned tiers and the picks they imply (`seatKitPicks`). */
-function seatPrepass(walked: readonly RosterUnit[], tiers: Record<string, Record<string, number>>): ReturnType<typeof upgradePrepass<RosterUnit>> {
-  return upgradePrepass(walked, tiers, seatKitPicks(tiers, walked));
+/**
+ * GH-1384: a seat's branch picks as the world reads them. CLOSED (`open` false, which is `BRANCHES_OPEN` unless a
+ * test says otherwise): slice 1's stand-in (`seatKitPicks`), and the config's `picks` are never read. OPEN: the
+ * seat's own `picks`, under the SAME rule as its tiers (`seatKitTiers`): `{}` unless the seat is a KDF seat on
+ * `kit: 'brigade'` (the lead's Q10: a matched room carries neither), otherwise walked through the roster's
+ * branched tracks rather than through the claim's keys, own data properties only, each leaf exactly 1 or 2, and
+ * kept only where the seat's cleaned `tiers` hold that track at its LAST (branched) tier. A branched tier with no
+ * pick is not applied (`applyUpgrades`), so it fields the tier below, as a config from before the picks does.
+ */
+export function seatKitPicksOf(
+  seat: SeatConfig | undefined,
+  tiers: Readonly<Record<string, Readonly<Record<string, number>>>>,
+  roster: readonly RosterUnit[],
+  open: boolean = BRANCHES_OPEN
+): Record<string, Record<string, BranchPick>> {
+  if (!open) return seatKitPicks(tiers, roster);
+  const out = Object.create(null) as Record<string, Record<string, BranchPick>>;
+  if (seat === undefined || seat.kit !== 'brigade' || seat.faction !== 'kdf') return out;
+  const claim: unknown = seat.picks;
+  for (const u of roster) {
+    const owned = tiers[u.id];
+    if (u.faction !== 'kdf' || owned === undefined) continue;
+    const perType = ownValue(claim, u.id);
+    if (perType === undefined) continue;
+    const unit = u as unknown as UpgradableUnit;
+    for (const track of branchedTracks(unit)) {
+      const len = unit.upgrades?.[track]?.tiers.length ?? 0;
+      const p = ownValue(perType, track);
+      if ((p !== 1 && p !== 2) || len === 0 || owned[track] !== len) continue;
+      (out[u.id] ??= Object.create(null) as Record<string, BranchPick>)[track] = p;
+    }
+  }
+  return out;
 }
+
+
 
 /** `o[key]` when `o` is a plain object holding `key` as an OWN DATA property;
  *  never an inherited name, never a getter. */
