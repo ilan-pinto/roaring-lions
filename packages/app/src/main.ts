@@ -294,7 +294,8 @@ import { rendererOptionsFor } from './renderer-options';
 import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageInsigniaTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
-import { readFlags, sandboxHelp, sandboxSideOf, sideFlags, unknownParams, type SandboxSide } from './sandbox-help';
+import { sandboxHelp, unknownParams } from './sandbox-help';
+import { bootFlags } from './boot-flags';
 import { withSoftParticles } from './soft-flag';
 // GH-1500 follow-up (lead ruling 16 Nov 2026): the versus and chat code loads on demand. `./versus-kit` (a dynamic import, below) holds the
 // room's transport, lobby wiring, snapshot, chat, advisor, scoreboard and end screen; this file takes ONLY its types. What stays static is
@@ -313,7 +314,6 @@ import { menuAccountSource } from './account/menu-account';
 // Type-only: the account client and the profile screen load by dynamic import (GH-1075 A1), never with the entry chunk.
 import type { AccountClient, AccountError } from './account/client';
 import { runFramesWith, seatWorldFor, type FrameStep } from './net/frame-run';
-import { roomFlags } from './net/room-flags';
 import { viewerSideOf } from './net/viewer';
 import { tunnelRouteOf } from './net/tunnel-route';
 import type { SpectateEnd, SpectateHooks } from './net/spectator';
@@ -1944,16 +1944,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     return vk;
   };
   /** GH-1381: the side this Free play commands (`&side=`): the KDF, the default, everywhere else. The player is seat 0 and
-   *  side 0 on either side; only which force stands where changes (`sandbox-sarim.ts`). */
-  const sideChoice = sandboxSideOf(params, req.missionId === null && !inRoom);
-  if (sideChoice.warning !== undefined) console.warn(`[lions] ${sideChoice.warning}`);
-  const playSide: SandboxSide = sideChoice.value;
-  // A room plays the KDF side (`sandboxSideOf`), so `sideFlags` keeps every flag there and `roomFlags` then drops them all.
-  const flags = roomFlags(
-    sideFlags(readFlags(params), playSide, (k) => console.warn(`[lions] sandbox flag &${k} is ignored on the Sarim side: it adds KDF kit or Sarim opposition`)),
-    inRoom,
-    (k) => console.warn(`[net] sandbox flag &${k} is ignored in a room`),
-  );
+   *  side 0 on either side; only which force stands where changes (`sandbox-sarim.ts`). The extras follow the side
+   *  (`sideFlags`) and the room (`roomFlags`), in `bootFlags`, which prints what each dropped. */
+  const { side: playSide, flags } = bootFlags(params, { missionId: req.missionId, inRoom }, (line) => console.warn(line));
   // Nothing is mounted yet, so a chunk that will not load throws a `ChunkLoadError` to the router's error card, as the versus kit's does.
   const sarim: typeof SandboxSarim | null = playSide === 'sarim' ? await sandboxSarim() : null;
   if (req.signal.aborted) return () => undefined;
