@@ -32,6 +32,7 @@
     "spacing:census": "pnpm --filter @lions/tools spacing:census",
     "spacing:sheet": "pnpm --filter @lions/tools spacing:sheet",
     "vehicle-health:probe": "pnpm --filter @lions/tools vehicle-health:probe",
+    "passive:probe": "pnpm --filter @lions/tools passive:probe",
     "snapshot:witness": "pnpm --filter @lions/tools snapshot:witness",
     "versus:breach": "pnpm --filter @lions/tools versus:breach",
     "perf:units": "pnpm --filter @lions/tools perf:units",
