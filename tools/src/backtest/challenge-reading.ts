@@ -82,3 +82,40 @@ export function challengeLine(label: string, id: string, t: ChallengeTally, seed
     ' (report only)'
   );
 }
+
+// --- GH-1395 slice 2 (C6/C7, design §8): the GATED challenge plans ------------------------------------------------
+//
+// A challenge plan is a labelled winning plan in `playtest.ts`, played through `challengeRun` (the mission with its
+// challenge's amendments on) on `led0`-style ledgers, never chained. It runs in the parent and in every Standard sweep
+// child, so the 30-seed plan sweep holds it like any winning plan (it must WIN on every seed), and `plan-sweep.ts` adds
+// the one thing the reading above cannot: it must BEAT the challenge on every seed too. The Easier/Harder ladder and the
+// report-only reading leave it out (`isChallengePlan`): it is judged on the challenge's own terms, at Standard.
+
+/** The label of mission `id`'s challenge plan: `<id> (challenge <challenge id>)`. */
+export const challengePlanLabel = (id: string, challengeId: string): string => `${id} (challenge ${challengeId})`;
+export const isChallengePlan = (label: string): boolean => /^[a-z0-9_]+ \(challenge [a-z0-9_]+\)$/.test(label);
+
+/** The gated verdict on one challenge plan over the sweep seeds: every seed must have a run that won AND met the
+ *  challenge. A seed with no run (a child that died) is a miss, never a pass; a win with no challenge row (a run that was
+ *  not played through `challengeRun`) is a miss. */
+export function challengePlanVerdict(
+  runs: readonly ({ seed: number; run: ChallengeRunRecord | undefined })[]
+): { beaten: number; missed: string[] } {
+  let beaten = 0;
+  const missed: string[] = [];
+  for (const { seed, run } of runs) {
+    if (run === undefined) missed.push(`${seed} (no run)`);
+    else if (run.result !== 'victory') missed.push(`${seed} (${run.result})`);
+    else if (run.challenge === undefined) missed.push(`${seed} (no challenge row)`);
+    else if (!run.challenge.met) {
+      const open = (run.challenge.terms ?? []).filter((x) => !x.held).map((x) => x.term);
+      missed.push(`${seed} (won, challenge missed${open.length > 0 ? `: ${open.join(', ')}` : ''})`);
+    } else beaten++;
+  }
+  return { beaten, missed };
+}
+
+/** The challenge plans the sweep gates, pinned. One for now: Whole Picture (Beit Sahwan I), the pilot challenge whose
+ *  plain plan cannot beat it (0/30: without the drone it identifies the track, not the ATGM pair, before the picture
+ *  closes). The other five pilot challenges have no gated plan yet (the report-only reading above covers them). */
+export const GATED_CHALLENGE_PLANS: readonly string[] = [challengePlanLabel('beit_sahwan_1_recon', 'whole_picture')];

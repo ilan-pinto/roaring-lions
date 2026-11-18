@@ -254,6 +254,18 @@ const challengeReading = process.env.PT_CHALLENGE === '1';
 export function challengeReadingOn(): boolean {
   return challengeReading;
 }
+/** GH-1395 slice 2 (C6/C7, design §8): set only by `challengeRun` for the duration of one labelled CHALLENGE PLAN's `run()`,
+ *  in every process. That one run plays the mission with its challenge's named amendments on, exactly as a challenge child
+ *  does, and records the challenge row, which the 30-seed sweep gates (`plan-sweep.ts`). Every other run is untouched. */
+let challengePlan = false;
+export function challengeRun<T>(fn: () => T): T {
+  challengePlan = true;
+  try {
+    return fn();
+  } finally {
+    challengePlan = false;
+  }
+}
 
 /** GH-1394 (PM, 16 Nov): whether a WINNING plan uses a posture's relief. `PT_RELIEF_JOIN=1` (a seed child of the ladder's
  *  `easier+relief` reading). The scripted plans were written before the relief existed and never order it, so without
@@ -342,8 +354,9 @@ export function run(
   registeredUnits.clear();
   // GH-1394: the posture is applied to the mission JSON before anything reads it, exactly where the app applies it
   // (`campaignMission` in main.ts): the runtime, the upgrades, the loans and the credit floor all see the overlaid run.
-  // GH-1395: and, in a challenge child, the mission's challenge amendments after it (none for a mission with no challenge).
-  const challenge = challengeReading ? challengeOf(id) : undefined;
+  // GH-1395: and, in a challenge child or a labelled challenge plan (`challengeRun`), the mission's challenge amendments after it
+  // (none for a mission with no challenge). Applied once whichever of the two asked.
+  const challenge = challengeReading || challengePlan ? challengeOf(id) : undefined;
   const mission = applyOverlays(missions[id] as unknown as MissionJson, { posture, amendments: amendmentOps(challenge?.challenge.amendments ?? [], id) });
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for

@@ -243,6 +243,19 @@ force (fewer units, a shorter clock). It must win the challenge on the 30-seed l
 to `time_limit_s`; for Tight clock, to the *scaled* limit, which is exactly why it is bounded by the floor), and the
 passive plan must lose it. `pnpm playtest` fails if a challenge has no winning plan.
 
+**As built, Whole Picture (Beit Sahwan I, GH-1395 slice 2, PR 1568).** The lead ruled that the challenge needs one of
+the mission's two carried secondaries, not both (`carries_all` is gone; the win is `objective_done: "hvt_seen"`). The
+one it names is the ATGM pair, `hvt_seen`, and not the track north, `find_the_column`, because the plain plan with
+the drone taken away already identifies the track on every one of the 30 seeds: requiring the track would leave the
+challenge nothing to beat. The pair is what the challenge's name and blurb promise, and `picture` (six identified
+ENEMIES, whoever they are) ends the mission before the plain plan's screen gets there (0 of 30). Removing `carries: true`
+from a secondary in the mission JSON instead would have changed Beit Sahwan I's ledger and credits for every player, not
+only the challenge's. The gated plan is `wholePicturePlan` (`tools/src/backtest/plans/beit_sahwan.ts`), labelled
+`beit_sahwan_1_recon (challenge whole_picture)`: the Lavi alone, round the south of the map to (37, 29), with the pair
+the fourth and fifth enemies identified. `plan-sweep.ts` requires it to win AND beat the challenge on every sweep seed
+(`GATED_CHALLENGE_PLANS`, `challengePlanVerdict`); with both secondaries required again it misses on 30 of 30. The other
+five pilot challenges have no gated plan yet, and the amended passive control is not yet a separate line.
+
 ## 9. Rollout
 
 1. **The pilot, six missions, one per phase** (breach, recon, foothold, buildup, clearance, subterranean), with the six
