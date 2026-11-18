@@ -62,7 +62,10 @@ describe('validateBranches (B1-B7, C1)', () => {
   });
   it('refuses a dominating branch (B5), and one below tier 2 on a path (B4)', () => {
     const dominating = { ...A, patch: { 'weapons[0].accuracy': 0.1, 'weapons[0].penetration': 325 } };
-    expect(run({ firepower: FIRE(branched([dominating, { ...B, patch: T2.patch }])) }).join('\n')).toMatch(/\(B5\)/);
+    // `dominating` wins or ties everywhere against B; B itself raises a path and gives one up, so only A's own B5 line may fire.
+    const out = run({ firepower: FIRE(branched([dominating, B])) }).join('\n');
+    expect(out).toMatch(/branch "a" dominates or is dominated.*\(B5\)/);
+    expect(out).not.toMatch(/branch "b" dominates/);
     const under = { ...B, patch: { 'weapons[0].accuracy': 0.05, 'weapons[0].penetration': 325 } };
     expect(run({ firepower: FIRE(branched([A, under])) }).join('\n')).toMatch(/smaller branch value 0\.05 is not the tier below's 0\.06 \(B4\)/);
   });
