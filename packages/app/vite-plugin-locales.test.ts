@@ -68,8 +68,8 @@ describe('which files are locale files', () => {
     for (const no of ['en.json', 'notes.txt', 'fr/de.json', '../fr.json', 'fr.json.bak', '.json']) expect(CHROME_FILE.test(no), no).toBe(false);
     expect(chromeFiles(chrome)).toEqual(['fr.json', 'pt-br.json']);
     expect(chromeFiles(join(tmp, 'nope'))).toEqual([]);
-    // today en.json and the staged de.json live there; only de.json is served (en is bundled). `de` is not in LOCALES yet, so nothing fetches it.
-    expect(chromeFiles(join(__dirname, 'src', 'i18n'))).toEqual(['de.json']);
+    // today en.json and the staged de.json live there; only de.json and fr.json are served (en is bundled). `de` and `fr` are not in LOCALES yet, so nothing fetches it.
+    expect(chromeFiles(join(__dirname, 'src', 'i18n'))).toEqual(['de.json', 'fr.json']);
     expect(servedFiles(locales, chrome).map((x) => x.rel)).toEqual(['fr/missions.json', 'fr/units.json', 'he/units.json', 'fr.json', 'pt-br.json']);
   });
   it('the path guard is its own layer: a file outside the directory is refused whatever the filename rule would say', () => {
@@ -80,9 +80,9 @@ describe('which files are locale files', () => {
     // and the filename rule is its own layer: `..` as a language never matches it, so the guard is not what stops this one
     expect(LOCALE_FILE.test('../missions.json')).toBe(false);
   });
-  it('is empty for a directory that is missing, and serves only the staged German for the shipped one today (the en template is never served)', () => {
+  it('is empty for a directory that is missing, and serves only the staged German and French for the shipped one today (the en template is never served)', () => {
     expect(localeFiles(join(tmp, 'nope'))).toEqual([]);
-    expect(localeFiles(join(__dirname, '..', '..', 'data', 'locales'))).toEqual(['de/missions.json', 'de/units.json']);
+    expect(localeFiles(join(__dirname, '..', '..', 'data', 'locales'))).toEqual(['de/missions.json', 'de/units.json', 'fr/missions.json', 'fr/units.json']);
   });
 });
 

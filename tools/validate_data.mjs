@@ -73,7 +73,7 @@ import {
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
-import { chromeCatalogueFailures } from './validate_chrome_catalogue.mjs';
+import { chromeCatalogueFailures, chromeSourceFailures } from './validate_chrome_catalogue.mjs';
 import { shippedLocaleIds, stagingOpts } from './locale_staging.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
@@ -1295,8 +1295,12 @@ const garrisonableSymbols = new Set(
       const file = join(i18nDir, entry.name);
       const tr = loadJson(file);
       if (!tr) continue;
-      const lang = entry.name.slice(0, -'.json'.length);
-      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(lang)));
+      const id = entry.name.slice(0, -'.json'.length);
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(id)));
+      // The stale-translation guard: data/locales/<id>/chrome.src.json carries the hash of the English each string was translated from.
+      const srcFile = join(ROOT, 'data/locales', id, 'chrome.src.json');
+      if (!existsSync(srcFile)) failures.push(`${rel(file)}: has no source-hash sidecar ${rel(srcFile)} (run \`pnpm locales:chrome-src -- ${id} --write\`)`);
+      else failures.push(...chromeSourceFailures(rel(srcFile), en, tr, loadJson(srcFile), stagingOf(id)));
       checked += 1;
     }
   }
