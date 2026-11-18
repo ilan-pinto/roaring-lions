@@ -207,6 +207,10 @@ export const NAMED_EXCEPTIONS: readonly NamedException[] = [
     missions: ['bir_tarsha_1_recon', 'bir_tarsha_2_foothold', 'bir_tarsha_3_clearance'],
     reason: 'one town, three battles: the Gate is one place seen three times, each time with a few rows changed (docs/campaign/bir_tarsha/design.md section 3.2; the MDD, PR 1453)',
   },
+  {
+    missions: ['bir_tarsha_4_clearance', 'bir_tarsha_5_subterranean'],
+    reason: 'one strip, before and after: V is IV\'s ground with the works razed, a command post and the routes under it (docs/campaign/bir_tarsha/design.md section 3.3b; lead ruling 18 Nov 2026)',
+  },
 ];
 
 export function isNamedException(a: string, b: string): boolean {
