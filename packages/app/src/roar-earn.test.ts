@@ -150,7 +150,8 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
 
   // GH-1395 (lead ruling D1): the cap rises by 10 for each mission with a challenge. The pin reads the count from the
   // challenge INDEX, so the day a mission gains a challenge this bound moves with it rather than in the checker's
-  // favour; the literal is the six-mission pilot's, moved here deliberately from 940 (890 over 830 before Qasr Liwan).
+  // favour; the literal is the six-mission pilot's, 940 + 60 = 1,000, moved here deliberately from 890 (830 + 60, before
+  // Qasr Liwan raised the earn table's base from 830 to 940).
   it('with every challenge beaten too, a lifetime pays 940 + 10 per mission with a challenge = 1,000 for the pilot', () => {
     const ladderStars = pinned('LADDER_STARS');
     const per = ids.map((_, i) => (i < ladderStars - 2 * ids.length ? 3 : 2));

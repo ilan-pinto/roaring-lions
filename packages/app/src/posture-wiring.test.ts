@@ -163,7 +163,12 @@ describe('the challenge UI wiring (main.ts, GH-1395 slice 2)', () => {
   it('draws the panel only on a new run the gate offered one to, and freezes it the moment Deploy is answered', () => {
     expect(main).toMatch(/if \(resumed === null && amendmentRun\.offer !== null\) \{\s*const panel = posture\.amendmentPanel\(\{ offer: amendmentRun\.offer, chosen: runAmendments, onChange: \(next\) => req\.restart\(\{ amendments: next \}\) \}\);/);
     expect(main).toMatch(/onDispose\(panel\.dispose\);\s*freezeAmendments = panel\.freeze;/);
-    expect(main).toMatch(/await loading\.done\(\{ keep: introPlanned !== null \}\);\s*\} catch \(err\) \{\s*teardown\(\);\s*throw err;\s*\}\s*(\/\/[^\n]*\n\s*)*freezeAmendments\(\);\s*if \(req\.signal\.aborted\) abandon\('left before deploy'\);/);
+    // Among the statements straight after `loading.done()` settles, before the abort check: the posture line's freeze
+    // (GH-1394 slice 2) shares that run, in either order, and nothing but comments and the two freeze calls may stand there.
+    expect(main).toMatch(
+      /await loading\.done\(\{ keep: introPlanned !== null \}\);\s*\} catch \(err\) \{\s*teardown\(\);\s*throw err;\s*\}\s*(?:(?:\/\/[^\n]*|freezePostureLine\(\);)\s*)*freezeAmendments\(\);\s*(?:(?:\/\/[^\n]*|freezePostureLine\(\);)\s*)*if \(req\.signal\.aborted\) abandon\('left before deploy'\);/
+    );
+    expect(main.match(/freezeAmendments\(\)/g)?.length).toBe(1);
   });
 
   it('carries the run’s ids into the start inputs, the save record, the replay and Restart (D10)', () => {

@@ -75,6 +75,19 @@ describe("the run's ids (amendmentsForRun): what the save, the replay and Restar
     expect(run({ ledger: {}, requested: QUIET_SOUK })).toEqual({ ids: [], offer: null });
     expect(run({ mission: raw('beit_sahwan_0_tutorial'), requested: QUIET_SOUK })).toEqual({ ids: [], offer: null });
   });
+  it('a posture change on the deploy line carries the ids, and the gate judges them again on the new posture', () => {
+    // main.ts's posture line restarts with `{ amendments: runAmendments }` (pinned in `posture-ui-wiring.test.ts`); the
+    // next boot reads the rewritten ledger. Standard to Harder keeps the set; to Easier drops it, and what Easier carries
+    // on is the empty set, so a return to Standard is the plain mission until the panel is pressed again.
+    const standard = run({ requested: QUIET_SOUK });
+    if ('refused' in standard) throw new Error('a new run is never refused');
+    expect(standard.ids).toEqual(QUIET_SOUK);
+    expect(run({ ledger: harder, requested: standard.ids })).toEqual({ ids: QUIET_SOUK, offer: challengeOf(BS2) });
+    const onEasier = run({ ledger: easier, requested: standard.ids });
+    expect(onEasier).toEqual({ ids: [], offer: null });
+    if ('refused' in onEasier) throw new Error('a new run is never refused');
+    expect(run({ requested: onEasier.ids })).toEqual({ ids: [], offer: challengeOf(BS2) });
+  });
   it('a resumed run plays the SAVE’s ids, with no panel, even where a new run would get none', () => {
     expect(run({ saved: QUIET_SOUK, requested: [] })).toEqual({ ids: QUIET_SOUK, offer: null });
     expect(run({ saved: ['light_order', 'no_medic'], ledger: {} })).toEqual({ ids: QUIET_SOUK, offer: null });
