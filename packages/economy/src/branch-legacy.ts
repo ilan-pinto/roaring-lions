@@ -52,7 +52,7 @@ export function legacyOffer(
   const coin = roar.entitlements.upgrades[unitId]?.[track];
   const holds = { account: (account.upgrades[unitId]?.[track] ?? 0) >= fork.tier, coins: (coin?.tier ?? 0) >= fork.tier };
   const legacy = {
-    account: holds.account && account.legacy[unitId]?.[track] === true,
+    account: holds.account && account.legacy?.[unitId]?.[track] === true,
     coins: holds.coins && coin?.legacy === true,
   };
   const anyHeld = holds.account || holds.coins;
@@ -86,15 +86,15 @@ export function switchLegacy(
   const offer = legacyOffer(account, roar, unitId, track, branched);
   if (!offer.canSwitch) return { account, roar, ok: false };
   const coin = roar.entitlements.upgrades[unitId]?.[track];
-  const from: BranchPick = (offer.holds.account ? account.picks[unitId]?.[track] : coin?.branch) ?? 1;
+  const from: BranchPick = (offer.holds.account ? account.picks?.[unitId]?.[track] : coin?.branch) ?? 1;
   const to: BranchPick = from === 1 ? 2 : 1;
   let a = account;
   let w = roar;
   if (offer.holds.account) {
     a = {
       ...account,
-      picks: { ...account.picks, [unitId]: { ...(account.picks[unitId] ?? {}), [track]: to } },
-      legacy: withoutTrack(account.legacy, unitId, track),
+      picks: { ...account.picks, [unitId]: { ...(account.picks?.[unitId] ?? {}), [track]: to } },
+      legacy: withoutTrack(account.legacy ?? {}, unitId, track),
     };
   }
   if (offer.holds.coins && coin !== undefined) {
@@ -143,8 +143,8 @@ export function returnLegacy(
       ...account,
       balance: account.balance + credits,
       upgrades: { ...account.upgrades, [unitId]: { ...(account.upgrades[unitId] ?? {}), [track]: below } },
-      picks: withoutTrack(account.picks, unitId, track),
-      legacy: withoutTrack(account.legacy, unitId, track),
+      picks: withoutTrack(account.picks ?? {}, unitId, track),
+      legacy: withoutTrack(account.legacy ?? {}, unitId, track),
     };
   }
   const coin = roar.entitlements.upgrades[unitId]?.[track];

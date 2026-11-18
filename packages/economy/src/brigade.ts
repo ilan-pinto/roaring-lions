@@ -20,6 +20,7 @@
  * that is not open in the campaign is measured against the lifetime record, so a
  * locked mission played by address cannot repeat a payout).
  */
+import { BRANCHES_OPEN } from '@lions/data';
 import type { RoarWallet } from './wallet';
 import {
   isPick,
@@ -33,10 +34,15 @@ import {
   type PicksMap,
 } from './branches';
 
-/** 3 since GH-1384 (`picks`, `legacy`: branched upgrade tiers); 2 since GH-330 (`campaign_paid`).
- *  A version-1 or version-2 save migrates on read: it has no `picks`, so a branched tier it holds
- *  takes pick 1 and a legacy marker (`settleAccountPicks`). */
-export const ACCOUNT_VERSION = 3 as const;
+/** 2 since GH-330 (`campaign_paid`): a version-1 save migrates on read. */
+export const ACCOUNT_VERSION_BEFORE_BRANCHES = 2 as const;
+/** 3 once branched upgrade tiers open (GH-1384: `picks`, `legacy`). A version-1 or version-2 save
+ *  migrates on read: it has no `picks`, so a branched tier it holds takes pick 1 and a legacy
+ *  marker (`settleAccountPicks`). */
+export const ACCOUNT_VERSION_BRANCHED = 3 as const;
+/** The version this build writes. While `BRANCHES_OPEN` is false it is dev's 2, and the stored
+ *  account carries no `picks` or `legacy` field at all: byte for byte the shape dev writes. */
+export const ACCOUNT_VERSION: 2 | 3 = BRANCHES_OPEN ? ACCOUNT_VERSION_BRANCHED : ACCOUNT_VERSION_BEFORE_BRANCHES;
 
 /** Which improvement record a payout is measured against. */
 export type PayScope = 'campaign' | 'lifetime';
@@ -48,7 +54,7 @@ export type Grant =
   | { source: 'granted'; amount: number; missionId?: string; couponId?: string; at: number };
 
 export interface BrigadeAccount {
-  version: typeof ACCOUNT_VERSION;
+  version: 2 | 3;
   /** Integer credits on hand. */
   balance: number;
   /** Every earned credit ever; never decremented. */
@@ -71,11 +77,11 @@ export interface BrigadeAccount {
   /** GH-1384: per unit type, per branched TRACK held at its branched last tier, which of the two
    *  branches this account owns (1 or 2). Exactly one entry for each such (unit, track), and none
    *  below the branched tier: `migrateAccount` settles it on every read. */
-  picks: PicksMap;
+  picks?: PicksMap;
   /** GH-1384 §4.2: per (unit, track), `true` while this account's branched tier predates branching
    *  (an old linear tier 3, which owned both branches' numbers). It carries NO number: the one-time
    *  free Switch or full Return it offers is priced from the unit's JSON when it is taken. */
-  legacy: LegacyMap;
+  legacy?: LegacyMap;
 }
 
 export function emptyAccount(): BrigadeAccount {
@@ -89,8 +95,8 @@ export function emptyAccount(): BrigadeAccount {
     upgrades: {},
     grants: [],
     coupons: [],
-    picks: {},
-    legacy: {},
+    // GH-1384: only once branched tiers are open, so a closed build writes dev's shape.
+    ...(BRANCHES_OPEN ? { picks: {}, legacy: {} } : {}),
   };
 }
 
@@ -195,9 +201,12 @@ export function migrateAccount(
   const paid = migratePaid(r.paid);
   const upgrades = migrateUpgrades(r.upgrades);
   // GH-1384: picks and markers settled against the tiers (pick 1 and a marker for a pickless branched tier).
+  // With no branched track in force (the shipped table while `BRANCHES_OPEN` is false), the account keeps
+  // dev's shape: version 2 and no `picks` or `legacy` field, whatever an older open build stored.
+  const branching = Object.keys(branched).length > 0;
   const settled = settleAccountPicks(upgrades, migratePicks(r.picks), migrateLegacy(r.legacy), branched);
   return {
-    version: ACCOUNT_VERSION,
+    version: branching ? ACCOUNT_VERSION_BRANCHED : ACCOUNT_VERSION_BEFORE_BRANCHES,
     balance,
     earned_total: hadGrantsField ? (earnedTotalRaw > earnedFromGrants ? earnedFromGrants : earnedTotalRaw) : earnedTotalRaw,
     paid,
@@ -206,8 +215,7 @@ export function migrateAccount(
     upgrades,
     grants,
     coupons: Array.isArray(r.coupons) ? r.coupons.filter((u): u is string => typeof u === 'string') : [],
-    picks: settled.picks,
-    legacy: settled.legacy,
+    ...(branching ? { picks: settled.picks, legacy: settled.legacy } : {}),
   };
 }
 
@@ -359,7 +367,7 @@ export function buyBranch(
   const run = runUpgrade(account, unitId, track, from, fork.tier, prices);
   if (!run.ok) return run;
   return {
-    account: { ...run.account, picks: { ...run.account.picks, [unitId]: { ...(run.account.picks[unitId] ?? {}), [track]: pick } } },
+    account: { ...run.account, picks: { ...run.account.picks, [unitId]: { ...(run.account.picks?.[unitId] ?? {}), [track]: pick } } },
     ok: true,
   };
 }

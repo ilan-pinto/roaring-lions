@@ -13,6 +13,7 @@ import {
   type UnitTypeJson,
 } from '@lions/sim';
 import {
+  BRANCHES_OPEN,
   applyUpgrades,
   maxPicks,
   maxTiers,
@@ -3227,7 +3228,8 @@ const maxTierCredits = new Map<string, number>();
 // GH-1384 §6.2: a branched last tier needs a branch, so each replay runs once per uniform branch vector.
 // Branch 1 keeps the label `<id> (max tier)` (and is the run the second-campaign report reads); branch 2
 // is `<id> branch 2 (max tier)`, which still ends in the pinned-only suffix.
-for (const [probe, branch] of PLAN_CHILD ? [] : maxTierProbes.flatMap((p) => [[p, 1], [p, 2]] as const)) {
+// While `BRANCHES_OPEN` is false a branched tier plays as its envelope, so there is one replay per victory, labelled as on dev.
+for (const [probe, branch] of PLAN_CHILD ? [] : maxTierProbes.flatMap((p) => (BRANCHES_OPEN ? ([[p, 1], [p, 2]] as const) : ([[p, 1]] as const)))) {
   const label = branch === 1 ? `${probe.id} (max tier)` : branchTwoMaxTierLabel(probe.id);
   const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
     result: 'ongoing',
@@ -3268,7 +3270,7 @@ for (const [probe, branch] of PLAN_CHILD ? [] : maxTierProbes.flatMap((p) => [[p
   );
   if (branch === 1) maxTierCredits.set(probe.id, measured.credits);
 }
-console.log(`max tier: ${maxTierHeld} of ${2 * maxTierProbes.length} plain victories hold (both branch vectors)`);
+console.log(`max tier: ${maxTierHeld} of ${(BRANCHES_OPEN ? 2 : 1) * maxTierProbes.length} plain victories hold${BRANCHES_OPEN ? ' (both branch vectors)' : ''}`);
 
 // --- GH-1144: every upgrade track of the nine bought-only units -------------
 //

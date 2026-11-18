@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { BRANCHES_OPEN } from './branches-open';
 import {
   UPGRADE_PATHS,
   applyUpgrades,
@@ -347,6 +348,7 @@ describe('kitLevel (garage uplift §3.1, §6: ceil(3 × owned ÷ available))', (
 // GH-1384: the branched-tier readers. The fixture is literal and inline (an oracle takes literals); the
 // guard test proper, over the stores, is packages/economy/src/branch-exclusive.test.ts.
 describe('branched tiers (GH-1384)', () => {
+  // `true` below is the branch switch passed open: the shipped default (`BRANCHES_OPEN`) is closed, tested at the end.
   const tank: UpgradableUnit = {
     id: 'fx_tank',
     hull: { hp: 2000, armor: { front: 600 } },
@@ -385,7 +387,7 @@ describe('branched tiers (GH-1384)', () => {
   it('reads the picked branch per track, and stops below an unpicked branched tier', () => {
     const max = { firepower: 3, armour: 3 };
     const at = (picks: Parameters<typeof applyUpgrades>[2], acc: number, pen: number): void => {
-      const [a, p] = fire(applyUpgrades(tank, max, picks));
+      const [a, p] = fire(applyUpgrades(tank, max, picks, true));
       expect(a).toBeCloseTo(acc, 9);
       expect(p).toBe(pen);
     };
@@ -393,7 +395,7 @@ describe('branched tiers (GH-1384)', () => {
     at({ firepower: 2 }, 0.91, 1625);
     at({}, 0.91, 1508); // no pick: tier 2, never free stats
     at({ firepower: 3 as never }, 0.91, 1508); // not 1 or 2: the same
-    const armour = applyUpgrades(tank, max, { armour: 2 });
+    const armour = applyUpgrades(tank, max, { armour: 2 }, true);
     expect([armour.hull?.hp, (armour.hull?.armor as { front: number }).front]).toEqual([2200, 690]);
   });
 
@@ -409,9 +411,19 @@ describe('branched tiers (GH-1384)', () => {
   it('tierPatch reads a plain tier, the picked branch, and nothing for an unpicked branched tier', () => {
     const tiers = tank.upgrades?.firepower.tiers ?? [];
     expect(tierPatch(tiers[0], undefined)).toEqual({ 'weapons[0].accuracy': 0.03, 'weapons[0].penetration': 104 });
-    expect(tierPatch(tiers[2], 2)).toEqual({ 'weapons[0].accuracy': 0.06, 'weapons[0].penetration': 325 });
-    expect(tierPatch(tiers[2], undefined)).toBeUndefined();
+    expect(tierPatch(tiers[2], 2, true)).toEqual({ 'weapons[0].accuracy': 0.06, 'weapons[0].penetration': 325 });
+    expect(tierPatch(tiers[2], undefined, true)).toBeUndefined();
     expect(isBranchedTier(tiers[2])).toBe(true);
     expect(isBranchedTier(tiers[1])).toBe(false);
+  });
+
+  it('closed (the shipped default), a branched tier reads its envelope whatever the pick: the old linear tier 3', () => {
+    expect(BRANCHES_OPEN).toBe(false);
+    for (const picks of [{}, { firepower: 1 as const }, { firepower: 2 as const }]) {
+      const [a, p] = fire(applyUpgrades(tank, { firepower: 3 }, picks));
+      expect(a).toBeCloseTo(0.95, 9);
+      expect(p).toBe(1625);
+    }
+    expect(tierPatch((tank.upgrades?.firepower.tiers ?? [])[2], undefined)).toEqual({ 'weapons[0].accuracy': 0.1, 'weapons[0].penetration': 325 });
   });
 });

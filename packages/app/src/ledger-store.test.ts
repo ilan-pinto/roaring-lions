@@ -328,7 +328,7 @@ describe('ledger store: a new campaign pays again (GH-330)', () => {
     const store = memoryLedgerStore({ [ACCOUNT_KEY]: V1, [LEDGER_KEY]: LEDGER_A });
     store.startCampaign();
     const saved = JSON.parse(store.raw(ACCOUNT_KEY)!);
-    expect(saved.version).toBe(3); // GH-1384: version 3 (`picks`, `legacy`)
+    expect(saved.version).toBe(2);
     expect(saved.campaign_paid).toEqual({});
     expect(saved.paid).toEqual({ a: 310, b: 160 });
     expect(saved.balance).toBe(470);

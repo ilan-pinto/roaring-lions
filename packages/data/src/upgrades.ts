@@ -9,7 +9,8 @@
 // in sync.
 //
 // Leaf package rule (CLAUDE.md): @lions/data imports no other @lions
-// package. This module imports nothing but its own types.
+// package. This module imports nothing but its own types and the branch switch.
+import { BRANCHES_OPEN } from './branches-open';
 
 /** Which branch of a branched tier is owned (GH-1384): 1 or 2, never 0, never "both". */
 export type BranchPick = 1 | 2;
@@ -58,11 +59,24 @@ const isPick = (v: unknown): v is BranchPick => v === 1 || v === 2;
 
 /** The patch a tier applies: a plain tier's own, or the PICKED branch's of a branched
  *  tier. `undefined` for a branched tier with no pick, or a pick that is not 1 or 2, so a
- *  caller cannot read an unpicked branched tier as either branch, or as both. */
-export function tierPatch(tier: UpgradeTier, pick?: unknown): Readonly<Record<string, number>> | undefined {
+ *  caller cannot read an unpicked branched tier as either branch, or as both.
+ *
+ *  While branching is closed (`open` false, which is `BRANCHES_OPEN` unless a test says
+ *  otherwise) a branched tier reads as its ENVELOPE, the per-path maximum of its two
+ *  branches, whatever the pick: that is the linear tier 3 it replaced. Production callers
+ *  never pass `open` (`branch-switch-wiring.test.ts`). */
+export function tierPatch(tier: UpgradeTier, pick?: unknown, open: boolean = BRANCHES_OPEN): Readonly<Record<string, number>> | undefined {
   if (!isBranchedTier(tier)) return tier.patch;
+  if (!open) return envelopeOf(tier);
   if (!isPick(pick)) return undefined;
   return tier.branches[pick - 1]?.patch;
+}
+
+/** A branched tier's envelope: per path, the larger of the two branches' deltas. */
+function envelopeOf(tier: BranchedTier): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const b of tier.branches) for (const [path, v] of Object.entries(b.patch)) out[path] = path in out ? Math.max(out[path], v) : v;
+  return out;
 }
 
 /** One upgrade track: an ordered list of tiers, tier 1 at index 0. */
@@ -324,7 +338,10 @@ export function nextTierPrice(unit: UpgradableUnit, track: string, current: numb
 export function applyUpgrades<T extends UpgradableUnit>(
   unit: T,
   tiers: Readonly<Record<string, number>>,
-  picks: BranchPicks
+  picks: BranchPicks,
+  /** The branch switch (`BRANCHES_OPEN`). Closed, a branched tier resolves as its envelope
+   *  (`tierPatch`). Only a test passes it. */
+  open: boolean = BRANCHES_OPEN
 ): T {
   // Top-level shallow copy so the identity case still returns a new object,
   // and so every field addDeltaAlongPath does not touch is shared by
@@ -359,7 +376,7 @@ export function applyUpgrades<T extends UpgradableUnit>(
     const tierIndex = Math.min(Math.max(requestedTier, 0), track.tiers.length); // clamp to max
     const perTrack: Record<string, number> = {};
     for (let i = 0; i < tierIndex; i++) {
-      const patch = tierPatch(track.tiers[i], picks[trackName]);
+      const patch = tierPatch(track.tiers[i], picks[trackName], open);
       if (patch === undefined) break; // a branched tier with no pick: stop below it
       for (const [path, delta] of Object.entries(patch)) {
         if (!isWhitelisted(path)) {

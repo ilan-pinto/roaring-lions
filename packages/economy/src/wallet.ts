@@ -11,12 +11,15 @@
  * `networkView` reads `earned` only.
  */
 import type { BrigadeAccount } from './brigade';
+import { BRANCHES_OPEN } from '@lions/data';
 import { isPick, settleEntitlement, shippedBranched, type BranchedTable, type BranchPick, type PicksMap } from './branches';
 
-/** 2 since GH-1384 (an entitlement's `branch` and `legacy`, a tier receipt's `branch` and
- *  `refund`); a version-1 wallet migrates on read, and a branched tier it holds takes branch 1
- *  and a legacy marker. */
-export const ROAR_VERSION = 2 as const;
+/** 2 once branched upgrade tiers open (GH-1384: an entitlement's `branch` and `legacy`, a tier
+ *  receipt's `branch` and `refund`); a version-1 wallet migrates on read, and a branched tier it
+ *  holds takes branch 1 and a legacy marker. While `BRANCHES_OPEN` is false this build writes
+ *  dev's version 1, with none of those fields. */
+export const ROAR_VERSION_BRANCHED = 2 as const;
+export const ROAR_VERSION: 1 | 2 = BRANCHES_OPEN ? ROAR_VERSION_BRANCHED : 1;
 
 /** The most the free balance may hold. */
 export const MAX_COINS = 1_000_000;
@@ -94,7 +97,7 @@ export interface EarnRecord {
 }
 
 export interface RoarWallet {
-  version: typeof ROAR_VERSION;
+  version: 1 | 2;
   coins: CoinSplit;
   entitlements: {
     units: Record<string, UnitEntitlement>;
@@ -127,7 +130,7 @@ function migrateSplit(raw: unknown): CoinSplit {
   return { free, paid };
 }
 
-function migrateReceipt(raw: unknown): RoarReceipt | null {
+function migrateReceipt(raw: unknown, branching: boolean): RoarReceipt | null {
   if (!isObj(raw)) return null;
   const { kind, id, at } = raw;
   if (typeof id !== 'string' || !isNonNegInt(at) || !isObj(raw.coins)) return null;
@@ -148,8 +151,8 @@ function migrateReceipt(raw: unknown): RoarReceipt | null {
   if (kind === 'tier' && typeof raw.track === 'string' && isNonNegInt(raw.tier)) {
     return {
       kind, id, at, coins, unitId: raw.unitId, credits: raw.credits, track: raw.track, tier: raw.tier, ...source,
-      ...(isPick(raw.branch) ? { branch: raw.branch } : {}),
-      ...(raw.refund === true ? { refund: true as const } : {}),
+      ...(branching && isPick(raw.branch) ? { branch: raw.branch } : {}),
+      ...(branching && raw.refund === true ? { refund: true as const } : {}),
     };
   }
   return null;
@@ -161,6 +164,9 @@ function migrateReceipt(raw: unknown): RoarReceipt | null {
 export function migrateRoar(raw: unknown, branched: BranchedTable = shippedBranched()): RoarWallet {
   if (!isObj(raw)) return emptyRoar();
   const out = emptyRoar();
+  // With no branched track in force (the shipped table while `BRANCHES_OPEN` is false) the wallet keeps dev's shape.
+  const branching = Object.keys(branched).length > 0;
+  out.version = branching ? ROAR_VERSION_BRANCHED : 1;
   out.coins = migrateSplit(raw.coins);
   const ent = isObj(raw.entitlements) ? raw.entitlements : {};
   if (isObj(ent.units)) {
@@ -197,7 +203,7 @@ export function migrateRoar(raw: unknown, branched: BranchedTable = shippedBranc
   }
   if (Array.isArray(raw.receipts)) {
     for (const r of raw.receipts) {
-      const m = migrateReceipt(r);
+      const m = migrateReceipt(r, branching);
       if (m !== null) out.receipts.push(m);
     }
   }
@@ -349,7 +355,7 @@ export function buyBranchWithCoins(
 ): { account: RoarWallet; ok: boolean } {
   const fork = branched[unitId]?.[track];
   if (fork === undefined || tier !== fork.tier || !isPick(pick)) return { account: w, ok: false };
-  if ((account.upgrades[unitId]?.[track] ?? 0) >= fork.tier && account.picks[unitId]?.[track] !== pick) return { account: w, ok: false };
+  if ((account.upgrades[unitId]?.[track] ?? 0) >= fork.tier && account.picks?.[unitId]?.[track] !== pick) return { account: w, ok: false };
   return coinTier(w, unitId, track, tier, current, coins, credits, at, pick);
 }
 

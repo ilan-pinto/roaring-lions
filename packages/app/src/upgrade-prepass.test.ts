@@ -110,17 +110,17 @@ describe('upgradePrepass', () => {
     expect(registered.find((u) => u.id === 'mbt_lavi')?.hull.hp).toBe(3750);
   });
 
-  // GH-1384: the picks go where the tiers go. The Lavi's firepower tier 3 branches (literals from
-  // data/units/kdf/mbt_lavi.json: base 0.85 / 1300, tier 2 +0.06 / +208, branch 2 penetration +325).
-  it('patches a branched tier with the pick it is handed, and the tier below with none', () => {
+  // GH-1384: the picks go where the tiers go, and while the branch switch is closed a branched tier is fielded as the
+  // linear tier 3 it replaced, whatever they say. Literals from data/units/kdf/mbt_lavi.json: base 1300, the old tier 3 +325.
+  it('hands applyUpgrades the picks, and with the switch closed a branched tier 3 is the old tier 3 whatever they are', () => {
     seen.length = 0;
     const tiers = { mbt_lavi: { firepower: 3 } };
+    const registered = (picks: Record<string, Record<string, 1 | 2>>) => upgradePrepass(roster, tiers, picks).registered;
     const pen = (picks: Record<string, Record<string, 1 | 2>>): number | undefined =>
       (registered(picks).find((u) => u.id === 'mbt_lavi') as { weapons: { penetration: number }[] }).weapons[0].penetration;
-    const registered = (picks: Record<string, Record<string, 1 | 2>>) => upgradePrepass(roster, tiers, picks).registered;
     expect(pen({ mbt_lavi: { firepower: 2 } })).toBe(1625);
-    expect(pen({ mbt_lavi: { firepower: 1 } })).toBe(1508);
-    expect(pen({})).toBe(1508); // no pick: the tier below, never the envelope
+    expect(pen({ mbt_lavi: { firepower: 1 } })).toBe(1625);
+    expect(pen({})).toBe(1625);
     expect(seen.some((x) => x.id === 'mbt_lavi' && JSON.stringify(x.picks) === JSON.stringify({ firepower: 2 }))).toBe(true);
   });
 });

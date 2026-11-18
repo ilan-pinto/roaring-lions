@@ -1,6 +1,10 @@
 /**
  * GH-1384 §5: both branches of a branched tier can never be owned at once.
  *
+ * Every `applyUpgrades` here passes the branch switch OPEN (`true`), and every economy function a branched table, so the
+ * branch rules are tested while the shipped switch (`BRANCHES_OPEN`) stays closed; `branch-switch.test.ts` holds the closed
+ * build to dev.
+ *
  * The fixtures are LITERAL and inline (an oracle takes literals: CLAUDE.md, the falsification
  * casebook), and every economy function under test is handed `branchedTable([FX_TANK, FX_IFV])`, so
  * nothing here reads the shipped roster except case 7, which pins the shipped content against
@@ -119,7 +123,7 @@ function readingOf(unit: UpgradableUnit, track: string, kitted: UpgradableUnit):
 
 function viewReading(s: State, unit: UpgradableUnit, track: string): Reading {
   const v = singlePlayerView(s.account, s.roar);
-  return readingOf(unit, track, applyUpgrades(unit, v.ownedTiers[unit.id] ?? {}, v.ownedPicks[unit.id] ?? {}));
+  return readingOf(unit, track, applyUpgrades(unit, v.ownedTiers[unit.id] ?? {}, v.ownedPicks[unit.id] ?? {}, true));
 }
 
 // ---- states and operations ----------------------------------------------------------------------------
@@ -217,7 +221,7 @@ function opsFor(): Op[] {
 /** The two stores' picks on (u, t), each only where that store holds the branched tier. */
 function storePicks(s: State, u: string, t: string): { account?: BranchPick; coins?: BranchPick } {
   const out: { account?: BranchPick; coins?: BranchPick } = {};
-  if (tierIn(s, u, t) >= 3) out.account = s.account.picks[u]?.[t];
+  if (tierIn(s, u, t) >= 3) out.account = s.account.picks?.[u]?.[t];
   const e = s.roar.entitlements.upgrades[u]?.[t];
   if (e !== undefined && e.tier >= 3) out.coins = e.branch;
   return out;
@@ -478,7 +482,7 @@ describe('case 5: the legacy migration, both stores', () => {
     const s = migrated(rootsFor('fx_tank').L3);
     expect(legacyOffer(s.account, s.roar, 'fx_tank', 'firepower', BRANCHED)).toMatchObject({ canSwitch: true, canReturn: true });
     const sw = switchLegacy(s.account, s.roar, 'fx_tank', 'firepower', BRANCHED);
-    expect(sw.account.picks.fx_tank.firepower).toBe(2);
+    expect(sw.account.picks?.fx_tank.firepower).toBe(2);
     expect(sw.roar.entitlements.upgrades.fx_tank.firepower).toEqual({ tier: 3, paidTiers: 0, branch: 2 });
     expect(sw.account.legacy).toEqual({});
   });
@@ -492,7 +496,7 @@ describe('case 5: the legacy migration, both stores', () => {
   });
   it('L4 (account fresh b, wallet legacy): Switch is withheld; Return refunds the wallet ONLY (R12), and the view reads TWO', () => {
     const s = migrated(rootsFor('fx_tank').L4);
-    expect(s.account.picks.fx_tank.firepower).toBe(2);
+    expect(s.account.picks?.fx_tank.firepower).toBe(2);
     expect(s.account.legacy).toEqual({});
     expect(s.roar.entitlements.upgrades.fx_tank.firepower).toEqual({ tier: 3, paidTiers: 0, branch: 1, legacy: true });
     expect(switchLegacy(s.account, s.roar, 'fx_tank', 'firepower', BRANCHED).ok).toBe(false);
@@ -528,11 +532,11 @@ describe('case 5: the legacy migration, both stores', () => {
 
 describe('case 6: no pick, no stats, per track', () => {
   it('a branched tier with no pick reads T2; a missing pick on one track takes nothing from the other', () => {
-    expect(readingOf(FX_TANK, 'firepower', applyUpgrades(FX_TANK, { firepower: 3 }, {}))).toBe('T2');
-    const both = applyUpgrades(FX_TANK, { firepower: 3, armour: 3 }, { firepower: 2 });
+    expect(readingOf(FX_TANK, 'firepower', applyUpgrades(FX_TANK, { firepower: 3 }, {}, true))).toBe('T2');
+    const both = applyUpgrades(FX_TANK, { firepower: 3, armour: 3 }, { firepower: 2 }, true);
     expect(readingOf(FX_TANK, 'firepower', both)).toBe('TWO');
     expect(readingOf(FX_TANK, 'armour', both)).toBe('T2');
-    const mixed = applyUpgrades(FX_TANK, { firepower: 3, armour: 3 }, { firepower: 1, armour: 2 });
+    const mixed = applyUpgrades(FX_TANK, { firepower: 3, armour: 3 }, { firepower: 1, armour: 2 }, true);
     expect([readingOf(FX_TANK, 'firepower', mixed), readingOf(FX_TANK, 'armour', mixed)]).toEqual(['ONE', 'TWO']);
   });
 });
@@ -575,8 +579,8 @@ describe('case 7: the shipped sweep, against the design\'s §2.1 literals', () =
   for (const [id, row] of Object.entries(SHIPPED)) {
     it(`${id} ${row.track}: each pick reads its branch, and the envelope is the pre-branch tier 3 (B6)`, () => {
       const u = (units as unknown as Record<string, UpgradableUnit>)[id];
-      const one = applyUpgrades(u, { [row.track]: 3 }, { [row.track]: 1 });
-      const two = applyUpgrades(u, { [row.track]: 3 }, { [row.track]: 2 });
+      const one = applyUpgrades(u, { [row.track]: 3 }, { [row.track]: 1 }, true);
+      const two = applyUpgrades(u, { [row.track]: 3 }, { [row.track]: 2 }, true);
       for (const path of Object.keys(row.t3)) {
         expect(read(one, path), `${id} ${path} branch 1`).toBeCloseTo(row.one[path], 9);
         expect(read(two, path), `${id} ${path} branch 2`).toBeCloseTo(row.two[path], 9);

@@ -3,7 +3,7 @@
 // Exit code 1 when any target is missed: the combat model is the product,
 // and these numbers are its acceptance test.
 
-import { branchedTracks, units as shipped, type BranchPick, type UpgradableUnit } from '@lions/data';
+import { BRANCHES_OPEN, branchedTracks, units as shipped, type BranchPick, type UpgradableUnit } from '@lions/data';
 import { atgmPk, apsIntercept, standoff, urbanRatio, urbanSmokeStep, urbanAttackFormation, lanchester, airContested, airDefence, ambush, raidEscape, raidCaught } from '../backtest/targets';
 import { report, unitsAtMaxTier, withRoster, type TargetResult } from '../backtest/harness';
 
@@ -72,16 +72,25 @@ const baseOk = report(baseResults, 'base');
 // `units`/`MBT_BARE` in `harness.ts` for the callback and restores the base roster afterward, so the
 // targets above never see the max-tier roster and no table leaks into a later run of this process.
 // The branch-1 run also records which branched units each target reads.
+// GH-1384: while `BRANCHES_OPEN` is false a branched tier plays as its envelope (the old linear tier 3), so the
+// max-tier table is dev's one table. `-- --branches` measures the branches anyway (both uniform vectors and each
+// target's mixed ones), as the design's §6.2 asks before the switch opens.
+const measureBranches = BRANCHES_OPEN || process.argv.includes('--branches');
+if (!measureBranches) {
+  const maxOk = report(withRoster(unitsAtMaxTier(1), runTargets), 'max tier');
+  console.log(`(${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  process.exit(baseOk && maxOk ? 0 : 1);
+}
 const readBy: Set<string>[] = TARGETS.map(() => new Set<string>());
 // `withRoster` derives `MBT_BARE` off the roster BEFORE the target runs; that read is not the target's, so it is cleared.
 const max1 = TARGETS.flatMap((f, i) =>
-  withRoster(recording(unitsAtMaxTier(1), readBy[i]), () => {
+  withRoster(recording(unitsAtMaxTier(1, true), readBy[i]), () => {
     readBy[i].clear();
     return f();
   })
 );
 const max1Ok = report(max1, 'max tier, branch 1');
-const max2Ok = report(withRoster(unitsAtMaxTier(2), runTargets), 'max tier, branch 2');
+const max2Ok = report(withRoster(unitsAtMaxTier(2, true), runTargets), 'max tier, branch 2');
 // GH-1384 §6.2: a branch can move a target the envelope passed, and uniform vectors do not cover a
 // target that registers two or more branched units, so each such target also runs every MIXED
 // vector over the branched units it read.
@@ -90,7 +99,7 @@ TARGETS.forEach((f, i) => {
   const ids = [...readBy[i]].filter((id) => BRANCHED.has(id)).sort();
   for (const v of mixedVectors(ids)) {
     const label = `max tier, mixed ${ids.map((id) => `${id}=${v[id]}`).join(' ')}`;
-    const r = withRoster(unitsAtMaxTier(v), f);
+    const r = withRoster(unitsAtMaxTier(v, true), f);
     mixedOk = report(Array.isArray(r) ? r : [r], label) && mixedOk;
   }
 });

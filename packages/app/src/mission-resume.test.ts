@@ -59,16 +59,23 @@ describe('the start inputs', () => {
     expect(bad((o) => { o.tiers = []; })).toBeNull();
     expect(bad((o) => { o.deploy = [0, 'x']; })).toBeNull();
     expect(bad((o) => { o.deploy = undefined; })).toBeNull();
-    expect(bad((o) => { o.picks = { mbt_lavi: { firepower: 3 } }; })).toBeNull();
+    // GH-1384: a pick that is not 1 or 2 is refused once branching is open (`true`); closed, picks are ignored as dev ignores them.
+    const badPicks = { ...good, picks: { mbt_lavi: { firepower: 3 } } };
+    expect(parseStartInputs(badPicks, true)).toBeNull();
+    expect(parseStartInputs(badPicks)?.picks).toEqual({});
     expect(parseStartInputs(null)).toBeNull();
   });
 
-  // GH-1384 §4.5, case 10: a record from before branched tiers has `tiers` and no `picks`. Resuming it with `{}` would rebuild a
-  // branched tier 3 at tier 2, so it is REFUSED (and kept: `loadResume`'s `failed` path), never defaulted. A literal record.
-  it('a record with no picks (from before branched tiers) is refused, not resumed with none', () => {
+  // GH-1384 §4.5, case 10: a record from before branched tiers has `tiers` and no `picks`. Once branching is open (`true`), resuming
+  // it with `{}` would rebuild a branched tier 3 at tier 2, so it is REFUSED (and kept: `loadResume`'s `failed` path). While the switch
+  // is closed it is dev's record and resumes as dev resumes it. A literal record.
+  it('a record with no picks (from before branched tiers) is refused once open, and read as dev reads it while closed', () => {
     const before = { ledger: { 'campaign.mission_results': {} }, tiers: { mbt_lavi: { firepower: 3 } }, unlocks: [], deploy: null };
-    expect(parseStartInputs(before)).toBeNull();
-    expect(parseStartInputs({ ...before, picks: { mbt_lavi: { firepower: 1 } } })?.picks).toEqual({ mbt_lavi: { firepower: 1 } });
+    expect(parseStartInputs(before, true)).toBeNull();
+    expect(parseStartInputs({ ...before, picks: { mbt_lavi: { firepower: 1 } } }, true)?.picks).toEqual({ mbt_lavi: { firepower: 1 } });
+    expect(parseStartInputs(before)).toEqual({ ...before, picks: {} });
+    // and closed, what is written is dev's record: no `picks` key
+    expect(Object.keys(startInputsJson({ ledger: {}, tiers: {}, picks: { mbt_lavi: { firepower: 2 } }, unlocks: [], deploy: null }) as object)).toEqual(['ledger', 'tiers', 'unlocks', 'deploy']);
   });
 });
 

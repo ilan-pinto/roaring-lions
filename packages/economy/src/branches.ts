@@ -19,7 +19,7 @@
  * Pure: no storage, no clock. The table is a parameter defaulting to the shipped roster's, so a test
  * runs the same functions on inline fixtures the shipped table cannot see.
  */
-import { branchedTable, units, type BranchedTable, type BranchPick } from '@lions/data';
+import { BRANCHES_OPEN, branchedTable, units, type BranchedTable, type BranchPick } from '@lions/data';
 
 export type { BranchedTable, BranchPick };
 
@@ -29,8 +29,11 @@ export type PicksMap = Record<string, Record<string, BranchPick>>;
 export type LegacyMap = Record<string, Record<string, true>>;
 
 let shipped: BranchedTable | undefined;
-/** The shipped roster's branched tracks (built once, on first use). */
+/** The shipped roster's branched tracks (built once, on first use), or NONE while `BRANCHES_OPEN` is false: every
+ *  economy rule reads this table, so with it empty no buy refuses a branched tier, no migration writes a pick or a marker,
+ *  and the stores keep dev's shape. A test that drives the branch rules passes its own table. */
 export function shippedBranched(): BranchedTable {
+  if (!BRANCHES_OPEN) return {};
   shipped ??= branchedTable(Object.values(units) as Parameters<typeof branchedTable>[0]);
   return shipped;
 }
@@ -102,6 +105,6 @@ export function settleEntitlement<E extends { tier: number; paidTiers: number; b
 }
 
 /** The pick a store holds on (unit, track), or `undefined` below the branched tier. */
-export function accountPick(account: { upgrades: Record<string, Record<string, number>>; picks: PicksMap }, unit: string, track: string, tier: number): BranchPick | undefined {
-  return (account.upgrades[unit]?.[track] ?? 0) >= tier ? account.picks[unit]?.[track] : undefined;
+export function accountPick(account: { upgrades: Record<string, Record<string, number>>; picks?: PicksMap }, unit: string, track: string, tier: number): BranchPick | undefined {
+  return (account.upgrades[unit]?.[track] ?? 0) >= tier ? account.picks?.[unit]?.[track] : undefined;
 }

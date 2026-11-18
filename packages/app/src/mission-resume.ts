@@ -7,7 +7,7 @@
  * kit tiers, the bought units (the unlock gates) and the deploy pick: those four are the record's `campaign` field. The seed is a constant of
  * the build (`SIM_SEED`) and rides in the record's own `seed`.
  */
-import { DIFFICULTY_LEDGER_KEY, postureOf, type PostureId } from '@lions/data';
+import { BRANCHES_OPEN, DIFFICULTY_LEDGER_KEY, postureOf, type PostureId } from '@lions/data';
 import type { CampaignLedger } from './ledger-store';
 import { digestOf, prepareResume, type JsonValue, type PreparedResume, type SuspendedMission } from './mission-save';
 import { readSuspended, type KeyStore } from './mission-save-store';
@@ -19,8 +19,10 @@ export interface StartInputs {
   /** The bought kit, unit type id -> track -> tier (`bootKit`). */
   tiers: Record<string, Record<string, number>>;
   /** GH-1384 §4.5: the branch owned per branched (unit, track), frozen with the tiers (`branchPicks`).
-   *  REQUIRED: a record from before branching has none, and is refused rather than resumed with
-   *  `{}`, which would rebuild a branched tier 3 at tier 2. */
+   *  Once branching is open it is REQUIRED: a record from before branching has none, and is refused
+   *  rather than resumed with `{}`, which would rebuild a branched tier 3 at tier 2. While
+   *  `BRANCHES_OPEN` is false a branched tier plays as its envelope whatever the picks, so a record
+   *  is read and written exactly as dev reads and writes it: no `picks` key, read back as `{}`. */
   picks: Record<string, Record<string, 1 | 2>>;
   /** The bought unit ids, sorted. */
   unlocks: string[];
@@ -36,10 +38,10 @@ export function startInputsJson(i: {
   unlocks: Iterable<string>;
   deploy: ReadonlySet<number> | null;
 }): JsonValue {
-  const out: StartInputs = {
+  const out: Omit<StartInputs, 'picks'> & { picks?: StartInputs['picks'] } = {
     ledger: i.ledger,
     tiers: i.tiers as Record<string, Record<string, number>>,
-    picks: i.picks as Record<string, Record<string, 1 | 2>>,
+    ...(BRANCHES_OPEN ? { picks: i.picks as Record<string, Record<string, 1 | 2>> } : {}),
     unlocks: [...i.unlocks].sort(),
     deploy: i.deploy === null ? null : [...i.deploy].sort((a, b) => a - b),
   };
@@ -49,8 +51,12 @@ export function startInputsJson(i: {
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The inputs, or null when the record's `campaign` is not exactly what `startInputsJson` writes. */
-export function parseStartInputs(v: unknown): StartInputs | null {
-  if (!isRec(v) || !isRec(v.ledger) || !isRec(v.tiers) || !isRec(v.picks)) return null;
+export function parseStartInputs(v: unknown, open: boolean = BRANCHES_OPEN): StartInputs | null {
+  if (!isRec(v) || !isRec(v.ledger) || !isRec(v.tiers)) return null;
+  // Open, a record with no picks is refused. Closed, the record is read exactly as dev reads it: any `picks` key is
+  // ignored, and the picks read as none (a branched tier plays as its envelope whatever they say).
+  if (!open) v = { ...v, picks: {} };
+  if (!isRec(v.picks)) return null;
   if (!Array.isArray(v.unlocks) || !v.unlocks.every((u) => typeof u === 'string')) return null;
   for (const tracks of Object.values(v.tiers)) {
     if (!isRec(tracks) || !Object.values(tracks).every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0)) return null;

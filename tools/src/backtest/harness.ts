@@ -3,7 +3,7 @@
 // This is where the combat model is held against GDD §5.7.
 
 import { Sim, type SimEvent, type UnitTypeJson } from '@lions/sim';
-import { units as baseUnits, applyUpgrades, maxPicks, maxTiers, type BranchPick } from '@lions/data';
+import { BRANCHES_OPEN, units as baseUnits, applyUpgrades, maxPicks, maxTiers, type BranchPick } from '@lions/data';
 
 type Roster = typeof baseUnits;
 
@@ -12,7 +12,7 @@ type Roster = typeof baseUnits;
  *  vector (a unit the map does not name takes branch 1). */
 export type MaxPick = BranchPick | Readonly<Record<string, BranchPick>>;
 
-const uniformAtMax = new Map<BranchPick, Roster>();
+const uniformAtMax = new Map<string, Roster>();
 
 /** Every KDF entry in the shipped roster, patched to its own maximum tiers --
  *  the same pre-pass `main.ts` runs for a bought tier (`applyUpgrades(u, ownedTiers[u.id]
@@ -20,18 +20,21 @@ const uniformAtMax = new Map<BranchPick, Roster>();
  *  untouched, matching `main.ts` and `playtest.ts`'s own `tiers: 'max'` pass exactly. A branched
  *  last tier needs a branch (GH-1384), so the max-tier roster is per `pick`: `cli.ts` prints one
  *  table per uniform vector, and the per-target cross product of the mixed ones. */
-export function unitsAtMaxTier(pick: MaxPick): Roster {
+export function unitsAtMaxTier(pick: MaxPick, open: boolean = BRANCHES_OPEN): Roster {
+  // `open` is the branch switch: closed (the default while `BRANCHES_OPEN` is false) a branched tier resolves as its envelope,
+  // the old linear tier 3, whatever `pick` says; `pnpm balance -- --branches` passes true to measure the branches themselves.
+  const key = `${String(pick)}|${String(open)}`;
   if (typeof pick === 'number') {
-    const hit = uniformAtMax.get(pick);
+    const hit = uniformAtMax.get(key);
     if (hit !== undefined) return hit;
   }
   const roster = Object.fromEntries(
     Object.entries(baseUnits).map(([id, u]) => [
       id,
-      u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u), maxPicks(u, typeof pick === 'number' ? pick : (pick[id] ?? 1))) : u,
+      u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u), maxPicks(u, typeof pick === 'number' ? pick : (pick[id] ?? 1)), open) : u,
     ])
   ) as Roster;
-  if (typeof pick === 'number') uniformAtMax.set(pick, roster);
+  if (typeof pick === 'number') uniformAtMax.set(key, roster);
   return roster;
 }
 

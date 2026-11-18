@@ -88,6 +88,7 @@ import {
   vfxEmitters,
   menuDiorama,
   structures as structureCatalogue,
+  BRANCHES_OPEN,
   type BranchPick,
   type KitLevel,
   type MapJson,
@@ -3408,7 +3409,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         seed: SIM_SEED,
         ledger: sentLedger,
         tiers: bootKit,
-        picks: branchPicks,
+        // GH-1384: only once branching is open; closed, the replay start is dev's.
+        ...(BRANCHES_OPEN ? { picks: branchPicks } : {}),
         unlocks: [...boughtUnits],
         deploy: picks === null ? null : [...picks.chosen],
       });
