@@ -1,7 +1,7 @@
 {
   "id": "scout_shachaf",
   "name": "Shachaf Scout Car",
-  "blurb": "A ground eye that sees sixteen tiles and cannot be shot down. Carries a mast, not a gun.",
+  "blurb": "A ground eye that sees sixteen tiles from its mast. A cupola machine gun reaches six tiles.",
   "faction": "kdf",
   "role": "recon",
   "cost": {

@@ -57,7 +57,8 @@ import {
   type UnlockGate,
   type SimEvent,
 } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { units, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { WADI_HALAM_CHAIN, WADI_HALAM_PLANS } from './plans/wadi_halam';
 import { START_LAYOUT } from '../mission-harness';
 

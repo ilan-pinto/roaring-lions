@@ -6,7 +6,17 @@ import { isDialogOpen } from './confirm';
 import { isSoftwareRenderer, noGpuNoticeAllowed, NO_GPU_DISMISSED_KEY, watchNoGpu, type NoGpuEnv } from './no-gpu';
 import { watchSmallScreen } from './small-screen';
 
-// Real unmasked-renderer strings, as the browsers report them.
+// Real unmasked-renderer strings, as the browsers report them. Literals, never built from `no-gpu.ts`. Where they come from:
+//   SwiftShader: Chromium's software GL/Vulkan, the strings its ANGLE backend reports (chrome://gpu on a machine with hardware
+//     acceleration off; this repo's own CI, `tools/src/golden-diff/browser.ts`'s `readUnmaskedRenderer`).
+//   llvmpipe / softpipe / lavapipe: Mesa's gallium software drivers (`src/gallium/drivers/llvmpipe/lp_screen.c` names itself
+//     "llvmpipe (LLVM x.y, N bits)"; `softpipe/sp_screen.c` "softpipe").
+//   "Mesa OffScreen": OSMesa's GL_RENDERER (`src/mesa/drivers/osmesa`), what headless Chrome reported before SwiftShader.
+//   "Microsoft Basic Render Driver": Windows's WARP adapter (Microsoft's "Windows Advanced Rasterization Platform" guide), bare
+//     and as ANGLE wraps it; "GDI Generic": Windows's built-in OpenGL 1.1.
+//   "Apple Software Renderer": macOS's CGL software renderer; "Software Rasterizer": Mesa's classic swrast.
+//   Hardware: ANGLE's own "ANGLE (vendor, device, backend)" form on Metal, D3D11 and OpenGL ES; Safari's masked "Apple GPU"; the
+//     Android vendors' own names (ARM Mali, Qualcomm Adreno, Imagination PowerVR); Mesa's radeonsi and Intel strings.
 const SOFTWARE = [
   'Google SwiftShader',
   'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)',
@@ -24,6 +34,10 @@ const SOFTWARE = [
   'Mesa Gallium llvmpipe (LLVM 14.0.0, 128 bits)',
   'GDI Generic',
   'Microsoft Corporation GDI Generic',
+  // GH-1413 G1: OSMesa, macOS's software renderer, and WARP behind ANGLE with its adapter id.
+  'Mesa OffScreen',
+  'Apple Software Renderer',
+  'ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)',
 ];
 const HARDWARE = [
   'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)',
@@ -42,13 +56,17 @@ const HARDWARE = [
   'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)',
   'ANGLE (VMware, VMware SVGA 3D (0x00000405) Direct3D11 vs_5_0 ps_5_0, D3D11)',
   'WebKit WebGL',
+  // GH-1413 G1: Apple silicon through ANGLE Metal, a PowerVR and a Mali phone.
+  'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)',
+  'PowerVR Rogue GE8320',
+  'Mali-G52 MC2',
 ];
 
 describe('isSoftwareRenderer: the tables are not empty', () => {
   // `it.each` over an empty table passes without running anything; counts make that a failure (GH-1413).
-  it('15 software strings and 15 hardware strings', () => {
-    expect(SOFTWARE).toHaveLength(15);
-    expect(HARDWARE).toHaveLength(15);
+  it('18 software strings and 18 hardware strings', () => {
+    expect(SOFTWARE).toHaveLength(18);
+    expect(HARDWARE).toHaveLength(18);
   });
 });
 

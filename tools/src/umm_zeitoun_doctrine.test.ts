@@ -74,7 +74,8 @@
 // hamlet's own street grid, the hill's own descending elevation profile), and
 // what was wrong was the sentence describing it, not the grid.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, structures, units, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures, units, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

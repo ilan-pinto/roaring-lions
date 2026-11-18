@@ -22,7 +22,8 @@
 // and (32,41), so closing the gap at (37-38,35) still left wheels a way in (30 steps against
 // 21). The committed map has `^^` there. The "gap closed" case below is the one that went red.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

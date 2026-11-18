@@ -9,7 +9,8 @@
 // and the tick before it without (the same 30 units walking), and the difference is the cost of the kit. Timing lives here, in
 // tools/, never in the sim.
 import { Sim, fx } from '@lions/sim';
-import { maps, parseMap, applyTerrain, structures as catalogue, units, versusRules, setupRegionOf, SETUP_KIT_PIECES } from '@lions/data';
+import { parseMap, applyTerrain, structures as catalogue, units, versusRules, setupRegionOf, SETUP_KIT_PIECES } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 function arg(name: string, fallback: string): string {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));

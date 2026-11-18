@@ -6,7 +6,8 @@
 // end panel's framing (`end-panel.test.ts` holds the foot and the keys).
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyMissionLocale, missions } from '@lions/data';
+import { applyMissionLocale } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { MissionJson } from '@lions/sim';
 import en from '../i18n/en.json';
 import { setCatalogue, t } from '../i18n/t';
@@ -71,6 +72,20 @@ describe('the after-action report (GH-417)', () => {
     expect([...host.querySelectorAll('.rl-aar__rung')].map((r) => r.className.includes('--met'))).toEqual([true, true, false]);
     expect([...host.querySelectorAll('.rl-aar__col-title')].map((h) => h.textContent)).toEqual(['Done well', 'Cost you', 'What changed']);
     expect(host.querySelector('.rl-aar__col--poor .rl-aar__mark--lost')).not.toBeNull();
+  });
+
+  // GH-1394 slice 2 (D11): the one line suggesting Easier is drawn on a defeat that main.ts hands one to, and only there.
+  it('a defeat draws the posture suggestion it is handed, under the verdict; a win and a defeat without one draw none', () => {
+    const line = 'Try Easier from the next deploy.';
+    const lost = mount(opts({ result: 'defeat', stars: 0, report: { ...REPORT, ladder: [] }, suggestion: line }));
+    const shown = lost.querySelector('.rl-aar__suggest');
+    expect(shown?.textContent).toBe(line);
+    expect(shown?.previousElementSibling?.className).toBe('rl-aar__verdict');
+    expect(shown?.querySelector('button, a, input')).toBeNull(); // words only: nothing on it changes the posture
+    document.body.innerHTML = '';
+    expect(mount(opts({ suggestion: line })).querySelector('.rl-aar__suggest')).toBeNull();
+    document.body.innerHTML = '';
+    expect(mount(opts({ result: 'defeat', stars: 0, report: { ...REPORT, ladder: [] } })).querySelector('.rl-aar__suggest')).toBeNull();
   });
 
   it('a defeat: no ladder, no grade, and the middle column is what went wrong', () => {

@@ -65,7 +65,7 @@
     "buildings/wall_wreck.glb": "56f8b778d44f3262e18cdbf18ead236882741ff070a6ca3eda33826df418fe46",
     "buildings/warehouse.glb": "57e3cf0e97f51489f733d4f5d405e9984f2ede901fdb828c5d82061a1cb2884e",
     "buildings/warehouse_wreck.glb": "2c18c8c06db02b01f71545448c2096bad49469f586f40b4cba218efe37627685",
-    "campaign/sahar_basin.glb": "338cafa7b68697eecc269edffaa7cecfe7cc4af3761fa81456f6541dc84b9eb0",
+    "campaign/sahar_basin.glb": "4c9d64ebd8533ebde7723259bcf0c70f912292d39fcf64cf0486ead1fac0515b",
     "charge_squad.glb": "26dfa64e843a47407a39cd02313e0061679f8cab2745e667bb13dda4de5bbaa8",
     "civilians/civilian_child.glb": "cf548aa7c457dab1924a5cf8287ebbcab22b7c75c8e309238b7d84ab8cc1d6f3",
     "civilians/civilian_woman.glb": "d81da9ea8d225f66749b9bd83a1ae80ffe19e53b4fb3e5bc8b1bee385a64bdd4",
@@ -171,6 +171,6 @@
     "vfx/strike_jet.glb": "2d6e4de74c77b518475fd95743c4c6aa9389ffaa2dcb7588d040878cace5bbf0",
     "wounded_kdf.glb": "bcc0c7b5afade68168bd3f337daf1b1aef20591b07fa5ad5cf0444cac8cd647e",
     "wounded_sarim.glb": "5e5f44c44331de805d4147d844544538c0468367329ca18036c6620bc6d90c38",
-    "yahalom_squad.glb": "638538c08e629eb81d915c0e6cdd8f78ecd03bd68398d519f6428667ea891e9d"
+    "yahalom_squad.glb": "1e6783f18577dad73f415dc5f93e5dac0cebc8d711861e332b438c7534afeb52"
   }
 }

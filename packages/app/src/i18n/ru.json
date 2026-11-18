@@ -1646,7 +1646,6 @@
   "hud.works.cancel": "Отменить работы (возврат {n})",
   "hud.works.progress": "построено {n}%",
   "freePlay.option.soft": "Мягкий дым: клубы тают у земли",
-  "freePlay.option.works": "Полевые сооружения в наличии: каждый тип дважды и отделение сапёров для их возведения",
   "dock.note.locked": "<b>{name}</b> закрыто — {reason}",
   "dock.note.building": "<b>строится</b> {name} — {where, select, camp {развёртывание: {camp}} shortest {развёртывание в лагере с самой короткой очередью} other {развёртывание на стартовой линии}}",
   "dock.note.cannotBuild": "нельзя построить {name} — не хватает логистики",

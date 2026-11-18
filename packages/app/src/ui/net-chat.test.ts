@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Seat } from '@lions/net';
 import { NetChat, chatFeedLine, chatOpens, roomEnterAction, type ChatDeps } from './net-chat';
 import { ChatInbox } from './chat-inbox';
+import { compileFilter, viewOf } from './chat-filter';
 import { QUICK_CHAT_IDS, quickChatText } from './quick-chat';
 
 const NAMES: Record<Seat, string> = { 0: 'A', 1: 'B' };
@@ -300,6 +301,47 @@ describe('NetChat with an inbox', () => {
     chat.dispose();
     expect(unsub).toHaveBeenCalledTimes(1);
     expect(parent.querySelector('.rl-chat')).toBeNull();
+  });
+});
+
+// GH-1417 S2: the nudge. A line the filter would hide on the other screen is not sent, and the player is told why.
+describe('NetChat and the word filter', () => {
+  const fixture = viewOf(compileFilter([{ lang: 'en', hide: ['zorgon'], mask: ['blarg'], allow: [] }], () => true));
+  function mountFiltered(opts?: { docked?: boolean }) {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const send = vi.fn<(text: string) => void>();
+    const inbox = new ChatInbox(() => true, () => true, () => fixture);
+    const chat = new NetChat(parent, { send, nameOf: (seat) => NAMES[seat], inbox, peer: 1 }, opts);
+    const input = parent.querySelector<HTMLInputElement>('.rl-chat__input')!;
+    const note = parent.querySelector<HTMLElement>('.rl-chat__refused')!;
+    return { parent, send, chat, input, note };
+  }
+
+  it('does not send a line the filter would hide, keeps the text and the match input open, and says why', () => {
+    const { chat, input, send, note } = mountFiltered();
+    expect(note.hidden).toBe(true);
+    chat.open();
+    input.value = 'you z o r g o n';
+    key(input, 'Enter');
+    expect(send).not.toHaveBeenCalled();
+    expect(input.value).toBe('you z o r g o n');
+    expect(input.closest<HTMLElement>('.rl-chat__entry')!.hidden).toBe(false);
+    expect(note.hidden).toBe(false);
+    expect(note.textContent).toBe("Not sent: the other player's filter would hide that message.");
+    expect(note.getAttribute('role')).toBe('status');
+  });
+
+  it('sends a masked-word line as typed (the other screen masks it), and a clean send clears the note', () => {
+    const { chat, input, send, note } = mountFiltered({ docked: true });
+    chat.open();
+    input.value = 'zorgon';
+    key(input, 'Enter');
+    expect(note.hidden).toBe(false);
+    input.value = 'well blarg';
+    key(input, 'Enter');
+    expect(send).toHaveBeenCalledWith('well blarg');
+    expect(note.hidden).toBe(true);
   });
 });
 
