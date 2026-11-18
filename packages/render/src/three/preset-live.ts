@@ -18,8 +18,13 @@
  */
 import { QUALITY_PRESETS, type PhysicsQuality, type RenderQuality } from '../quality';
 
-/** GH-1223 / GH-1400: give `medium` and `high` their ragdoll caps (`RAGDOLL_PRESET_CAPS`). OFF until the Metal read. */
-export const RAGDOLL_PRESETS_LIVE: boolean = false;
+/**
+ * GH-1223 / GH-1400: give `medium` and `high` their ragdoll caps (`RAGDOLL_PRESET_CAPS`). ON by the lead's ruling of
+ * 18 Nov 2026, overriding the declared rule: the burst rows pass his gate at high and medium (worst high @4s +0.80 ms
+ * median / +1.20 ms p95 against 1.0 / 2.0), and the failed controls (high quiet +0.50 against 0.3, low A/A burst @4s
+ * +2.0) were boot noise.
+ */
+export const RAGDOLL_PRESETS_LIVE: boolean = true;
 
 /**
  * GH-1227 / GH-1400: give `high` soft particles (`SOFT_PARTICLES_PRESETS`). ON since the Metal G-cost read of 17 Nov 2026
