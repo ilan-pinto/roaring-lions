@@ -1,5 +1,7 @@
 # The brigade economy — design
 
+> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units, coin-bought units work everywhere including against another person, and the 29 Sep no-pay-to-win rule is retired.** The text below is the earlier posture, kept as history. See `data/store/README.md` E13.
+
 **Date:** 2026-09-15 · **Status:** approved by the lead in conversation, section by section;
 this document is the record. **Downstream:** `writing-plans` (three plans, §8), then
 `balance-analyst` (payout weights, prices, the upgrade tracks), `sim-guard` (the payout

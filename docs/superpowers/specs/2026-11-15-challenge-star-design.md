@@ -190,6 +190,8 @@ colour. (The earlier silver diamond is withdrawn: D1.)
 
 ## 6. Credits, coins, and never pay-to-win
 
+> **Superseded in its title and framing (the lead, 18 Nov 2026):** the 29 Sep no-pay-to-win rule is retired and coin-bought units work everywhere. The rows below about what the CHALLENGE pays (credits unchanged, no coins for a replay) are about this feature and still stand.
+
 | thing | rule | why |
 |---|---|---|
 | **Credits** | an amended win is paid by `creditsFor`, **unchanged**; the challenge pays **0** | `creditsFor` reads the win, the carrying secondaries, the units home, and Conduct over the floor. Under A2 every input is no higher with an amendment on, so an amendment cannot pay more than the same mission without it. No farm: a harder run never pays more |

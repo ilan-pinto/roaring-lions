@@ -135,6 +135,10 @@ describe('the store page copy (data/store)', () => {
       it('makes no cosmetics-only promise anywhere in the copy (the rule was reversed)', () => {
         expect(copy(l)).not.toMatch(COSMETICS_PROMISE);
       });
+      it('claims neither "no pay-to-win" nor that coins never apply against a person (the 29 Sep rule was retired on 18 Nov 2026)', () => {
+        expect(copy(l)).not.toMatch(/pay[- ]to[- ]win/i);
+        expect(copy(l)).not.toMatch(/against (another|a) (person|player)|contra (otra |una )?persona|contre (un autre|une) (joueur|personne)|gegen (eine|einen) (andere|anderen) (Person|Spieler)/i);
+      });
       it('says "free to play" one way: in the short description, as a bold heading, and in a key-features bullet', () => {
         expect(section(l, 'Short description')).toContain(`${FREE_TO_PLAY[l]}.`);
         expect(section(l, 'About this game')).toContain(`**${FREE_TO_PLAY[l]}.**`);
