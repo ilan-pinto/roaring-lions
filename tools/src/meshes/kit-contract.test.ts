@@ -68,6 +68,14 @@ describe('the kit contract', () => {
     expect(INFANTRY_KIT_TEAM_PART_TRIS.demo_squad).toEqual(team);
     expect(infantryKitPartTris('demo_squad', 'carrier')).toBe(2299);
     expect(infantryKitPartTris('demo_squad', 'yoke')).toBe(INFANTRY_KIT_PART_TRIS.yoke);
+    // GH-826 unit "Yahalom" (17 Nov 2026): the v7 rows and four of its own, pinned to the Python table the exporter reads
+    const { respirator, headlamp, gas_detector, mast_sensor, ...rest } = INFANTRY_KIT_TEAM_PART_TRIS.yahalom_squad;
+    expect(rest).toEqual(team);
+    const py = readFileSync(path.join(REPO, 'tools', 'units', 'inf_kit_parts.py'), 'utf8');
+    for (const [name, tris] of Object.entries({ respirator, headlamp, gas_detector, mast_sensor })) {
+      expect(new RegExp(`P\\("${name}",[^\\n]*, ${tris},\\n`).test(py), `${name}: ${tris} in _YAHALOM_PARTS`).toBe(true);
+      expect(INFANTRY_KIT_PART_TRIS[name], `${name} is this team's own: no shared row`).toBeUndefined();
+    }
     expect(infantryKitPartTris('breach_team', 'carrier')).toBe(INFANTRY_KIT_PART_TRIS.carrier);
     expect(infantryKitPartTris('inf_squad', 'carrier')).toBe(2299);
     expect(infantryKitPartTris('inf_squad', 'yoke')).toBe(INFANTRY_KIT_PART_TRIS.yoke);

@@ -37,6 +37,9 @@ const WARM_MIN_L = 12;
 /** Per man: the most warm faces, and the most warm area (cm2), the weapon mesh may carry. */
 const CEILING: Readonly<Record<string, Readonly<Record<string, { faces: number; cm2: number }>>>> = {
   demo_squad: { demo_a: { faces: 2, cm2: 1.5 }, demo_b: { faces: 2, cm2: 1.5 } },
+  // GH-826 unit "Yahalom" (17 Nov 2026): the same body through the same row (`gun_skirt_vest_only`), read on its shipped bytes
+  // (2 faces a man, 1.3 and 1.4 cm2)
+  yahalom_squad: { yah_a: { faces: 2, cm2: 1.5 }, yah_b: { faces: 2, cm2: 1.5 } },
   // the pilot's own, read 13 Nov 2026 on its shipped bytes: a ratchet, not a pass
   inf_squad: { f0: { faces: 253, cm2: 375 }, f1: { faces: 318, cm2: 475 }, f2: { faces: 311, cm2: 497 } },
 };
@@ -62,7 +65,9 @@ const rows = skinned.flatMap(([team, glb]) => figureBuilds(glb).map((fig) => [te
 
 describe('the weapon mesh of a skinned Meshy team carries no cloth', () => {
   it('reads the population it says it reads, and every man has a ceiling', () => {
-    expect(rows.map(([t, f]) => `${t}/${f}`).sort()).toEqual(['demo_squad/demo_a', 'demo_squad/demo_b', 'inf_squad/f0', 'inf_squad/f1', 'inf_squad/f2']);
+    expect(rows.map(([t, f]) => `${t}/${f}`).sort()).toEqual([
+      'demo_squad/demo_a', 'demo_squad/demo_b', 'inf_squad/f0', 'inf_squad/f1', 'inf_squad/f2', 'yahalom_squad/yah_a', 'yahalom_squad/yah_b',
+    ]);
     for (const [team, fig, glb] of rows) {
       expect(CEILING[team]?.[fig], `${team}/${fig}: no ceiling`).toBeDefined();
       expect(warmFaces(glb, fig).all, `${team}/${fig}: weapon triangles read`).toBeGreaterThan(800);

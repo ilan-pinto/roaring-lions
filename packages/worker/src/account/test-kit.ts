@@ -8,6 +8,7 @@ import { handleAccount, type AccountCtx, type AccountDeps } from './routes';
 import { createSession } from './session';
 import { SESSION_COOKIE } from './config';
 import { sha256Hex } from './crypto';
+import { sha256Hex as couponHash } from '@lions/economy';
 
 export const ACCOUNTS_MIGRATIONS = fileURLToPath(new URL('../../migrations-accounts/', import.meta.url));
 
@@ -35,11 +36,14 @@ export interface AccountHarnessOpts {
   /** The dispatcher under test; default `handleAccount`. */
   handler?: (req: Request, env: AccountTestEnv, now: number) => Promise<Response>;
   now?: number;
-  /** The outbound calls the handler may make; default the real fetch. */
+  /** The outbound calls the handler may make; default the real fetch. `sleep` defaults to `instantSleep` either way. */
   deps?: AccountDeps;
 }
 
 const limiter = (ok: boolean): RateLimiter => ({ limit: async () => ({ success: ok }) });
+
+/** A `sleep` that returns at once, so the delete route's tombstone rewrite (GH-1534) costs a test no wall time. */
+export const instantSleep = async (): Promise<void> => undefined;
 
 export function accountHarness(opts: AccountHarnessOpts = {}) {
   const db = openTestD1({ dir: ACCOUNTS_MIGRATIONS, foreignKeys: opts.foreignKeys });
@@ -53,7 +57,8 @@ export function accountHarness(opts: AccountHarnessOpts = {}) {
     ACCOUNT_LIMIT: limiter(!deny.has('ACCOUNT_LIMIT')),
     ACCOUNT_OP_LIMIT: limiter(!deny.has('ACCOUNT_OP_LIMIT')),
   };
-  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now, opts.deps));
+  const deps: AccountDeps = { fetch: (url, init) => globalThis.fetch(url, init), sleep: instantSleep, ...opts.deps };
+  const handler = opts.handler ?? ((req, e, now) => handleAccount(req, e, now, deps));
   const call = (method: string, path: string, init: CallInit = {}): Promise<Response> => {
     const headers = new Headers({ 'x-rl-account': '1', 'content-type': 'application/json' });
     const origin = init.origin === undefined ? TEST_ORIGIN : init.origin;
@@ -242,6 +247,18 @@ export async function seedWalletMember(db: D1Like, id: string, now: number, opts
   const s = await createSession(db, id, now);
   await db.batch(s.statements);
   return { memberId: id, cookie: `${SESSION_COOKIE}=${s.token}` };
+}
+
+/** The coupon table the coupon and claim tests inject (GH-1415). The shipped `data/coupons.json` is EMPTY: a hash of a
+ *  code in a public repository is a public grant. One code, two grants under its hash, as the routes' "one code, several
+ *  entries" rule needs: credits only, and coins far above `CLAIM_COUPON_COINS_CAP`. */
+export const TEST_COUPON_CREDIT_ID = 'fx_credits_10k';
+export const TEST_COUPON_COIN_ID = 'fx_coins_100k';
+export function testCouponTable(code: string): { id: string; sha256: string; credits?: number; coins?: number }[] {
+  return [
+    { id: TEST_COUPON_CREDIT_ID, sha256: couponHash(code), credits: 10_000 },
+    { id: TEST_COUPON_COIN_ID, sha256: couponHash(code), coins: 100_000 },
+  ];
 }
 
 /** A `claim` journal row carrying `detail.coupons` (Task 2.7 writes this shape), with the wallet raised to match so

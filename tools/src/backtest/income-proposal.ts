@@ -154,10 +154,12 @@ export function tableProblems(
 /** A census table: any mission id (checked against `CENSUS_MISSIONS` by `tableProblems`). */
 export type CensusTable = Record<string, MissionIncome>;
 
-/** The 12 missions with a purse and no zones whose phase has a GDD anchor (foothold, build-up, clearance), plus the two
- *  subterranean ones, which have a base rate and no anchor and are measured as the reserve. `beit_sahwan_2_foothold` is
- *  left out until PR 1483 (GH-1378 Q12) settles where its hold stands. */
+/** The missions the census measures: those with a purse and no zones when the survey was taken, whose phase has a GDD anchor (foothold,
+ *  build-up, clearance) or is subterranean (a base rate and no anchor; `deir_amun_3_subterranean` borrows the clearance 32). `beit_sahwan_2_foothold` joined at
+ *  batch 3, once PR 1483 (GH-1378 Q12) gave it a hold zone nobody starts on; `ein_qasab_2_foothold` is surveyed but not in the plan (its briefing says
+ *  "the logistics for one outpost", section 10 of the census doc). The plan itself is `census-candidate` below. */
 export const CENSUS_MISSIONS = [
+  'beit_sahwan_2_foothold',
   'ein_qasab_2_foothold',
   'khan_rafid_2_foothold',
   'qarn_hadid_2_foothold',
@@ -175,7 +177,7 @@ export const CENSUS_MISSIONS = [
 ] as const;
 
 export const CENSUS_TABLES: Record<string, CensusTable> = {
-  /** THE CANDIDATE (docs/campaign/economy/held-ground-census.md): ten missions, zones the plan holds, none that holds a
+  /** THE CANDIDATE (docs/campaign/economy/held-ground-census.md; `ein_qasab_2_foothold` was replaced by `beit_sahwan_2_foothold` at batch 3: see section 10): ten missions, zones the plan holds, none that holds a
    *  starting force, a full hold of 40% of the phase anchor (foothold 48, build-up 80, clearance 32; the subterranean
    *  reserve borrows the clearance 32, the GDD names no anchor for it). Split 60/40 between a mission's primary zone
    *  and the rest where there is more than one. */
@@ -183,7 +185,7 @@ export const CENSUS_TABLES: Record<string, CensusTable> = {
     khan_rafid_2_foothold: { zones: [['ward', 48]] },
     qarn_hadid_2_foothold: { zones: [['the_gates', 32], ['hollow', 16]] },
     tel_marum_2_foothold: { zones: [['approach', 32], ['overwatch_west', 16]] },
-    ein_qasab_2_foothold: { zones: [['hollow', 28], ['farmhouse', 20]] },
+    beit_sahwan_2_foothold: { zones: [['terrace_crest', 48]] },
     wadi_halam_3_counterraid: { zones: [['pasture', 80]] },
     beit_sahwan_3_clearance: { zones: [['clinic', 32]] },
     tel_marum_3_clearance: { zones: [['pass', 20], ['overwatch_east', 12]] },
@@ -194,6 +196,7 @@ export const CENSUS_TABLES: Record<string, CensusTable> = {
   /** Every declared zone of every candidate at 1 a minute: who stands where, when, and whether a wheeled route
    *  to the rear exists at t=0. Pays nothing worth a decision; the plan's play is what is read. */
   'census-survey': {
+    beit_sahwan_2_foothold: { zones: [['terrace_crest', 1], ['west_approach', 1], ['tunnel_mouth_west', 1]] },
     ein_qasab_2_foothold: { zones: [['hollow', 1], ['barn_yard', 1], ['farmhouse', 1], ['north_saddle', 1], ['north_crest', 1]] },
     khan_rafid_2_foothold: { zones: [['staging', 1], ['ward', 1], ['market', 1], ['souk', 1], ['old_town', 1]] },
     qarn_hadid_2_foothold: { zones: [['the_gates', 1], ['hollow', 1], ['south_staging', 1]] },

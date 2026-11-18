@@ -7,6 +7,7 @@
  * kit tiers, the bought units (the unlock gates) and the deploy pick: those four are the record's `campaign` field. The seed is a constant of
  * the build (`SIM_SEED`) and rides in the record's own `seed`.
  */
+import { DIFFICULTY_LEDGER_KEY, postureOf, type PostureId } from '@lions/data';
 import type { CampaignLedger } from './ledger-store';
 import { digestOf, prepareResume, type JsonValue, type PreparedResume, type SuspendedMission } from './mission-save';
 import { readSuspended, type KeyStore } from './mission-save-store';
@@ -67,19 +68,36 @@ export function campaignMoved(frozen: StartInputs, live: { ledger: CampaignLedge
 }
 
 /**
- * What changed in the campaign since the mission was started: the ledger (ANY of its keys: a completed mission is the usual cause, but the digest proves only
- * that something in it differs, so the words say "your campaign progress has changed" and no more), the units bought, the upgrade tiers bought.
+ * What changed in the campaign since the mission was started: the ledger (ANY of its keys but the posture: a completed mission is the usual cause, but the
+ * digest proves only that something in it differs, so the words say "your campaign progress has changed" and no more), the units bought, the upgrade tiers
+ * bought, the campaign posture (GH-1394: a ledger key, but its own reason, because the mission was overlaid for the posture it was started under).
  */
-export type MovedWhat = 'ledger' | 'units' | 'upgrades';
+export type MovedWhat = 'ledger' | 'units' | 'upgrades' | 'posture';
 
-/** Which of the three parts of the campaign differ, in a fixed order; empty when none does. `campaignMoved` is exactly "not empty". */
+/** The ledger without its posture key, so a posture change reads as `posture` and never as "your campaign progress has changed". */
+const withoutPosture = (l: CampaignLedger): CampaignLedger => {
+  if (!Object.hasOwn(l, DIFFICULTY_LEDGER_KEY)) return l;
+  const out: CampaignLedger = { ...l };
+  delete out[DIFFICULTY_LEDGER_KEY];
+  return out;
+};
+
+/** Which of the four parts of the campaign differ, in a fixed order; empty when none does. `campaignMoved` is exactly "not empty". The posture is
+ *  compared as a POSTURE (`postureOf`), so an absent key and an explicit `standard` are the same campaign. */
 export function whatMoved(frozen: StartInputs, live: { ledger: CampaignLedger; unlocks: Iterable<string>; tiers: Record<string, Record<string, number>> }): MovedWhat[] {
   const j = (x: unknown): number => digestOf(JSON.parse(JSON.stringify(x)) as JsonValue);
   const out: MovedWhat[] = [];
-  if (j(frozen.ledger) !== j(live.ledger)) out.push('ledger');
+  if (j(withoutPosture(frozen.ledger)) !== j(withoutPosture(live.ledger))) out.push('ledger');
   if (j(frozen.unlocks) !== j([...live.unlocks].sort())) out.push('units');
   if (j(frozen.tiers) !== j(live.tiers)) out.push('upgrades');
+  if (postureOf(frozen.ledger) !== postureOf(live.ledger)) out.push('posture');
   return out;
+}
+
+/** The posture a save was started under and the one the campaign is on now, when they differ (GH-1394 slice 2, ruling 6). */
+export interface PostureShift {
+  was: PostureId;
+  now: PostureId;
 }
 
 /**
@@ -90,11 +108,18 @@ export function whatMoved(frozen: StartInputs, live: { ledger: CampaignLedger; u
 export type ResumeProblem = 'moved' | 'failed';
 let problem: ResumeProblem | null = null;
 let movedWhat: readonly MovedWhat[] = [];
-/** `moved` names what changed (`whatMoved`) so the board can say it; any other problem clears it. */
-export const noteResumeProblem = (p: ResumeProblem, moved: readonly MovedWhat[] = []): void => { problem = p; movedWhat = p === 'moved' ? moved : []; };
+let movedPosture: PostureShift | null = null;
+/** `moved` names what changed (`whatMoved`) so the board can say it, and `posture` which two postures when one of them is the posture; any other
+ *  problem clears both. */
+export const noteResumeProblem = (p: ResumeProblem, moved: readonly MovedWhat[] = [], posture: PostureShift | null = null): void => {
+  problem = p;
+  movedWhat = p === 'moved' ? moved : [];
+  movedPosture = p === 'moved' && moved.includes('posture') ? posture : null;
+};
 export const peekResumeProblem = (): ResumeProblem | null => problem;
 export const peekResumeMoved = (): readonly MovedWhat[] => movedWhat;
-export const clearResumeProblem = (): void => { problem = null; movedWhat = []; };
+export const peekResumePosture = (): PostureShift | null => movedPosture;
+export const clearResumeProblem = (): void => { problem = null; movedWhat = []; movedPosture = null; };
 
 // ---- loading a save for the boot ----------------------------------------------------------------------------------------------------
 
@@ -138,7 +163,7 @@ export async function loadResume(o: {
   }
   const moved = whatMoved(inputs, o.live);
   if (moved.length > 0) {
-    noteResumeProblem('moved', moved);
+    noteResumeProblem('moved', moved, { was: postureOf(inputs.ledger), now: postureOf(o.live.ledger) });
     return { ok: false, why: 'moved' };
   }
   const prepared = await prepareResume(record);

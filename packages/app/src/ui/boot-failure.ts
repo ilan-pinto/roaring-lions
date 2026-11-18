@@ -13,7 +13,8 @@
 //   graphics  -- the browser could not give the renderer a WebGL2 context.
 //   download  -- a file the screen needed did not arrive (an HttpError from
 //                three's FileLoader, a failed fetch, a dynamic import that
-//                did not load).
+//                did not load, a `ChunkLoadError`: since B6-6 that includes
+//                a map or a mission JSON loaded by id).
 //   unknown   -- anything else.
 //   interrupted -- the picture stopped mid-mission: the browser took the
 //                graphics context away (K-16). Chosen by the caller that heard
@@ -31,7 +32,7 @@ function errorText(err: unknown): string {
 }
 
 const GRAPHICS = /webgl|creating .*context|context (?:was )?lost/i;
-const DOWNLOAD = /httperror|failed to fetch|networkerror|load failed|responded with \d{3}|dynamically imported module|importing a module script failed/i;
+const DOWNLOAD = /chunkloaderror|httperror|failed to fetch|networkerror|load failed|responded with \d{3}|dynamically imported module|importing a module script failed/i;
 
 /** Which card a failure gets. `webgl2` is the probe's answer (true when the
  *  browser CAN draw), so a renderer that throws for a reason of its own on a

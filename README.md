@@ -100,7 +100,7 @@ Your brigade starts with the five units marked *start*. The rest open on **Condu
 | Eitan APC | Carrier | Armour that keeps up with the tanks, seats for two, and a gun that answers aircraft. | start |
 | Kipod Screen Carrier | Carrier | Six seats behind reactive plate, and a gun that pins people without killing a truck. | 44 stars |
 | Shoded Jeep | Light vehicle | Fast and thin. Two seats, a machine gun, nothing that stops a rocket. | start |
-| Shachaf Scout Car | Recon | A ground eye that sees sixteen tiles and cannot be shot down. Lightly armed: one cupola machine gun, 6 tiles. | 30 stars |
+| Shachaf Scout Car | Recon | A ground eye that sees sixteen tiles from its mast. Lightly armed: one cupola machine gun, 6 tiles. | 30 stars |
 | Recon Drone | Drone | Sees sixteen tiles and marks what it finds. No weapon. | Conduct 70 |
 | Loitering Munition | Drone | Flies itself at the nearest thing your side has identified, and does not come back. | Conduct 72 |
 | Chadaf Recon Robot | Drone | Walks boulders and alleys no wheel can, and finds tunnel routes. Unarmed and cheap to lose. | credits |

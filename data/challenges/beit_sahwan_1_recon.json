@@ -1,0 +1,30 @@
+{
+  "mission": "beit_sahwan_1_recon",
+  "offers": [
+    "recon_no_drone",
+    "light_order",
+    "no_medic"
+  ],
+  "own": [
+    {
+      "id": "recon_no_drone",
+      "label": "No drone",
+      "blurb": "The drone stays with the battalion: every position is found by the men on the ground.",
+      "ops": [
+        { "op": "remove_starting", "unit": "recon_drone", "count": 1 }
+      ]
+    }
+  ],
+  "challenge": {
+    "id": "whole_picture",
+    "label": "Whole Picture",
+    "blurb": "Without the drone, find everything the brigade asked for, inside the target time.",
+    "amendments": [
+      "recon_no_drone"
+    ],
+    "win": {
+      "carries_all": true,
+      "ticks_at_most_target": true
+    }
+  }
+}

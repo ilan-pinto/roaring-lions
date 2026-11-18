@@ -76,7 +76,8 @@
 
 import { fileURLToPath } from 'node:url';
 import { Sim, fx } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units, type MapId } from '@lions/data';
+import { applyTerrain, parseMap, units, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { AIR_AIRBORNE, AIR_LANDED, AIR_LANDING, AIR_LAND_TICKS, AIR_LIFT_TICKS } from '../../../packages/sim/src/tuning';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 
