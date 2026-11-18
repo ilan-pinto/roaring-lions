@@ -70,3 +70,15 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   is a permanent hang rather than a miss. The civilians draw as their four
   variant meshes (`art/meshes/civilians/`, GH-149) -- there is no other path
   since WP-A3.3, and a crowd whose GLBs failed to load draws proxy boxes. Since GH-279 (#580) only ground units shepherd civilians, never aircraft, and shepherding happens only in a mission with an `evacuate_before` objective.
+
+<!-- GH-1381, 18 Nov 2026 -->
+- **Free play as Sarim (GH-1381).** `/free-play/<map>?side=sarim` (the picker's "Pick your side" group, KDF by
+  default) fields the versus room's forces (PR 1507): `VERSUS_SARIM` at the friendly anchor against `VERSUS_KDF` at the
+  hostile one, placed by `versusSpawns` itself (`sandbox-sarim.ts`, loaded on demand). The player is still seat 0 and
+  side 0, human-held and the viewer; only which force stands where changes, so no sim or seat code learned a side.
+  Seat 0's faction is Sarim's (`seatWorldFor`'s `soloFaction`), so the Sarim verbs and formations pass ownership. The
+  KDF opposition fields the base ladder, never the player's bought kit. `side` is a value param in `KNOWN_PARAMS`,
+  read by `sandboxSideOf` for Free play only (a mission or a room ignores it and warns), and the four `kdfOnly` flags
+  (`tunnel`, `sur`, `kit`, `works`) are dropped on the Sarim side (`sideFlags`) and greyed in the picker. No `side`
+  in a link is the KDF, so every existing link and every free-play baseline is unchanged. The opposition stands and
+  fights where it spawns, as the Sarim opposition of a KDF Free play does: there is no computer seat in Free play.
