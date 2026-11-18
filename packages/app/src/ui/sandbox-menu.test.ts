@@ -424,3 +424,64 @@ describe('reaching it', () => {
     expect(foot?.querySelector('.rl-foot__start > [data-kind="back"]')).not.toBeNull();
   });
 });
+
+describe('GH-1381: the side pick', () => {
+  const pick = (stage: HTMLElement, side: string): void => {
+    const radio = stage.querySelector<HTMLInputElement>(`input.rl-versus__side-radio[value="${side}"]`);
+    if (!radio) throw new Error(`no radio for ${side}`);
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change'));
+  };
+  const box = (stage: HTMLElement, flag: string): HTMLInputElement => {
+    const b = stage.querySelector<HTMLInputElement>(`input[data-flag="${flag}"]`);
+    if (!b) throw new Error(`no checkbox for &${flag}`);
+    return b;
+  };
+
+  it('is one radio group, KDF then Sarim, under the versus lobby legend, KDF picked', () => {
+    const stage = render();
+    const radios = Array.from(stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio'));
+    expect(radios.map((r) => [r.value, r.checked])).toEqual([['kdf', true], ['sarim', false]]);
+    expect(new Set(radios.map((r) => r.name)).size).toBe(1);
+    const group = radios[0].closest('fieldset');
+    expect(group?.querySelector('legend')?.textContent).toBe('Pick your side');
+    expect(radios.map((r) => r.closest('label')?.textContent)).toEqual(['KDF', 'Sarim']);
+    expect(group?.querySelector('.rl-sandbox__side-blurb')?.textContent).toBe(en['versus.lobby.faction.kdf.blurb']);
+  });
+
+  it('leaves every card link the KDF link it always was until Sarim is picked', () => {
+    const stage = render();
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum');
+    toggle(stage, 'tunnel');
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
+  });
+
+  it('a Sarim pick puts side=sarim on every card, greys the KDF-only boxes and drops them from the link', () => {
+    const stage = render();
+    toggle(stage, 'tunnel');
+    toggle(stage, 'civ');
+    pick(stage, 'sarim');
+    for (const a of mapLinks(stage)) expect(a.getAttribute('href'), a.dataset.map).toMatch(/[?&]side=sarim$/);
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?civ&side=sarim');
+    for (const f of ['tunnel', 'sur', 'kit', 'works']) {
+      expect(box(stage, f).disabled, f).toBe(true);
+      expect(box(stage, f).getAttribute('aria-describedby'), f).toBe('rl-free-play-kdf-only');
+    }
+    for (const f of ['roe', 'civ', 'ditch']) expect(box(stage, f).disabled, f).toBe(false);
+    const note = stage.querySelector<HTMLElement>('#rl-free-play-kdf-only');
+    expect(note?.hidden).toBe(false);
+    expect(note?.textContent).toBe(en['freePlay.side.kdfOnly']);
+    expect(stage.querySelector('.rl-sandbox__side-blurb')?.textContent).toBe(en['versus.lobby.faction.sarim.blurb']);
+  });
+
+  it('back to the KDF: the boxes open again, still ticked, and the link is the KDF one', () => {
+    const stage = render();
+    toggle(stage, 'tunnel');
+    pick(stage, 'sarim');
+    pick(stage, 'kdf');
+    expect(box(stage, 'tunnel').disabled).toBe(false);
+    expect(box(stage, 'tunnel').hasAttribute('aria-describedby')).toBe(false);
+    expect(stage.querySelector<HTMLElement>('#rl-free-play-kdf-only')?.hidden).toBe(true);
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel');
+  });
+});

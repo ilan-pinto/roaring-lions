@@ -3,7 +3,7 @@
 // A1-10, the app half: telemetry, the feedback context and the match bodies never carry an account identifier.
 // The four sentinels sit in the binding store, in a signed-in `me`, and in a display-name field; the corpus is every
 // body those three sources produce, and none may contain one.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { canonicalCampaign, emptyAccount } from '@lions/economy';
 import type { ClaimBody, ClaimResult } from '@lions/economy';
 import type { MissionEvent } from '@lions/sim';
@@ -11,6 +11,7 @@ import type { TelemetryEvent } from '@lions/data/telemetry';
 import { collectContext, type ContextInput } from '../feedback/context';
 import { connectMatch, openRoom } from '../net/connect';
 import { labelsOf } from '../net/seat-label';
+import { loadChatFilter } from '../ui/chat-filter-gate';
 import { createTelemetry, type RuntimeView, type TelemetryDeps } from '../telemetry';
 import { resolveIdentity } from '../telemetry/identity';
 import { memoryLedgerStore } from '../ledger-store';
@@ -239,6 +240,10 @@ describe('with the account store active, telemetry and feedback still carry neit
 // §5.3 shows both on purpose) and a bot's typed model name. The app keeps them for the HUD; no telemetry builder, no
 // feedback context and no match body may carry them. The token and SteamID never reach the app at all.
 describe('with a member opponent in the lobby, telemetry, feedback and match bodies still carry none of the labels (A1-10, A3)', () => {
+  // GH-1417 S2: a typed name reads as the fallback name until the word filter has loaded; this corpus needs the name as typed.
+  beforeAll(async () => {
+    expect(await loadChatFilter()).toBe(true);
+  });
   it('the labels are held, and no outgoing body contains them', async () => {
     const OPP = { name: 'OppSentinelName', publicId: 'OPPSNTL1' };
     const MODEL = 'ZZ-BOT-MODEL-SENTINEL';

@@ -26,6 +26,7 @@ export { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-econo
 export { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 export { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 export { inboxOf } from './ui/chat-inbox';
+export { loadChatFilter, untilLoadedOrAborted } from './ui/chat-filter-gate';
 export { quickChatText } from './ui/quick-chat';
 export { showNetEnd } from './ui/net-end';
 export { NetPoints, payZoneOf } from './ui/net-points';
