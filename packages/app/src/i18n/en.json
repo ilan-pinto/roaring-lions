@@ -1044,6 +1044,7 @@
   "debrief.coins.star": "Roar coins: {stars, plural, one {# new star} other {# new stars}} on this mission",
   "debrief.coins.campaign": "Roar coins: the campaign is complete",
   "debrief.coins.backfill": "Roar coins: back-pay for earlier wins",
+  "debrief.coins.challenge": "Roar coins: the challenge",
   "debrief.coins.earned": "{n, plural, one {# Roar coin} other {# Roar coins}} earned",
   "debrief.coins.provisional": "Counting: your account confirms this when it saves.",
   "debrief.coins.saved": "Saved to your account",

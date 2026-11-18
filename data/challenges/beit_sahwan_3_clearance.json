@@ -1,0 +1,20 @@
+{
+  "mission": "beit_sahwan_3_clearance",
+  "offers": [
+    "clean_hands",
+    "light_order",
+    "thin_purse"
+  ],
+  "challenge": {
+    "id": "clean_sweep",
+    "label": "Clean Sweep",
+    "blurb": "With the Conduct line raised and one squad short, clear the town with Conduct at 80 or better.",
+    "amendments": [
+      "clean_hands",
+      "light_order"
+    ],
+    "win": {
+      "conduct_at_least": 80
+    }
+  }
+}

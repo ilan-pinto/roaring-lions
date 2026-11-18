@@ -211,7 +211,7 @@ export function serializeSuspended(record: SuspendedMission): string {
 
 // ---- read ------------------------------------------------------------------
 
-/** A mission amendment id: plain, lower-case, short (`tight_clock`). */
+/** A mission amendment id: plain, lower-case, short (`light_order`). */
 const AMENDMENT_ID = /^[a-z][a-z0-9_]{0,39}$/;
 const MAX_AMENDMENTS = 16;
 const isAmendmentId = (v: unknown): v is string => typeof v === 'string' && AMENDMENT_ID.test(v);

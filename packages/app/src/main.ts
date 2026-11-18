@@ -135,7 +135,7 @@ import type { BrigadeUnit, GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
 import { spendable } from './roar-wallet';
-import { roarBackfill, settleRoarAtBoot, settleVictory, type VictorySettle } from './roar-earn';
+import { roarBackfill, settleRoarAtBoot, type VictorySettle } from './roar-earn';
 import { buyWithCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
@@ -1881,6 +1881,10 @@ export interface BattlefieldRequest {
     hooks: SpectateHooks;
     capTicks: number;
   };
+  /** GH-1395: the amendments to the orders this run is played under (ids from `data/challenges/amendments.json`,
+   *  each one the mission offers). Slice 1 has no screen that sets it, so every run today is unamended; the deploy
+   *  toggles (slice 2) are its one writer, and a save and a replay must carry it (D10). */
+  amendments?: readonly string[];
 }
 
 /**
@@ -2129,6 +2133,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     return teardown;
   }
   if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
+  // GH-1395: the amendments go on AFTER the posture (`./posture` re-exports `./challenge`, so it is one lazy chunk and
+  // nothing campaign-only reaches the entry); with none on, this line does nothing.
+  if (mission !== undefined && req.amendments) mission = posture.amended(mission, req.amendments);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -6466,7 +6473,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   displayName: (typeId) => textUnitName(typeId),
                 })
               : null;
-          const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...mev.ledger };
+          // GH-1395: the challenge, judged on THIS run's own row (the ledger's `campaign.mission_results` is the best-of),
+          // against the ledger the run BOOTED with (posture, open-at-boot). Not on Easier, not for a mission played by
+          // address, never on a defeat (`victoryMark`, ./challenge via ./posture). Its mark joins the same all-or-none
+          // victory write, and `posture.settleVictory` pays its coin there.
+          const challengeMark = runtime && posture.victoryMark(mission, ledger, req.amendments, runtime, mev);
+          const updatedLedger: CampaignLedger = posture.withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
           if (mev.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payVictory> | null = null;
@@ -6515,12 +6527,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // mission (the same contract test the credit pay uses: the tutorial pays no
             // coins either) earns by THIS run's stars, never by the ledger's best.
             const opsBefore = isAccountStore(ledgerStore) ? opIdsOf(ledgerStore.sync.ops()) : new Set<string>();
-            coinsSettle = settleVictory(ledgerStore, {
+            coinsSettle = posture.settleVictory(ledgerStore, {
               ledger: updatedLedger,
               account: payout ? payout.account : null,
               win:
                 missionId && mission.ledger.produces.length > 0 && ledgerStore.available
-                  ? { missionId, stars: runtime.stars, ledger: updatedLedger }
+                  ? { missionId, stars: runtime.stars, ledger: updatedLedger, ...(challengeMark && { challenge: true }) }
                   : null,
               world: parseWorld(world),
               at: Date.now(),

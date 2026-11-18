@@ -6,8 +6,8 @@
 //
 // Three rules hold it:
 //   - the operation set is CLOSED (`data/schemas/overlay_ops.schema.json`; the switch below is exhaustive
-//     and throws on anything else). Nothing here touches tuning, Conduct, `fail_below`, a primary's own
-//     clock, an objective's id, type or target, or a tag;
+//     and throws on anything else). Nothing here touches tuning, Conduct scoring, a primary's own clock, an
+//     objective's id, type or target, or a tag; `fail_below` moves only UP, through GH-1395's `raise_fail_below`;
 //   - the posture first, the amendments last, in this one function and never at a call site;
 //   - no operations means the mission ITSELF comes back, by reference (Standard is the identity).
 //
@@ -28,7 +28,14 @@ export type OverlayOp =
   | { op: 'shift_waves'; seconds: number }
   | { op: 'reinforce_player'; at_seconds: number; label_key: string; units: readonly { unit: string; count: number }[] }
   | { op: 'uncarry' }
-  | { op: 'add_wave'; wave: OverlayWave };
+  | { op: 'add_wave'; wave: OverlayWave }
+  // GH-1395: the amendment operations, each a restriction (design rule A1). None of them can add a starting
+  // body, a carrying secondary or a lower Conduct floor (rule A2), which is what keeps an amended win's credits
+  // at or below the plain win's (`tools/src/challenges.test.ts`, each of creditsFor's inputs on its own).
+  | { op: 'raise_fail_below'; by: number }
+  | { op: 'remove_starting'; unit: string; count: number }
+  | { op: 'scale_resources'; num: number; den: number }
+  | { op: 'set_intel_start'; value: number };
 
 export interface PostureJson {
   id: PostureId;
@@ -58,7 +65,15 @@ export interface OverlayMission {
   objectives: readonly { carries?: boolean }[];
   enemy?: { waves?: readonly OverlayWave[] };
   triggers?: readonly unknown[];
+  /** GH-1395: what the amendment operations read. */
+  roe?: { fail_below?: number };
+  starting_force?: readonly { unit: string; count: number; tag?: string }[];
+  resources?: { logistics_start?: number; logistics_rate_per_min?: number; intel_start?: number };
 }
+
+/** The highest `fail_below` `raise_fail_below` will set: the two-star Conduct floor is `fail_below + 20`
+ *  (`starRoeFloor`, @lions/sim), and a floor above 100 would put the second star out of reach on any run. */
+export const FAIL_BELOW_CEILING = 80;
 
 /** What a run is played under: one posture (absent = Standard) and any amendments, each an op list. */
 export interface OverlayChoice {
@@ -171,6 +186,43 @@ function applyOne<T extends OverlayMission>(m: T, op: OverlayOp, opts: OverlayOp
     }
     case 'add_wave': {
       return { ...m, enemy: { ...m.enemy, waves: [...(m.enemy?.waves ?? []), op.wave] } };
+    }
+    case 'raise_fail_below': {
+      const fb = m.roe?.fail_below;
+      if (fb === undefined) return m;
+      const raised = Math.min(FAIL_BELOW_CEILING, fb + op.by);
+      if (raised <= fb) return m;
+      return { ...m, roe: { ...m.roe, fail_below: raised } };
+    }
+    case 'remove_starting': {
+      const force = m.starting_force ?? [];
+      // From the LAST untagged top-level placement of the unit backwards: the authored order puts the main body first,
+      // so the cut falls on the tail. A tagged placement (an escort, an hvt's target) is never touched (rule A3).
+      let left = op.count;
+      const kept = force.slice();
+      for (let i = kept.length - 1; i >= 0 && left > 0; i--) {
+        const p = kept[i];
+        if (p.unit !== op.unit || p.tag !== undefined) continue;
+        const take = Math.min(left, p.count);
+        left -= take;
+        kept[i] = { ...p, count: p.count - take };
+      }
+      if (left > 0) throw new Error(`overlay: remove_starting wants ${op.count} untagged ${op.unit} and the starting force has ${op.count - left}`);
+      return { ...m, starting_force: kept.filter((p) => p.count > 0) };
+    }
+    case 'scale_resources': {
+      const r = m.resources;
+      if (r === undefined || (r.logistics_start === undefined && r.logistics_rate_per_min === undefined)) return m;
+      const down = (x: number | undefined): number | undefined => (x === undefined ? undefined : Math.floor((x * op.num) / op.den));
+      const out: Record<string, unknown> = { ...r };
+      if (r.logistics_start !== undefined) out.logistics_start = down(r.logistics_start);
+      if (r.logistics_rate_per_min !== undefined) out.logistics_rate_per_min = down(r.logistics_rate_per_min);
+      return { ...m, resources: out };
+    }
+    case 'set_intel_start': {
+      const cur = m.resources?.intel_start;
+      if (cur === undefined || cur <= op.value) return m;
+      return { ...m, resources: { ...m.resources, intel_start: op.value } };
     }
     default: {
       const never: never = op;

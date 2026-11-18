@@ -46,3 +46,7 @@ export function withReliefOnLoan(
   }
   return out;
 }
+
+/** GH-1395: the challenge code rides this same lazy chunk (main.ts loads `./posture` once, through importWithRetry), so
+ *  nothing campaign-only reaches the entry chunk. */
+export { amended, settleVictory, victoryMark, withChallengeMark } from './challenge';

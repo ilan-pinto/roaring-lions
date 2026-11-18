@@ -380,19 +380,19 @@ describe('the challenge amendments are stored, optional, and absent today (PR 14
   it('ids given at save time come back as they were, in order', async () => {
     const a = client();
     advance(a, 40);
-    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['tight_clock', 'clean_hands'] });
+    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['light_order', 'clean_hands'] });
     if (!r.ok) throw new Error(r.reason);
     const back = parse(serializeSuspended(r.record));
-    expect(back.ok && back.record.amendments).toEqual(['tight_clock', 'clean_hands']);
+    expect(back.ok && back.record.amendments).toEqual(['light_order', 'clean_hands']);
   });
 
   it('an id that is not a plain lower-case id is not saved, and a record carrying one is unreadable', async () => {
     const a = client();
     advance(a, 40);
-    const bad = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['Tight Clock'] });
+    const bad = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['Light Order'] });
     expect(bad).toMatchObject({ ok: false, reason: 'encode_failed' });
     const rec = await save(a);
-    for (const amendments of ['tight_clock', [1], ['A'], ['x'.repeat(41)], Array.from({ length: 17 }, (_, i) => `a${i}`)]) {
+    for (const amendments of ['light_order', [1], ['A'], ['x'.repeat(41)], Array.from({ length: 17 }, (_, i) => `a${i}`)]) {
       expect(parse(JSON.stringify({ ...rec, amendments })), JSON.stringify(amendments)).toEqual({ ok: false, reason: 'unreadable' });
     }
   });

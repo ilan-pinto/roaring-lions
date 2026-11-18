@@ -230,7 +230,30 @@ export {
   type PostureId,
   type PostureJson,
   type PostureCatalogue,
+  FAIL_BELOW_CEILING,
 } from './overlays';
+
+/** GH-1395: amendments to the orders and the named challenge (slice 1, no UI): the library, the six-mission pilot,
+ *  the challenge index the coin rules share, and the pure predicate. */
+export {
+  amendments,
+  amendmentOps,
+  betterMark,
+  challengeArmed,
+  challengeMet,
+  challengeOf,
+  missionChallenges,
+  TICKS_PER_TARGET_MINUTE,
+  type AmendmentCatalogue,
+  type AmendmentJson,
+  type ChallengeMark,
+  type ChallengeRun,
+  type ChallengeWin,
+  type MissionChallengeJson,
+} from './challenges';
+// The coin rules' index and the ledger key, from their own module so @lions/economy (on the entry chunk) never pulls
+// the catalogue's JSON in (the posture-ids.ts arrangement).
+export { CHALLENGE_LEDGER_KEY, challengeMissionIds, hasChallenge } from './challenge-ids';
 
 export {
   versusMissionOf,

@@ -20,6 +20,8 @@
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
+//   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
+//                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -45,6 +47,7 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
@@ -225,6 +228,8 @@ const schemas = {
   avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
   difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
+  amendments: loadJson(join(ROOT, 'data/schemas/amendments.schema.json')),
+  challenge: loadJson(join(ROOT, 'data/schemas/challenge.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
 };
@@ -237,7 +242,7 @@ const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.arenaResults && schemas.arenaPlayers
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -262,6 +267,8 @@ if (
     avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
     difficulty: ajv.compile(schemas.difficulty),
+    amendments: ajv.compile(schemas.amendments),
+    challenge: ajv.compile(schemas.challenge),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
   };
@@ -292,6 +299,9 @@ if (
   checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
   checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
+  // GH-1395: the amendment library, and the per-mission challenge files beside it.
+  checked += validateFile(join(ROOT, 'data/challenges/amendments.json'), validators.amendments, 'amendments.schema');
+  checked += validateDir(join(ROOT, 'data/challenges'), validators.challenge, 'challenge.schema', [], ['amendments.json']);
   // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
   // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
   checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
@@ -1493,6 +1503,20 @@ const garrisonableSymbols = new Set(
   // GH-976: the win-mode files (data/versus/modes/), their own cross-file rules.
   const modeFiles = jsonFilesIn(join(ROOT, 'data/versus/modes')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...versusModeFailures(modeFiles, mapsById));
+}
+
+// --- challenges (GH-1395): the rules amendments.schema.json and challenge.schema.json cannot see ---
+{
+  const missionsById = {};
+  for (const f of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const m = loadJson(f);
+    if (m && typeof m.id === 'string') missionsById[m.id] = m;
+  }
+  const files = jsonFilesIn(join(ROOT, 'data/challenges'))
+    .filter((f) => basename(f) !== 'amendments.json')
+    .map((file) => ({ file: rel(file), doc: loadJson(file) }))
+    .filter((x) => x.doc !== null);
+  failures.push(...challengeFailures({ library: loadJson(join(ROOT, 'data/challenges/amendments.json')), files, missions: missionsById }));
 }
 
 // --- formations (GH-859): the rules formation.schema.json cannot see ---------
