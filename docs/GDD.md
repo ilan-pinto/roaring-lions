@@ -357,7 +357,8 @@ two rulings of 2026-11-18. The first: "I want users to be able to use coins to b
 That's the leading rule." It reverses the first half of the 16 Nov ruling (GH-1378 item 6),
 "paid coins buy cosmetics only at launch". The second answers where such units may be used:
 "coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is
-RETIRED." The other halves of G7 stand: two currencies, and credits are earned and never sold.
+RETIRED," scoped by a third ruling: standard-kit rooms stay equal, and coin-bought units reach PvP
+only through "bring your brigade" rooms. The other halves of G7 stand: two currencies, and credits are earned and never sold.
 
 - **Brigade credits** are earned only, by play, and are never sold, granted for money or
   converted from anything bought. They buy units, including the bought-only special forces,
@@ -377,12 +378,14 @@ RETIRED." The other halves of G7 stand: two currencies, and credits are earned a
 - **Never sold:** Conduct points, floors, forgiveness, the rating and the grade. Stars, the
   grade, Conduct and `creditsFor` compute for a bought unit exactly as for any fielded unit
   (coin spec G4).
-- **Network play.** There is no pay-to-win restriction: a unit bought with coins, paid coins
-  included once they are sold, is allowed against a person (2026-11-18). The mechanism today:
-  a friends' room whose host turns on "bring your brigade" fields every unit and upgrade each
-  KDF player owns, earned with credits or bought with coins alike (ruled 2026-10-11); a room on
-  matched (standard) kit fields nobody's owned kit, coins or credits alike, by design. Coins are
-  never earned or spent in a versus match.
+- **Network play.** There is no pay-to-win restriction on owned kit: a unit bought with coins,
+  paid coins included once they are sold, is allowed against a person, but only in a friends'
+  room whose host turns on "bring your brigade", which fields every unit and upgrade each KDF
+  player owns, earned with credits or bought with coins alike (ruled 2026-10-11). The lead
+  ruled on 2026-11-18: "standard-kit rooms stay EQUAL (no owned kit, coins or credits);
+  coin-bought units reach PvP only through 'Bring your brigade' rooms. No code change." A room
+  on matched (standard) kit therefore fields nobody's owned kit, coins or credits alike. Coins
+  are never earned or spent in a versus match.
 
 Every mission is free, nothing sold is random, and a store item is listed only if it passes
 the written test in that spec (§2) and its guards (§7).
