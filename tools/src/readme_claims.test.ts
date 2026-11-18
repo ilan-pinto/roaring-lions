@@ -167,7 +167,7 @@ describe('README: what is and is not in the build', () => {
     expect(ids).toEqual(['en']);
     expect(README).toContain('**English is the only language you can choose today.**');
   });
-  it('the difficulty picker is in the build and the chat filter, block and report are not, which the README says', () => {
+  it('the difficulty picker and the chat filter are in the build and block and report are not, which the README says', () => {
     // GH-1394 slice 2 (PR 1548) shipped the picker: the posture UI reads the three posture labels and writes the ledger key.
     const ui = readdirSync(join(ROOT, 'packages/app/src/ui')).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
     const reads = ui.filter((f) => /difficulty\.(easier|standard|harder)/.test(readFileSync(join(ROOT, 'packages/app/src/ui', f), 'utf8')));
@@ -175,8 +175,12 @@ describe('README: what is and is not in the build', () => {
     expect(existsSync(join(ROOT, 'packages/app/src/ui/posture-ui.ts'))).toBe(true);
     expect(README).toContain('- **Difficulty.** Choose Easier, Standard or Harder');
     expect(README).not.toContain('Difficulty (coming)');
+    // GH-1417 S2 (PR 1492) shipped the word filter: the matcher exists and the mask setting is a Settings row.
+    expect(existsSync(join(ROOT, 'packages/app/src/ui/chat-filter.ts')), 'the filter is in the build: the README\'s Chat paragraph says so').toBe(true);
+    expect(README).toContain('A **word filter** runs on your own screen');
+    expect(README).toContain('**Mask swear words**');
     expect(existsSync(join(ROOT, 'packages/app/src/chat/block-list.ts')), 'block list exists: update the Chat paragraph').toBe(false);
-    expect(README).toContain('are designed but **not in the build yet**');
+    expect(README).toContain('Block and report buttons are designed but **not in the build yet**');
   });
   it('claims the store copy refuses are not made here either', () => {
     for (const w of [/co-?op\b/i, /skirmish/i, /WebGPU/i, /Steam Deck/i, /matchmaking is/i]) expect(README, String(w)).not.toMatch(w);

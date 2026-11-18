@@ -142,7 +142,7 @@ An optional **account** (Sign in / Sign up on the menu) keeps your campaign, bri
 
 ## Free play
 
-Free play (menu, *free play, any map*) puts a full KDF task force on any of the 43 listed maps against an opposing force, with no mission, and writes nothing to your campaign. It is the place to try a unit, learn a map, or test a tactic. Optional extras:
+Free play (menu, *free play, any map*) puts a full KDF task force (or, with the side pick, a Sarim one) on any of the 43 listed maps against an opposing force, with no mission, and writes nothing to your campaign. It is the place to try a unit, learn a map, or test a tactic. Optional extras:
 
 | Option | Adds |
 |---|---|
@@ -206,7 +206,7 @@ In a KDF-against-Sarim room only annihilation is offered, except *Destroy the ca
 - Formations (`r` `t` `y`) work in a room, except in the Tel Marum match with camps and income.
 - If the two simulations ever disagree, the match is halted and marked void, never silently patched up.
 
-**Chat.** `Enter` opens chat. **Quick chat** sends one of twelve preset phrases ("Good luck!", "Good game.", "Well played.", "Thanks.", "Sorry.", "Ready.", "Wait for me.", "Attack now.", "Hold the line.", "I need help.", "Nice move.", "Rematch?"), shown to the receiver in their own language. You can mute one player for the match from the chat box, and turn all chat off under Settings, Chat; the other player is not told. A word filter and block and report buttons are designed but **not in the build yet**.
+**Chat.** `Enter` opens chat. **Quick chat** sends one of twelve preset phrases ("Good luck!", "Good game.", "Well played.", "Thanks.", "Sorry.", "Ready.", "Wait for me.", "Attack now.", "Hold the line.", "I need help.", "Nice move.", "Rematch?"), shown to the receiver in their own language. You can mute one player for the match from the chat box, and turn all chat off under Settings, Chat; the other player is not told. A **word filter** runs on your own screen: slurs and hate speech are always hidden, and so are player names that use them; swear words are masked as `***` unless you turn **Mask swear words** off under Settings, Chat. Block and report buttons are designed but **not in the build yet**.
 
 **An advisor beside you.** In the lobby, under *Invite an advisor*, you can seat an AI model as your adviser. It sees only what your side sees. In **Advise** mode it talks to you and pings the map. In **Assist** mode it also proposes orders: each shows on your screen for two seconds, in plain words, and becomes your own order unless you veto it (`X`, or the Veto button). Your friend is told you have one. Setting one up needs a checkout of this repository and an MCP-capable client: see [`docs/net/N4-agent.md`](docs/net/N4-agent.md), section 1.
 
@@ -243,7 +243,7 @@ Open Settings from the menu, or from the pause menu (`Esc`) in a mission. It is 
 | **Audio** | Master, music, effects, voices, and the radio effect. `m` mutes in a mission. |
 | **Render quality** | High, medium or low. Applies when the next mission starts. |
 | **Fullscreen**, **Opening cinematic** | As named. |
-| **Chat** | Show or hide chat from other players. |
+| **Chat** | Show or hide chat from other players, and mask swear words (on by default; slurs are always hidden). |
 | **Anonymous usage and crash reports** | Switch the play telemetry and crash reports off here. |
 | **Language** | **English is the only language you can choose today.** German, French, Spanish (Spain) and Russian translations exist as AI-made drafts, not proofread by a human and not yet selectable. Unit voices are Hebrew for the KDF and Arabic for the enemy, and only some lines are recorded so far. |
 
