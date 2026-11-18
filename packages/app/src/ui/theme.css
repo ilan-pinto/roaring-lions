@@ -4899,6 +4899,18 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-sandbox__blurb {
   color: var(--ink-mute);
 }
+/* GH-1381: the side pick, the versus lobby's segmented group, above the
+   options. Its blurb takes the whole row under the two segments. */
+fieldset.rl-sandbox__sides {
+  max-width: var(--menu-col);
+  margin: var(--s3) auto 0;
+}
+.rl-sandbox__side-blurb {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
 
 
 /* The end-of-mission frame (`ui/end-panel.ts`), shared by the end screen and
