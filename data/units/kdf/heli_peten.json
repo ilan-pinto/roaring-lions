@@ -124,10 +124,24 @@
         },
         {
           "price": 420,
-          "patch": {
-            "weapons[0].accuracy": 0.1,
-            "weapons[0].penetration": 30
-          }
+          "branches": [
+            {
+              "id": "helmet_sight",
+              "label": "garage.branch.heli_peten.helmet_sight",
+              "patch": {
+                "weapons[0].accuracy": 0.1,
+                "weapons[0].penetration": 19
+              }
+            },
+            {
+              "id": "heavy_rounds",
+              "label": "garage.branch.heli_peten.heavy_rounds",
+              "patch": {
+                "weapons[0].accuracy": 0.06,
+                "weapons[0].penetration": 30
+              }
+            }
+          ]
         }
       ]
     }

@@ -11,7 +11,8 @@
 // predicate every Buy control asks.
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import type { UpgradeTracks } from '@lions/data';
-import { PURCHASES_OPEN, buyTierWithCoins, buyUnitWithCoins, spendable, type RoarWallet } from './wallet';
+import { PURCHASES_OPEN, buyBranchWithCoins, buyTierWithCoins, buyUnitWithCoins, spendable, type RoarWallet } from './wallet';
+import { isPick, shippedBranched, type BranchedTable, type BranchPick, type PicksMap } from './branches';
 
 export { PURCHASES_OPEN };
 
@@ -91,13 +92,17 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 6977: Khan Rafid III gets a real first contact (2026-11-09, GH-1173), Khan Rafid III 260 -> 238 (-22); reasons beside `LADDER_CREDITS`.
 // Was 6955: GH-1360 S3b (2026-11-15), the shipped missions start in the assembly layout, -32 over sixteen missions; reasons beside `LADDER_CREDITS`.
 // Was 6923: Qasr Liwan (2026-11-16, GH-1438), the five new missions on the assembly layout, +1170 (240 + 220 + 250 + 230 + 230); reasons beside `LADDER_CREDITS`.
-export const CAMPAIGN_CREDITS = 8093;
+// Was 8093: Bir Tarsha (2026-11-17, GH-1438), the four missions I, II, III and V on the assembly layout, +834 (reasons beside `LADDER_CREDITS`).
+// Was 8927: Bir Tarsha IV (2026-11-17, GH-1438), +315 (IV 305 and V +10 on seed 424242); reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 9242;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 // Was 26: GH-912 (2026-10-31), the ladder is over 29 missions now (`pnpm playtest` prints "credit ladder: 7007 over 29
 // missions"); left at 26 the mean pay would read 267 where the ladder's own mean is 239.
 // Was 29: Qasr Liwan (2026-11-15, GH-1438), the ladder is over 34 missions (`pnpm playtest` prints "credit ladder: 8093 over 34 missions").
-export const LADDER_MISSIONS = 34;
+// Was 34: Bir Tarsha (2026-11-17, GH-1438), the ladder is over 38 missions (`pnpm playtest` prints "credit ladder: 8927 over 38 missions").
+// Was 38: Bir Tarsha IV (2026-11-17, GH-1438), the ladder is over 39 missions (`pnpm playtest` prints "credit ladder: 9242 over 39 missions").
+export const LADDER_MISSIONS = 39;
 
 /** The most a Conduct floor can ask: the rating is out of 100, so a floor of 101 is a gate no play opens. */
 export const PLAY_MAX_CONDUCT = 100;
@@ -127,6 +132,8 @@ export interface StoreInput {
   readonly credits: number | undefined;
   /** Unit id -> track -> tier owned (earned). */
   readonly owned: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined;
+  /** GH-1384: the branch owned per branched (unit, track), from the same view as `owned`. */
+  readonly ownedPicks?: Readonly<PicksMap>;
   /** What the account has been paid so far, for the player's own mean pay.
    *  Absent: the ladder mean. */
   readonly paid?: Readonly<Record<string, number>>;
@@ -145,6 +152,9 @@ export interface CoinHalf {
   /** Tiers reached on each path. */
   readonly earnedTiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
   readonly coinTiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  /** GH-1384: the brigade account's branch per branched (unit, track) it holds at the branched
+   *  tier, so a coin branch buy can refuse the OTHER branch. Absent: the account holds none. */
+  readonly earnedPicks?: Readonly<PicksMap>;
 }
 
 export interface StoreUnit {
@@ -376,7 +386,8 @@ export function buyEnabled(item: UnitItem | TierItem | CoinPack, wallet: CoinWal
 /** What a coin Buy asks for. */
 export type CoinAsk =
   | { kind: 'unit'; unitId: string }
-  | { kind: 'tier'; unitId: string; track: string; tier: number };
+  /** `branch` (GH-1384) is REQUIRED on a branched tier and refused on any other. */
+  | { kind: 'tier'; unitId: string; track: string; tier: number; branch?: BranchPick };
 
 /**
  * A coin purchase, decided by the SAME derivation the screen draws from: the
@@ -388,7 +399,13 @@ export type CoinAsk =
  * Writes only the wallet: credits, and the brigade account, are untouched.
  * Free coins are spent before paid ones (`roar-wallet.ts`).
  */
-export function buyWithCoins(input: StoreInput, roar: RoarWallet, ask: CoinAsk, at: number): { account: RoarWallet; ok: boolean } {
+export function buyWithCoins(
+  input: StoreInput,
+  roar: RoarWallet,
+  ask: CoinAsk,
+  at: number,
+  branched: BranchedTable = shippedBranched()
+): { account: RoarWallet; ok: boolean } {
   const refuse = { account: roar, ok: false };
   const wallet = walletOf(roar);
   const items = storeItems(input);
@@ -399,5 +416,14 @@ export function buyWithCoins(input: StoreInput, roar: RoarWallet, ask: CoinAsk, 
   }
   const item = items.tiers.find((x) => x.unitId === ask.unitId && x.track === ask.track);
   if (item === undefined || item.next === null || item.next.tier !== ask.tier || !buyEnabled(item, wallet)) return refuse;
-  return buyTierWithCoins(roar, item.unitId, item.track, item.next.tier, item.owned, item.next.coins, item.next.credits, at);
+  const fork = branched[item.unitId]?.[item.track];
+  if (fork !== undefined && item.next.tier >= fork.tier) {
+    // GH-1384: a branched tier is bought only as a named branch, and never the other branch of one
+    // the account holds (`buyBranchWithCoins`'s guard reads the account's earned tier and pick).
+    if (!isPick(ask.branch)) return refuse;
+    const earned = { upgrades: (input.coin?.earnedTiers ?? input.owned ?? {}) as Record<string, Record<string, number>>, picks: (input.coin?.earnedPicks ?? {}) as PicksMap };
+    return buyBranchWithCoins(roar, earned, item.unitId, item.track, item.next.tier, item.owned, ask.branch, item.next.coins, item.next.credits, at, branched);
+  }
+  if (ask.branch !== undefined) return refuse;
+  return buyTierWithCoins(roar, item.unitId, item.track, item.next.tier, item.owned, item.next.coins, item.next.credits, at, branched);
 }

@@ -162,7 +162,10 @@ export interface PairRow {
   a: CampaignMission;
   b: CampaignMission;
   cmp: Comparison;
+  /** Too alike AND not a named exception: the gate's verdict. */
   fails: boolean;
+  /** Too alike and excused by a `NAMED_EXCEPTIONS` entry (reported by the demotion assertion, never by `report`). */
+  excused: boolean;
 }
 
 /** Every pair of distinct missions (a mission pair on one shared file compares a map with itself: 100%). */
@@ -177,17 +180,42 @@ export function allPairs(missions: readonly CampaignMission[], load: (id: string
   for (let i = 0; i < missions.length; i++)
     for (let j = i + 1; j < missions.length; j++) {
       const cmp = compare(get(missions[i].map), get(missions[j].map));
-      rows.push({ a: missions[i], b: missions[j], cmp, fails: tooAlike(cmp) });
+      const alike = tooAlike(cmp);
+      const excused = alike && isNamedException(missions[i].mission, missions[j].mission);
+      rows.push({ a: missions[i], b: missions[j], cmp, fails: alike && !excused, excused });
     }
   return rows;
 }
 
 /**
- * There is no allowlist. GH-382 rebuilt every campaign arc onto its own ground, and the gate that
- * used to excuse an arc not yet rebuilt (`PENDING_ARCS`, a same-town pair excused while its town's
- * TODO stood) was deleted with the last one, not left empty: an escape hatch that excuses nothing is
- * a standing invitation to excuse something, and a future town that copies a map should go red.
+ * A NAMED exception to the gate (the lead's ruling of 17 Nov 2026, on PR 1569): a short list of mission pairs that may share one
+ * ground, each with its reason. It is not a way to excuse a copy: every other pair, including every other pair inside a town, still
+ * fails. The list is closed (a pair is excused only when BOTH ids are named in one entry), and it carries a demotion assertion
+ * (`map_distinctness.test.ts`): an entry whose pair no longer reads as alike, or whose mission no longer exists, goes red, so the
+ * exception is deleted the day the maps diverge.
+ *
+ * GH-382 once had an allowlist (`PENDING_ARCS`, a same-town pair excused while its town's rebuild stood); it was deleted with the
+ * last arc rebuilt. This is a different thing: a design decision, named, with its source.
  */
+export interface NamedException {
+  /** The mission ids that may share ground, pairwise (every pair among them is excused). */
+  missions: readonly string[];
+  reason: string;
+}
+export const NAMED_EXCEPTIONS: readonly NamedException[] = [
+  {
+    missions: ['bir_tarsha_1_recon', 'bir_tarsha_2_foothold', 'bir_tarsha_3_clearance'],
+    reason: 'one town, three battles: the Gate is one place seen three times, each time with a few rows changed (docs/campaign/bir_tarsha/design.md section 3.2; the MDD, PR 1453)',
+  },
+  {
+    missions: ['bir_tarsha_4_clearance', 'bir_tarsha_5_subterranean'],
+    reason: 'one strip, before and after: V is IV\'s ground with the works razed, a command post and the routes under it (docs/campaign/bir_tarsha/design.md section 3.3b; lead ruling 18 Nov 2026)',
+  },
+];
+
+export function isNamedException(a: string, b: string): boolean {
+  return a !== b && NAMED_EXCEPTIONS.some((e) => e.missions.includes(a) && e.missions.includes(b));
+}
 
 export function report(rows: readonly PairRow[]): string {
   const lines: string[] = [];
