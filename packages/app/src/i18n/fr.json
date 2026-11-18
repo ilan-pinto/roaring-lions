@@ -1646,7 +1646,6 @@
   "hud.works.cancel": "Annuler les travaux (remboursement {n})",
   "hud.works.progress": "{n}% construit",
   "freePlay.option.soft": "Fumée douce : les volutes s'estompent au contact du sol",
-  "freePlay.option.works": "Ouvrages de campagne proposés : chaque type constructible en double, et un groupe de sapeurs pour les dresser",
   "dock.note.locked": "<b>{name}</b> est verrouillé — {reason}",
   "dock.note.building": "<b>construction</b> {name} — {where, select, camp {déploiement à {camp}} shortest {déploiement au camp à la file la plus courte} other {déploiement sur la ligne de départ}}",
   "dock.note.cannotBuild": "impossible de construire {name} — logistique insuffisante",

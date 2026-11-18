@@ -1646,7 +1646,6 @@
   "hud.works.cancel": "Cancelar obras (reembolso {n})",
   "hud.works.progress": "{n}% construido",
   "freePlay.option.soft": "Humo suave: las nubes se disipan donde tocan el suelo",
-  "freePlay.option.works": "Obras de campaña disponibles: cada tipo construible dos veces y una escuadra de zapadores para levantarlas",
   "dock.note.locked": "<b>{name}</b> está bloqueado — {reason}",
   "dock.note.building": "<b>construyendo</b> {name} — {where, select, camp {se despliega en {camp}} shortest {se despliega en el campamento con la cola más corta} other {se despliega en la línea de partida}}",
   "dock.note.cannotBuild": "no se puede construir {name} — logística insuficiente",
