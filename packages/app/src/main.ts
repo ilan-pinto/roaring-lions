@@ -1452,6 +1452,7 @@ async function main(): Promise<void> {
   const versusStore = safeStorageLike(() => window.localStorage);
   const versusDeps: VersusDeps = {
     chatEnabled: () => settingsDeps.get().chat.enabled,
+    chatMask: () => settingsDeps.get().chat.mask,
     open: async (req, signal) => {
       const kit = await versusKit();
       return kit.openRoom(req, `${__APP_BUILD__}+${__APP_COMMIT__}`, {
@@ -2278,6 +2279,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** A seat's name: the lobby's label (a member's name and public id, GH-1075 A3), else the config's callsign. The
    *  config carries no label (§0.14); after a reload nothing was handed over and the callsign stands. */
   const seatName = (seat: number): string => rk().nameFrom(match.labels, seat, netConfig?.seats[seat]?.callsign ?? '');
+  /** GH-1417 S2: the chat word filter, loaded on demand (`ui/chat-filter-gate.ts`, re-exported by the kit) for a room only. Asked for
+   *  here, awaited before the room's chat, score and status line are mounted; until it is in, a typed name reads as the fallback name
+   *  and a line is held. A config exists only from the kit's `connectMatch`, so `rk()` is loaded wherever this asks. */
+  const chatFilterLoad: Promise<boolean> | null = netConfig !== null ? rk().loadChatFilter() : null;
   /** This battlefield's room, when it is one seat of a match (N1b task 8):
    *  where Escape's pause, the menu's Resume and Surrender go. Null in
    *  single-player, which keeps its local pause exactly as it was. */
@@ -3290,6 +3295,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `abandon`, never a bare `() => undefined`: the renderer, its canvas, the transport and the loading screen all exist by now, and the
   // router runs the disposer a stale mount returns rather than tearing down for it, so a no-op here kept them all (WebGL context included).
   if (req.signal.aborted) abandon('left while the save kit loaded');
+  // GH-1417 S2: a room waits for its word filter. The load never rejects; a failure is logged by the gate, and the match plays on
+  // with its received lines hidden and its typed names read as the fallback name. The wait gives way to a leave (CR1) and to a hung
+  // chunk after `CHAT_FILTER_WAIT_MS` (CR7): the match then starts on the same fallback, and the load runs on; when it lands the inbox
+  // delivers its held lines, and what draws a name next reads its label (`seatName` is asked at each draw, never kept): the status
+  // line and new chat lines; the scoreboard, its advisor chip and the points panel at their next update, which repaints on a changed
+  // name (CR9). A feed line already posted, and the chat's mute button until the chat opens or the inbox changes, keep the fallback they drew.
+  if (chatFilterLoad !== null) await rk().untilLoadedOrAborted(chatFilterLoad, req.signal);
+  if (req.signal.aborted) abandon('left while the chat filter loaded');
   if (resolvedMission) {
     try {
       // One ledger for the runtime and the loadout (GH-254), so the roster
@@ -4099,7 +4112,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  `innerHTML`, so the callsign and the text both go through `chatFeedLine`,
    *  which escapes them. */
   const chatInbox = room !== null && netConfig !== null && !spectating
-    ? rk().inboxOf(room, () => req.settings.get().chat.enabled)
+    ? rk().inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask, netSeat)
     : null;
   const netChat = room !== null && netConfig !== null && !spectating && chatInbox !== null && netSeat !== null
     ? new (rk().NetChat)(document.body, { send: (text) => room.chat(text), sendQuick: (id) => room.quick(id), nameOf: (seat) => seatName(seat), inbox: chatInbox, peer: netSeat === 0 ? 1 : 0 })
@@ -4108,9 +4121,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (room !== null && netConfig !== null && !spectating && chatInbox !== null) {
     // A line reaches the HUD feed only through the room's inbox, the same one the lobby log used (`chat-inbox.ts`).
     room.setHooks({
-      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      onChat: (seat, text) => chatInbox.deliver(seat, text, (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }),
       // A preset phrase is an id on the wire and is drawn in this client's language, through the same inbox.
-      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => hud.note(rk().chatFeedLine(seatName(seat), shown), 'info')),
+      onQuick: (seat, id) => chatInbox.deliver(seat, rk().quickChatText(id), (shown) => { if (!disposed) hud.note(rk().chatFeedLine(seatName(seat), shown), 'info'); }),
     });
   }
   /** The feed line for an order that waits for the pause (L-2), from the two
@@ -7216,8 +7229,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  show the same board. A versus room only: single-player and a sandbox room
    *  mount nothing. */
   const otherSeat = netSeat === 0 ? 1 : 0;
-  /** Read in a room only (NetScoreboard, NetPoints, showNetEnd): outside one the kit is not loaded, so `seatName` would throw. */
-  const scoreNames = { theirs: vk !== null ? seatName(otherSeat) : '' };
+  /** Read in a room only (NetScoreboard, NetPoints, showNetEnd): outside one the kit is not loaded, so `seatName` would throw.
+   *  A getter, read at each update of the board and the points panel, which key their repaint on it (GH-1417 S2, CR9): a name that
+   *  read as the fallback while the word filter loaded is redrawn as its label at the next update once the filter is in (CR7), the
+   *  advisor chip with it. The end panel reads it once, when the match is over. `chat-filter-wiring.test.ts` pins the getter. */
+  const scoreNames = { get theirs(): string { return vk !== null ? seatName(otherSeat) : ''; } };
   const netScore = vk !== null && vk.showsScoreboard(netConfig) && !spectating ? new vk.NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
   /** The points race (GH-976 P2): both sides' points against the target, from the goals-only runtime. Scores and
