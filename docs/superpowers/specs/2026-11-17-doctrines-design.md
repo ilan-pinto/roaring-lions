@@ -1,12 +1,13 @@
 # Doctrines: three per side, one picked before a match (GH-1383) -- design for the lead
 
-**Date:** 2026-11-17 · **Status: HOLD FOR LEAD.** A proposal to approve before any build. Docs only: no code, no data, no
+**Date:** 2026-11-17 · **Status: approved as a design by the lead, 19 Nov 2026.** Docs only: no code, no data, no
 schema, no sim change, no `tuning.ts` change. Every number in §3 is a proposal for the lead, computed with the shipped
 cost curve and nothing else.
 **Issue:** GH-1383, "Doctrines: three per side, one picked before a match" (audit dimension D2, now 42, target 80).
 **Done means (from the issue, in full):**
 - a design approved by the lead: three doctrines per playable side, each a different unit menu, cap and one signature
-  call, as data;
+  call, as data; *(the design half is met: approved by the lead, 19 Nov 2026; the data lands with the slices
+  in §7)*
 - the lobby, the skirmish setup and free play ask for one doctrine before the match; the choice is a `Command`-safe part
   of the room config and folds into the match digest;
 - no doctrine is a superset of another (a data check that fails on a constructed superset);
@@ -573,6 +574,8 @@ passes the room's map" test.)
 ---
 
 ## 6. Open questions for the lead
+
+The lead's approval of the design (19 Nov 2026) does not answer these; each is still open.
 
 1. **The name.** "Doctrine" already means the GDD's three enemy doctrines and N3's faction file. Keep it in player copy and
    call the files "picks" in code (this design), or rename one of them? And: picks in `data/doctrines/picks/` (this
