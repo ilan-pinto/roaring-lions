@@ -16,8 +16,8 @@
 
 import posturesJson from '../../../data/difficulty/postures.json';
 
-import { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, type PostureId } from './posture-ids';
-export { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, type PostureId };
+import { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, postureOf, type PostureId } from './posture-ids';
+export { DIFFICULTY_LEDGER_KEY, POSTURE_IDS, postureOf, type PostureId };
 
 /** The id the `reinforce_player` op gives its trigger, so a caller can lend the relief (`reliefTriggerIndices`). */
 export const RELIEF_TRIGGER_ID = 'posture_relief';
@@ -70,13 +70,6 @@ export interface OverlayOptions {
   /** Resolves a `label_key` to the player-facing text (the app passes `t`). Absent: the relief trigger is
    *  added unlabelled, which the runtime treats exactly the same. */
   label?: (key: string) => string;
-}
-
-/** The posture a campaign ledger names: `easier`, `standard` or `harder`; anything else (absent, an unknown
- *  string, a wrong type: an old save, a hand-edited one) reads as Standard (ruling D2). */
-export function postureOf(ledger: Readonly<Record<string, unknown>> | null | undefined): PostureId {
-  const v = ledger?.[DIFFICULTY_LEDGER_KEY];
-  return typeof v === 'string' && (POSTURE_IDS as readonly string[]).includes(v) ? (v as PostureId) : 'standard';
 }
 
 /** Whether a posture applies to this mission at all: a mission that produces nothing for the campaign (the

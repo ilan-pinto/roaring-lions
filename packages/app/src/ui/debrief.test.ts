@@ -74,6 +74,20 @@ describe('the after-action report (GH-417)', () => {
     expect(host.querySelector('.rl-aar__col--poor .rl-aar__mark--lost')).not.toBeNull();
   });
 
+  // GH-1394 slice 2 (D11): the one line suggesting Easier is drawn on a defeat that main.ts hands one to, and only there.
+  it('a defeat draws the posture suggestion it is handed, under the verdict; a win and a defeat without one draw none', () => {
+    const line = 'Try Easier from the next deploy.';
+    const lost = mount(opts({ result: 'defeat', stars: 0, report: { ...REPORT, ladder: [] }, suggestion: line }));
+    const shown = lost.querySelector('.rl-aar__suggest');
+    expect(shown?.textContent).toBe(line);
+    expect(shown?.previousElementSibling?.className).toBe('rl-aar__verdict');
+    expect(shown?.querySelector('button, a, input')).toBeNull(); // words only: nothing on it changes the posture
+    document.body.innerHTML = '';
+    expect(mount(opts({ suggestion: line })).querySelector('.rl-aar__suggest')).toBeNull();
+    document.body.innerHTML = '';
+    expect(mount(opts({ result: 'defeat', stars: 0, report: { ...REPORT, ladder: [] } })).querySelector('.rl-aar__suggest')).toBeNull();
+  });
+
   it('a defeat: no ladder, no grade, and the middle column is what went wrong', () => {
     const host = mount(opts({ result: 'defeat', stars: 0, report: { ...REPORT, ladder: [] } }));
     expect(host.querySelector('.rl-aar__ladder')).toBeNull();

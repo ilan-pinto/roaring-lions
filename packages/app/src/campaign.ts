@@ -16,6 +16,7 @@ import { gateRequirement, gateSentence } from './gate-sentence';
 import { t } from './i18n/t';
 import { localizedUnit } from './unit-text';
 import { parseWorld, townProgress, type ParsedWorld, type WorldRegion, type WorldTown } from '@lions/economy';
+import { postureOf, type PostureId } from '@lions/data';
 
 // The world's types and parser live in the economy package (GH-1075 A0); every name stays importable from here.
 export { parseWorld, townProgress };
@@ -437,25 +438,41 @@ const results = (ledger: LedgerData | undefined): Record<string, MissionResult> 
  *  off the map" and never named by any town's `missions` list in the first
  *  place -- so counting it here would overstate the total for a mission that
  *  structurally cannot contribute. Every mission that DOES declare the key
- *  still grades to the same ceiling (`MissionRuntime`'s ★★★), so this is a
- *  plain count times 3, not a sum of anything mission-specific. */
-export function possibleStars(world: ParsedWorld, missions: Readonly<Record<string, { readonly ledger: { readonly produces: readonly string[] } } | undefined>>): number {
-  let count = 0;
+ *  still grades to the same ceiling (`MissionRuntime`'s ★★★) at Standard and
+ *  Harder; at Easier the ceiling is two (`starCeiling`, GH-1394), so the
+ *  campaign's `ledger` names the posture and each mission's stored best. It is
+ *  required: left out, the count would silently be Standard's. */
+export function possibleStars(world: ParsedWorld, missions: Readonly<Record<string, { readonly ledger: { readonly produces: readonly string[] } } | undefined>>, ledger: LedgerData): number {
+  const posture = postureOf(ledger);
+  const r = results(ledger);
+  let possible = 0;
   for (const region of world.regions) {
     for (const town of region.towns) {
       for (const missionId of town.missions) {
-        if (missions[missionId]?.ledger.produces.includes('campaign.mission_results')) count += 1;
+        if (missions[missionId]?.ledger.produces.includes('campaign.mission_results')) possible += starCeiling(posture, r[missionId]?.stars ?? 0);
       }
     }
   }
-  return count * 3;
+  return possible;
+}
+
+/** The most stars one mission can show at the campaign's posture (GH-1394, ruling 3): Easier clears every `carries`, so it grades
+ *  to two stars at most, and a mission already won higher before the posture changed keeps its stored best (a best is never
+ *  lowered, so the count never reads below what was earned). Standard and Harder grade to three. */
+export function starCeiling(posture: PostureId, stored: number): number {
+  return posture === 'easier' ? Math.max(2, stored) : 3;
 }
 
 export function townStars(town: WorldTown, ledger: LedgerData | undefined): { earned: number; possible: number } {
   const r = results(ledger);
+  const posture = postureOf(ledger);
   let earned = 0;
-  for (const m of town.missions) earned += r[m]?.stars ?? 0;
-  return { earned, possible: town.missions.length * 3 };
+  let possible = 0;
+  for (const m of town.missions) {
+    earned += r[m]?.stars ?? 0;
+    possible += starCeiling(posture, r[m]?.stars ?? 0);
+  }
+  return { earned, possible };
 }
 
 export function regionStars(region: WorldRegion, ledger: LedgerData | undefined): { earned: number; possible: number } {

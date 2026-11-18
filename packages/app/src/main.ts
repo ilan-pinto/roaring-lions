@@ -1184,8 +1184,13 @@ async function main(): Promise<void> {
    *  the world render is served rather than bundled; the per-country overlay is
    *  built by worldMap from the generated geometry in countries.json. */
   async function mountCampaign(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
+    // GH-1394 slice 2: the posture chip is lazy (off the entry chunk), fetched alongside the save kit; a chunk that will not
+    // load leaves the board without the chip, and the posture stays what the ledger says.
+    const postureUiLoad = importWithRetry(() => import('./ui/posture-ui')).catch(() => null);
     // GH-1393: the Resume row needs the save library; if its chunk will not load the board still opens, without the row.
     const kit = await saveKit().catch(() => null);
+    if (req.signal.aborted) return () => undefined;
+    const postureUi = await postureUiLoad;
     if (req.signal.aborted) return () => undefined;
     return showCampaign(host, {
       base: BASE,
@@ -1202,6 +1207,8 @@ async function main(): Promise<void> {
       // Aborted when this screen is left, so the 3D board can decline to
       // make a WebGL context for a player who has already gone.
       signal: req.signal,
+      // GH-1394 slice 2 (D10): the posture chip, one of its two writers; a change applies from the next deploy.
+      ...(postureUi === null ? {} : { posture: () => postureUi.posturePicker(postureUi.boardPostureDeps(ledgerStore)) }),
       // GH-1393: the saved mission, if there is one: a Resume row above the footer. The store is read again after a discard.
       ...(kit === null ? {} : { resume: () => kit.resumeRow({
         read: () => {
@@ -1209,7 +1216,10 @@ async function main(): Promise<void> {
           if (r.state === 'refused') return { state: 'refused', reason: r.reason };
           if (r.state !== 'ready') return { state: 'none' };
           const p = kit.peekResumeProblem();
-          if (p === 'moved') return { state: 'refused', reason: 'moved', moved: kit.peekResumeMoved() };
+          if (p === 'moved') {
+            const posture = kit.peekResumePosture();
+            return { state: 'refused', reason: 'moved', moved: kit.peekResumeMoved(), ...(posture === null ? {} : { posture }) };
+          }
           return { state: 'ready', missionId: r.record.missionId, savedAt: r.record.savedAt, simTick: r.record.simTick, ...(p === 'failed' ? { note: 'failed' as const } : {}) };
         },
         nameOf: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name,
@@ -1353,7 +1363,7 @@ async function main(): Promise<void> {
       // em-dashes.
       baseOf: (typeId) =>
         ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
-      possibleStars: possibleStars(worldData, missionManifest as Record<string, MissionSummary | undefined>),
+      possibleStars: possibleStars(worldData, missionManifest as Record<string, MissionSummary | undefined>, ledgerStore.readLedger()),
       credits: ledgerStore.available ? balance : undefined,
       // A purchase that landed is heard (WP-S3g T11, spec §3.5). The mixer is
       // the document's one, built at boot, so its `pointerdown` listener has
@@ -3089,6 +3099,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     field
   );
   onDispose(() => loading.dispose());
+  // GH-1394 slice 2 (D10): the deploy line, under the orders: the posture this run is played on, what it does to the grade and
+  // the pay, and the one place besides the board to change it. A change rewrites the ledger key and starts this briefing again
+  // (`req.restart`), so the mission the player deploys is the one the line names. Not on the tutorial (D12), a sandbox or a
+  // resumed run (its posture is the save's); read-only under `?fresh`, whose ledger is not the campaign's (`deployPostureDeps`).
+  // Frozen the moment Deploy is answered (`freezePostureLine`, below `loading.done()`): with an intro planned the screen, and
+  // the line, stay up, and a change there would restart a mission that has started, unasked (review finding 2).
+  let freezePostureLine = (): void => undefined;
+  if (resumed === null && posture.showsPosture(mission)) {
+    const line = posture.posturePicker(posture.deployPostureDeps({ fresh: params.get('fresh') !== null, ledger, store: ledgerStore, restart: () => req.restart() }));
+    (stage.querySelector('.rl-loading__orders') ?? stage.querySelector('.rl-loading__box'))?.append(line.el);
+    onDispose(line.dispose);
+    freezePostureLine = line.freeze;
+  }
   // GH-1393: a resumed mission was briefed and deployed before it was saved: the screen stays up as the loading screen and answers itself.
   if (resumed !== null) loading.deployNow();
   if (startHandle.failed) noteOfflineCoins(); // an answer that failed before the briefing was up
@@ -3220,6 +3243,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     teardown();
     throw err;
   }
+  // Deploy is answered: the posture line takes no more changes (GH-1394 slice 2). In the same task as the resolve, so no click
+  // can land between the two.
+  freezePostureLine();
   if (req.signal.aborted) abandon('left before deploy');
 
   // The mission starts HERE, after the player has answered the deploy screen
@@ -6642,10 +6668,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               marked: runtime.markedCount,
               typeName,
             });
+            // GH-1394 slice 2 (D11): one line suggesting Easier on a lost campaign mission, never a change.
+            const suggestion = posture.defeatSuggestion(mev.result, mission, ledger);
             const debriefOpts: DebriefOptions = {
               result: mev.result,
               stars: runtime.stars,
               report,
+              ...(suggestion === null ? {} : { suggestion }),
               speaker,
               aftermath: undefined,
               tierLine: tier ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text } : undefined,
