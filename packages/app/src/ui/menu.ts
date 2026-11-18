@@ -16,7 +16,7 @@ import { hasKey, t } from '../i18n/t';
 import { symbolLabel } from './symbol';
 import { footBack, screenFoot } from './foot';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
-import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
+import { SANDBOX_FLAGS, SANDBOX_SIDES, type SandboxFlagName, type SandboxSide } from '../sandbox-help';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
@@ -513,6 +513,41 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   theatre.textContent = t('menu.sandbox.title');
   wrap.appendChild(theatre);
 
+  // --- the side (GH-1381) -------------------------------------------------
+  // Which force you command: the KDF (the default, every link that names no
+  // side) or Sarim, who fields the versus room's Sarim force against its KDF
+  // one. The versus lobby's own segmented radio group, its own legend and its
+  // own side names and blurbs, so the two screens call a side the same thing.
+  let side: SandboxSide = 'kdf';
+  const sides = document.createElement('fieldset');
+  sides.className = 'rl-versus__sides rl-sandbox__sides';
+  const sidesLegend = document.createElement('legend');
+  sidesLegend.className = 'rl-versus__label';
+  sidesLegend.textContent = t('versus.lobby.side.pick');
+  sides.appendChild(sidesLegend);
+  const sideRadios: { side: SandboxSide; input: HTMLInputElement }[] = [];
+  for (const f of SANDBOX_SIDES) {
+    const label = document.createElement('label');
+    label.className = 'rl-versus__side';
+    label.dataset.side = f;
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.className = 'rl-versus__side-radio';
+    radio.name = 'rl-free-play-side';
+    radio.value = f;
+    radio.checked = f === side;
+    const name = document.createElement('span');
+    name.className = 'rl-versus__side-name';
+    name.textContent = t('versus.faction', { f });
+    label.append(radio, name);
+    sides.appendChild(label);
+    sideRadios.push({ side: f, input: radio });
+  }
+  const sideBlurb = document.createElement('p');
+  sideBlurb.className = 'rl-sandbox__side-blurb';
+  sides.appendChild(sideBlurb);
+  wrap.appendChild(sides);
+
   // --- the options --------------------------------------------------------
   // Behind a closed "Options" disclosure, one quiet line ABOVE the maps
   // (PA-25): extras for the battlefield, not part of the mode a player came
@@ -532,7 +567,7 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   devHint.className = 'rl-sandbox__dev-hint';
   devHint.textContent = t('menu.sandbox.options.hint');
   flagBox.appendChild(devHint);
-  const boxes: { name: SandboxFlagName; input: HTMLInputElement }[] = [];
+  const boxes: { name: SandboxFlagName; input: HTMLInputElement; kdfOnly: boolean }[] = [];
   for (const f of SANDBOX_FLAGS) {
     const label = document.createElement('label');
     label.className = 'rl-sandbox__flag';
@@ -547,8 +582,15 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
     blurb.textContent = t(f.labelKey);
     label.append(input, blurb);
     flagBox.appendChild(label);
-    boxes.push({ name: f.name, input });
+    boxes.push({ name: f.name, input, kdfOnly: f.kdfOnly === true });
   }
+  // GH-1381: why a box is greyed while Sarim is picked. Tied to each such box, shown only then.
+  const kdfOnlyNote = document.createElement('p');
+  kdfOnlyNote.className = 'rl-sandbox__dev-hint';
+  kdfOnlyNote.id = 'rl-free-play-kdf-only';
+  kdfOnlyNote.textContent = t('freePlay.side.kdfOnly');
+  kdfOnlyNote.hidden = true;
+  flagBox.appendChild(kdfOnlyNote);
   dev.appendChild(flagBox);
   wrap.appendChild(dev);
 
@@ -596,11 +638,25 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   wrap.appendChild(nav);
 
   const refresh = (): void => {
+    side = sideRadios.find((r) => r.input.checked)?.side ?? 'kdf';
+    sideBlurb.textContent = t(`versus.lobby.faction.${side}.blurb`);
+    // A KDF-only extra cannot be had on the Sarim side (`sideFlags`): its box is greyed, and
+    // `routes.sandbox` leaves it off the link whatever it says, so a box ticked before the
+    // switch is still ticked when the KDF comes back.
+    const sarim = side === 'sarim';
+    kdfOnlyNote.hidden = !sarim;
+    for (const b of boxes) {
+      if (!b.kdfOnly) continue;
+      b.input.disabled = sarim;
+      if (sarim) b.input.setAttribute('aria-describedby', kdfOnlyNote.id);
+      else b.input.removeAttribute('aria-describedby');
+    }
     const on: Partial<Record<SandboxFlagName, boolean>> = {};
     for (const b of boxes) on[b.name] = b.input.checked;
-    for (const l of links) l.a.href = routes.sandbox(l.id, on);
+    for (const l of links) l.a.href = routes.sandbox(l.id, on, side);
   };
   for (const b of boxes) b.input.addEventListener('change', refresh);
+  for (const r of sideRadios) r.input.addEventListener('change', refresh);
   refresh();
 
   // The one footer row (`foot.ts`, GH-498), sticky: the map list is long, and

@@ -1702,6 +1702,7 @@
   "hud.works.progress": "{n}% built",
   "freePlay.option.soft": "Soft smoke: billows fade where they meet the ground",
   "freePlay.option.works": "Field works on offer: every buildable type twice, and an engineer squad to raise them",
+  "freePlay.side.kdfOnly": "Greyed options are for the KDF side only",
   "dock.note.locked": "<b>{name}</b> is locked — {reason}",
   "dock.note.building": "<b>building</b> {name} — {where, select, camp {deploys at {camp}} shortest {deploys at the camp with the shortest queue} other {deploys at the start line}}",
   "dock.note.cannotBuild": "cannot build {name} — insufficient logistics",
