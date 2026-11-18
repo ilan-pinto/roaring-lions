@@ -138,10 +138,14 @@ are local files the lead writes and deletes. Run from a checkout at the merged c
    **Expected: both sockets drop and reconnect inside the 60 s forfeit; play resumes.** Record
    `reconnects.lastOutageMs`.
 6. Repeat step 3 with a third tab idle in a lobby, and with a seat in the middle of a snapshot upload.
-7. **The switch.** `npx wrangler secret put ROOMS_NEW -c dist-gh1397/game.jsonc`, value `0`. **Expected: the
-   open relay room ends** (one namespace only). Create a room: the relay's tail stays quiet (it is in the legacy
-   class). Then `npx wrangler secret delete ROOMS_NEW -c dist-gh1397/game.jsonc`; a new room is the relay's again.
-   Record the times.
+7. **The switch.** Keep the versus room from step 3 open, then `npx wrangler secret put ROOMS_NEW -c
+   dist-gh1397/game.jsonc`, value `0`. **Expected: the open relay room PLAYS ON.** That is not a failure: the put
+   changes only where the game Worker sends NEW requests (§6, "What the flip does to a live relay room"), and
+   step 3 showed that a new game Worker version leaves the relay's sockets open. Create a room in a third tab: the
+   relay's tail stays quiet (it is in the legacy class). Then close one tab of the relay room. **Expected: about
+   60 s later (`FORFEIT_MS`) the other tab is told the match ended `forfeit` against the closed seat.** Then
+   `npx wrangler secret delete ROOMS_NEW -c dist-gh1397/game.jsonc`; a new room is the relay's again. Record the
+   times.
 8. **Parity smoke** (as §5.3 step 4): with the cut in place, create a room in one browser and join from the
    other; play a few seconds. A ticket signed by the game Worker and verified by the relay's room proves the
    secret is the same on both.
@@ -164,12 +168,12 @@ neither staging namespace.
 | # | Step | Command or action |
 |---|---|---|
 | P0 | Merge slices R1 to R4 | `wrangler.jsonc` unchanged: an ordinary game deploy; nothing points at the relay |
-| P1a | Deploy the relay | `npx wrangler deploy -c wrangler.relay.jsonc` |
-| P1b | Its secret, **the same value** as the game Worker's | `npx wrangler secret put TICKET_SECRET -c wrangler.relay.jsonc`. A secret cannot be read back: if the value is not at hand, generate a new one and put it on BOTH Workers at the quiet hour (tickets in flight then fail, as any rotation does) |
-| P1c | The relay's Workers Builds project | §3 |
-| P1d | The staging run | §4, all of it, before P2 |
-| P2 | The cut, at a quiet hour | merge the one-file PR of §2; Workers Builds deploys the game Worker. **Every room open at that moment ends** (D-R1) |
-| P3 | The smoke, within minutes | create a room in the game's own page, join from a second browser, play a few seconds (proves `TICKET_SECRET` parity on the real secrets) |
+| P1a | The staging run, FIRST | §4, all of it, before any production step: it confirms §12 facts 1, 2 and 4, which P1b and P2 rely on. If step 4.2.3 fails, stop here |
+| P1b | Deploy the relay | `npx wrangler deploy -c wrangler.relay.jsonc` |
+| P1c | Its secret, **the same value** as the game Worker's | `npx wrangler secret put TICKET_SECRET -c wrangler.relay.jsonc`. A secret cannot be read back: if the value is not at hand, generate a new one and put it on BOTH Workers at the quiet hour (tickets in flight then fail, as any rotation does) |
+| P1d | The relay's Workers Builds project, LAST, just before P2 | §3. Created any earlier, it only spends Workers Builds capacity on relay redeploys that nothing uses |
+| P2 | The cut, at a quiet hour | First, `npx wrangler secret list` on the game Worker must show **no** `ROOMS_NEW` (a leftover `0` would send every room to `ROOMS_LEGACY` and make the cut a silent no-op). Then merge the one-file PR of §2; Workers Builds deploys the game Worker. **Every room open at that moment ends** (D-R1) |
+| P3 | The smoke, within minutes (the lead runs it; agents never run `wrangler tail`) | In a second terminal, `npx wrangler tail roaring-lions-relay`. Then create a room in the game's own page, join from a second browser, play a few seconds. **The tail must show the room's invocations.** A smoke that plays while the tail stays quiet means the room is in the game Worker's own class: the cut did nothing (check `npx wrangler secret list` for `ROOMS_NEW`). A smoke that plays with the tail showing the room proves `TICKET_SECRET` parity on the real secrets |
 | P4 | From here | a merge to `main` redeploys the game Worker only; the relay deploys only when a §3 watch path changes |
 
 ## 6. Rollback
@@ -177,10 +181,33 @@ neither staging namespace.
 | Where | What |
 |---|---|
 | P1, the relay is bad | Nothing points at it. `npx wrangler deploy -c wrangler.relay.jsonc` again, or `npx wrangler delete -c wrangler.relay.jsonc` |
-| After the cut, the smoke fails or the relay misbehaves | `npx wrangler secret put ROOMS_NEW` (the game Worker, value `0`). No code deploy: every route uses `ROOMS_LEGACY`, the game Worker's own class. Rooms open in the relay end (one namespace only). A secret put does make a new version of the game Worker, which restarts the game Worker's own objects, not the relay's. Then revert the cut PR at leisure |
-| Undo the switch | `npx wrangler secret delete ROOMS_NEW` (rooms open in the legacy class then end) |
-| The cut PR reverted | `ROOMS` is the game Worker's own class again; rooms made in the relay are unreachable and end on their seats' forfeits (60 s). Say so in the revert PR |
+| After the cut, the smoke fails or the relay misbehaves | `npx wrangler secret put ROOMS_NEW` (the game Worker, value `0`). No code deploy: every NEW route call (create, join, reconnect, snapshot, watch) uses `ROOMS_LEGACY`, the game Worker's own class. **It does not end a relay room whose seats are still connected**: that room plays on, and still writes its match record, until it ends by its own rules (below). A secret put does make a new version of the game Worker, which restarts the game Worker's own objects, not the relay's. Check the flip took: create a room and confirm `npx wrangler tail roaring-lions-relay` stays quiet (a dashboard entry of ` 0` or `O` is a silent no-op). Then revert the cut PR at leisure |
+| Stop a live relay room now | There is no route or command in the code that ends a room on demand (the relay's own `fetch` answers 404 and it has no public URL). With the flip in place, redeploy the relay (`npx wrangler deploy -c wrangler.relay.jsonc`, or the `rollback` below): a relay deploy restarts its objects and drops their sockets (§12 fact 3, step 4.2.5), each seat's reconnect now reaches the legacy class, which has no such room and answers `ended` (`expired`), and the relay room, woken by its own alarm, finds every seat gone and ends `FORFEIT_MS` (60 s) later: `void` when both dropped at that instant, `forfeit` against a seat that had dropped earlier. A sandbox room has no forfeit and waits for its TTL (below) |
+| Undo the switch | `npx wrangler secret delete ROOMS_NEW` (the delete makes a new game Worker version, which restarts the legacy class's rooms; their seats then reconnect to the relay, find no room and are told the match ended) |
+| The cut PR reverted | `ROOMS` is the game Worker's own class again, and new route calls cannot reach a relay room. A relay room whose seats are still connected plays on, as after the flip; when a seat drops, its reconnect reaches the game Worker's own class and is told the match ended, and the relay room forfeits that seat 60 s after the drop. Say so in the revert PR. **Once the revert is deployed, `npx wrangler secret delete ROOMS_NEW`** (the game Worker): with `ROOMS_LEGACY` unbound it does nothing today, but the day the cut is re-merged a leftover `0` selects `ROOMS_LEGACY` again and the re-cut silently does nothing (P2 checks for it too). Not before the revert is deployed: while `ROOMS_LEGACY` is bound, the delete sends new rooms back to the relay |
 | A bad relay version | `npx wrangler rollback -c wrangler.relay.jsonc`, unless a migration shipped in that version |
+
+### What the flip does to a live relay room (from the code)
+
+`roomsOf` (`packages/worker/src/match/routes.ts`) chooses a namespace per HTTP request and never probes the
+other, so `ROOMS_NEW=0` changes where the game Worker sends the NEXT request, nothing more. A relay room's state,
+its storage alarm and its accepted sockets (Hibernation API) live in the relay script, which the flip does not
+touch, and step 4.2.3 measures that a new game Worker version (which the secret put is) leaves those sockets
+open. So a relay room with connected seats keeps playing. What changes for it: a seat's join, reconnect upgrade,
+snapshot upload or download and a spectator's watch now reach the legacy class, which has no such room. A `/ws`
+there is told `ended` (`expired`) and closed, and the legacy object answers any other room call 404 `no such room`.
+
+It ends by the room's own rules only (`room-core.ts`, constants in `@lions/net`'s `protocol.ts`):
+- both seats report the result: the room closes `OVER_CLOSE_MS` (120 s) later;
+- a seat sends `bye` (a leave, which is a surrender once started) or surrenders;
+- a versus seat disconnected for `FORFEIT_MS` (60 s) loses (`forfeit`; both gone at the same instant is `void`).
+  The room's one alarm is aimed at that deadline, so it fires with nobody connected. A sandbox room has no forfeit;
+- a desync, or the command log's cap: `void`;
+- `ROOM_TTL_MS`, **6 hours after the room was created**, whatever its status: `expired`.
+
+So the most a relay room outlives the flip is the rest of its six hours, and its storage is wiped
+`PURGE_AFTER_MS` (120 s) after it ends. There is no forced-end mechanism in the code; "Stop a live relay room now"
+above is the only lever, and it is a deploy of the relay.
 
 `ROOMS_NEW` is a **secret**, not a dashboard variable: a deploy keeps a secret and drops a dashboard variable
 that `wrangler.jsonc` does not declare (the same reason `FEEDBACK_CLOSED` is a secret). Only exactly `0` flips it;
