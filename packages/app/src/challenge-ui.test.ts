@@ -118,7 +118,7 @@ describe("the run's ids (amendmentsForRun): what the save, the replay and Restar
 });
 
 describe('C15: the ids are a start input, so a save and a replay carry them', () => {
-  const base = { ledger: opened as CampaignLedger, tiers: {}, unlocks: [], deploy: null };
+  const base = { ledger: opened as CampaignLedger, tiers: {}, picks: {}, unlocks: [], deploy: null };
   it('an amended run’s start inputs hold the ids, and parse back to them', () => {
     const j = JSON.parse(JSON.stringify(startInputsJson({ ...base, amendments: QUIET_SOUK })));
     expect(j.amendments).toEqual(QUIET_SOUK);

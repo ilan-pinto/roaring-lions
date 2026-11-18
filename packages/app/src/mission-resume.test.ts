@@ -199,7 +199,7 @@ describe('loadResume: every reason a resume does not start, and what it leaves b
 
   it('GH-1395 slice 2 (C15): an amended save loads with its ids; a record whose own ids and its inputs\' disagree is failed', async () => {
     const ids = ['no_medic', 'light_order'];
-    const campaign = startInputsJson({ ledger: LEDGER, tiers: TIERS, unlocks: new Set(['b', 'a']), deploy: new Set([2, 0]), amendments: ids });
+    const campaign = startInputsJson({ ledger: LEDGER, tiers: TIERS, picks: PICKS, unlocks: new Set(['b', 'a']), deploy: new Set([2, 0]), amendments: ids });
     const amended = { campaign, campaignDigest: digestOf(campaign) };
     const got = await load(await record({ ...amended, amendments: ids }));
     expect(got.ok && got.loaded.inputs.amendments).toEqual(ids);

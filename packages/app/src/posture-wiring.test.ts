@@ -172,7 +172,7 @@ describe('the challenge UI wiring (main.ts, GH-1395 slice 2)', () => {
   });
 
   it('carries the run’s ids into the start inputs, the save record, the replay and Restart (D10)', () => {
-    expect(main).toMatch(/sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen, amendments: runAmendments \}\)/);
+    expect(main).toMatch(/sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen, amendments: runAmendments \}\)/);
     expect(main).toMatch(/campaign: startInputs,\s*(\/\/[^\n]*\n\s*)*\.\.\.\(runAmendments\.length > 0 \? \{ amendments: runAmendments \} : \{\}\),/);
     expect(main).toMatch(/deploy: picks === null \? null : \[\.\.\.picks\.chosen\],\s*(\/\/[^\n]*\n\s*)*\.\.\.\(runAmendments\.length > 0 \? \{ amendments: \[\.\.\.runAmendments\] \} : \{\}\),/);
     expect(main).toMatch(/req\.restart\(\{ amendments: runAmendments \}\);/);
