@@ -1,6 +1,6 @@
 # A ranked 1v1 queue: rating, leaver penalty, matchmaking (GH-1399) — design for the lead
 
-**Date:** 2026-11-17 · **Status:** HOLD FOR LEAD. Docs only: no code, no migration file, no config, no deploy, nothing run against
+**Date:** 2026-11-17 · **Status: approved as a design by the lead, 19 Nov 2026.** Docs only: no code, no migration file, no config, no deploy, nothing run against
 Cloudflare. GH-1399 itself is blocked until the lead unparks sim balance, and the queue must not open before GH-205; this note is
 the design that work would follow, so the rulings can come before the slices.
 **Builds on (does not replace):** the public matchmaking design (`2026-10-28-public-matchmaking-design.md`, "the PM design"; the
@@ -841,7 +841,8 @@ stage, the gap at pairing, leave and dispute rates) and the §2.4 and §3.3 cons
 
 ## 9. Open questions for the lead
 
-The recommendation comes first in each.
+The lead's approval of the design (19 Nov 2026) does not answer these; each is still open. The recommendation comes
+first in each.
 
 1. **The authoritative path.** Is A3's agreed rule (two matching reports with a compared hash, or a room-decided end), extended by §2.2,
    the "server-authoritative path" GH-1399 asks for? **Recommended: yes.** The Worker cannot run the sim on Free, so an agreed lockstep
