@@ -38,7 +38,8 @@
 // '2' -> '1' (symmetry); versus_1 moved from (75,20) to (76,20) (3 red: seat mirror, marker pairs, the KDF mirror's spawn); a `^` on a
 // formation tile at (22,80), seat 0's own (2, 5) offset, its twin left alone (4 red: symmetry and the three pairings' spawns).
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, units, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, units, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import type { Faction } from '@lions/net';
 import { FlowField } from '../../packages/sim/src/flowfield';
 import { Sim } from '../../packages/sim/src/sim';

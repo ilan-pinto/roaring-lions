@@ -18,7 +18,8 @@
 // under test, because the share and the counts ARE their output.
 import { describe, expect, it } from 'vitest';
 import { Sim } from '../../packages/sim/src/sim';
-import { applyTerrain, maps, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { decorPlacements, type TerrainInput } from '../../packages/render/src/three/terrain/index';
 import { buildTerrainSurface } from '../../packages/render/src/three/terrain/surface';
 import { terrainTonesFor } from '../../packages/app/src/terrain-themes';

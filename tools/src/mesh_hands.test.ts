@@ -167,18 +167,28 @@ const FUSED_HAND_OPEN: Readonly<Record<string, readonly string[]>> = {
   'demo_squad demo_a_R': ['palm breadth', 'hung elbow height over stature'],
   'demo_squad demo_b_L': ['palm breadth', 'hand over forearm', 'visible forearm', 'hung elbow height over stature'],
   'demo_squad demo_b_R': ['palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  // GH-826 unit "Yahalom" (17 Nov 2026): the Combat Engineers' body in the lead's two scalings for this team (yah_a 1.76 m
+  // and 6 % wider, yah_b 1.86 m and 2 % narrower), so the same named readings, moved by the scalings. The fists are that
+  // body's, unshrunk: 0.114-0.134 long (yah_b's firing fist 1 mm under the 0.115 floor), the palms 0.069-0.080 across
+  // (0.085). The carbine is held as high (elbows at 0.670-0.682 of the stature). yah_a's forearms, which lie across the
+  // body and so take his 6 % of girth, read 0.290 and 0.305 (0.285), and his firing hand over its forearm 0.408 (0.42).
+  'yahalom_squad yah_a_L': ['palm breadth', 'hand over forearm', 'visible forearm', 'hung elbow height over stature'],
+  'yahalom_squad yah_a_R': ['palm breadth', 'visible forearm', 'hung elbow height over stature'],
+  'yahalom_squad yah_b_L': ['hand length', 'palm breadth', 'hung elbow height over stature'],
+  'yahalom_squad yah_b_R': ['palm breadth', 'hung elbow height over stature'],
 };
 
 /** The figures of each fused team (literals: a team that ships fused without a row here fails the population check). */
 const FUSED_FIGURES: Readonly<Record<string, readonly string[]>> = {
   demo_squad: ['demo_a', 'demo_b'],
   inf_squad: ['f0', 'f1', 'f2'],
+  yahalom_squad: ['yah_a', 'yah_b'],
 };
 
 describe('a fused (Meshy) figure\'s hands, against the same bands: every violation named', () => {
   const fused = readdirSync(MESHES).filter((n) => n.endsWith('.glb')).map((n) => n.slice(0, -4)).filter((t) => isFusedHands(`${MESHES}${t}.glb`));
   it('reads the fused population: the Rifle Squad and the Combat Engineers, and every exemption names one of their hands', () => {
-    expect(fused).toEqual(['demo_squad', 'inf_squad']);
+    expect(fused).toEqual(['demo_squad', 'inf_squad', 'yahalom_squad']);
     expect(Object.keys(FUSED_FIGURES).sort()).toEqual(fused);
     for (const k of Object.keys(FUSED_HAND_OPEN)) {
       const [team, hand] = k.split(' ');

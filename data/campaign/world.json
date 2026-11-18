@@ -27,6 +27,21 @@
           ]
         },
         {
+          "id": "qasr_liwan",
+          "name": "Qasr Liwan",
+          "at": [
+            64,
+            318
+          ],
+          "missions": [
+            "qasr_liwan_1_recon",
+            "qasr_liwan_2_foothold",
+            "qasr_liwan_3_buildup",
+            "qasr_liwan_4_clearance",
+            "qasr_liwan_5_subterranean"
+          ]
+        },
+        {
           "id": "khan_rafid",
           "name": "Khan Rafid",
           "at": [

@@ -7,7 +7,7 @@
  * the element, and a Discard that completes after the row was disposed touches nothing (`disposed`).
  */
 import type { ResumeRefusal } from '../mission-save';
-import type { MovedWhat } from '../mission-resume';
+import type { MovedWhat, PostureShift } from '../mission-resume';
 import { t } from '../i18n/t';
 import { confirmDialog } from './confirm';
 import { resumeRefusalText, savedAgo } from './resume-copy';
@@ -16,8 +16,9 @@ export type ResumeView =
   | { state: 'none' }
   /** `note: 'failed'`: a resume was tried and could not be completed; the save is kept and Resume may be tried again. */
   | { state: 'ready'; missionId: string; savedAt: number; simTick: number; note?: 'failed' }
-  /** `moved` (only with reason `moved`): which parts of the campaign changed since the save, so the line can name them. */
-  | { state: 'refused'; reason: ResumeRefusal | 'moved'; moved?: readonly MovedWhat[] };
+  /** `moved` (only with reason `moved`): which parts of the campaign changed since the save, so the line can name them; `posture`, the two
+   *  postures when the posture is one of them (GH-1394). */
+  | { state: 'refused'; reason: ResumeRefusal | 'moved'; moved?: readonly MovedWhat[]; posture?: PostureShift };
 
 export interface ResumeRowDeps {
   /** What is stored right now (`readSuspended`). Read once when the row is built and again after a discard. */
@@ -94,7 +95,7 @@ export function resumeRow(deps: ResumeRowDeps): { el: HTMLElement | null; dispos
         else paint();
       });
     } else {
-      line.textContent = resumeRefusalText(v.reason, v.moved);
+      line.textContent = resumeRefusalText(v.reason, v.moved, v.posture);
       actions.append(button(t('resume.card.discard'), 'discard'));
     }
     actions.querySelector<HTMLButtonElement>('[data-act="discard"]')!.addEventListener('click', () => {

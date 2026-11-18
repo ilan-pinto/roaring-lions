@@ -136,8 +136,8 @@ describe('the OFL text, set readably', () => {
   const files = readdirSync(FONTS).filter((f) => /^OFL-.*\.txt$/.test(f));
   const words = (s: string): string[] => s.split(/\s+/).filter((w) => w !== '' && !/^-{5,}$/.test(w));
 
-  it('finds the three shipped licence files', () => {
-    expect(files.length).toBe(3);
+  it('finds the five shipped licence files (the three faces and the two Cyrillic companions, GH-1407)', () => {
+    expect(files.length).toBe(5);
   });
 
   it.each(files)('%s: every word of the file is on screen, in order, nothing added', async (file) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MissionRuntime, Sim, TICKS_PER_SECOND, compileFormation, fx, type FormationJson, type MissionJson } from '@lions/sim';
-import { applyTerrain, assemblyLayout, maps, missions, parseMap, units } from '@lions/data';
+import { applyTerrain, assemblyLayout, parseMap, units } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { standMapStructures } from './map-sim';
 import { JUST_OUTSIDE_TILES, unitsJustOutside, withOutsideCounts } from './hold-outside';
 import { holdClock, type ObjectiveView } from './ui/hud-model';
