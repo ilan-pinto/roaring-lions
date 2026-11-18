@@ -160,6 +160,27 @@ describe('no_collateral_above', () => {
   });
 });
 
+describe('E3: evacuate_before group', () => {
+  const evac = (extra: Obj = {}): Obj => ({ id: 'out', type: 'evacuate_before', primary: true, target: 'dest', count: 1, seconds: 300, ...extra });
+  const civ = { civilians: { refuge: 'r', groups: [{ unit: 'c', count: 2, at: [3, 5], group: 'north' }, { unit: 'v', count: 1, at: [4, 5], group: 'cart', passengers: [{ unit: 'c', count: 1, group: 'riders' }] }] } };
+  it('passes a scope of declared civilian groups, a passenger group among them, and an unscoped evacuation', () => {
+    expect(run(evac({ group: 'north' }), [hold], civ)).toEqual([]);
+    expect(run(evac({ group: ['north', 'cart', 'riders'] }), [hold], civ)).toEqual([]);
+    expect(run(evac(), [hold], civ)).toEqual([]);
+  });
+  it('refuses a name no civilian placement declares, one message per name', () => {
+    expect(run(evac({ group: ['north', 'south'] }), [hold], civ)).toEqual(['fx.json: evacuate_before "out" names group "south", which no civilian placement declares']);
+    expect(run(evac({ group: 'south' }), [hold], civ)).toHaveLength(1);
+  });
+  it('refuses a name only a soldier placement carries', () => {
+    const m = { ...civ, starting_force: force({ unit: 'u', count: 1, at: [3, 5], tag: 'vip', group: 'troop' }) };
+    expect(run(evac({ group: 'troop' }), [hold], m)).toEqual(['fx.json: evacuate_before "out" names group "troop", which no civilian placement declares']);
+  });
+  it('refuses a group on any other type', () => {
+    expect(run({ ...hold, group: 'north' }, [], civ)).toEqual(['fx.json: objective "hold" is a survive_until, which takes no group (only evacuate_before does)']);
+  });
+});
+
 describe('the shipped missions', () => {
   it('pass the same checks (no stray `zone` or `threshold`, and any escort or ceiling that ships is well formed)', () => {
     const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
