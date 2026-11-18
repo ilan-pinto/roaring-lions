@@ -1,7 +1,7 @@
 # Civilian drama: crowds, threats and the compound gate
 
-**Date:** 2026-11-18 · **Status:** design. Q1 to Q3 are RULED (18 Nov, below) and D18 is written into `storyline.md`;
-Q4 to Q11 stay **HOLD FOR LEAD** and nothing else here is canon or scheduled until the lead answers §7. **Written against** `origin/dev` at `93448908f`; every
+**Date:** 2026-11-18 · **Status:** design. Q1 to Q3 and Q11 are RULED and Q5 is answered (18 Nov, below), and D18 is written into `storyline.md`;
+Q4, Q6 to Q9 and Q10 (art spend) stay **HOLD FOR LEAD** and nothing else here is canon or scheduled until the lead answers §7. **Written against** `origin/dev` at `93448908f`; every
 code claim cites a file and line range read this session. Claims not read are marked
 **UNREAD**; estimates are marked **ESTIMATE**.
 **Contract:** `docs/campaign/README.md`. **Canon:** `docs/campaign/storyline.md`.
@@ -42,7 +42,7 @@ once.
   5. **Order:** data first; the vehicle snatch (T3, with E9's vehicle pieces and G-9) is DEFERRED; `road_in` stays thin (a small bonus, not
      a second win condition); the E13 force-to-gate rule is RELAXED (one `at_team` stands 4.61 tiles from the west gate).
 - **Fixed in this revision:** the stale Q2 recon text in section 7 is marked superseded; the `mission.ts:4846` citation (the `evacuatedCount`
-  comparison is at `mission.ts:4843`); the two stale German overlay hashes (`wadi_halam_1_fords` `objective_say.get_the_carriers_out`,
+  comparison is at `mission.ts:4843`); the two `main.ts` citations (capacity 256, the mission-event loop), re-pointed at `origin/dev` `74f9a0ff3`; the two stale German overlay hashes (`wadi_halam_1_fords` `objective_say.get_the_carriers_out`,
   `wadi_halam_4_village` `objective_say.evac_families`) now equal the current English.
 - **Still HOLD FOR LEAD:** Q4 (the 256-entity cap), Q6 (scoring on the after-action report), Q7, Q8, Q9 and **Q10** (art numbers: the gate is
   a Blender build at 0 credits, six Meshy civilian variants at about 240 to 420 credits, nothing spent until the lead approves the spend).
@@ -82,7 +82,7 @@ ESTIMATE used to set the margins in §3, to be replaced by `playtest` measuremen
 
 | id | name | A form (line moved) | B form (line kept) | the player's decision | competent loss ceiling (ESTIMATE) |
 |---|---|---|---|---|---|
-| **T1** | **Firing line** | 1–2 enemy cells overlook the run and fire on the crowd while no KDF target is in their range. A civilian who is hit **falls** (the shipped `down` state, `data/units/civilians.json` `wounds.in_place: true`, `bleed_s` 60) and lies until a medic reaches him. KDF presence draws the fire. **Needs G-4** | **Crossfire.** Enemy fire aimed at KDF soldiers moving with the crowd (a mortar or rocket on an observer) lands among the civilians. Splash hurts them; enemy-caused deaths cost no Conduct (`mission.ts:4050-4056` charges only `st.side[e.by] === 0`). **Today** | draw the fire, or smoke the lane (100 Intel), or keep the soldiers away from the crowd; the mortar on the line is quick and danger-close (`DANGER_CLOSE_SQ`, 2 tiles, `mission.ts:794`) | A: 12–15% downed; B: 5–10% |
+| **T1** | **Firing line** | 1–2 enemy cells overlook the run and fire on the crowd while no KDF target is in their range. A civilian who is hit **falls** (the shipped `down` state, `data/units/civilians.json` `wounds.in_place: true`, `bleed_s` 60) and lies still; unless a medic reaches him he bleeds out in 60 s (faster while pinned, `sim.ts:10022-10039` `stepWounded`) and is lost, the lead's rescue clock of 18 Nov. KDF presence draws the fire. **Needs G-4** | **Crossfire.** Enemy fire aimed at KDF soldiers moving with the crowd (a mortar or rocket on an observer) lands among the civilians. Splash hurts them; enemy-caused deaths cost no Conduct (`mission.ts:4050-4056` charges only `st.side[e.by] === 0`). **Today** | draw the fire, or smoke the lane (100 Intel), or keep the soldiers away from the crowd; the mortar on the line is quick and danger-close (`DANGER_CLOSE_SQ`, 2 tiles, `mission.ts:794`) | A: 12–15% downed; B: 5–10% |
 | **T2** | **Abduction column** | A small escort walks a separate captive group toward an exit zone at the map edge. Reaching the column frees the captives. If they reach the exit they are `remove`d as taken. Today this can only be approximated (§4 G-5); doing it properly needs G-5 | **Deadline taking.** Whoever is still outside at the deadline leaves play as taken. This is the shipped pattern in `beit_sahwan_breach` (272 s), `khan_rafid_1_recon` (250), `qarn_hadid_1_recon` (250) and `umm_zeitoun_1_recon` (242). The feed names each one taken (`mission.ts:4607-4640`). **Today** | split the force: a detachment intercepts the column, or everyone holds the run | A: the column's size, ≤15% of the crowd; B: 0% to a competent player |
 | **T3** | **Vehicle snatch** | A technical (3 seats, `data/units/enemy/technical.json`) loads civilians and drives for the exit. Stop it short of the exit, which today means a `dismount` trigger, or immobilise it. Killing it outright is the ROE cliff (storyline T9). **Needs G-9** | not used; substitute T4 | catch a 2.6 t/s truck with the right weapon, not the biggest one | A: 3 per technical, ≤2 technicals |
 | **T4** | **Blocked road** | as B | A mission-raised barrier (`structures[]`) and a `hold_position` group close the short route between the muster and the refuge. The crowd stalls behind the barrier, in the open. The tank gun breaks the barrier fast but is danger-close to the crowd. The demo squad is slow and costs nothing (an explicit `demolish` order; a low-profile barrier is never demolished on a sapper's own initiative, `sim.ts` `stepDemolition`, the `lowProfile` skip). **Today**, except that per-tile barrier placement by `structures[]` is UNREAD (G-19) | breach by hand or by gun | 0% direct; exposure time only |
@@ -267,7 +267,7 @@ civilians between them today.
 
 | constraint | number | source | what it means for crowds |
 |---|---|---|---|
-| sim capacity | **256 entities, lifetime** | `packages/app/src/main.ts:2392`, `tools/src/backtest/playtest-run.ts:348`; `spawn` **throws** at capacity (`sim.ts:4309`) | Every placement, wave, spawn, reinforcement, production purchase and **every wounded man a squad sheds** (`fallMan` spawns a new entity, `sim.ts:9686-9700`) counts, and dead bodies are never freed. Civilians fall in place (`wounds.in_place: true`), so they spawn nothing extra. **Rule: authored entities ≤ 160**, leaving ≥ 96 for wounded and production (G-10) |
+| sim capacity | **256 entities, lifetime** | `packages/app/src/main.ts:2403-2408`, `tools/src/backtest/playtest-run.ts:348`; `spawn` **throws** at capacity (`sim.ts:4309`) | Every placement, wave, spawn, reinforcement, production purchase and **every wounded man a squad sheds** (`fallMan` spawns a new entity, `sim.ts:9686-9700`) counts, and dead bodies are never freed. Civilians fall in place (`wounds.in_place: true`), so they spawn nothing extra. **Rule: authored entities ≤ 160**, leaving ≥ 96 for wounded and production (G-10) |
 | sim tick | 300 units: p95 2.6 ms (M3 Pro, C1), 4.1 ms with wounds (C5), 5.1 ms (cloud, C8), against a 50 ms budget; crossed at ~1,700–2,100 living | `docs/PERFORMANCE.md:66,73,80`; `docs/agent-notes/scaling-debts.md:39-52` | **not binding.** Civilians observe nothing (`sim.ts:7531`) and are never targets (`sim.ts:8023-8025`), but they are detection *targets* (`sim.ts:7538-7549`). About 40 observers × 140 targets is 5,600 pairs, against ~1,600 today: ≈3.5× the detection cost, still under 10% of budget (ESTIMATE from C-rows) |
 | render, frame | 60 fps = 16.7 ms. **The latest all-mesh curve: 10.8 / 17.8 / 30.0 / 39.7 ms p95 at 65 / 143 / 266 / 320 living** | `docs/PERFORMANCE.md:45` (F9, ANGLE/Metal M3 Pro; "needs Metal re-read", predates L1–L5, 3D grass, ragdolls) | **the binding constraint.** On F9's curve the frame budget goes at about 130–140 living. The "~1,150 figures" in CLAUDE.md is the stand-in harness (`scaling-debts.md:76-83`); the shipped roster measured lower. A civilian is **1 figure** (`civilians.json` `figures: 1`) and **4–7 mesh primitives** (GLB census: child 4, woman 6, office 6, farm 7). A squad entity is several figures, so a civilian probably costs less per entity than F9's average. That is UNMEASURED |
 | wounded cap | 24 down at once per side | `tuning.ts:577`; past it a hit kills outright (`sim.ts:9694`) | a firing line must down fewer than 24 at once. T1-A is sized at 1–2 cells |
@@ -368,7 +368,7 @@ carrier is buildable today (`docs/agent-notes/sim-and-orders.md:140`).
 | **G-7** | A rescued wounded civilian is never "saved". A downed civilian is never collected (`civilians.ts:268-271`) and leaves by `woundEvacuated`/`woundAdmitted` (`mission.ts:4066-4072`), which `evacuate_before` does not count | — | count side-2 `woundEvacuated`/`woundAdmitted` toward a group's evacuation count (option on `evacuate_before`) | S | `sim-guard` | — |
 | **G-8** | Group-scoped conditions: no "group lost", and `zone_entered` fires for a drone | — | `on.kind: group_lost` (every member dead, down or removed); `zone_entered.ground_only: true` | S each | `sim-guard` | — |
 | **G-9** | Vehicle snatch (**A only**). Civilians in a side-1 carrier would spawn as side 1 and become targets. A carrier killed with riders "bails them out hurt" (`sim.ts:12448-12466`). Whom the ROE charges for a rider killed by that is **UNREAD** | — | passengers keep their own side (side 2 in a side-1 carrier); pin the ROE attribution of a rider's death to the shooter of the carrier | M | `sim-guard` | — |
-| **G-10** | Capacity: 256 lifetime, and `spawn` throws mid-mission (`sim.ts:4309`) | — | (a) a `validate:data` budget: authored entities ≤ 160 a mission (S, `content-validator`); or (b) raise capacity in `main.ts:2392` and `playtest-run.ts:348`. Arrays such as `contact` scale with `side * capacity` (`sim.ts:2325`); whether hash bytes move is **UNREAD**. §7 Q4 | S / M | `content-validator` / `sim-guard` | (a) yes |
+| **G-10** | Capacity: 256 lifetime, and `spawn` throws mid-mission (`sim.ts:4309`) | — | (a) a `validate:data` budget: authored entities ≤ 160 a mission (S, `content-validator`); or (b) raise capacity in `main.ts:2403-2408` and `playtest-run.ts:348`. Arrays such as `contact` scale with `side * capacity` (`sim.ts:2325`); whether hash bytes move is **UNREAD**. §7 Q4 | S / M | `content-validator` / `sim-guard` | (a) yes |
 | **G-11** | Wounded cap 24 per side (`tuning.ts:577`) | — | no change (`tuning.ts` is off limits to design). Size every firing line to stay under it | — | — | yes |
 | **G-12** | Render budget: F9 crosses 16.7 ms at ~140 living (`PERFORMANCE.md:45`). `SkinnedMesh` does not instance (`scaling-debts.md:60-62`) | — | (1) a measurement gate before the pilot; (2) if it fails: VAT plus `InstancedMesh` for civilians (the known remedy, `scaling-debts.md:62-69`, with the toon-ramp caveat), or LOD billboards for distant crowd members | (1) S, (2) L | `render-vfx` | (1) yes |
 | **G-13** | Crowd variety: four variants, entity id `n % 4` (`mesh-catalogue.ts:218-243`), so a crowd of 100 is 25 of each | — | per-entity tint jitter from existing palette ramps (skin, cloth), keyed on entity id; presentation only (S). More variants are §5 | S + art | `render-vfx`, `blender-art` | — |
@@ -519,7 +519,7 @@ Each one shows a method.
 
 > **D18 — Civilians in danger, in play.** The enemy may be shown endangering civilians in three
 > ways and no others: an enemy unit may fire toward civilians who are running, and a civilian it
-> hits falls and lies still until a medic reaches him or the mission ends; an enemy group may
+> hits falls and lies still until a medic reaches him or he is lost; an enemy group may
 > lead civilians away on foot, or carry them off in a vehicle, toward the edge of the map, where
 > they leave play as taken; and enemy fire aimed at soldiers may fall among civilians. Nothing
 > else is shown: no harm to anyone already taken, no execution, no blood, wound or body effect
@@ -597,8 +597,8 @@ Nothing is spent until approved.
 
 **Q11: the breach's canon numbers.** `storyline.md:100` and `:211` state "11 civilians in 4
 groups … 2 counted in". Row 2 proposes 40 and 10. Re-state the canon (the meaning "most do not
-get in" is kept), or exempt the breach from the larger crowd? *Recommendation:* re-state it; the
-ratio stays at the same tragedy.
+get in" is kept), or exempt the breach from the larger crowd? **RULED KEEP** (the lead, 18 Nov): "eleven, two counted in, nine
+not" stands, conditional on E3; the earlier recommendation to re-state it is superseded (§11.4).
 
 ---
 
@@ -1114,7 +1114,7 @@ player text avoids the word (§9.1).
 | N7 | §1.1 *muster* | the design word collides with `tel_marum_1_recon`'s player-facing refuge, *"the muster ground"*. Templates here use *holding place*; recommend §1.1 says *apron* or *holding point* |
 | N8 | §1.2 T1-A, G-16 | extend G-16's adult-figures rule to people **led away** (T2-A) and **carried off** (T3-A), not only those under aimed fire; §9.5's D18 (A) does |
 | N9 | §1.2 T3, G-9 | T3's cost line (*"every one of them is billed"*) is true only if G-9 rules that a rider killed with the carrier is charged to its shooter; until then the T3 templates are `engine` |
-| N10 | §1.2 T1-A, D18 (A) *"lies still until a medic reaches him or the mission ends"* | `civilians.json` `bleed_s: 60`: what bleeding does to a downed civilian is UNREAD here. The D18 text in §9.5 promises only the `down` pose, not survival, and no line ever states the outcome of a fall |
+| N10 | §1.2 T1-A, D18 (A) *"lies still until a medic reaches him or the mission ends"* (as first written) | **Resolved** by the lead's rescue-clock ruling (18 Nov): a downed civilian bleeds out in 60 s (`civilians.json` `wounds.bleed_s: 60`; two ticks a tick while pinned, `sim.ts:10022-10039` `stepWounded`) unless a medic reaches him, then `bledOut` and `destroyed`, `by` the man who downed him. D18 now reads "lies still until a medic reaches him or he is lost" and "a downed civilian may be rescued before they are lost"; nothing is shown beyond the `down` pose, and no line states the outcome of a fall |
 | N11 | §3.2 row 22 | *"porters marched off to carry for the battery"* gives the taken a purpose (§9.1 rule 4) |
 | N12 | §3.2 rows 23, 25 | two shipped `say` lines already contradict their own counts (§9.4 PRE); fix them in the drama pass whichever way Q1 goes |
 
@@ -1146,13 +1146,13 @@ player text avoids the word (§9.1).
 | V8 | ROE | `stepRoe` (`mission.ts:3991-4196`): a civilian's death charges `civilian_casualty_penalty` (8) only when `by` is side 0 (4050-4056); **every heavy shot** (collateral >= 0.5, `HEAVY_COLLATERAL` `:796`) with a civilian within 2 tiles of the aimpoint charges 3, no cooldown (4158-4193, `DANGER_CLOSE_SQ` `:794`); a rescue credits +3 (`CONDUCT_GAIN_CIVILIAN`, cap 10, `tuning.ts:593-595`) | enemy-caused deaths cost nothing; the second star is Conduct >= 70 where no `fail_below` (`grade.ts:18-29`) |
 | V9 | who can be shot | `engageable` refuses `side[t] > 1` first (`sim.ts:8022-8026`); `selectTarget` scans ascending ids (8064-8125); civilians **are** detection targets (`sim.ts:7538-7549`) and observe nothing (7531); contact is per side (`contact[sSide*capacity+t] >= IDENTIFIED_AT`, 8033); `isEnemyFire` ignores a side-2 target (`mission.ts:4493-4505`) | a shot aimed at a civilian would not set `first_contact` |
 | V10 | `picture` | a `locate` with no `target` completes at `identified.size >= count` (`mission.ts:4796-4800`), **any** enemy | extra enemy bodies make `picture` cheaper (N26) |
-| V11 | capacity | start-time placements are strict (`Sim.spawn` throws at capacity, `sim.ts:4308-4309`; capacity 256 at `main.ts:2392` and `playtest-run.ts:348`); runtime `spawn`, `reinforce` and wave placements are **skipped whole** when `capacity - entityCount < bodies` (`mission.ts:3825-3835`); `fallMan` kills outright at capacity (`sim.ts:9693-9695`) | overflow degrades silently; it does not throw mid-mission (N21) |
+| V11 | capacity | start-time placements are strict (`Sim.spawn` throws at capacity, `sim.ts:4308-4309`; capacity 256 at `main.ts:2403-2408` and `playtest-run.ts:348`); runtime `spawn`, `reinforce` and wave placements are **skipped whole** when `capacity - entityCount < bodies` (`mission.ts:3825-3835`); `fallMan` kills outright at capacity (`sim.ts:9693-9695`) | overflow degrades silently; it does not throw mid-mission (N21) |
 | V12 | `structures[]` raises per-tile types one body per tile over `size` (default 2x2) and refuses an overlap with an existing building | `mission.ts:3769-3823` | **G-19 is resolved: yes.** A mission can raise a `hesco`, `t_wall` or `fence` run, or a non-per-tile `compound_gate` with `size [1,2]` |
 | V13 | unit facts | `data/units/*.json`: `civilians` 0.8 t/s, hp 200, `wounds.in_place`, sight 4; `militia_cell` sight **7**, rifles range 7, 0.95 t/s; `mortar_crew` mortar_82 range 16, min 4, splash 2, sight 6; `paramotor` sight **14**; `technical` 2.6 t/s; `apc_eitan` 1.8 t/s, 2 seats; `inf_squad` 0.9 t/s, sight 8, rifles 8; `mbt_lavi` 1.1 t/s | the numbers in §10.1.2 |
 | V14 | clocks | `validate_time_limit.mjs:20-45`: floor 120 s per `target_minutes`, 60 s clearance over every primary deadline; CLAUDE.md: `pnpm playtest` holds 120 s and 20% over the slowest 30-seed win | `time_limit_s` 840 stands (§10.1.7) |
 | V15 | postures | `data/difficulty/postures.json`: Easier = time x5/4, waves x3/4 and +30 s, a 90 s relief of one `inf_squad` and one `inf_medic_squad`, `uncarry`; Harder = waves x5/4 and -15 s | the pilot has **no waves**, so Harder is a no-op on it (N23) |
 | V16 | passive machinery | `passive-sweep.ts` (30 seeds, `SWEEP_SEEDS`); `playtest.ts:157` pins this mission's control to `'withdrawn'` today; `playtest.ts:138-153` is the event-callback pattern | E11 |
-| V17 | feed | `evacuatedNotice` and `removedNotice` give one line per entity (`ui/mission-notice.ts:47-86`); the catalogue key already takes `{n}`; the loop is `main.ts:6431-6444` | E4 is app-side and small |
+| V17 | feed | `evacuatedNotice` and `removedNotice` give one line per entity (`ui/mission-notice.ts:47-86`); the catalogue key already takes `{n}`; the loop is `main.ts:6456-6469` | E4 is app-side and small |
 | V18 | gate substrate | `addStructure` (`sim.ts:3140-3213`), `removeStructure` (3242-3271), `destroyStructure` (12404-12447; leaves rubble, `recomputeFields('opened')`), `recomputeFields` repairs only fields a living unit follows (3006-3052; `FlowField.repair`, `flowfield.ts:399`), the structure hash fold (14055-14058), snapshot rows (`snapshot-schema.ts:212-222`), the read-only view (`sim.ts:2851-2866`), type compile (`structures.ts:395-425`), `MAX_STRUCTURES` 256 (`sim.ts:1640`) | E1 |
 
 ### 10.1 The pilot level script: `beit_sahwan_1_recon`
@@ -1481,7 +1481,7 @@ Rows the sheet binds to `engine` events (the grove's first fire, the tube's firs
 |---|---|---|---|---|---|
 | E10 | authored-entity budget in `validate:data` (<= 160) | S | both | none | `content-validator` |
 | E13 | muster and sealed-compound validators | S | both | none | `content-validator` |
-| E3 | `evacuate_before.group` (group-scoped count) | S | both | none | `sim-guard` |
+| E3 | `evacuate_before.group` (group-scoped count) | L | both | none | `sim-guard` |
 | E4 | coalesced `clear (n)` and `taken (n)` feed line | S | both | none | `render-vfx` (app) |
 | E11 | passive-probe harness change and the crowd controls | S/M | both | S0 data | `playtest` |
 | E1 | compound gate (structure `gate`, sim) | M | both | none | `sim-guard` |
@@ -1495,7 +1495,7 @@ Rows the sheet binds to `engine` events (the grove's first fire, the tube's firs
 | E12 | a rescued wounded civilian counts as saved (G-7) | S | both, optional | none | `sim-guard` |
 | E15 | the capacity decision | S now, M later | both | E10 | lead, `sim-guard` |
 
-Order of work: **E10, E13, E3, E4, E11** (no sim behaviour change; start now) -> **E1** -> **E2**, **E9** -> **E5** -> **E6**, **E14** -> **E8**; E7 and E12 any time after E3. **B needs no engine beyond E1 to E4, E9 to E11 and E13.** **A adds E5, E6, E8 and E14** (E7 for its cue line, shared with B's).
+Order of work (the lead, 18 Nov): **step 0, the frame measurement** (the pilot's frame cost at up to 180 living entities, before anything else ships; Q5, E9) -> **E3** (sim code, the first and largest engine piece) -> **E13** -> **E10, E4, E11** (no sim behaviour change) -> **E1** -> **E2**, **E9** -> **E5** -> **E6**, **E14** -> **E8**; E7 and E12 any time after E3. **B needs no engine beyond E1 to E4, E9 to E11 and E13.** **A adds E5, E6, E8 and E14** (E7 for its cue line, shared with B's).
 
 ---
 
@@ -1527,7 +1527,7 @@ Order of work: **E10, E13, E3, E4, E11** (no sim behaviour change; start now) ->
 - **Files:** new `packages/render/src/three/gate-mesh.ts` (presentation only; reads the view, writes nothing back); `packages/app/src/mesh-catalogue.ts` (`buildings/compound_gate.glb` and `_wreck.glb`, `mesh-catalogue.test.ts:203-208`); `art/src/buildings/` `.blend` (`leaf_l`, `leaf_r`; 2x1 and 1x2 if Q8 says two types); a yellow key in `data/palette.json` (Q8, the lead); `data/audio.json` rows (`validate:audio`).
 - **Determinism:** none (frame clock; `swingAngle(state, timer)` is a pure function of sim words). **Tests:** the swing angle at timer 0, half and full for OPENING and CLOSING (mutation: reverse the sign); the roster test fails when the GLB is missing (mutation: rename the file); the golden baseline is blessed **from CI**, never from the branch. **Size:** M render; art 0.75 to 1.25 days, 0 credits (Q10).
 
-**E3: `evacuate_before.group`** · S · both · `sim-guard`
+**E3: `evacuate_before.group`** · L (sim code: the schema, the `mission.ts` count, `collect` scoped to the groups of active objectives, the ledger key; N32; the lead's first and largest engine piece) · both · `sim-guard`
 - **Does:** an evacuation objective counts only people of a named civilian group.
 - **Files:** `data/schemas/mission.schema.json` (`objectives.items.properties.group`, plus an `allOf` rule that it is legal on `evacuate_before` only, like `hostages`); the objective type (`mission.ts:~223`); the evaluation at `mission.ts:4830-4848` (`complete = flight.evacuatedCountIn(ids) >= count`); `CivilianFlight.evacuatedCountIn(ids)` in `civilians.ts` (the set is mission-wide, `:62-76`; intersect it with `groups.get(group)`); the refuge and zone check block (`mission.ts:2842-2860`) throws on a group no placement declares; `validate_data.mjs` the same. Keep `collect` running for the arrival zone after the last objective resolves (V6).
 - **Shape:** `group?: string`. **Determinism:** no new state; `evacuatedSet` is already digested (`civilians.ts:95-120`, `mission.ts:1629`), so no hash word moves. **Not** `hostages: true` for the north block (N1).
@@ -1540,7 +1540,7 @@ Order of work: **E10, E13, E3, E4, E11** (no sim behaviour change; start now) ->
 
 **E4: coalesced feed** · S · both · `render-vfx` (app)
 - **Does:** one `clear (n)` line per second of arrivals and one `taken (n)` per second of removals, instead of up to 100 lines in a 4-line, 9 s feed.
-- **Files:** `packages/app/src/main.ts:6431-6444` (the loop calls `describeMissionEvent` per event); `packages/app/src/ui/mission-notice.ts:47-86` (`evacuatedNotice` and `removedNotice` already format with `{n}`); a new pure `coalesceCivilianEvents(events, windowTicks)` beside them; `en.json` plural (no new key: `notice.evacuated` and `notice.removed.civilian` take `n`). **Determinism:** app only, reads the same events. **Tests:** 30 `evacuated` in 20 ticks give one line `n=30` (mutation: emit one per event); a `removed` side-2 and a side-0 in the same second are not merged (mutation: merge on kind only); `validate:ui` and `__lionsI18n.missingKeys()`.
+- **Files:** `packages/app/src/main.ts:6456-6469` (the loop calls `describeMissionEvent` per event); `packages/app/src/ui/mission-notice.ts:47-86` (`evacuatedNotice` and `removedNotice` already format with `{n}`); a new pure `coalesceCivilianEvents(events, windowTicks)` beside them; `en.json` plural (no new key: `notice.evacuated` and `notice.removed.civilian` take `n`). **Determinism:** app only, reads the same events. **Tests:** 30 `evacuated` in 20 ticks give one line `n=30` (mutation: emit one per event); a `removed` side-2 and a side-0 in the same second are not merged (mutation: merge on kind only); `validate:ui` and `__lionsI18n.missingKeys()`.
 
 **E5: `zone` on `commit` and `withdraw_to`** · S · A · `sim-guard`
 - **Does:** orders only the group members whose tile is inside the zone.
@@ -1587,13 +1587,13 @@ Order of work: **E10, E13, E3, E4, E11** (no sim behaviour change; start now) ->
 
 **E13: muster and sealed-compound validators** · S · both · `content-validator`
 - **Does:** refuses a mission whose crowd can reach its own refuge.
-- **Rules:** (a) every `withdraw_to` whose group is all-civilian targets a marker outside **every** `evacuate_before` zone; (b) after the start layout, no ground side-0 unit is within 5 tiles (shepherd 4 + 1) of a civilian body, a muster marker or a gate centre (a `walk_placements.ts`-style world build); (c) with every gate tile blocked, a flood from the muster marker does not reach the refuge. **Tests:** a fixture per rule (mutation: delete the rule and expect the fixture accepted); the real mission passes.
+- **Rules:** (a) every `withdraw_to` whose group is all-civilian targets a marker outside **every** `evacuate_before` zone; (b) after the start layout, no ground side-0 unit is within 4.5 tiles (shepherd 4 + 0.5; relaxed from 5 by the lead's ruling of 18 Nov, "the E13 force-to-gate rule is RELAXED", because one `at_team` stands 4.61 tiles from the breach's west gate, V23) of a civilian body, a muster marker or a gate centre (a `walk_placements.ts`-style world build); (c) with every gate tile blocked, a flood from the muster marker does not reach the refuge. **Tests:** a fixture per rule (mutation: delete the rule and expect the fixture accepted); the real mission passes.
 
 **E14: crowd variety and adult-only figures** · S · both (variety), A (adults) · `render-vfx`
 - **Does:** per-entity tint jitter from existing palette ramps (skin, cloth) keyed on entity id; under A, a mission field `civilians.figures: "adults"` makes the app draw the three adult variants only (the variant is `n % 4`, `mesh-catalogue.ts:218-243`; presentation only, no hash). **Tests:** the child variant is never drawn under `adults` (mutation: ignore the field); the tint is a pure function of the id (mutation: use `Math.random`; lint refuses it).
 
 **E15: the capacity decision** · S now, M later · both · lead, `sim-guard`
-- **Decision proposed:** hold every mission to <= 160 authored entities (E10) and **do not raise 256** for the pilot (127 or 125 authored leaves 129 or 131). Overflow does not crash mid-mission (V11): a runtime `spawn`, `reinforce` or wave is skipped whole and a wounded man is killed outright, so the **Easier relief at 90 s and a late `reinforce` can silently not arrive**. Print lifetime `entityCount` in `playtest` (E11). Raising capacity (`main.ts:2392`, `playtest-run.ts:348`, and arrays scaled by `side * capacity` such as `contact`, `sim.ts:~2325`) needs a hash and snapshot audit that is **UNREAD**; do it only if a mission needs more than 160. Fallback crowd sizes: 60, then 40.
+- **Decision proposed:** hold every mission to <= 160 authored entities (E10) and **do not raise 256** for the pilot (127 or 125 authored leaves 129 or 131). Overflow does not crash mid-mission (V11): a runtime `spawn`, `reinforce` or wave is skipped whole and a wounded man is killed outright, so the **Easier relief at 90 s and a late `reinforce` can silently not arrive**. Print lifetime `entityCount` in `playtest` (E11). Raising capacity (`main.ts:2403-2408`, `playtest-run.ts:348`, and arrays scaled by `side * capacity` such as `contact`, `sim.ts:~2325`) needs a hash and snapshot audit that is **UNREAD**; do it only if a mission needs more than 160. Fallback crowd sizes: 60, then 40.
 
 **Data first.** §10.1.9 lists the slices. Everything in E10, E13, E11, E3 and E4, and the whole of Variant B except the gate, can be built and measured before E1; the map's gate stands as a 2-wide gap for S0.
 
@@ -1904,7 +1904,7 @@ Zone names avoid `sandbox-extras.ts:22`'s `PROTECTED_ZONE` pattern (`clinic|hall
 
 **The crowd** (rows of 3 at 1.25 spacing; every body spawned through the real `assertGroundClear` in the runner, so clear): west bases (2.5,19.5) x11, (6.5,19.5) x11, (2.5,24.5) x11, (6.5,24.5) x12; east bases (44.5,19.5), (40.5,19.5), (44.5,24.5), (40.5,24.5), x11 each. Walks to the apron are 10 to 14 tiles west and 7 to 13 east (script, fences and walls in): **arrival 9 to 18 s** at 0.8 t/s, so the last of them reach the apron as the cells appear at 18 s. Two tiles are shared by harmless overlaps with `families_sw`.
 
-**Start-force margin.** 4.61 tiles to the west gate is the thinnest (V23). The lever, if the lead wants 1.5 tiles: `at_team` (22,23) -> (21,23) (5.61). It is a `starting_force` edit to a pinned mission (§11.4 P7).
+**Start-force margin.** 4.61 tiles to the west gate is the thinnest (V23). The move the lead did not take (E13 was relaxed to 4.5 instead, 18 Nov): `at_team` (22,23) -> (21,23) (5.61). It is a `starting_force` edit to a pinned mission (§11.4 P7).
 
 #### 11.1.3 ECA rows (KEEP)
 
@@ -2106,7 +2106,7 @@ Peak living entities across all runs: **180** of 256; distinct flow fields at 2 
 |---|---|---|
 | **E1** gate | two `compound_gate` entries in `structures[]` (V25); `validate:data`'s versus rule is moot (no versus file for the map); the audit of the `structureOfTile` readers matters more here: the **shipped enemy waves breach the walls** and path through the gaps, and an open gate must not read as a wall to them | M |
 | **E2** presentation | the huge yellow gates (the lead's words); Q8, Q10 | M + art |
-| **E3** group count | **hard precondition**: without it the passive control wins 30/30. Needs `group` as **`string` or `string[]`** (the villages are four groups so each can be ordered), and `collect` scoped to the groups of **active** objectives, so a village person who walks in after the primary is complete is not counted (that keeps *"Two came in"* an accounting fact, as shipped; N32); `civ.settlements_evacuated` scoped to the primary's groups | S |
+| **E3** group count | **hard precondition**: without it the passive control wins 30/30. Needs `group` as **`string` or `string[]`** (the villages are four groups so each can be ordered), and `collect` scoped to the groups of **active** objectives, so a village person who walks in after the primary is complete is not counted (that keeps *"Two came in"* an accounting fact, as shipped; N32); `civ.settlements_evacuated` scoped to the primary's groups | L |
 | **E4** feed | about 100 `clear (1)` lines in 30 s without it | S |
 | **E5** zone filter | the four `families_walk_*` orders; without it the early-rescue hazard (§10.1.1) | S |
 | **E6** civilians as targets | **wave-unit** schema property and `stepWaves` passthrough (`mission.ts:4668-4671`, V21) as well as the placement field; only the two flagged entries; the cue **E7** | M |
@@ -2116,11 +2116,11 @@ Peak living entities across all runs: **180** of 256; distinct flow fields at 2 
 | **E10** entity budget | 143 passes (<= 160); measured peak 180 of 256 | S |
 | **E11** harness | the pins and controls of §11.2 and §11.4 | S/M |
 | **E12** wounded count as saved | optional | S |
-| **E13** validators | muster outside `compound` (the aprons at x=15 and 33 are); the force-to-gate rule at **5** tiles fails at 4.61 and 4.92: either relax it to 4.5 or move one `at_team` (11.1.2) | S |
+| **E13** validators | muster outside `compound` (the aprons at x=15 and 33 are); the force-to-gate rule is **relaxed to 4.5** tiles (the lead, 18 Nov; 5 failed at 4.61 and 4.92), so the shipped layout passes and no `at_team` moves (11.1.2) | S |
 | **E14** adults only | **mandatory under D18** for a hundred people under fire (G-16); `civilians.figures: "adults"` | S |
 | **E15** capacity | decision: stay at 256, authored 143, peak 180; a runtime `reinforce` or wave is skipped whole if it would not fit (V11), which the Easier relief at 90 s would hit only past 254 | S |
 
-**Data first (today).** Nothing about the road can ship before E3: adding the road crowd to the mission as it is makes the passive control win (measured, E3 off 30/30). Order: **E10, E13, E3** (S) -> the road crowd, the two run triggers, the `road_in` secondary, the removes with zones, the walk-back (S0: gaps open, passive 0/30, the road leaks 24.9) -> **E4** -> **E1, E2** (the gates; S2) -> **E5** -> **E6, E14, E7** -> E8 if wanted. The 143-entity budget against 256: 143 authored, 180 peak over 30 seeds of seven plans (37 wounded and rejoined bodies at most), so about 76 left; civilians shot under E6 spawn nothing (`wounds.in_place`), so E6 does not eat the margin; the 160 rule passes.
+**Data first (today).** Nothing about the road can ship before E3: adding the road crowd to the mission as it is makes the passive control win (measured, E3 off 30/30). Order (the lead, 18 Nov): **step 0, the frame measurement** (the pilot at up to 180 living entities, before anything else ships; Q5) -> **E3** (L, the first and largest engine piece) -> **E13** -> **E10** -> the road crowd, the two run triggers, the `road_in` secondary, the removes with zones, the walk-back (S0: gaps open, passive 0/30, the road leaks 24.9) -> **E4** -> **E1, E2** (the gates; S2) -> **E5** -> **E6, E14, E7** -> E8 if wanted. The 143-entity budget against 256: 143 authored, 180 peak over 30 seeds of seven plans (37 wounded and rejoined bodies at most), so about 76 left; civilians shot under E6 spawn nothing (`wounds.in_place`), so E6 does not eat the margin; the 160 rule passes.
 
 ### 11.4 What this supersedes, notes, and the pins a change moves
 
