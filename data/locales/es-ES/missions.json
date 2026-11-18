@@ -565,7 +565,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Terreno muerto",
-    "briefing": "La granja de esta hondonada es el puesto de etapa del camino de invierno, y sus cajas de drones esperan en su granero a que pare la lluvia. Las crestas a ambos lados se alzan cuatro niveles sobre ella, y nada de las colinas del norte está a la vista hasta que las corona. Mantenga la hondonada cinco minutos y queme el granero dentro de esos mismos cinco. Las cargas de los zapadores son limpias y lentas bajo fuego; el mortero y el Namer son rápidos, y cada proyectil cerca de ese patio se cobra. Una familia está en el patio entre la casa y el granero, a dos casillas de la célula que hay dentro. Hay un camión en el collado norte y, identificado hoy, es un arma conocida sobre la cabecera de la calzada, no un primer disparo. Tiene la logística para un puesto avanzado. Si lo entierra en la hondonada no ve nada; si lo pone en la cresta ve venir al enemigo, desde fuera del terreno que debe mantener. Toda rueda del este pasa por un único hueco de dos casillas en el dique. Desde el norte, es el collado para las ruedas y la cresta para la infantería. El granero es la orden; la casa y la familia a su lado cuentan en la valoración.",
+    "briefing": "La granja de esta hondonada es el puesto de etapa del camino de invierno, y sus cajas de drones esperan en su granero a que pare la lluvia. Las crestas a ambos lados se alzan cuatro niveles sobre ella, y nada de las colinas del norte está a la vista hasta que las corona. Mantenga la hondonada cinco minutos y queme el granero dentro de esos mismos cinco. Las cargas de los zapadores son limpias y lentas bajo fuego; el mortero y el Namer son rápidos, y cada proyectil cerca de ese patio se cobra. Una familia está en el patio entre la casa y el granero, a dos casillas de la célula que hay dentro. Hay un camión en el collado norte y, identificado hoy, es un arma conocida sobre la cabecera de la calzada, no un primer disparo. Tiene la logística para un puesto avanzado. Si lo entierra en la hondonada no ve nada; si lo pone en la cresta ve venir al enemigo, desde fuera del terreno que debe mantener. Toda rueda del este pasa por un único hueco de dos casillas en la arista de basalto. Desde el norte, es el collado para las ruedas y la cresta para la infantería. El granero es la orden; la casa y la familia a su lado cuentan en la valoración.",
     "debrief": {
       "victory": "La granja es nuestra y el granero es ceniza. Lo que cruce ahora esas crestas baja hacia nosotros, y lo vemos antes en el horizonte.",
       "defeat": "Hemos salido de la granja y han vuelto a la hondonada. Desde la cresta no se ve lo que meten en ella."
@@ -585,11 +585,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "El camión del collado baja a la granja",
-      "riders_come_through_the_dyke_gap": "Vehículos entran por el hueco del dique"
+      "riders_come_through_the_dyke_gap": "Vehículos entran por el hueco de la arista"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "El camión del collado ha empezado a bajar por la pista norte hacia la granja. Si va a ser identificado en este terreno, es ahora.",
-      "riders_come_through_the_dyke_gap": "Vehículos por el hueco del dique, de uno en uno, porque no da para más. Es la única puerta de ese lado."
+      "riders_come_through_the_dyke_gap": "Vehículos por el hueco de la arista, de uno en uno, porque no da para más. Es la única puerta de ese lado."
     },
     "wave_say": {
       "1": "Dos células cruzan a pie la cresta norte. Desde la granja no están ahí hasta que aparecen en el horizonte.",
@@ -597,12 +597,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -610,7 +610,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }

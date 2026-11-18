@@ -565,7 +565,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Angle mort",
-    "briefing": "La ferme de ce creux est le relais d'étape de la route d'hiver, et ses caisses de drones sont dans sa grange à attendre que la pluie cesse. Les crêtes de chaque côté la dominent de quatre niveaux, et rien venu des collines du nord n'est en vue avant d'en atteindre le sommet. Tenez le creux cinq minutes et brûlez la grange dans les mêmes cinq. Les charges des sapeurs sont propres et lentes sous le feu ; le mortier et le Namer sont rapides, et chaque coup près de cette cour est facturé. Une famille est dans la cour entre la maison et la grange, à deux cases de la cellule qui s'y trouve. Un camion est dans le col nord ; identifié aujourd'hui, c'est un canon connu au-dessus de la tête de chaussée, et non un premier tir. Vous avez la logistique pour un avant-poste. Enterrez-le dans le creux et il ne voit rien ; placez-le sur la crête et il les voit venir, depuis l'extérieur du terrain que vous devez tenir. Toute roue venant de l'est passe par une seule brèche de deux cases dans la digue. Du nord, c'est le col pour les roues et la crête pour les pieds. La grange est l'ordre reçu ; la maison et la famille à côté pèsent sur l'évaluation.",
+    "briefing": "La ferme de ce creux est le relais d'étape de la route d'hiver, et ses caisses de drones sont dans sa grange à attendre que la pluie cesse. Les crêtes de chaque côté la dominent de quatre niveaux, et rien venu des collines du nord n'est en vue avant d'en atteindre le sommet. Tenez le creux cinq minutes et brûlez la grange dans les mêmes cinq. Les charges des sapeurs sont propres et lentes sous le feu ; le mortier et le Namer sont rapides, et chaque coup près de cette cour est facturé. Une famille est dans la cour entre la maison et la grange, à deux cases de la cellule qui s'y trouve. Un camion est dans le col nord ; identifié aujourd'hui, c'est un canon connu au-dessus de la tête de chaussée, et non un premier tir. Vous avez la logistique pour un avant-poste. Enterrez-le dans le creux et il ne voit rien ; placez-le sur la crête et il les voit venir, depuis l'extérieur du terrain que vous devez tenir. Toute roue venant de l'est passe par une seule brèche de deux cases dans l'arête de basalte. Du nord, c'est le col pour les roues et la crête pour les pieds. La grange est l'ordre reçu ; la maison et la famille à côté pèsent sur l'évaluation.",
     "debrief": {
       "victory": "La ferme est à nous et la grange en cendres. Ce qui franchira désormais ces crêtes descendra sur nous, et nous le verrons d'abord sur la ligne de crête.",
       "defeat": "Nous avons quitté la ferme et ils sont de retour dans le creux. Depuis la crête, on ne voit pas ce qu'ils y mettent."
@@ -585,11 +585,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "Le camion du col descend vers la ferme",
-      "riders_come_through_the_dyke_gap": "Des motards passent par la brèche de la digue"
+      "riders_come_through_the_dyke_gap": "Des motards passent par la brèche de l'arête"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "Le camion du col a commencé à descendre la piste nord vers la ferme. S'il doit être identifié sur ce terrain, c'est maintenant.",
-      "riders_come_through_the_dyke_gap": "Des motards par la brèche de la digue, un par un, car elle n'est pas plus large. C'est la seule porte de ce côté."
+      "riders_come_through_the_dyke_gap": "Des motards par la brèche de l'arête, un par un, car elle n'est pas plus large. C'est la seule porte de ce côté."
     },
     "wave_say": {
       "1": "Deux cellules franchissent la crête nord à pied. Depuis la ferme, elles n'existent pas avant d'être sur la ligne de crête.",
@@ -597,12 +597,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -610,7 +610,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }
