@@ -1,7 +1,8 @@
 # Desktop wrapper spike: Electron, Tauri or NW.js (GH-1418, B5-2)
 
-**HOLD FOR LEAD on the choice.** This document recommends a wrapper; it does not choose one. Nothing here signs,
-uploads, publishes or registers anything, and no app code changed.
+**Lead ruling (19 Nov 2026): Electron.** The lead chose the wrapper this document recommends (section 4). The other
+open questions in section 5 stay open. Nothing here signs, uploads, publishes or registers anything, and no app code
+changed.
 
 - Issue: GH-1418 (the demo: its own appID, a packaged build, a Next Fest registration). No comments and no linked PRs
   at the time of writing (`gh api search/issues "repo:ilan-pinto/roaring-lions 1418 is:pr"` returns nothing).
@@ -184,7 +185,7 @@ first-party (the nwjs-builder-phoenix signing feature was never finished, search
 
 ## 4. Recommendation
 
-**Electron**, for the demo and the game, subject to the lead's choice.
+**Electron**, for the demo and the game. The lead ruled for Electron on 19 Nov 2026.
 
 1. It ships the engine the game is tested on. Every visual gate, capture and perf number in this repository is
    Chromium; Electron puts that same Chromium on Windows, macOS, Linux and the Deck. Tauri would put three engines
@@ -207,7 +208,7 @@ re-packaged on a schedule to stay inside security support.
 
 ## 5. Open questions for the lead
 
-1. **The choice itself.** HOLD FOR LEAD.
+1. **The choice itself.** Answered: the lead ruled for Electron on 19 Nov 2026.
 2. **Platforms for the demo.** Windows only (the issue's done-line), or Windows + Linux native for the Deck? A
    Windows Electron build under Proton is the other Deck path; untested **(est.)**.
 3. **Should the desktop build talk to the Worker?** The spike's `*.local` origin keeps telemetry, accounts, feedback
