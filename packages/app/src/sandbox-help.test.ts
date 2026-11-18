@@ -10,6 +10,7 @@ import {
   KNOWN_PARAMS,
   SANDBOX_FLAGS,
   SANDBOX_SIDES,
+  freePlayDefaults,
   readFlags,
   sandboxHelp,
   sandboxSideOf,
@@ -369,5 +370,34 @@ describe('GH-1381: sideFlags', () => {
     const warned: string[] = [];
     sideFlags(readFlags(new URLSearchParams('civ&roe')), 'sarim', (k) => warned.push(k));
     expect(warned).toEqual([]);
+  });
+});
+
+describe('field works in Free play (the lead, 18 Nov 2026): freePlayDefaults', () => {
+  const none = (): ReturnType<typeof readFlags> => readFlags(new URLSearchParams(''));
+  const onOf = (f: Record<string, boolean>): string[] => Object.entries(f).filter(([, v]) => v).map(([k]) => k);
+
+  it('marks field works, and only field works, as on in every Free play (literals)', () => {
+    expect(SANDBOX_FLAGS.filter((f) => f.freePlayDefault === true).map((f) => f.name)).toEqual(['works']);
+  });
+
+  it('turns field works on for the KDF and leaves everything else as the URL said', () => {
+    expect(onOf(freePlayDefaults(none(), 'kdf'))).toEqual(['works']);
+    expect(onOf(freePlayDefaults(readFlags(new URLSearchParams('civ&roe')), 'kdf'))).toEqual(['roe', 'civ', 'works']);
+  });
+
+  it('&works is an alias on the KDF side: the same flags with it and without it', () => {
+    expect(freePlayDefaults(readFlags(new URLSearchParams('works&civ')), 'kdf')).toEqual(
+      freePlayDefaults(readFlags(new URLSearchParams('civ')), 'kdf'),
+    );
+  });
+
+  it('gives the Sarim side no field works: a KDF-only default stays off there', () => {
+    expect(onOf(freePlayDefaults(none(), 'sarim'))).toEqual([]);
+    expect(onOf(freePlayDefaults(readFlags(new URLSearchParams('civ')), 'sarim'))).toEqual(['civ']);
+  });
+
+  it('still parses &works, so an old link is not reported as a typo', () => {
+    expect(unknownParams(new URLSearchParams('?sandbox=tel_marum&works'))).toEqual([]);
   });
 });

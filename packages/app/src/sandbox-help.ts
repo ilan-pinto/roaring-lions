@@ -36,6 +36,12 @@ export interface SandboxFlag {
    *  Sarim units to the OPPOSITION (`&sur`). Meaningful only when the player commands the KDF, so a Sarim
    *  Free play drops it (`sideFlags`) and the picker greys it out. */
   kdfOnly?: true;
+  /** On in every Free play without being asked (the lead's ask of 18 Nov 2026: field works in free play), on the
+   *  sides it is legal for: a `kdfOnly` one on the KDF side alone. The picker offers no box for it and states it
+   *  under the side pick instead, in its `labelKey` sentence; the URL token stays a known, accepted alias that
+   *  changes nothing on the KDF side, so an old link is not reported as a typo. Applied by `freePlayDefaults`,
+   *  which `bootFlags` calls for a Free play boot only: a mission and a room never take it. */
+  freePlayDefault?: true;
 }
 
 /** The opt-in sandbox extras. Each adds only what it names, so a check for
@@ -85,11 +91,14 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     kdfOnly: true,
   },
   {
+    // On by default in a KDF Free play since the lead's ask of 18 Nov 2026 (`freePlayDefault`): `&works` is an
+    // accepted alias for old links and changes nothing there. Still off on the Sarim side, in a mission and in a room.
     name: 'works',
     blurb:
-      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them',
-    labelKey: 'freePlay.option.works',
+      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them -- ON in every KDF Free play (&works is an accepted alias; off on the Sarim side)',
+    labelKey: 'freePlay.works.on',
     kdfOnly: true,
+    freePlayDefault: true,
   },
   {
     name: 'soft',
@@ -293,6 +302,22 @@ export function sideFlags<K extends SandboxFlagName>(
     const k = f.name as K;
     if (out[k]) warn(k);
     out[k] = false;
+  }
+  return out;
+}
+
+/** The extras a Free play takes without being asked (`freePlayDefault`): each such flag on, on the sides it is
+ *  legal for (a `kdfOnly` one on the KDF alone). Silent: nothing the URL asked for is dropped. The caller decides
+ *  that this boot IS a Free play (`bootFlags`); a mission or a room never calls it. */
+export function freePlayDefaults<K extends SandboxFlagName>(
+  flags: Readonly<Record<K, boolean>>,
+  side: SandboxSide,
+): Record<K, boolean> {
+  const out = { ...flags } as Record<K, boolean>;
+  for (const f of SANDBOX_FLAGS) {
+    if (f.freePlayDefault !== true || !Object.hasOwn(out, f.name)) continue;
+    if (f.kdfOnly === true && side !== 'kdf') continue;
+    out[f.name as K] = true;
   }
   return out;
 }

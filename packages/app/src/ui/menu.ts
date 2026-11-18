@@ -546,6 +546,20 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   const sideBlurb = document.createElement('p');
   sideBlurb.className = 'rl-sandbox__side-blurb';
   sides.appendChild(sideBlurb);
+  // What Free play has without being asked (`SANDBOX_FLAGS[].freePlayDefault`: field works, the lead's
+  // ask of 18 Nov 2026): stated under the side pick, in the table's own sentence, rather than offered
+  // as a box that could only ever be ticked. A KDF-only one is not said while Sarim is picked, since a
+  // Sarim Free play does not have it (`freePlayDefaults`).
+  const defaults: { el: HTMLElement; kdfOnly: boolean }[] = [];
+  for (const f of SANDBOX_FLAGS) {
+    if (f.freePlayDefault !== true) continue;
+    const line = document.createElement('p');
+    line.className = 'rl-sandbox__default';
+    line.dataset.defaultFlag = f.name;
+    line.textContent = t(f.labelKey);
+    sides.appendChild(line);
+    defaults.push({ el: line, kdfOnly: f.kdfOnly === true });
+  }
   wrap.appendChild(sides);
 
   // --- the options --------------------------------------------------------
@@ -569,6 +583,8 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   flagBox.appendChild(devHint);
   const boxes: { name: SandboxFlagName; input: HTMLInputElement; kdfOnly: boolean }[] = [];
   for (const f of SANDBOX_FLAGS) {
+    // On whatever a box says, so not a box (stated under the side pick above).
+    if (f.freePlayDefault === true) continue;
     const label = document.createElement('label');
     label.className = 'rl-sandbox__flag';
     // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
@@ -645,6 +661,7 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
     // switch is still ticked when the KDF comes back.
     const sarim = side === 'sarim';
     kdfOnlyNote.hidden = !sarim;
+    for (const d of defaults) d.el.hidden = sarim && d.kdfOnly;
     for (const b of boxes) {
       if (!b.kdfOnly) continue;
       b.input.disabled = sarim;

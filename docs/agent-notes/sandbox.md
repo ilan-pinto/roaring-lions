@@ -82,3 +82,19 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`tunnel`, `sur`, `kit`, `works`) are dropped on the Sarim side (`sideFlags`) and greyed in the picker. No `side`
   in a link is the KDF, so every existing link and every free-play baseline is unchanged. The opposition stands and
   fights where it spawns, as the Sarim opposition of a KDF Free play does: there is no computer seat in Free play.
+
+<!-- The lead's ask of 18 Nov 2026, "bring outposts to free play / versus": the free-play half -->
+- **Field works are on in every KDF Free play (18 Nov 2026).** What `&works` used to opt into is now the default:
+  the dock, the five KDF works the outpost ask names plus the aid post (every buildable `kdf_` type, twice each),
+  `SANDBOX_WORKS_LOGISTICS` to pay for them and the `demo_squad` that raises them (`sandbox-works.ts`,
+  unchanged). The table says so (`SANDBOX_FLAGS[].freePlayDefault` on `works`), and `freePlayDefaults` applies it,
+  called by `bootFlags` LAST and for a Free play boot only (no mission, no room), so neither `sideFlags` nor
+  `roomFlags` warns about a default the URL never asked for. **`&works` is an accepted alias**: still parsed and
+  still a known parameter, so an old link is not reported as a typo, and it changes nothing on the KDF side. The
+  Sarim side is unchanged: no field works, and a `&works` it is handed is dropped with the GH-1381 warning. A
+  mission never takes the default, and a versus room drops works as before (`roomFlags`, and `main.ts`'s own
+  `!mission && versusWorld === null && !inRoom` guard; `raiseWorks` stays dropped in `ownership.ts`). The picker
+  offers no box for it: it states it under the side pick, in its `labelKey` sentence (`freePlay.works.on`), and
+  hides the line while Sarim is picked. No sim change and no tuning: the logistics are what `&works` gave. A
+  free-play boot now draws the production dock and one more unit (the demolition squad at the friendly anchor
+  +3,+2), so every sandbox capture that frames either moves.
