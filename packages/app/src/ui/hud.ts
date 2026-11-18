@@ -1614,11 +1614,14 @@ export class Hud {
     }
   }
 
-  /** Take back a line this caller posted (`note`, same text and tone, untiered): the promise it made is over (an armed
-   *  formation spent or put down). A no-op when it has already left the feed or never reached it. */
-  retireNote(html: string, tone: Tone = 'live'): void {
-    const id = this.feedModel.idOf(`${tone}||${html}`);
-    if (id >= 0) this.dropFeedRow(id);
+  /** Take back a line this caller posted (`note`, same text, tone and tier): the promise it made is over (an armed
+   *  formation spent or put down), or a newer line says it better (civilian drama E4: "clear (17)" supersedes
+   *  "clear (12)", `CivilianFeed`). A no-op when it has already left the feed or never reached it. `fade: false`
+   *  removes the row at once, for a caller about to post its successor: a fading row still holds one of the
+   *  `FEED_LINES` slots for its 120 ms, so the successor's `note` would push the oldest live line off the end. */
+  retireNote(html: string, tone: Tone = 'live', opts: { tier?: AlertTier; fade?: boolean } = {}): void {
+    const id = this.feedModel.idOf(`${tone}|${opts.tier ?? ''}|${html}`);
+    if (id >= 0) this.dropFeedRow(id, opts.fade ?? true);
   }
 
   /** A feed line leaves: off the model (nothing merges into it any more), off

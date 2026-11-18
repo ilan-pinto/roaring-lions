@@ -22,7 +22,7 @@ import { EARN_PULSE_MS, Hud as HudClass, type HudCommanderInfo, type HudDeps, ty
 import type { KitSummary } from './kit-sign';
 import { textToneClass } from './hud-model';
 import type { IncomeView, IncomeZoneView } from './income-view';
-import { alertNotice } from './mission-notice';
+import { alertNotice, coalesceCivilianEvents, writeCivilianLines, type CivilianLine } from './mission-notice';
 import { closeTip } from './tooltip';
 import type { CursorName } from '../input/cursor';
 import en from '../i18n/en.json';
@@ -1322,6 +1322,44 @@ describe('event feed', () => {
       'lost — Lavi · east',
     ]);
     expect(feed.querySelector('.rl-notice__count')?.textContent).toBe('×5');
+  });
+
+  it('takes back a tiered line by its words, tone and tier, and only that one', () => {
+    const r = rig(mission());
+    r.hud.note('<b>taken</b> (2)', 'bad', { tier: 'important' });
+    r.hud.note('<b>taken</b> (2)', 'bad');
+    const live = (): string[] => [...r.host.querySelectorAll('.rl-feed .rl-notice:not(.rl-leave)')].map((n) => n.textContent ?? '');
+    expect(live()).toEqual(['taken (2)', 'taken (2)']);
+    r.hud.retireNote('<b>taken</b> (2)', 'bad', { tier: 'important' });
+    expect(live()).toEqual(['taken (2)']);
+    expect(r.host.querySelector('.rl-feed .rl-notice:not(.rl-leave)')!.getAttribute('data-tier')).toBeNull();
+    // Faded by default (it lingers for its fade); `fade: false` takes it out of the feed at once.
+    expect(r.host.querySelector('.rl-feed')!.childElementCount).toBe(2);
+    r.hud.retireNote('<b>taken</b> (2)', 'bad', { fade: false });
+    expect(r.host.querySelector('.rl-feed')!.childElementCount).toBe(1);
+  });
+
+  // Civilian drama E4 (GH-1438): a crowd of 100 coming in at three a second
+  // through a four-line feed, with a trigger label every ten seconds. The
+  // arrivals hold ONE row, whose count is everyone so far; the labels keep
+  // their slots.
+  it('E4: a hundred arrivals hold one feed row that counts them all', () => {
+    const r = rig(mission());
+    const events: Parameters<typeof coalesceCivilianEvents>[0][number][] = [];
+    for (let i = 0; i < 100; i++) {
+      const tick = Math.floor((i * 20) / 3);
+      if (i > 0 && i % 30 === 0) events.push({ kind: 'trigger', tick, id: `label_${i / 30}` });
+      events.push({ kind: 'evacuated', tick, entity: 500 + i });
+    }
+    const entries = coalesceCivilianEvents(events, 20, (e) => (e.kind === 'trigger' ? e.id : null));
+    for (const entry of entries) {
+      if ('civilian' in entry) writeCivilianLines(r.hud, [entry.civilian]);
+      else r.hud.note(entry.line, 'warn', { tier: 'important' });
+    }
+    const live = [...r.host.querySelectorAll('.rl-feed .rl-notice:not(.rl-leave)')].map((n) => n.textContent ?? '');
+    expect(live).toEqual(['clear (100)', 'label_3', 'label_2', 'label_1']);
+    const lines = entries.filter((e): e is { civilian: CivilianLine } => 'civilian' in e);
+    expect(lines.reduce((n, e) => n + e.civilian.n, 0)).toBe(100);
   });
 
   it('does not merge a line that differs in words, tone or tier', () => {
