@@ -445,7 +445,7 @@ Each beat checked against `design.md` §5.3:
 | id | type · target | as an order | as a toast | status |
 |---|---|---|---|---|
 | `bring_four_across` | `evacuate_before` · `pause_refuge`, count 4 of 4, `hostages`, 330 s · **primary, failable** | Bring all four of the taken south of the Cut | OBJECTIVE COMPLETE — Bring all four of the taken south of the Cut | live |
-| `hold_the_forward_ground` | `hold_for` · `staging` 300 · primary | Hold the forward ground for five minutes | OBJECTIVE COMPLETE — Hold the forward ground for five minutes | live |
+| `hold_the_forward_ground` | `hold_for` · `staging` 360 · primary | Hold the forward ground for six minutes | OBJECTIVE COMPLETE — Hold the forward ground for six minutes | live |
 | `keep_the_pause` | `no_collateral_above` 5 · **primary, failable** | Lose no more than 5 Conduct | OBJECTIVE COMPLETE — Lose no more than 5 Conduct | live |
 | `take_the_water_point` | `capture` · `water_point` 15 · secondary | Take the water point west of the checkpoint | OBJECTIVE COMPLETE — Take the water point west of the checkpoint | live |
 | `find_the_yard_watch` | `locate` · `ql_yard_watch` · secondary, `carries` → IV | Identify the watch in the clinic yard | OBJECTIVE COMPLETE — Identify the watch in the clinic yard | live |

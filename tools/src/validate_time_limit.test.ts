@@ -4,7 +4,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { timeLimitFailures } from '../validate_time_limit.mjs';
-import { applyOverlays, missions, POSTURE_IDS } from '@lions/data';
+import { applyOverlays, POSTURE_IDS } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 const ROOT = join(__dirname, '..', '..');
 const base = {
@@ -70,6 +71,9 @@ describe('the shipped limits', () => {
     qarn_hadid_2_foothold: 840, qarn_hadid_3_clearance: 840, umm_zeitoun_1_recon: 720,
     umm_zeitoun_2_buildup: 840, umm_zeitoun_3_clearance: 840, umm_zeitoun_4_clearance: 840,
     ein_qasab_1_recon: 720, ein_qasab_2_foothold: 840, ein_qasab_3_buildup: 840,
+    qasr_liwan_1_recon: 720, qasr_liwan_2_foothold: 840, qasr_liwan_3_buildup: 840,
+    qasr_liwan_4_clearance: 840, qasr_liwan_5_subterranean: 840,
+    bir_tarsha_1_recon: 720, bir_tarsha_2_foothold: 840, bir_tarsha_3_clearance: 720, bir_tarsha_4_clearance: 840, bir_tarsha_5_subterranean: 840,
   };
   const dir = join(ROOT, 'data/missions');
   const shipped = readdirSync(dir).filter((n) => n.endsWith('.json'));
@@ -87,7 +91,7 @@ describe('the shipped limits', () => {
 describe('GH-1394: every shipped mission under every posture passes the overlaid clock rule', () => {
   const ids = Object.keys(missions) as (keyof typeof missions)[];
   it('covers the whole shipped list', () => {
-    expect(ids.length).toBe(30);
+    expect(ids.length).toBe(40); // Was 35 (30 before Qasr Liwan's five): Bir Tarsha I to V
   });
   for (const posture of POSTURE_IDS) {
     it.each(ids)(`%s at ${posture}`, (id) => {

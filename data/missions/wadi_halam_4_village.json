@@ -128,7 +128,7 @@
       "count": 3,
       "seconds": 300,
       "text": "Shepherd the families to the refuge before the road closes",
-      "say": { "speaker": "shai", "text": "Every one of them is at the refuge." },
+      "say": { "speaker": "shai", "text": "Three of them are at the refuge." },
       "say_on_fail": { "speaker": "idit", "text": "The road is shut and there are still families inside it. Nine did not come in at First Light. Somebody has to keep saying the number, and it is not going to be you." }
     }
   ],

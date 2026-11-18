@@ -19,7 +19,8 @@
 // spawns and outcome rule, so a cell differs from the blob-v-blob cell in the splitter's orders alone.
 import { fileURLToPath } from 'node:url';
 import { fx, type Sim } from '@lions/sim';
-import { maps, parseMap, type MapId } from '@lions/data';
+import { parseMap, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { matchCapTicks } from '@lions/net';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';

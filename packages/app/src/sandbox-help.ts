@@ -32,6 +32,20 @@ export interface SandboxFlag {
    *  stays the one place a flag is described -- a flag added here without a
    *  label is a missing key in the picker's spec, not a dev blurb on screen. */
   labelKey: string;
+  /** GH-1381: an extra that adds KDF content to the PLAYER's force or kit (sappers, engineers, the kit ladder) or
+   *  Sarim units to the OPPOSITION (`&sur`). Meaningful only when the player commands the KDF, so a Sarim
+   *  Free play drops it (`sideFlags`) and the picker greys it out. */
+  kdfOnly?: true;
+  /** On in every Free play without being asked (the lead's ask of 18 Nov 2026: field works in free play), on the
+   *  sides it is legal for: a `kdfOnly` one on the KDF side alone. The picker offers no box for it and states it
+   *  under the side pick instead, in its `labelKey` sentence; the URL token stays a known, accepted alias that
+   *  changes nothing on the KDF side, so an old link is not reported as a typo. Applied by `freePlayDefaults`,
+   *  which `bootFlags` calls for a Free play boot only: a mission and a room never take it.
+   *
+   *  `&<name>=0` (or `=off`, `=false`: `FLAG_OFF_VALUES`, `envlight`'s grammar) turns it OFF for that boot -- the
+   *  lead's ruling of 18 Nov 2026, so the visual captures keep today's frame (`tools/src/golden-diff/
+   *  capture-protocol.ts` passes it). Only a default flag reads a value: every other flag stays presence-only. */
+  freePlayDefault?: true;
 }
 
 /** The opt-in sandbox extras. Each adds only what it names, so a check for
@@ -42,8 +56,9 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     name: 'tunnel',
     blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it',
     labelKey: 'freePlay.option.tunnel',
+    kdfOnly: true,
   },
-  { name: 'sur', blurb: 'the four Sarim units no mission fields', labelKey: 'freePlay.option.sur' },
+  { name: 'sur', blurb: 'the four Sarim units no mission fields', labelKey: 'freePlay.option.sur', kdfOnly: true },
   {
     name: 'civ',
     blurb: 'a mixed crowd of eight civilians, and a refuge to shepherd them to',
@@ -77,12 +92,17 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     blurb:
       'the sandbox force pre-kitted, level 1–3 by type -- the kit sign on the unit icons and the HUD card to walk',
     labelKey: 'freePlay.option.kit',
+    kdfOnly: true,
   },
   {
+    // On by default in a KDF Free play since the lead's ask of 18 Nov 2026 (`freePlayDefault`): `&works` is an
+    // accepted alias for old links and changes nothing there. Still off on the Sarim side, in a mission and in a room.
     name: 'works',
     blurb:
-      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them',
-    labelKey: 'freePlay.option.works',
+      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them -- ON in every KDF Free play (&works is an accepted alias; &works=0, =off or =false turns them off for this boot; off on the Sarim side)',
+    labelKey: 'freePlay.works.on',
+    kdfOnly: true,
+    freePlayDefault: true,
   },
   {
     name: 'soft',
@@ -117,6 +137,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
   { name: 'google', blurb: 'on /profile, show the Google sign-in buttons while the server has not yet opened Google to players' },
   { name: 'tutorial', blurb: 'replay the tutorial' },
   { name: 'resume', blurb: 'on /mission/<id>, resume the mission saved with Save and quit (the campaign board writes it)' },
+  {
+    name: 'side',
+    // GH-1381. A value param like `tod`, not a SANDBOX_FLAGS boolean: it names one of two sides. Free play only
+    // (`sandboxSideOf`): a mission is always the KDF's, and a room's sides come from its config.
+    blurb: 'kdf | sarim — the side you command in Free play (GH-1381; default kdf): sarim fields the versus Sarim force against the versus KDF force; a mission or a room ignores it',
+  },
   { name: 'net', blurb: 'new | <room code> — N0: run this sandbox in a two-seat lockstep room (both seats order the KDF force)' },
   { name: 'seat', blurb: '0 | 1 — written by the app after ?net=new; informational' },
   { name: 'callsign', blurb: '<name> — the lobby name a room shows for this seat' },
@@ -239,7 +265,78 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
  *  typed by hand, and `has` is the only test that matches how it is typed. */
 export function readFlags(params: URLSearchParams): Record<SandboxFlagName, boolean> {
   const out = {} as Record<SandboxFlagName, boolean>;
-  for (const f of SANDBOX_FLAGS) out[f.name] = params.has(f.name);
+  for (const f of SANDBOX_FLAGS) out[f.name] = params.has(f.name) && !optedOut(params, f);
+  return out;
+}
+
+/** The values that turn a `freePlayDefault` flag OFF (`&works=0`): `envlight`'s own grammar. */
+export const FLAG_OFF_VALUES: readonly string[] = ['0', 'off', 'false'];
+
+/** Whether the URL opts this boot out of a Free play default. A flag with no default never reads a value:
+ *  `&sur=0` is still ON, as it always was (see `sandboxUrl`). */
+function optedOut(params: URLSearchParams, f: SandboxFlag): boolean {
+  if (f.freePlayDefault !== true) return false;
+  const raw = params.get(f.name);
+  return raw !== null && FLAG_OFF_VALUES.includes(raw);
+}
+
+/** GH-1381: the side the player commands in Free play. */
+export type SandboxSide = 'kdf' | 'sarim';
+
+/** The picker's two sides, in the order it draws them. KDF first: it is the default, and every link
+ *  that names no side is the KDF's. The label is `versus.faction` (the side's name), so the side is
+ *  called what the versus lobby calls it. */
+export const SANDBOX_SIDES: readonly SandboxSide[] = ['kdf', 'sarim'];
+
+/**
+ * Which side a boot commands (GH-1381), from `&side=`. Absent or `kdf` is the KDF, which is every
+ * link that existed before: the default draws today's battle to the byte. Free play only -- a
+ * mission is the KDF's, and a room's sides come from the config both machines share (a side one
+ * player typed would put the two on different worlds) -- so anywhere else the value is ignored and
+ * said so, as an unknown one is.
+ */
+export function sandboxSideOf(params: URLSearchParams, freePlay: boolean): { value: SandboxSide; warning?: string } {
+  const raw = params.get('side');
+  if (raw === null) return { value: 'kdf' };
+  if (!freePlay) return { value: 'kdf', warning: `&side=${raw} is ignored: only Free play picks a side` };
+  if (raw === 'kdf' || raw === 'sarim') return { value: raw };
+  return { value: 'kdf', warning: `&side=${raw} is not a side (kdf | sarim); playing the KDF` };
+}
+
+/** The extras a side can take (GH-1381): every flag for the KDF, and none marked `kdfOnly` for
+ *  Sarim. A dropped flag the URL asked for is named, as `roomFlags` names one a room drops. */
+export function sideFlags<K extends SandboxFlagName>(
+  flags: Readonly<Record<K, boolean>>,
+  side: SandboxSide,
+  warn: (flag: K) => void,
+): Record<K, boolean> {
+  const out = { ...flags } as Record<K, boolean>;
+  if (side === 'kdf') return out;
+  for (const f of SANDBOX_FLAGS) {
+    if (f.kdfOnly !== true || !Object.hasOwn(out, f.name)) continue;
+    const k = f.name as K;
+    if (out[k]) warn(k);
+    out[k] = false;
+  }
+  return out;
+}
+
+/** The extras a Free play takes without being asked (`freePlayDefault`): each such flag on, on the sides it is
+ *  legal for (a `kdfOnly` one on the KDF alone), unless the URL opts out (`&works=0`, `FLAG_OFF_VALUES`). Silent:
+ *  nothing the URL asked for is dropped. The caller decides that this boot IS a Free play (`bootFlags`); a mission
+ *  or a room never calls it. */
+export function freePlayDefaults<K extends SandboxFlagName>(
+  flags: Readonly<Record<K, boolean>>,
+  side: SandboxSide,
+  params: URLSearchParams,
+): Record<K, boolean> {
+  const out = { ...flags } as Record<K, boolean>;
+  for (const f of SANDBOX_FLAGS) {
+    if (f.freePlayDefault !== true || !Object.hasOwn(out, f.name)) continue;
+    if (f.kdfOnly === true && side !== 'kdf') continue;
+    if (optedOut(params, f)) continue;
+    out[f.name as K] = true;
+  }
   return out;
 }
 
@@ -259,8 +356,11 @@ export function readFlags(params: URLSearchParams): Record<SandboxFlagName, bool
  *  the new path spelling and the old query spelling cannot drift apart in
  *  which flags they emit or in what order.
  *
- *  The inverse of `readFlags`, and built by iterating the same table, so it
- *  cannot spell a flag in a form the parser does not accept. Flags are appended
+ *  The inverse of `readFlags` for every flag but a `freePlayDefault` one, and
+ *  built by iterating the same table, so it cannot spell a flag in a form the
+ *  parser does not accept. It cannot spell field works OFF: an absent `works`
+ *  is ON in a KDF Free play (`freePlayDefaults`), and only `&works=0` turns it
+ *  off, which this never writes. It has no production caller. Flags are appended
  *  BARE (`&sur`, not `&sur=1`) because that is how they are typed by hand and
  *  what `sandboxHelp` prints — one spelling everywhere, and `unknownParams`
  *  stays silent on anything this produces.
@@ -290,6 +390,8 @@ export interface HelpContext {
   mapId: string;
   mapIds: readonly string[];
   on: readonly string[];
+  /** GH-1381: the side this boot commands; absent reads as the KDF. */
+  side?: SandboxSide;
 }
 
 /** The boot banner, and the body of `__lions.help()`.
@@ -308,13 +410,17 @@ export function sandboxHelp(ctx: HelpContext): string {
   const tod = KNOWN_PARAMS.find((p) => p.name === 'tod');
   // `engines` likewise (GH-35): a value, printed on its own line.
   const engines = KNOWN_PARAMS.find((p) => p.name === 'engines');
+  // `side` likewise (GH-1381): a value, on its own line, and the side this boot commands under the map.
+  const side = KNOWN_PARAMS.find((p) => p.name === 'side');
   return [
     `sandbox: ${ctx.mapId}`,
+    `  side: ${ctx.side ?? 'kdf'}`,
     `  flags on: ${ctx.on.length > 0 ? ctx.on.join(', ') : '(none)'}`,
     `  available:`,
     flags,
     ...(tod ? [`    &tod=<value>${' '.repeat(Math.max(0, width - 3))}  ${tod.blurb}`] : []),
     ...(engines ? [`    &engines=<a|b>${' '.repeat(Math.max(0, width - 5))}  ${engines.blurb}`] : []),
+    ...(side ? [`    &side=<kdf|sarim>${' '.repeat(Math.max(0, width - 8))}  ${side.blurb}`] : []),
     `  maps: ${ctx.mapIds.join(', ')}`,
     `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog() · engines() · contentDigest()`,
   ].join('\n');

@@ -58,14 +58,16 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
-TEAMS = ("inf_squad", "demo_squad")
+TEAMS = ("inf_squad", "demo_squad", "yahalom_squad")
 #: metres
 LIMITS = {("belt", "median"): 0.040, ("belt", "p90"): 0.080, ("groin", "median"): 0.110, ("foregrip", "min"): 0.003}
-FIGURES = {"inf_squad": ("f0", "f1", "f2"), "demo_squad": ("demo_a", "demo_b")}
+FIGURES = {"inf_squad": ("f0", "f1", "f2"), "demo_squad": ("demo_a", "demo_b"), "yahalom_squad": ("yah_a", "yah_b")}
 #: Round 3 (16 Nov 2026), a team's OWN limits, metres (and a count): see "Round 3" in the header. The Rifle Squad is read and
 #: printed beside them and NOT held (its accepted fit reads over every one of them: a named finding, not this unit's to move).
 TEAM_LIMITS = {
     "demo_squad": {("carrier", "p90"): 0.040, ("headset", "gun_pairs"): 0},
+    # GH-826 unit "Yahalom" (17 Nov 2026): the same body and the same carrier and headset rows, so the same limits
+    "yahalom_squad": {("carrier", "p90"): 0.040, ("headset", "gun_pairs"): 0},
 }
 #: Round 4 (16 Nov 2026), a FIGURE's own rows: a ceiling (one number), or a band (lo, hi) that is red on BOTH sides.
 #:   carrier max: a ratchet at the round-3 reading (the lead's L4: the plate bag's worst point off the firing shoulder blade is
@@ -83,6 +85,29 @@ FIGURE_LIMITS = {
         # millimetre: the tool rounds to 0.1 mm and CI's Blender is another build), cups -79.5 / -85.6 mm
         "demo_a": {("carrier", "max"): 0.0700, ("headset", "below_face_mid"): (-0.0845, -0.0745), ("lpvo", "min"): 0.0145, ("laser_box", "min"): 0.0130},
         "demo_b": {("carrier", "max"): 0.0635, ("headset", "below_face_mid"): (-0.0906, -0.0806), ("lpvo", "min"): 0.0130, ("laser_box", "min"): 0.0100},
+    },
+    # GH-826 unit "Yahalom" (17 Nov 2026), the same rows by the same rule (a ceiling is the reading rounded up to the next
+    # half millimetre; the cup band is +-5 mm about the reading). Readings on the round-1 bytes: carrier max 65.3 / 69.7 mm,
+    # cups -63.5 / -48.3 mm (yah_a's raised 20 mm over the stock's comb, yah_b's not raised), scope 13.6 / 3.0 mm, laser
+    # 12.4 / 13.7 mm. The lead's ruling of 17 Nov 2026 ("Approve all", the round-1 review's row 16) approves these rows ONCE
+    # WATCHED RED. Watched, round 2 (17 Nov; `_coord/infantry-upgrade/yahalom/gates-r2/mutation_M1_RED.txt`, `mutation_M2_RED.txt`):
+    #   - the scope and the laser box seated 4 mm higher (`inf_kit_v7.v7_lpvo`, `v7_laser_box`): scope 17.6 / 7.0 mm, laser
+    #     14.9 / 16.2 mm: four reds;
+    #   - the cups' LOW side (round 1 never tripped it): `headset_below_rim` 0.048 -> 0.070 with `headset_clear_gun` None (no
+    #     lift over the stock): -21.6 / -26.5 mm, "LOWER on the head than the band" on BOTH men, and the gun through a cup
+    #     (132 / 74 pairs). With the lift left ON the same drop reddens yah_a alone (-51.6): on yah_b the fitter raises the
+    #     lowered cup back over the comb and it reads -50, inside his band;
+    #   - the carrier's MAX rows: only by `carrier_trim.half_w` 0.13 -> 0.135 (round 1: 69.4 / 73.9 mm).
+    # NOT HELD BY THESE ROWS, disclosed: `carrier_trim.drop`. At 0.20 the carrier rows read 65 / 70 mm, as shipped; at 0.12 the
+    # graft refuses the kit first ("yah_b draws 7233 kit triangles ... over the 7200"). `test_yahalom_back_plate.py` sees both
+    # (184 / 150 and 330 / 296 cells differ). So a deeper trim is caught by the plate table and, far enough, by the triangle
+    # cap; nothing here holds the lip that 0.20 leaves under the arm (demo_squad's row is as blind to it).
+    # yah_b's scope at 3.0 mm, SIGNED (the review, section 6: an unsigned row passes a scope sunk in the rail): 0 of its 443
+    # vertices are inside the gun and its lower face stands +5.1 mm (least) over the gun's top surface under it; the other
+    # three men's stand +14.4 to +15.4 (`_coord/infantry-upgrade/yahalom/gates-r2/scope_signed.txt`). Not sunk: a lower seat.
+    "yahalom_squad": {
+        "yah_a": {("carrier", "max"): 0.0655, ("headset", "below_face_mid"): (-0.0685, -0.0585), ("lpvo", "min"): 0.0140, ("laser_box", "min"): 0.0125},
+        "yah_b": {("carrier", "max"): 0.0700, ("headset", "below_face_mid"): (-0.0533, -0.0433), ("lpvo", "min"): 0.0035, ("laser_box", "min"): 0.0140},
     },
 }
 

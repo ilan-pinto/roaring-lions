@@ -61,13 +61,22 @@ export const CREDITS = {
     { family: 'Fira Sans', licenceFile: 'OFL-FiraSans.txt', holder: 'The Mozilla Foundation and Telefonica S.A.' },
     { family: 'Oswald', licenceFile: 'OFL-Oswald.txt', holder: 'The Oswald Project Authors' },
   ],
-  // Empty on purpose. The only entry was the Namer's (Mutte, CC BY 3.0), for
-  // sprite sheets that were deleted in A3.3 -- the Namer is a Meshy model now,
-  // and nothing shipped derives from the credited work. The lead's ruling
-  // (audit L4 / PA-29): remove it. The history stays in the provenance table
-  // (docs/ASSET_PROVENANCE.md). A future work whose licence requires a credit
-  // goes here and is rendered by ui/credits.ts without any other change.
-  assets: [] as readonly AssetCredit[],
+  // The Namer's old entry (Mutte, CC BY 3.0) was removed on the lead's ruling (audit L4 / PA-29): its sprite sheets were deleted
+  // in A3.3. The history stays in the provenance table (docs/ASSET_PROVENANCE.md). A work whose licence requires a credit goes here
+  // and is rendered by ui/credits.ts without any other change.
+  assets: [
+    // GH-1417 S2: the chat word filter's lists are adapted from LDNOOBW (CC BY 4.0, section 3(a)): creator, notice, licence link,
+    // source link, and that the material was modified (the use line). The full record is data/chat/LICENSES.md.
+    {
+      title: 'List of Dirty, Naughty, Obscene, and Otherwise Bad Words',
+      author: '© 2012-2020 Shutterstock, Inc.',
+      licence: 'CC BY 4.0',
+      licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
+      source: 'LDNOOBW, commit 5faf2ba42d7b',
+      sourceUrl: 'https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words',
+      useKey: 'credits.asset.ldnoobw.use',
+    },
+  ] as readonly AssetCredit[],
   codeLicence: 'PolyForm Noncommercial 1.0.0',
   artLicence: 'all rights reserved',
   // The AI-generated disclosure (CONTRIBUTING.md), one paragraph per key, as

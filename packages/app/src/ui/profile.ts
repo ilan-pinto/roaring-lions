@@ -7,7 +7,7 @@
  */
 import type { StorageLike } from '../brigade-account';
 import { SAVE_VERSION, type MatchOpponent, type MatchView } from '@lions/economy';
-import { maps } from '@lions/data';
+import { mapManifest } from '@lions/data';
 import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
@@ -33,6 +33,11 @@ export interface ProfileDeps {
   query: URLSearchParams;
   /** This browser's anonymous telemetry player id, or null when it never held one. Still answers after the player switched reports off (GH-1431), so "also delete my reports" can name it. */
   telemetryPlayer: () => string | null;
+  /** Lead ruling, 17 Nov 2026: called once the server has confirmed the deletion, never on a failure. `telemetry/index.ts`'s `rotateTelemetryPlayer`. */
+  rotateTelemetry: () => void;
+  /** Lead ruling T1, 17 Nov 2026: holds every telemetry send from BEFORE the delete request until it answers; the returned release resumes.
+   *  `telemetry/index.ts`'s `pauseTelemetrySends`. */
+  pauseTelemetry: () => () => void;
   /** Leaves the page for `href`: Steam's login URL is another origin, so main.ts passes a real page load. */
   navigate: (href: string) => void;
   /** A HARD reload of the app (`shell/links.ts`'s `reloadMenuHref`: the menu plus the sticky query keys), so the next boot chooses its store afresh. */
@@ -93,7 +98,7 @@ function isError(x: unknown): x is AccountError {
   return typeof x === 'object' && x !== null && 'error' in x && 'status' in x;
 }
 
-const mapNames: Readonly<Record<string, { name: string }>> = maps;
+const mapNames: Readonly<Record<string, { name: string }>> = mapManifest;
 
 /** The outcome is read off the winning seat against the member's own; an unconfirmed row says so beside it. */
 function outcomeKey(m: MatchView): 'won' | 'lost' | 'drawn' {
@@ -623,7 +628,17 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
         if (confirm === h) confirm = null;
         if (!yes || disposed) return;
         const player = box2.checked ? deps.telemetryPlayer() : null;
-        const r = await deps.client.deleteAccount(player === null ? {} : { telemetryPlayer: player });
+        // T1: no telemetry send leaves while the request is in flight, so no flush can re-create the old id's rows after the server deleted them.
+        const resume = deps.pauseTelemetry();
+        let r: 'ok' | AccountError;
+        try {
+          r = await deps.client.deleteAccount(player === null ? {} : { telemetryPlayer: player });
+          // Before the `disposed` check: the account is gone whether or not the player is still on this screen. Rotate (which drops the
+          // old id's queue) BEFORE resuming; a failure only resumes, and the queue leaves under the old id, nothing lost.
+          if (!isError(r)) deps.rotateTelemetry();
+        } finally {
+          resume();
+        }
         if (disposed) return;
         if (!isError(r)) {
           deps.wipeDeleted?.();

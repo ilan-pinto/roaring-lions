@@ -23,7 +23,7 @@ function harness(over: Partial<TelemetryDeps> = {}) {
     setInterval: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
     clearInterval: (h) => { (h as { cleared: boolean }).cleared = true; },
     onPagehide: (fn) => { pagehide = fn; },
-    sink: { push: (e) => void sent.push(e), flush: (useBeacon = false) => void flushes.push(useBeacon) },
+    sink: { push: (e) => void sent.push(e), flush: (useBeacon = false) => void flushes.push(useBeacon), clear: () => {} },
     ...over,
   };
   const tel = createTelemetry(deps);

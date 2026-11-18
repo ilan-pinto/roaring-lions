@@ -221,7 +221,7 @@ export function accountLedgerStore(o: AccountStoreOptions): AccountLedgerStore {
       const campaign: CampaignBody = { ledger: v.ledger, brigade: v.account ?? body().brigade, tutorialDone: body().tutorialDone };
       // A mission that pays nothing (the tutorial) is only a campaign write; the coins are the server's either way.
       if (v.win === null) push({ kind: 'campaign', opId: o.newOpId(), campaign });
-      else push({ kind: 'victory', opId: o.newOpId(), missionId: v.win.missionId, stars: v.win.stars, start: v.start, campaign });
+      else push({ kind: 'victory', opId: o.newOpId(), missionId: v.win.missionId, stars: v.win.stars, start: v.start, campaign, challenge: v.win.challenge });
       return 'saved';
     },
   };

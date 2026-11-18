@@ -24,7 +24,8 @@
 // Main Street/the souk to the ward, sharing one N-S corridor at x=24"), and
 // it holds exactly as measured here.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

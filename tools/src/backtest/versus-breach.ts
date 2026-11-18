@@ -59,7 +59,8 @@
 
 import { fileURLToPath } from 'node:url';
 import { BRACE_NONE, type Sim } from '@lions/sim';
-import { maps, type MapId } from '@lions/data';
+import { type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchCapTicks, validateConfig, type Faction, type MatchConfig } from '@lions/net';
 import type { SandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';

@@ -56,8 +56,10 @@
     "town": {
       "enum": [
         "beit_sahwan",
+        "qasr_liwan",
         "khan_rafid",
         "deir_amun",
+        "bir_tarsha",
         "tel_marum",
         "qarn_hadid",
         "umm_zeitoun",
@@ -459,6 +461,10 @@
             "$ref": "#/$defs/say",
             "description": "Story voice: fires the tick this objective fails, right after the objective/failed event it annotates."
           },
+          "by_order": {
+            "type": "boolean",
+            "description": "raze only (GH-1438): true says the zone holds low-profile works (berms, sandbags, hesco) or per-tile works (walls, fences) ON PURPOSE, each razed by its own `demolish` order, one per structure and one per TILE for a per-tile type. A demolisher never levels those unattended, so without this the validator refuses a raze zone that holds one. It lifts the low_profile and per_tile refusals only: a protected work (roe_penalty at or past the protected threshold) stays refused. Read by validate:data and nowhere else -- the runtime and the sim never see it. Any other type refuses it."
+          },
           "clock": {
             "type": "boolean",
             "description": "GH-345: false keeps this objective's countdown out of the HUD while another objective's countdown is running, so the strip counts down one clock at a time -- the deadline that can fail first. Once no other clock is running, this one shows (WP-P3, PA-05). App-read only; the sim never sees it. Default true."
@@ -481,6 +487,10 @@
           {
             "if": { "properties": { "type": { "const": "escort" } }, "required": ["type"] },
             "else": { "not": { "anyOf": [{ "required": ["fail_after_losses"] }, { "required": ["until"] }] } }
+          },
+          {
+            "if": { "properties": { "type": { "const": "raze" } }, "required": ["type"] },
+            "else": { "not": { "required": ["by_order"] } }
           }
         ]
       }

@@ -9,7 +9,8 @@
 // And the naive 2x copy of the 48x48 map, built here from data/maps/wadi_tarfan.json with no look stage at all,
 // must be red on every distortion at once: that is what the verifier is for.
 import { describe, expect, it } from 'vitest';
-import { maps, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
+import { versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { SPECS, shipped, staged, verifyLargeMap, verifyVersusVisibility } from './large_map_verify';
 
 const W = 96;

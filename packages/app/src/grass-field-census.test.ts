@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap, structures as structureCatalogue, type MapId } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import {
   SCATTER_ROAD_CLEAR,
   buildRoadGraph,
