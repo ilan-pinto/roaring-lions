@@ -11,16 +11,20 @@
  * never moves it (spec guard G3).
  */
 import type { LedgerStore } from './ledger-store';
+import type { BranchPick } from '@lions/data';
 import { singlePlayerView } from './roar-wallet';
 
 export interface AccountView {
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
+  /** GH-1384: per (unit, track) held at its branched last tier, the ONE branch owned (the
+   *  earned pick wins where the two stores disagree). It goes wherever `ownedTiers` goes. */
+  ownedPicks: Record<string, Record<string, BranchPick>>;
   balance: number;
 }
 
 export function accountView(store: Pick<LedgerStore, 'readAccount' | 'readRoar'>): AccountView {
   const account = store.readAccount();
-  const { boughtUnits, ownedTiers } = singlePlayerView(account, store.readRoar());
-  return { boughtUnits, ownedTiers, balance: account.balance };
+  const { boughtUnits, ownedTiers, ownedPicks } = singlePlayerView(account, store.readRoar());
+  return { boughtUnits, ownedTiers, ownedPicks, balance: account.balance };
 }

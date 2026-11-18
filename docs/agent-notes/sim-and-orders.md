@@ -118,6 +118,19 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   the balance backtest alike — so the sim never learns a tier exists. `pnpm playtest` replays
   every plain victory at max tier and requires the outcome class to hold; `pnpm balance` and
   `validate_balance.py --max-tier` run the §5.7 targets and the cost curve at max tier too.
+- **Branched tiers (GH-1384 slice 1; design `docs/superpowers/specs/2026-11-17-branched-upgrade-tiers-design.md`).**
+  A track's LAST tier may carry exactly two `branches` sharing its price (`tools/validate_branches.mjs`: B1-B7 per
+  branched track, the hand-written `BRANCH_CEILING`, the C1 cap of one branched track per unit). Thirteen KDF
+  units branch one track, every number a shipped tier-2 or tier-3 one. `applyUpgrades(unit, tiers, picks)` takes
+  the pick per TRACK as a REQUIRED third argument and stops below a branched tier with no pick, so an unpicked
+  tier 3 is never free stats and never both; every max-tier pass runs a uniform branch vector (`maxPicks(u, 1|2)`:
+  the cost curve's `--branch=1|2`, `pnpm balance`'s two max-tier tables plus each target's mixed vectors, and the
+  playtest's `(max tier)` and `branch 2 (max tier)` replays). The stores hold the pick keyed by (unit, track): the
+  account's `picks` and `legacy` (`ACCOUNT_VERSION` 3), the wallet entitlement's `branch` and `legacy`
+  (`ROAR_VERSION` 2). The migration gives a store's old linear tier 3 branch 1 and a legacy marker with no number,
+  which offers ONE free Switch or a full Return (`branch-legacy.ts`; a Return refunds only the LEGACY stores, the
+  lead's R12). The guard is `packages/economy/src/branch-exclusive.test.ts`. Until the Garage draws the fork, its
+  one Buy buys branch 1 (`GARAGE_BRANCH`), and a room seat's branched tier 3 fields branch 1 (`seatKitPicks`).
 - Two ROE facts a visual check needs: **three maps carry `m` civic-hall tiles (`hall`, the O10 replacement; the type was `mosque` until 2026-09-06) — `beit_sahwan_outskirts` (9),
   `marj_perimeter` (4) and `wadi_halam_basin` (9), counted 2026-09-03 from the
   map rows; this line said "only `wadi_halam_basin`" until then** — so the
@@ -922,7 +935,7 @@ component repair), the two existing aura blocks. Art: it draws `buildings/camp.g
 - **UI.** The works tile and glyph; the dock row is "Forward {n}" (n counts forward lines only, camps keep "Camp {index+1}"), and a lone
   forward line always has a row; a tile pinned to a line is judged against THAT line's menu (`tileState(..., onLine)`). Placing shows the
   footprint pad and two dashed rings (aura 4, contest 6; `worksShapeOf().contest`); selecting the camp shows the same rings. No world mark.
-  The `&works` sandbox lists the camp like any `kdf_` work and now has a unit menu (the KDF units it loads models for) so a unit can be
+  The field-works sandbox (every KDF Free play since 18 Nov 2026; `&works` before, an alias now) lists the camp like any `kdf_` work and now has a unit menu (the KDF units it loads models for) so a unit can be
   built from the line. Check: `tools/src/perf/forward-camp-check.ts` (port 5195, music off, one Metal browser).
 - **Cost.** A busy forward line adds one contest scan a tick, the same as any second authored camp: about 0.004 ms/tick at 303 units; an
   idle one about 0.00001 ms.

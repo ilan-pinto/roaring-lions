@@ -55,7 +55,7 @@ describe('parseWorld', () => {
     // Moved with the Marj's completion (Khan Rafid + Deir Amun, design.md C3
     // / O-KR1): Sur now opens only once the whole Marj -- Beit Sahwan, Khan
     // Rafid and Deir Amun -- is finished, not two-thirds of it.
-    expect(sur.unlock?.afterMission).toBe('deir_amun_3_subterranean');
+    expect(sur.unlock?.afterMission).toBe('bir_tarsha_5_subterranean');
   });
 
   it('keeps town positions as a fixed pair', () => {
@@ -96,18 +96,18 @@ describe('regionProgress', () => {
     const p = regionProgress(sur, {});
     expect(p.status).toBe('locked');
     expect(p.lockedBecause).toBe('Clear an earlier mission first');
-    expect(p.lockedBecause).not.toContain('deir_amun_3_subterranean');
+    expect(p.lockedBecause).not.toContain('bir_tarsha_5_subterranean');
   });
 
   it('names the gating mission once a resolver can supply its title', () => {
     const p = regionProgress(sur, {}, (id) =>
-      id === 'deir_amun_3_subterranean' ? 'Deir Amun III — All Four' : undefined
+      id === 'bir_tarsha_5_subterranean' ? 'Bir Tarsha V — Under the Fence' : undefined
     );
-    expect(p.lockedBecause).toBe('Clear Deir Amun III — All Four first');
+    expect(p.lockedBecause).toBe('Clear Bir Tarsha V — Under the Fence first');
   });
 
   it('opens once the gating mission is cleared', () => {
-    const p = regionProgress(sur, { 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
+    const p = regionProgress(sur, { 'campaign.completed_missions': ['bir_tarsha_5_subterranean'] });
     expect(p.status).toBe('live');
     expect(p.lockedBecause).toBe(null);
   });
@@ -277,9 +277,9 @@ describe('parseCommander', () => {
   it('maps the authoring spelling (until_mission) onto the runtime one (untilMission)', () => {
     // Moved with Khan Rafid / Deir Amun (design.md C4): the Captain's tenure
     // now runs through all six of those missions too, so the act boundary --
-    // and the third star -- lands at deir_amun_3_subterranean rather than at
-    // beit_sahwan_4_subterranean.
-    expect(commander.ranks[0]!.untilMission).toBe('deir_amun_3_subterranean');
+    // and the third star -- landed at deir_amun_3_subterranean rather than at
+    // beit_sahwan_4_subterranean. Bir Tarsha, the Marj's fourth town (GH-1438), moved it on to bir_tarsha_5_subterranean.
+    expect(commander.ranks[0]!.untilMission).toBe('bir_tarsha_5_subterranean');
     // The last entry is the default and carries no until_mission at all.
     expect(commander.ranks[commander.ranks.length - 1]!.untilMission).toBeUndefined();
   });
@@ -513,7 +513,7 @@ describe('promotionAfter', () => {
     // (design.md C3/C4), and the motivation-layer spec (§4.5) says ranks already
     // live in commander.json matching the act ends -- deir_amun_3_subterranean is
     // that act end today.
-    const p = promotionAfter(commander, world, 'deir_amun_3_subterranean');
+    const p = promotionAfter(commander, world, 'bir_tarsha_5_subterranean');
     expect(p?.rank).toBe('Major');
     expect(p?.stars).toBe(3);
     expect(promotionAfter(commander, world, 'beit_sahwan_1_recon')).toBeNull();
@@ -603,7 +603,7 @@ describe('the Naharin villain ends at the depot (GH-912 G-Q)', () => {
 
 describe('the account of the taken', () => {
   it('subtracts what came back from what was taken, and reads nothing when the world names no number', () => {
-    expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 19, recovered: 5 });
+    expect(hostagesAccount(world, { 'civ.hostages_recovered': { a: 2, b: 3 } })).toEqual({ taken: 24, recovered: 5 }); // Was 19: Bir Tarsha's five (four in III, one in V)
     expect(hostagesAccount({ ...world, taken: undefined }, {})).toBeNull();
   });
   it('is Idit\'s line', () => {

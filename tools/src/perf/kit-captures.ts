@@ -303,6 +303,9 @@ function accountAt(level: number, ids: readonly string[] = VEHICLES): BrigadeAcc
     upgrades,
     grants: [{ source: 'granted', amount: 5000, at: 1 }],
     coupons: [],
+    // GH-1384: a seeded branched tier 3 takes branch 1 (and a legacy marker) on the app's first read.
+    picks: {},
+    legacy: {},
   };
 }
 

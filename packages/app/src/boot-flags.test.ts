@@ -42,6 +42,53 @@ describe('bootFlags', () => {
     expect(lines).toEqual(['[lions] &side=sarim is ignored: only Free play picks a side', '[net] sandbox flag &civ is ignored in a room']);
   });
 
+  it('the lead, 18 Nov 2026: a KDF Free play has field works without being asked, silently', () => {
+    const lines: string[] = [];
+    const got = bootFlags(q(''), FREE, (l) => lines.push(l));
+    expect([got.side, on(got.flags)]).toEqual(['kdf', ['works']]);
+    expect(lines).toEqual([]);
+  });
+
+  it('&works on a KDF Free play is an alias: the same boot with it and without it', () => {
+    expect(bootFlags(q('works&civ'), FREE, () => undefined)).toEqual(bootFlags(q('civ'), FREE, () => undefined));
+  });
+
+  it('the lead, 18 Nov: &works=0 (=off, =false) turns field works off for that boot, silently; &works or nothing keeps them', () => {
+    for (const v of ['0', 'off', 'false']) {
+      const lines: string[] = [];
+      expect(on(bootFlags(q(`works=${v}`), FREE, (l) => lines.push(l)).flags), v).toEqual([]);
+      expect(lines, v).toEqual([]);
+    }
+    expect(on(bootFlags(q('works'), FREE, () => undefined).flags)).toEqual(['works']);
+    expect(on(bootFlags(q(''), FREE, () => undefined).flags)).toEqual(['works']);
+  });
+
+  it('&works=0 on the Sarim side is nothing to drop: no works and no warning', () => {
+    const lines: string[] = [];
+    expect(on(bootFlags(q('works=0&side=sarim'), FREE, (l) => lines.push(l)).flags)).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+
+  it('a Sarim Free play that did not ask for field works gets none, and nothing is said', () => {
+    const lines: string[] = [];
+    const got = bootFlags(q('side=sarim'), FREE, (l) => lines.push(l));
+    expect([got.side, on(got.flags)]).toEqual(['sarim', []]);
+    expect(lines).toEqual([]);
+  });
+
+  it('a mission takes no field works default, with or without &works', () => {
+    const mission = { missionId: 'tel_marum_1', inRoom: false } as const;
+    expect(on(bootFlags(q(''), mission, () => undefined).flags)).toEqual([]);
+    expect(on(bootFlags(q('works'), mission, () => undefined).flags)).toEqual(['works']);
+  });
+
+  it('a room takes no field works default, and says nothing about one it was not asked for', () => {
+    const lines: string[] = [];
+    const got = bootFlags(q(''), { missionId: null, inRoom: true }, (l) => lines.push(l));
+    expect(on(got.flags)).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+
   it('an unknown side warns and plays the KDF, keeping its extras', () => {
     const lines: string[] = [];
     const got = bootFlags(q('side=rif&works'), FREE, (l) => lines.push(l));
