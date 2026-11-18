@@ -128,8 +128,9 @@ export interface SceneHostDeps {
    *  plate path. */
   readonly plateUrl: string;
   /** Built lazily, on the live path only: a reduced-motion player never pays
-   *  for a `Sim`. */
-  readonly world: () => SceneHostWorld;
+   *  for a `Sim`. May be async (B6-6: the menu loads the diorama's map by id
+   *  first); a throw or a rejection is the `failed` path, the plate. */
+  readonly world: () => SceneHostWorld | Promise<SceneHostWorld>;
   readonly reducedMotion?: () => boolean;
   readonly saveData?: () => boolean;
   readonly webgl2?: () => boolean;
@@ -355,10 +356,13 @@ export function sceneHost(stage: HTMLElement, column: HTMLElement, deps: SceneHo
       // The import and the world build overlap: one is network, the other CPU.
       const door = deps.mount !== undefined ? Promise.resolve(deps.mount) : loadDoor();
       door.catch(() => undefined); // read below; never an unhandled rejection
+      // A sync throw and a rejection alike land in the catch below.
+      const built = (async () => deps.world())();
+      built.catch(() => undefined); // read below; never an unhandled rejection
       let world: SceneHostWorld;
       let mount: MountSceneHostView;
       try {
-        world = deps.world();
+        world = await built;
         mount = await door;
       } catch (err) {
         feed({ type: 'failed' }, null, err);

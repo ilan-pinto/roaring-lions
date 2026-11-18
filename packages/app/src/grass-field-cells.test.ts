@@ -15,7 +15,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap, paletteColor, structures as structureCatalogue, type MapId } from '@lions/data';
+import { applyTerrain, parseMap, paletteColor, structures as structureCatalogue, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { composeTerrainFrom, type ComposedTerrainBuild } from '@lions/render/three';
 import {
   GRASS_CELL_TILES,

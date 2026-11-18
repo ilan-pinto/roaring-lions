@@ -5,7 +5,7 @@
 // same objects for its `optimal` rung and writes the naive / sensible / foot / crest rungs beside them.
 // Nothing here may be copied elsewhere.
 import { fx } from '@lions/sim';
-import { maps, missions } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import type { Plan } from '../playtest-run';
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });

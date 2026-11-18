@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { LedgerRosterEntry } from '@lions/sim';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';

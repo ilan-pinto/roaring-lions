@@ -223,6 +223,13 @@ describe('the A2 routes (GH-1075)', () => {
     expect(body(5)).toEqual({ op_id: 'op2', item: 'tier', unitId: 'u', track: 'armor', tier: 2 });
     expect(body(8)).toMatchObject({ op_id: 'p1', name: 'Name', savedAt: 7, origin: 'conflict' });
     expect(spy.mock.calls[0]?.[1]?.body).toBeUndefined();
+    // GH-1395: a plain victory sends no `challenge` at all (an older Worker reads the body it always read).
+    expect(Object.hasOwn(body(3), 'challenge')).toBe(false);
+  });
+  it('GH-1395: a victory op carrying a beaten challenge sends `challenge: true`', async () => {
+    const { spy, client } = make('?accounts', () => json(200, { ok: true }));
+    await client.victory({ ...VICTORY, challenge: true }, 3);
+    expect(JSON.parse(String(spy.mock.calls[0]?.[1]?.body))).toMatchObject({ op_id: 'v1', missionId: 'm', challenge: true });
   });
   it('a 200 is ok with its body; any other status carries what the server said; a thrown fetch is status 0', async () => {
     expect(await make('?accounts', () => json(200, { a: 1 })).client.state()).toEqual({ ok: true, status: 200, body: { a: 1 } });

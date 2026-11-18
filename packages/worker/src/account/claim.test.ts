@@ -1,5 +1,5 @@
 import { canonicalCampaign, canonicalSlot, claimEvidence, coinPrice, migrateRoar, emptyAccount, parseWorld, SAVE_VERSION, storeInputFor, storeItems, worldMissionIds, type SaveSlot } from '@lions/economy';
-import { units, world } from '@lions/data';
+import { challengeMissionIds, units, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import type { D1Like, D1Stmt } from '../d1';
 import { digestOf } from './campaign';
@@ -146,17 +146,37 @@ describe('POST claim', () => {
   });
 
   it('a_forged_record_is_bounded (A2-4)', async () => {
-    expect(ids.length).toBe(29);
+    expect(ids.length).toBe(34);
     const s = setup();
     const cookie = await member(s);
     const all = ids.map((id) => [id, 99] as [string, number]);
     const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 99 }])) };
     const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all), slots: [{ id: 'x', slot: slotOf('x', 1, all) }] }));
-    expect(r.coins).toBeLessThanOrEqual(925);
-    expect(r.earned).toBe(925);
-    expect(await freeOf(s)).toBeLessThanOrEqual(925);
+    expect(r.coins).toBeLessThanOrEqual(1050);
+    expect(r.earned).toBe(1050);
+    expect(await freeOf(s)).toBeLessThanOrEqual(1050);
     const lifetime = await record(s, 'earn_lifetime');
     expect(Object.values(lifetime.missions).every((m) => (m as { stars: number }).stars <= 3)).toBe(true);
+  });
+
+  it('GH-1395: a forged challenge flag on every mission is bounded by the challenge index, and a second device pays none of it', async () => {
+    // 1,050 over the 34 missions (100 + 10 a mission + 5 a star + 100), plus 10 for each mission that HAS a challenge
+    // (six in the pilot), never 10 x 34.
+    expect(ids.length).toBe(34);
+    expect(challengeMissionIds.length).toBe(6);
+    const bound = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + 10 * challengeMissionIds.length;
+    expect(bound).toBe(1110);
+    const s = setup();
+    const cookie = await member(s);
+    const all = ids.map((id) => [id, 3] as [string, number]);
+    const earn = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 3, challenge: true }])) };
+    const r = await ok(await claim(s, cookie, { wallet: { ...RICH, earn }, campaign: campaignOf(all) }));
+    expect(r.earned).toBe(bound);
+    const lifetime = await record(s, 'earn_lifetime');
+    const flagged = Object.entries(lifetime.missions).filter(([, m]) => (m as { challenge?: boolean }).challenge === true).map(([id]) => id).sort();
+    expect(flagged).toEqual([...challengeMissionIds].sort());
+    const again = await ok(await claim(s, cookie, { device: dev(2), wallet: { ...RICH, earn }, campaign: campaignOf(all) }));
+    expect(again.earned).toBe(0);
   });
 
   it('claimEvidence itself clamps stars 0 to 3 and ignores non-world missions (the clamp the route also relies on)', () => {

@@ -6,8 +6,6 @@ import {
   formations,
   layouts,
   grades,
-  maps,
-  missions,
   paletteColor,
   paletteTeamColors,
   tutorials,
@@ -17,6 +15,7 @@ import {
   vfxMunitions,
   VFX_MUNITIONS_FILE,
 } from './index';
+import { maps, missions } from './content';
 
 const DATA_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data');
 

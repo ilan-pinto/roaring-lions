@@ -27,7 +27,8 @@
 // in its own describe block at the end, where the shortest ROUTE either domain
 // can take is measured rather than asserted.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, units, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, units, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';

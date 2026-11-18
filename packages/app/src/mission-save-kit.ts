@@ -7,7 +7,7 @@
 export { cutMission, restoreMission, sealMission } from './mission-save';
 export { discardSuspended, openSuspendStore, readSuspended, savedMissionOtherThan, writeSuspended } from './mission-save-store';
 export { captureShell, shellJson } from './mission-shell';
-export { clearResumeProblem, loadResume, noteResumeProblem, peekResumeMoved, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
+export { clearResumeProblem, loadResume, noteResumeProblem, peekResumeMoved, peekResumePosture, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
 export { saveFailureText } from './ui/resume-copy';
 export { confirmReplaceOther } from './mission-save-replace';
 export { resumeRow } from './ui/resume-row';

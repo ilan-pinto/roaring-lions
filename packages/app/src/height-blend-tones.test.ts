@@ -11,7 +11,8 @@
  * a wrong palette key in a theme; `ground_blend: false` removed from `data/maps/rujm_sawda.json`.
  */
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap, paletteColor, type MapId } from '@lions/data';
+import { parseMap, paletteColor, type MapId } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { HEIGHT_BLEND_THEMES } from '../../render/src/three/terrain/height-blend';
 import { TERRAIN_THEMES, terrainTonesFor } from './terrain-themes';
 

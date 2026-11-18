@@ -16,7 +16,8 @@ import type * as ThreeTypes from '../../packages/render/node_modules/@types/thre
 // @ts-expect-error TS7016: the entry file carries no declarations; typed by the cast below.
 import * as ThreeRaw from '../../packages/render/node_modules/three/build/three.module.js';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain } from '@lions/data';
+import { parseMap, applyTerrain } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { ThreeRenderer } from '../../packages/render/src/three/ThreeRenderer';
 import { rendererOptionsFor } from '../../packages/app/src/renderer-options';
 
