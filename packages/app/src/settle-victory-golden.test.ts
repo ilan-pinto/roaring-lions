@@ -19,10 +19,11 @@ const ledger = { 'campaign.completed_missions': [first] };
 const run = (store: LedgerStore) =>
   settleVictory(store, { ledger, account: { ...emptyAccount(), balance: 7 }, win: { missionId: first, stars: 2, ledger }, world, at: 1234, start: null });
 
+// GH-1384: the stored shapes are versioned (account 3: `picks`, `legacy`; wallet 2); nothing else in these bytes moved.
 const GOLDEN_BYTES: Record<string, string> = {
-  "lions.brigade.account": "{\"version\":2,\"balance\":7,\"earned_total\":0,\"paid\":{},\"campaign_paid\":{},\"unlocks\":[],\"upgrades\":{},\"grants\":[],\"coupons\":[]}",
+  "lions.brigade.account": "{\"version\":3,\"balance\":7,\"earned_total\":0,\"paid\":{},\"campaign_paid\":{},\"unlocks\":[],\"upgrades\":{},\"grants\":[],\"coupons\":[],\"picks\":{},\"legacy\":{}}",
   "lions.campaign.ledger": "{\"campaign.completed_missions\":[\"beit_sahwan_breach\"]}",
-  "lions.roar": "{\"version\":1,\"coins\":{\"free\":120,\"paid\":0},\"entitlements\":{\"units\":{},\"upgrades\":{}},\"earn\":{\"welcomed\":true,\"campaignDone\":false,\"backfilled\":false,\"missions\":{\"beit_sahwan_breach\":{\"won\":true,\"stars\":2}}},\"receipts\":[{\"kind\":\"earn\",\"id\":\"1234-1\",\"at\":1234,\"coins\":{\"free\":100,\"paid\":0},\"source\":\"welcome\"},{\"kind\":\"earn\",\"id\":\"1234-2\",\"at\":1234,\"coins\":{\"free\":10,\"paid\":0},\"source\":\"first_win\",\"missionId\":\"beit_sahwan_breach\"},{\"kind\":\"earn\",\"id\":\"1234-3\",\"at\":1234,\"coins\":{\"free\":10,\"paid\":0},\"source\":\"star\",\"missionId\":\"beit_sahwan_breach\"}]}"
+  "lions.roar": "{\"version\":2,\"coins\":{\"free\":120,\"paid\":0},\"entitlements\":{\"units\":{},\"upgrades\":{}},\"earn\":{\"welcomed\":true,\"campaignDone\":false,\"backfilled\":false,\"missions\":{\"beit_sahwan_breach\":{\"won\":true,\"stars\":2}}},\"receipts\":[{\"kind\":\"earn\",\"id\":\"1234-1\",\"at\":1234,\"coins\":{\"free\":100,\"paid\":0},\"source\":\"welcome\"},{\"kind\":\"earn\",\"id\":\"1234-2\",\"at\":1234,\"coins\":{\"free\":10,\"paid\":0},\"source\":\"first_win\",\"missionId\":\"beit_sahwan_breach\"},{\"kind\":\"earn\",\"id\":\"1234-3\",\"at\":1234,\"coins\":{\"free\":10,\"paid\":0},\"source\":\"star\",\"missionId\":\"beit_sahwan_breach\"}]}"
 };
 const GOLDEN_SETTLE = "{\"write\":\"saved\",\"awards\":[{\"source\":\"welcome\",\"coins\":100},{\"source\":\"first_win\",\"coins\":10,\"missionId\":\"beit_sahwan_breach\"},{\"source\":\"star\",\"coins\":10,\"missionId\":\"beit_sahwan_breach\",\"stars\":2}],\"total\":120,\"balance\":120}";
 

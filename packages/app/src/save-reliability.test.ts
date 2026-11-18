@@ -176,7 +176,7 @@ describe('damaged and old slots', () => {
     writeActive(s, slot);
     expect(s.tutorialDone()).toBe(false);
     const account: BrigadeAccount = s.readAccount();
-    expect(account.version).toBe(2);
+    expect(account.version).toBe(3); // GH-1384: version 3 (`picks`, `legacy`)
     // GH-330: a version-1 record is split against the slot's OWN campaign.
     expect(account.campaign_paid).toEqual({ [first]: 200 });
     expect(s.readLedger()['roster.surviving_units']).toEqual(oldLedger['roster.surviving_units']);

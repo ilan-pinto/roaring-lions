@@ -71,7 +71,7 @@ describe('profile slots', () => {
     const raw = JSON.stringify({ version: 1, id: 'z', name: 'Z', savedAt: 1, build: '0.60.0', ledger: { 'campaign.completed_missions': [], 'future.key': 1 }, account: { version: 1, balance: 3 }, tutorialDone: false });
     const slot = importSlot(raw);
     // Version 2 since GH-330: a version-1 account migrates on import.
-    expect(slot.account.version).toBe(2);
+    expect(slot.account.version).toBe(3); // GH-1384: version 3 (`picks`, `legacy`)
     expect(slot.account.paid).toEqual({});
     expect(slot.account.campaign_paid).toEqual({});
     expect(slot.ledger['future.key']).toBe(1);
