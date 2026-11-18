@@ -26,6 +26,7 @@ import type { BrigadeAccount } from '../../../packages/app/src/brigade-account';
 import { ACCOUNT_KEY, ACCOUNT_VERSION } from '../../../packages/app/src/brigade-account';
 import type { CampaignLedger } from '../../../packages/app/src/ledger-store';
 import { LEDGER_KEY } from '../../../packages/app/src/main-keys';
+import { BRANCHES_OPEN } from '@lions/data';
 
 /** `mbt_lavi` fully kitted (L3), `inf_squad` and `at_team` each part-kitted
  *  (L1) -- the same three fixtures `packages/data/src/upgrades.test.ts` pins
@@ -48,9 +49,9 @@ export const GARAGE_SEED_ACCOUNT: BrigadeAccount = {
   },
   grants: [{ source: 'granted', amount: 5000, at: 1 }],
   coupons: [],
-  // GH-1384: a seeded branched tier 3 takes branch 1 (and a legacy marker) on the app's first read.
-  picks: {},
-  legacy: {},
+  // GH-1384: with branched tiers open, a seeded branched tier 3 takes branch 1 (and a legacy marker)
+  // on the app's first read; with them closed the account carries neither field, as on dev.
+  ...(BRANCHES_OPEN ? { picks: {}, legacy: {} } : {}),
 };
 
 /** Three Beit Sahwan missions logged at 3 stars, the breach at 2 (11 total --
