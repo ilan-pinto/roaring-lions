@@ -77,6 +77,46 @@ describe('versus field works: a works-only runtime, both sides', () => {
     expect(left(w.rt, 0, 'vw_post')).toBe(2);
   });
 
+  it('R5: a request for the key the OTHER side asked for in the same frame is refused at the click, uncharged and uncounted', () => {
+    const w = versusWorksWorld();
+    const [x, y] = VW_PADS.contested;
+    w.sim.queueCommand({ kind: 'raiseWorks', side: 1, works: 'vw_post', x, y, ids: [] });
+    w.sim.queueCommand({ kind: 'raiseWorks', side: 0, works: 'vw_post', x, y, ids: [] });
+    // Side 1's is charged; side 0's is refused before any charge, as the sim would have refused it (an overlap).
+    expect(w.rt.applyQueued()).toBe(1);
+    expect(w.rt.constructReason('vw_post', x, y, undefined, 0)).toBe('overlap');
+    expect(w.rt.logisticsOf(0)).toBe(1000);
+    expect(left(w.rt, 0, 'vw_post')).toBe(2);
+    expect(w.rt.logisticsOf(1)).toBe(850);
+    // The tick answers side 1's request: its site opens on side 1, and side 0 still has paid nothing.
+    const ev = w.rt.step(w.sim.tick());
+    expect(ev.filter((e) => e.kind === 'works').map((e) => (e.kind === 'works' ? `${e.phase}:${e.side}` : ''))).toEqual(['started:1']);
+    expect(w.rt.logisticsOf(0)).toBe(1000);
+    expect(w.rt.unstakedWorksAt(x, y, 1) ?? w.rt.worksAt(w.sim.structureAt(x, y), 1)).not.toBeNull();
+  });
+
+  it('R6: a side-1 work wrecked mid-build is forgotten on side 1, its event names side 1, and nothing is refunded', () => {
+    const w = run(100);
+    const [x, y] = VW_PADS.camp1;
+    const st = w.sim.structureAt(x, y);
+    expect(st).toBeGreaterThanOrEqual(0);
+    const at = w.rt.worksAt(st, 1);
+    expect(at?.done).toBe(false);
+    expect(w.rt.worksAt(st, 0)).toBeNull();
+    const purse1 = w.rt.logisticsOf(1);
+    const left1 = left(w.rt, 1, 'fwd_camp');
+    w.sim.debugDestroyStructure(st);
+    const ev = w.rt.step(w.sim.tick()).filter((e) => e.kind === 'works');
+    // The seat that hears it is side 1's (`main.ts` notes a works event only when `side === me`).
+    expect(ev.map((e) => (e.kind === 'works' ? `${e.phase}:${e.side}:${e.typeId}` : ''))).toEqual(['destroyed:1:fwd_camp']);
+    expect(w.rt.worksAt(st, 1)).toBeNull();
+    expect(w.rt.canCancelWorks(at?.site ?? -1, 1)).toBe(false);
+    expect(w.rt.logisticsOf(1)).toBe(purse1);
+    expect(left(w.rt, 1, 'fwd_camp')).toBe(left1);
+    // And no line was ever appended for it.
+    expect(w.rt.productionLines(1)).toHaveLength(0);
+  });
+
   it('a runtime that is not works-only keeps side 1 out of the works path', () => {
     const { sim, rt } = forwardWorld();
     expect(rt.worksOffers(1)).toEqual([]);
