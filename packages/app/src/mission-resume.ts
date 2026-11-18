@@ -51,12 +51,12 @@ export function startInputsJson(i: {
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The inputs, or null when the record's `campaign` is not exactly what `startInputsJson` writes. */
-export function parseStartInputs(v: unknown, open: boolean = BRANCHES_OPEN): StartInputs | null {
-  if (!isRec(v) || !isRec(v.ledger) || !isRec(v.tiers)) return null;
+export function parseStartInputs(raw: unknown, open: boolean = BRANCHES_OPEN): StartInputs | null {
+  if (!isRec(raw)) return null;
   // Open, a record with no picks is refused. Closed, the record is read exactly as dev reads it: any `picks` key is
   // ignored, and the picks read as none (a branched tier plays as its envelope whatever they say).
-  if (!open) v = { ...v, picks: {} };
-  if (!isRec(v.picks)) return null;
+  const v: Record<string, unknown> = open ? raw : { ...raw, picks: {} };
+  if (!isRec(v.ledger) || !isRec(v.tiers) || !isRec(v.picks)) return null;
   if (!Array.isArray(v.unlocks) || !v.unlocks.every((u) => typeof u === 'string')) return null;
   for (const tracks of Object.values(v.tiers)) {
     if (!isRec(tracks) || !Object.values(tracks).every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0)) return null;

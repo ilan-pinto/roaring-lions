@@ -419,7 +419,7 @@ describe('branched tiers (GH-1384)', () => {
 
   it('closed (the shipped default), a branched tier reads its envelope whatever the pick: the old linear tier 3', () => {
     expect(BRANCHES_OPEN).toBe(false);
-    for (const picks of [{}, { firepower: 1 as const }, { firepower: 2 as const }]) {
+    for (const picks of [{}, { firepower: 1 }, { firepower: 2 }] as Record<string, 1 | 2>[]) {
       const [a, p] = fire(applyUpgrades(tank, { firepower: 3 }, picks));
       expect(a).toBeCloseTo(0.95, 9);
       expect(p).toBe(1625);

@@ -15,7 +15,7 @@ import { ROAR_VERSION, ROAR_VERSION_BRANCHED, migrateRoar, resetFree } from './w
 const OPEN = branchedTable(Object.values(units) as unknown as UpgradableUnit[]);
 
 describe('the account: version 1 and 2 saves migrate to version 3 (literal old saves)', () => {
-  it('version numbers, as literals: dev's while the switch is closed, the branched ones once it opens', () => {
+  it('version numbers, as literals: dev\'s while the switch is closed, the branched ones once it opens', () => {
     expect(ACCOUNT_VERSION).toBe(2);
     expect(ROAR_VERSION).toBe(1);
     expect(ACCOUNT_VERSION_BRANCHED).toBe(3);
