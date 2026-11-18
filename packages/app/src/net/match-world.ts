@@ -168,7 +168,9 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   for (const f of formations) sim.addFormationType(f);
 
   const anchors = versusAnchors(mapJson);
-  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
+  // GH-1389: a computer level's stated force handicap is the seat's own `withhold`, read here and nowhere else: the sim
+  // only ever sees the units that were spawned. No seat carries one outside an offline match against a level.
+  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide, [seats[0]?.withhold, seats[1]?.withhold]);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
   // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.

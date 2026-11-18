@@ -25,6 +25,7 @@
     "playtest": "pnpm --filter @lions/tools playtest",
     "fw:probes": "pnpm --filter @lions/tools fw:probes",
     "versus:probe": "pnpm --filter @lions/tools versus:probe",
+    "computer:ladder": "pnpm --filter @lions/tools computer:ladder",
     "commander:probe": "pnpm --filter @lions/tools commander:probe",
     "s4:gate": "pnpm --filter @lions/tools s4:gate",
     "formations:probe": "pnpm --filter @lions/tools formations:probe",
