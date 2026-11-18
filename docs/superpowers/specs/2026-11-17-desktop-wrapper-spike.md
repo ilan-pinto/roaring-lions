@@ -24,10 +24,10 @@ These decide the comparison more than any benchmark does.
 | WebGL2 | The shipping renderer is three.js on WebGL2. WebGPU is a sandbox-only opt-in (`?gpu=webgpu`, `packages/app/src/main.ts` near the `backend:` telemetry field). | WebGL2 is the hard requirement. WebGPU is a "later" requirement. |
 | One engine | Every visual gate (`pnpm golden-baseline`), `ui:shots`, `ui:routes` and the perf tools run on Chromium (Playwright). | A wrapper that ships Chromium runs the engine the game is tested on. Any other engine is an untested target. |
 | Absolute asset paths | `vite.config.ts` builds with `base: '/'`; chunks, GLBs, textures, audio and the Draco decoder load from `/assets/`, `/meshes/`, `/draco/`... | `file://` breaks every one of them. The wrapper needs a custom scheme (or a local server) whose `/` is the build. |
-| Decoders | Draco only: two `draco_decoder*.wasm` in `assets/` plus `/draco/` (172 GLBs use `KHR_draco_mesh_compression`). No GLB uses `KHR_texture_basisu` and no `.ktx2` ships, so there is **no Basis/KTX2 transcoder to bundle today**. Rapier is inlined in its JS chunk. | The scheme must serve `application/wasm` and allow `'wasm-unsafe-eval'` (the CSP in `assets/_headers` already does). |
-| Audio | `audio.ts` plays OGG Vorbis first and falls back to `.m4a` only when OGG is unplayable. | Any Chromium plays OGG; the 5.9 MiB of `.m4a` is dead weight in a Chromium bundle (not pruned by the spike). |
-| Network | Telemetry, accounts, feedback and versus rooms call relative `/api/...` and switch off on a `*.local` host (`telemetry/enabled.ts` `LOCAL`, `account/enabled.ts`, `feedback/gate.ts`). | The spike's origin is `app://roaring-lions.local`, so the packaged build is offline and quiet with no app change. "Play with a friend" cannot reach a room from it (open question 3). |
-| Size | `pnpm build` output: 183 MB (`du -sh packages/app/dist`): meshes 109 MB, assets (JS/wasm) 28 MB, ui 20 MB, audio 14 MB, textures 8.6 MB. | The game payload, not the runtime, dominates any installer. |
+| Decoders | Draco only: one `draco_decoder.wasm` (with its `draco_wasm_wrapper.js`) in `assets/draco/`, which Vite's `publicDir` (`assets/`, `packages/app/vite.config.ts`) copies to `/draco/`; Rapier's wasm is inlined as base64 in its JS chunk, so the build emits no other `.wasm` (read from the build config and sources, not from a build). 172 GLBs use `KHR_draco_mesh_compression`. No GLB uses `KHR_texture_basisu` and no `.ktx2` ships, so there is **no Basis/KTX2 transcoder to bundle today**. | The scheme must serve `application/wasm` and allow `'wasm-unsafe-eval'` (the CSP in `assets/_headers` already does). |
+| Audio | `audio.ts` plays OGG Vorbis first and falls back to `.m4a` only when OGG is unplayable. | Any Chromium plays OGG; the 5.64 MiB (5.9 MB) of `.m4a` is dead weight in a Chromium bundle (not pruned by the spike). |
+| Network | Telemetry, accounts and feedback call relative `/api/...` and switch off on a `*.local` host (`telemetry/enabled.ts` `LOCAL`, `account/enabled.ts`, `feedback/gate.ts`). Versus rooms are **not** gated: the lobby opens a room with `origin: location.origin` (`packages/app/src/main.ts`, the `versusDeps.open` call) and `net/connect.ts` POSTs `${origin}/api/match` whatever the host. | The spike's origin is `app://roaring-lions.local`, so telemetry, accounts and feedback stay off with no app change. A versus room's POST lands on the bundle's own scheme, which answers every `/api/` path with a 404 (`tools/desktop/resolve.mjs`), so the lobby fails cleanly instead of reading `index.html`. The menu still offers versus (`ui/menu.ts` adds it unconditionally): the demo build must hide or disable it explicitly (open question 3, section 7). |
+| Size | `pnpm build` output: 180.4 MiB of file bytes as staged (section 2); `du -sh packages/app/dist` read 183M, which is allocated disk blocks in MiB (every file rounded up to a block), not bytes. By the same `du`: meshes 109M, assets (JS/wasm) 28M, ui 20M, audio 14M, textures 8.6M. | The game payload, not the runtime, dominates any installer. |
 
 ## 2. What the spike built and measured
 
@@ -61,13 +61,14 @@ option.
 How the prototype serves the build (`tools/desktop/main.mjs`): a privileged standard scheme
 (`protocol.registerSchemesAsPrivileged`, `standard`/`secure`/`supportFetchAPI`/`corsEnabled`/`stream`) and
 `protocol.handle` returning files from the bundled `web/` through `net.fetch(pathToFileURL(...))`, with a path-escape
-guard, explicit MIME types, the `_headers` CSP applied to every response, and `index.html` for any extension-less
-path (the router's screens). This is the pattern Electron's own protocol doc shows: "Registering a scheme as standard
-allows relative and absolute resources to be resolved correctly when served", and its `app://` example serves a
-bundle with `net.fetch(pathToFileURL(pathToServe).toString())` behind a check "for paths that escape the bundle"
-(https://github.com/electron/electron/blob/main/docs/api/protocol.md). Service workers are deliberately not allowed on
-the scheme: the files are already on disk, and `registerServiceWorker` warns and carries on (its documented contract).
-The window runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, no preload.
+guard, explicit MIME types, the `_headers` CSP applied to every response, a 404 for every `/api/` path, and `index.html`
+for any other extension-less path (the router's screens); the path rules are the pure `tools/desktop/resolve.mjs`,
+tested in `tools/src/desktop_serve.test.ts`. This is the pattern Electron's own protocol doc shows: "Registering a
+scheme as standard allows relative and absolute resources to be resolved correctly when served", and its `app://`
+example serves a bundle with `net.fetch(pathToFileURL(pathToServe).toString())` behind a check "for paths that escape
+the bundle" (https://github.com/electron/electron/blob/main/docs/api/protocol.md). Service workers are deliberately not
+allowed on the scheme: the files are already on disk, and `registerServiceWorker` warns and carries on (its documented
+contract). The window runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, no preload.
 
 ## 3. The comparison
 
@@ -81,8 +82,9 @@ The window runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbo
 
 Reading: the runtime is 118 MiB of a 275 MiB download for Electron **(measured)**. Tauri saves that 118 MiB at most;
 the game's own 157 MiB (compressed) is the floor for every option. Steam downloads compressed chunks and patches by
-chunk, so a later update costs what changed, not the whole bundle (https://partner.steamgames.com/doc/sdk/uploading,
-through a search excerpt: "SteamPipe is the game/application content system that powers Steam").
+chunk, so a later update costs what changed, not the whole bundle **(est.**: the only passage read, through a search
+excerpt of https://partner.steamgames.com/doc/sdk/uploading, is "SteamPipe is the game/application content system that
+powers Steam", which does not say how it downloads or patches**)**.
 
 ### 3.2 WebGL2 and WebGPU
 
@@ -197,8 +199,8 @@ first-party (the nwjs-builder-phoenix signing feature was never finished, search
 3. It works today with no app change: the spike's bundle loads the menu, the free-play picker and a mission briefing
    offline from a custom scheme with zero console errors **(measured)**.
 4. Tauri's one real advantage, size, is about 118 MiB compressed against a 157 MiB game that every option must ship,
-   and Steam patches by chunk. NW.js gives the same engine as Electron with a larger runtime, no first-party
-   packaging, signing or update tooling, and a weaker maintenance story for its Steam binding.
+   and Steam patches by chunk **(est.,** section 3.1**)**. NW.js gives the same engine as Electron with a larger
+   runtime, no first-party packaging, signing or update tooling, and a weaker maintenance story for its Steam binding.
 
 Costs to accept: about 118 MiB more download and 273 MiB more disk than the game itself **(measured, Linux)**, more
 RAM than a system webview **(est.)**, and an upgrade duty: Electron releases a major every 8 weeks and supports the
@@ -211,18 +213,22 @@ re-packaged on a schedule to stay inside security support.
 1. **The choice itself.** Answered: the lead ruled for Electron on 19 Nov 2026.
 2. **Platforms for the demo.** Windows only (the issue's done-line), or Windows + Linux native for the Deck? A
    Windows Electron build under Proton is the other Deck path; untested **(est.)**.
-3. **Should the desktop build talk to the Worker?** The spike's `*.local` origin keeps telemetry, accounts, feedback
-   and versus rooms off, which is right for an offline demo but leaves "Play with a friend" unable to reach a room.
-   Turning any of them on needs an absolute API origin in the app (an app change, out of this spike's scope) and a
-   decision on what a Steam build may send (privacy page, `?notrack`).
+3. **Should the desktop build talk to the Worker?** The spike's `*.local` origin keeps telemetry, accounts and
+   feedback off, which is right for an offline demo. Versus rooms are not behind that gate: the lobby POSTs
+   `${location.origin}/api/match`, the bundle's scheme answers it with a 404, and the lobby fails cleanly, so "Play
+   with a friend" cannot reach a room, yet the menu still offers it. **Open for the real build:** the demo must hide
+   or disable versus explicitly (an app change, out of this spike's scope). Turning any of them on needs an absolute
+   API origin in the app (also an app change) and a decision on what a Steam build may send (privacy page,
+   `?notrack`).
 4. **The Steam overlay switches** (`in-process-gpu`, `disable-direct-composition`): their frame cost and whether
    both are still needed must be measured on real Windows hardware with the overlay on.
 5. **Signing money and accounts.** Apple Developer Program (if macOS ships), and whether the Windows demo is signed
    at all (Azure Artifact Signing is the cheapest route the Electron doc names). Both are lead actions.
 6. **Linux sandbox under Steam.** Reported collisions between the Steam Linux Runtime and Chromium's sandbox; the
    spike ran `--no-sandbox` only because the container is root. The real build needs a decision and a test on a Deck.
-7. **Bundle trimming.** Drop the 5.9 MiB of `.m4a` (Chromium plays the OGG), `sw.js` and `_headers` from the desktop
-   copy; consider asar for the code and loose files for the assets. Not done: the spike copies the build unchanged.
+7. **Bundle trimming.** Drop the 5.64 MiB (5.9 MB) of `.m4a` (Chromium plays the OGG), `sw.js` and `_headers` from the
+   desktop copy; consider asar for the code and loose files for the assets. Not done: the spike copies the build
+   unchanged.
 8. **Commercial gate.** The demo ships only assets that pass the commercial gate (GH-1418 constraint); the spike
    bundles the whole `dist`. A demo build needs a filtered asset set and the demo slice's routes only.
 
@@ -236,7 +242,27 @@ re-packaged on a schedule to stay inside security support.
   executable (steamworks.js README), `steam_appid.txt` for local runs, the overlay switches, then a SteamPipe
   `app_build` script per depot. None of it is in the spike, because each needs the demo appID or a secret.
 
-## 7. Running the spike
+## 7. Carry into the real demo build
+
+The spike leaves these out on purpose; the demo build must not:
+
+- **Permissions denied by default**: `session.setPermissionRequestHandler` and `setPermissionCheckHandler` answer no to
+  everything the game does not use (camera, microphone, geolocation, notifications, ...).
+- **`shell.openExternal` allow-listed by host**: today any `https://` URL from `window.open` reaches the player's
+  browser; the demo opens only the hosts it names (the feedback issue's `github.com`, the store page).
+- **Fail closed on a missing `_headers` or CSP**: `staticHeaders()` returns `{}` when the file is absent, so the page
+  would run with no Content-Security-Policy. The real build refuses to start (or to package) without it.
+- **Smoke mode gated at build time**, not by the `RL_DESKTOP_SMOKE` runtime variable: a shipped binary must not be
+  switchable onto SwiftShader or a scripted run by its environment.
+- **Electron fuses and asar integrity**: `RunAsNode` off, `EnableNodeOptionsEnvironmentVariable` and
+  `EnableNodeCliInspectArguments` off, `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` on (which means
+  shipping an asar, open question 7).
+- **The Electron download pinned**: `download.checksums` in the packager call, or the build clears
+  `ELECTRON_MIRROR` / `npm_config_electron_mirror` so a mirror set in the environment cannot supply the runtime.
+- **Versus disabled or hidden in the demo** (open question 3): today the lobby reaches the bundle's 404 and fails
+  cleanly, which is a fallback, not a design.
+
+## 8. Running the spike
 
 ```bash
 pnpm desktop:spike                      # pnpm build, stage, package, tar.gz
@@ -244,8 +270,9 @@ pnpm desktop:spike --skip-build --smoke # reuse packages/app/dist, then the head
 ```
 
 `--smoke` runs the bundle under `xvfb-run` when there is no `$DISPLAY` and writes `dist-desktop/smoke.json` and
-`dist-desktop/smoke.png`. `RL_DESKTOP_SMOKE_PATH=/free-play` (set on a direct run of the bundle with
-`RL_DESKTOP_SMOKE=1`) opens a deep route instead of the menu. The Electron zip is downloaded once into
-`dist-desktop/cache/` by `@electron/get`, which checks it against the release's SHASUMS256; if the network proxy
-blocks that download, the script fails with the packager's message and does nothing else. It never signs, uploads or
-publishes, and it refuses to run on a non-Linux host.
+`dist-desktop/smoke.png`. A smoke run keeps its Chromium profile in `dist-desktop/profile/` (emptied before each run; a
+direct run with no `RL_DESKTOP_SMOKE_OUT` uses a fresh temp directory), never `~/.config/Roaring Lions`.
+`RL_DESKTOP_SMOKE_PATH=/free-play` (set on a direct run of the bundle with `RL_DESKTOP_SMOKE=1`) opens a deep route
+instead of the menu. The Electron zip is downloaded once into `dist-desktop/cache/` by `@electron/get`, which checks it
+against the release's SHASUMS256; if the network proxy blocks that download, the script fails with the packager's
+message and does nothing else. It never signs, uploads or publishes, and it refuses to run on a non-Linux host.

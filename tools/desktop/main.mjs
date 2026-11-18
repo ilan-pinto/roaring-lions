@@ -10,19 +10,25 @@
 // it deploys, with no second `VITE_BASE` build and no edit to the entry chunk.
 //
 // Why the host ends in `.local`: the app's own host gate (`packages/app/src/telemetry/enabled.ts`'s `LOCAL`, which
-// `account/enabled.ts`, `feedback/gate.ts` and `ui/no-gpu.ts` share or mirror) treats `*.local` as this machine, so
-// the packaged build sends no telemetry, never reaches `/api/account/*` and never posts feedback. A relative `/api/...`
-// would otherwise land on this scheme and fail. Whether a Steam demo should talk to the Worker is an open question in
-// the spike doc, not a decision this file makes.
+// `account/enabled.ts`, `feedback/gate.ts` and `ui/no-gpu.ts` share or mirror) treats `*.local` as this machine, so the packaged build
+// sends no telemetry, never reaches `/api/account/*` and never posts feedback. Versus rooms are NOT behind that gate:
+// the lobby POSTs `${location.origin}/api/match` (`net/connect.ts`), which lands on this scheme, so `resolve.mjs`
+// answers every `/api/` path with a 404 and the lobby fails cleanly instead of reading index.html. A demo build must
+// hide or disable versus explicitly; whether a Steam demo should talk to the Worker at all is an open question in the
+// spike doc, not a decision this file makes.
 //
 // `RL_DESKTOP_SMOKE=1` turns the run into the headless launch check: load `index.html`, probe WebGL2 (and report
-// WebGPU), write a screenshot and one `RL_SMOKE {json}` line to stdout, then exit 0 on a pass and 1 on a failure.
+// WebGPU), write a screenshot and one `RL_SMOKE {json}` line to stdout, then exit 0 on a pass and 1 on a failure. A smoke
+// run keeps its Chromium profile in `<RL_DESKTOP_SMOKE_OUT>/profile` (else a fresh temp dir), never the player's
+// `~/.config/Roaring Lions`.
 // Spec: docs/superpowers/specs/2026-11-17-desktop-wrapper-spike.md.
 
 import { app, BrowserWindow, protocol, net, shell } from 'electron';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { resolveRequest } from './resolve.mjs';
 
 const SCHEME = 'app';
 const HOST = 'roaring-lions.local';
@@ -104,25 +110,9 @@ function isRegularFile(file) {
 }
 
 async function serve(request) {
-  const url = new URL(request.url);
-  if (url.host !== HOST) return notFound();
-  let rel;
-  try {
-    rel = decodeURIComponent(url.pathname);
-  } catch {
-    return notFound();
-  }
-  const file = path.normalize(path.join(WEB_ROOT, rel));
-  // Never serve outside the bundled build.
-  if (file !== WEB_ROOT && !file.startsWith(WEB_ROOT + path.sep)) return notFound();
-  let target = file;
-  const isFile = isRegularFile(file);
-  if (!isFile) {
-    // The router's screens are PATHS (`/campaign`, `/mission/<id>`): a path with no extension is a screen, and gets
-    // the SPA shell, as the Worker's asset fallback does. A missing file with an extension is a real 404.
-    if (path.extname(rel) !== '') return notFound();
-    target = path.join(WEB_ROOT, 'index.html');
-  }
+  const resolved = resolveRequest(request.url, { host: HOST, webRoot: WEB_ROOT, isFile: isRegularFile });
+  if (resolved.status !== 200) return notFound();
+  const target = resolved.file;
   const res = await net.fetch(pathToFileURL(target).toString());
   const headers = new Headers(STATIC_HEADERS);
   headers.set('content-type', MIME[path.extname(target).toLowerCase()] ?? 'application/octet-stream');
@@ -136,6 +126,9 @@ if (SMOKE) {
   // runs only. A shipping build must not set this, so a player's machine never silently draws on the CPU.
   app.commandLine.appendSwitch('enable-unsafe-swiftshader');
   app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  // Its own profile, set before `ready`: a smoke run never writes into the player's `~/.config/Roaring Lions`.
+  const profile = SMOKE_OUT !== '' ? path.join(SMOKE_OUT, 'profile') : mkdtempSync(path.join(os.tmpdir(), 'rl-desktop-smoke-'));
+  app.setPath('userData', profile);
 }
 
 function smokeExit(result) {

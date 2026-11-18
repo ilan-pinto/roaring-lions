@@ -3,13 +3,14 @@
 //
 // What it does, in order:
 //   1. `pnpm build` (skip with --skip-build to reuse an existing packages/app/dist);
-//   2. stages a throwaway Electron app in dist-desktop/stage/: a package.json, tools/desktop/main.mjs, and the build
-//      copied to web/ unchanged;
+//   2. stages a throwaway Electron app in dist-desktop/stage/: a package.json, tools/desktop/main.mjs and resolve.mjs,
+//      and the build copied to web/ unchanged;
 //   3. runs @electron/packager (a tools-only devDependency, pinned exactly) for linux/<this arch> at ELECTRON_VERSION,
 //      caching the Electron zip under dist-desktop/cache/ (@electron/get checks it against the release's SHASUMS256);
 //   4. writes dist-desktop/roaring-lions-linux-<arch>.tar.gz, the stand-in for an installer, and prints the sizes;
 //   5. with --smoke, launches the bundle once headlessly (xvfb-run when there is no $DISPLAY) with RL_DESKTOP_SMOKE=1,
 //      which loads index.html, probes WebGL2 and WebGPU, writes dist-desktop/smoke.png and prints one RL_SMOKE line.
+//      The run's Chromium profile is dist-desktop/profile/, emptied first, never ~/.config/Roaring Lions.
 //
 // What it never does: sign, notarise, read a secret, upload to a store, publish or auto-update. Nothing in packages/
 // is touched; the app's entry chunk is whatever `pnpm build` makes. Linux only, on purpose: the spike's question is
@@ -19,7 +20,7 @@
 // Spec: docs/superpowers/specs/2026-11-17-desktop-wrapper-spike.md.
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,9 +50,9 @@ function fail(message) {
   process.exit(1);
 }
 
-/** Bytes under a path, following no symlinks. */
+/** Bytes under a path, following no symlinks (a link counts as its own size, not its target's). */
 export function bytesUnder(p) {
-  const st = statSync(p, { throwIfNoEntry: false });
+  const st = lstatSync(p, { throwIfNoEntry: false });
   if (st === undefined) return 0;
   if (!st.isDirectory()) return st.size;
   let total = 0;
@@ -68,7 +69,9 @@ function run(cmd, argv, opts = {}) {
 }
 
 if (process.platform !== 'linux') fail(`the spike builds a Linux bundle only (this is ${process.platform})`);
-const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+// The two Linux arches the packager builds here; anything else is refused, never silently built as x64.
+if (process.arch !== 'x64' && process.arch !== 'arm64') fail(`unsupported arch ${process.arch}: the spike builds linux-x64 or linux-arm64`);
+const arch = process.arch;
 
 // 1. The web build, exactly as it deploys. VITE_BASE must be '/': the custom scheme maps '/' to the bundle.
 if (!args.has('--skip-build')) {
@@ -100,6 +103,7 @@ writeFileSync(
   )}\n`,
 );
 cpSync(path.join(HERE, 'main.mjs'), path.join(STAGE, 'main.mjs'));
+cpSync(path.join(HERE, 'resolve.mjs'), path.join(STAGE, 'resolve.mjs'));
 cpSync(APP_DIST, path.join(STAGE, 'web'), { recursive: true });
 const webBytes = bytesUnder(path.join(STAGE, 'web'));
 console.log(`[desktop] staged ${mib(webBytes)} of web build`);
@@ -128,6 +132,7 @@ try {
   // A blocked or failed Electron download lands here. Do not work around it (no mirror, no proxy change): report it.
   fail(`@electron/packager failed (an Electron download blocked by the network ends here): ${err?.message ?? err}`);
 }
+if (!Array.isArray(appPaths) || appPaths.length === 0) fail('@electron/packager returned no bundle path');
 const bundle = appPaths[0];
 const bundleBytes = bytesUnder(bundle);
 const runtimeBytes = bundleBytes - bytesUnder(path.join(bundle, 'resources', 'app'));
@@ -148,6 +153,8 @@ if (args.has('--smoke')) {
   // Chromium refuses to run as root with its sandbox on; a container smoke run is root. A player never is.
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
   const electronArgs = isRoot ? ['--no-sandbox'] : [];
+  // main.mjs keeps the smoke run's profile in OUT/profile; start each run from an empty one.
+  rmSync(path.join(OUT, 'profile'), { recursive: true, force: true });
   const env = { ...process.env, RL_DESKTOP_SMOKE: '1', RL_DESKTOP_SMOKE_OUT: OUT };
   let cmd = binary;
   let argv = electronArgs;
