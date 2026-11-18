@@ -30,7 +30,8 @@
 // a fielded body that comes home under its own name -- is
 // `roster-carry.test.ts`'s.
 import { describe, expect, it } from 'vitest';
-import { missions, names as namesJson, units } from '@lions/data';
+import { names as namesJson, units } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { fx, type LedgerData, type LedgerRosterEntry, type MissionJson, type Sim } from '@lions/sim';
 import type { CampaignLedger, LostRecord, RosterEntry } from '../../packages/app/src/ledger-store';
 import { nameKind, type NamesJson } from '../../packages/app/src/names';

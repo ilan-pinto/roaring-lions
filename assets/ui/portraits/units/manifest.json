@@ -467,13 +467,13 @@
     "yahalom_squad": {
       "file": "yahalom_squad.png",
       "extent": [
-        174,
-        164
+        80,
+        174
       ],
       "lead": {
         "file": "lead/yahalom_squad.png",
         "extent": [
-          110,
+          70,
           174
         ]
       }

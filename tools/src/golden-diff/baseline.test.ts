@@ -32,7 +32,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { maps, parseMap } from '@lions/data';
+import { parseMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { PNG } from 'pngjs';
 import {
   BASELINES,

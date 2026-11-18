@@ -525,21 +525,6 @@ def moto_rpg(clip, frame):
     return out
 
 
-#: The pair of large square packs both Yahalom figures wear, and the one
-#: adjustment the owner asked for after the live preview: at (-0.24, z 1.05) the
-#: packs read as detached slabs floating behind the figures, so they sit 0.06
-#: closer to the body and 0.10 lower -- the box now overlaps the torso's back
-#: face instead of clearing it, which is what "against the back" needs at any
-#: zoom. A kneeling figure's torso drops by 0.30 * FIGURE_H (kit.figure), and
-#: the pack rides the torso, so it drops the same 0.54.
-YAH_PACK_SIZE = (0.30, 0.44, 0.46)
-
-
-def _yah_pack(name, at, kneel=False):
-    drop = 0.54 if kneel else 0.0
-    return kit.box(name, YAH_PACK_SIZE, (at[0] - 0.18, at[1], 0.95 - drop), role="webbing")
-
-
 def breach_team(clip, frame):
     """Tzinah Breach Team, crew 6. `brc_point` carries a 0.55 x 1.20 m
     ballistic shield out in front -- the widest flat panel in the set, and
@@ -547,8 +532,7 @@ def breach_team(clip, frame):
     wears a breaching pole charge slung across the back, nearly upright,
     never wielded. Both carry a rifle. The shield is the primary tell against
     the nearest neighbours: `demo_squad`'s satchel sits low on the GROUND,
-    and `yahalom_squad`'s mast is a thin bar held level at the hip, not a
-    plate at all."""
+    and `yahalom_squad` carries no plate at all."""
     p, st = _standing_posture(clip), _stride(clip, frame)
     A, B = (0.32, -0.18, 0.0), (-0.30, 0.24, 0.0)
     out = kit.figure("brc_point", A, posture=p, stride=st, leader=True)
@@ -563,17 +547,15 @@ def breach_team(clip, frame):
 
 
 def yahalom_squad(clip, frame):
-    """Yahalom Engineers, crew 5. Two upright figures: the lead sweeps a 1.45 m
-    ground-penetrating mast held out level at hip height, and both wear large
-    square packs riding high on the back. Three independent tells, so no single
-    lever carries the sheet: the horizontal spike (no other weapon in the set
-    draws a long flat bar across the figure's front), the boxy over-shoulder
-    mass, and the two-figure count.
+    """Yahalom Engineers, crew 5: the kit STAND-IN only. The shipped team is the skinned importer's since GH-826 unit
+    "Yahalom" (17 Nov 2026): two scalings of the Combat Engineers' Meshy body, both armed with its carbine, an assault
+    pack on each back, the collapsed mine detector on the leader's pack and the charge on the ground in `work`
+    (`import_meshy_skinned_team.py`, `_team_extras`). What is left here is what `rig.TEAM_FIGURES` is cross-checked
+    against: two upright riflemen at the team's two slots. The 1.45 m mast, the two box packs (`_yah_pack`) and the
+    kneeling twin went with the rigid figure.
 
-    `work` is this team's own sixth clip (TEAM_CLIP_ADD): the lead kneels and
-    drives the mast tip-first into the ground while the second stands over him
-    -- what plays for the whole of a tunnel charge. The sensor head box exists
-    only in the other clips, because in `work` it is the part in the ground.
+    `work` is this team's own sixth clip (TEAM_CLIP_ADD): both men kneel, carbines in both hands (the motion pass
+    builds the shipped one from `kneel`).
     """
     p, st = _standing_posture(clip), _stride(clip, frame)
     # Keyed on "demo_squad" deliberately: it borrows the smoking cycle's frame-0
@@ -584,37 +566,13 @@ def yahalom_squad(clip, frame):
     A, B = (0.30, -0.20, 0.0), (-0.34, 0.26, 0.0)
     if clip == "work":
         out = kit.figure("yah_a", A, posture="kneeling", leader=True)
-        out += [_yah_pack("yah_pack_a", A, kneel=True)]
-        # The mast pivots about a fixed ground contact and sinks. Pose spacing
-        # does the easing exactly as kit.smoke_pose describes: the triangle
-        # through a smoothstep crowds frames at both ends of the stroke, so the
-        # press appears to slow, hold and lift from uniformly-timed frames.
-        t = frame / 6.0
-        tri = 1.0 - abs(2.0 * t - 1.0)
-        ease = tri * tri * (3.0 - 2.0 * tri)
-        vis = 0.98 - 0.18 * ease         # visible length; the rest is in the ground
-        pitch = math.radians(40.0)
-        gx, gz = 1.02, 0.01              # where the mast enters the ground
-        out += [kit.tube("yah_mast", vis, 0.030,
-                         (gx - 0.5 * vis * math.cos(pitch), A[1],
-                          gz + 0.5 * vis * math.sin(pitch)),
-                         yaw=0.0, pitch=-pitch)]
-        out += kit.figure("yah_b", B, posture="standing")
-        out += [_yah_pack("yah_pack_b", B)]
-        out += kit.rifle("yah_b_w", B, posture="standing")
+        out += kit.rifle("yah_a_w", A, posture="kneeling")
+        out += kit.figure("yah_b", B, posture="kneeling")
+        out += kit.rifle("yah_b_w", B, posture="kneeling")
         return out
     out = kit.figure("yah_a", A, posture=p, stride=st, smoke=sm, leader=True)
-    if p == "standing":
-        # Prone figures mould their own pack (kit.figure's prone branch), so the
-        # high packs exist only while the torso they ride is upright -- the same
-        # gate charge_squad puts on its vests.
-        out += [_yah_pack("yah_pack_a", A)]
-    if _weapon_visible(clip):
-        out += [kit.tube("yah_mast", 1.45, 0.030, (0.62, -0.20, 0.74), yaw=0.0, pitch=0.0)]
-        out += [kit.box("yah_head", (0.16, 0.10, 0.04), (1.30, -0.20, 0.74))]
+    out += kit.rifle("yah_a_w", A, posture=p, aim=(clip == "fire"))
     out += kit.figure("yah_b", B, posture=p, stride=st)
-    if p == "standing":
-        out += [_yah_pack("yah_pack_b", B)]
     out += kit.rifle("yah_b_w", B, posture=p, aim=(clip == "fire"))
     return out
 

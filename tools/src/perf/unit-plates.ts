@@ -340,6 +340,9 @@ function kitAccount(): BrigadeAccount {
     upgrades,
     grants: [{ source: 'granted', amount: 5000, at: 1 }],
     coupons: [],
+    // GH-1384: a seeded branched tier 3 takes branch 1 (and a legacy marker) on the app's first read.
+    picks: {},
+    legacy: {},
   };
 }
 const LAUNCH_ARGS = useMetal ? METAL_ARGS : SWIFTSHADER_ARGS;

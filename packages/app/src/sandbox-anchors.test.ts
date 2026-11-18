@@ -6,7 +6,7 @@
 // it exists.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { maps } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { sandboxAnchors } from './sandbox-anchors';
 
 const MAP = { width: 48, height: 48 };

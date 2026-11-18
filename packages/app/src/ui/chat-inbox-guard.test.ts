@@ -71,4 +71,30 @@ describe('the chat inbox is the only door (GH-1417 S1)', () => {
     expect(main).toContain('settingsDeps.get().chat.enabled');
     expect(main).toContain('req.settings.get().chat.enabled');
   });
+
+  it('GH-1417 S2: both sinks hand the inbox the mask setting, read through the settings object, and this player\'s seat (CR4: its own echo is not masked); nothing names a hide setting', () => {
+    const versus = readFileSync(join(SRC, 'ui/versus.ts'), 'utf8');
+    const main = readFileSync(join(SRC, 'main.ts'), 'utf8');
+    expect(main).toContain('inboxOf(room, () => req.settings.get().chat.enabled, () => req.settings.get().chat.mask, netSeat)');
+    expect(main).toContain('chatMask: () => settingsDeps.get().chat.mask');
+    // The lobby's typed lines and its preset phrases (S1b's onQuick), and its NetChat.
+    expect(versus.match(/inboxOf\(room\.transport, deps\.chatEnabled \?\? \(\(\) => true\), deps\.chatMask, room\.seat\)/g)?.length).toBe(2);
+    expect(versus.match(/inboxOf\(r\.transport, deps\.chatEnabled \?\? \(\(\) => true\), deps\.chatMask, r\.seat\)/g)?.length).toBe(1);
+    // every call names a seat: one left without it would mask this player's own lines on whichever screen asked last
+    expect(versus.match(/inboxOf\(/g)?.length).toBe(3);
+    expect(main.match(/inboxOf\(/g)?.length).toBe(1);
+    expect(scan(/chat\.hide\b/)).toEqual([]);
+  });
+
+  it('GH-1417 S2: the filter builds no regular expression, and every seat name is made through it in seat-label.ts', () => {
+    const filter = readFileSync(join(SRC, 'ui/chat-filter.ts'), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\*|\/\*|\/\/)/.test(l))
+      .join('\n');
+    expect(filter).not.toMatch(/RegExp|\.replace\(|\.match\(|\.matchAll\(|\.test\(|\.search\(|\.split\(/);
+    const label = readFileSync(join(SRC, 'net/seat-label.ts'), 'utf8');
+    expect(label).toContain('const shown = (raw: string): string => shownName(raw);');
+    expect(label).toContain("import { shownName } from '../ui/chat-filter-gate';");
+    expect(label.match(/shown\(/g)?.length, 'the model, member, bot, guest and fallback names').toBe(5);
+  });
 });

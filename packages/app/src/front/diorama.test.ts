@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from '@lions/sim';
-import { maps, menuDiorama, parseMap, units, type DioramaJson } from '@lions/data';
+import { menuDiorama, parseMap, units, type DioramaJson, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 // Test-only, like terrain-parity.test.ts:91: production app code asks the
 // renderer for projection, but a test may hold data to project.ts's own maths.
 import { screenToWorldFlat, worldToScreen } from '@lions/render/project';
 import { hasUnitMesh } from '../mesh-catalogue';
 import { QUALITY_PRESETS } from '@lions/render';
-import { buildDioramaWorld, dioramaSceneOptions, facingFromDeg, hostQuality } from './diorama';
+import { buildDioramaWorld, dioramaSceneOptions, facingFromDeg, hostQuality, loadDioramaSceneOptions } from './diorama';
 import { REF_LAYER, hostZoom } from './framing';
+
+/** The eager registry (Node): the menu loads its one map by id first (`loadDioramaSceneOptions`). */
+const mapOf = (id: string): MapJson | undefined => (maps as Record<string, MapJson | undefined>)[id];
 
 const tiny: DioramaJson = {
   id: 't',
@@ -29,7 +33,7 @@ describe('facingFromDeg', () => {
 
 describe('buildDioramaWorld', () => {
   it('stands the map and spawns each unit on side 0 at its tile centre, facing as authored', () => {
-    const w = buildDioramaWorld(tiny);
+    const w = buildDioramaWorld(tiny, mapOf);
     expect(w.sim.structureCount).toBe(w.map.structures.length);
     const living = [...w.sim.state.alive.keys()].filter((i) => w.sim.state.alive[i] === 1);
     expect(living).toHaveLength(1);
@@ -41,7 +45,7 @@ describe('buildDioramaWorld', () => {
   });
 
   it('plans meshes for its own units and the buildings its map stands', () => {
-    const w = buildDioramaWorld(tiny);
+    const w = buildDioramaWorld(tiny, mapOf);
     expect([...w.plan.vehicles]).toEqual(['mbt_lavi']);
     expect([...w.plan.buildings].sort()).toEqual(['apartment', 'clinic', 'hall', 'house', 'shanty']);
   });
@@ -50,12 +54,12 @@ describe('buildDioramaWorld', () => {
   // the point: no tick, no RNG draw, no determinism surface, and no event
   // reaches a subscriber (Sim.spawn still queues one; nothing drains it).
   it('is never ticked', () => {
-    expect(buildDioramaWorld(tiny).sim.tickCount).toBe(0);
+    expect(buildDioramaWorld(tiny, mapOf).sim.tickCount).toBe(0);
   });
 
   it('throws by name for a map or a unit the data does not have', () => {
-    expect(() => buildDioramaWorld({ ...tiny, map: 'nowhere' })).toThrow(/nowhere/);
-    expect(() => buildDioramaWorld({ ...tiny, units: [{ unit: 'tank_x', at: [17, 21] }] })).toThrow(/tank_x/);
+    expect(() => buildDioramaWorld({ ...tiny, map: 'nowhere' }, mapOf)).toThrow(/nowhere/);
+    expect(() => buildDioramaWorld({ ...tiny, units: [{ unit: 'tank_x', at: [17, 21] }] }, mapOf)).toThrow(/tank_x/);
   });
 });
 
@@ -111,9 +115,23 @@ describe('the shipped menu diorama', () => {
   });
 });
 
+describe('loadDioramaSceneOptions (B6-6: the menu loads its one map by id)', () => {
+  it('builds the same world the eager map builds', async () => {
+    const o = await loadDioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/');
+    const e = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/', mapOf);
+    expect(o.camera).toEqual(e.camera);
+    expect(o.sim.hash()).toBe(e.sim.hash());
+    expect(o.decor).toEqual(e.decor);
+  });
+
+  it('rejects by name for a map data/maps does not have, before anything loads', async () => {
+    await expect(loadDioramaSceneOptions({ ...menuDiorama, map: 'nowhere' }, { colorVision: 'default', quality: 'high' }, '/')).rejects.toThrow(/names map "nowhere"/);
+  });
+});
+
 describe('dioramaSceneOptions', () => {
   it('hands the door the mission’s own options and a zoom that follows the cover law', () => {
-    const o = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/');
+    const o = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/', mapOf);
     expect(o.renderer.groundTextureUrl).toBe('/textures/desert_sand_tile.jpg');
     expect(o.camera).toEqual({ x: 27, y: 22 });
     expect(o.zoomFor(1920, 1080)).toBeCloseTo(1.6, 10);
@@ -123,7 +141,7 @@ describe('dioramaSceneOptions', () => {
 
 describe('the backdrop draws lighter than a mission (GH-469)', () => {
   it('caps quality at medium, the pixel ratio at 1 and GLB textures at 1024', () => {
-    const o = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/');
+    const o = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/', mapOf);
     expect(o.renderer.quality).toEqual(QUALITY_PRESETS.medium);
     expect(o.renderer.maxPixelRatio).toBe(1);
     expect(o.renderer.maxTextureSize).toBe(1024);

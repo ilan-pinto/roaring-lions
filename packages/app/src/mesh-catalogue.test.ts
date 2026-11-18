@@ -31,9 +31,6 @@ import {
 } from '@lions/sim';
 import { kdfUnlockGate } from './kdf-gate';
 import {
-  maps,
-  missions,
-
   units,
   structures as structureCatalogue,
   parseMap,
@@ -41,6 +38,7 @@ import {
   type MapId,
   type ParsedMap,
 } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { decorPlacements, type TerrainInput } from '@lions/render/terrain';
 import { terrainTonesFor } from './terrain-themes';
 import {

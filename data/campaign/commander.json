@@ -4,7 +4,7 @@
     "idit": { "name": "Idit Zohar", "plate": "Zohar", "portrait": "idit_zohar.png" }
   },
   "ranks": [
-    { "rank": "Captain", "stars": 2, "until_mission": "deir_amun_3_subterranean" },
+    { "rank": "Captain", "stars": 2, "until_mission": "bir_tarsha_5_subterranean" },
     {
       "rank": "Major", "stars": 3, "until_mission": "umm_zeitoun_4_clearance",
       "promotion_line": { "speaker": "idit", "text": "Third star. Nobody said promotion — they handed him a wider map and a longer list of towns." }
