@@ -1,5 +1,7 @@
 # The monetisation content plan, non-pay-to-win — design (WP-ST8, #207, revision 2)
 
+> **Superseded in part, 18 Nov 2026:** the lead ruled "I want users to be able to use coins to buy new units. That's the leading rule." (relayed on GH-1378 and GH-1415; it reverses the 16 Nov GH-1378 item 6, "paid coins buy cosmetics only at launch"). Units and tiers for coins are no longer a fenced early-access lane beside a cosmetic store: they are the leading rule. Where this revision says only cosmetics are sold for money, or that "anything sold changes only what a person sees" (§1.3), read the current rule. The current rule is `docs/GDD.md` §9: Roar coins buy units and upgrade tiers as brigade credits do, coins bought with money included once purchases open; credits are still never sold. Where paid-coin units may be used (single player only, or a "bring your brigade" versus room too) is open for the lead (`docs/HANDOVER.md`, row G7-R). The body below is kept as history.
+
 **Date:** 2026-10-11 · **Status:** the spec. The lead pulled ST8 forward on 2026-10-11 and
 ruled the same day on D1–D5 (§10): early access **kept, fenced** (D1); coins **may** open
 Conduct-gated units in single player (D2, reversed); the economy documents made to agree in
