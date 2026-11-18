@@ -99,7 +99,7 @@ Play a match against the computer without needing a friend.
   can. Everything coins buy can also be earned by playing: the intended pace is about twelve full campaigns
   to own every unit and tier with earned credits. A unit bought with coins is yours in versus too: in a
   room whose host turns on "Bring your brigade", each KDF player fields the units they own, however they
-  got them.
+  got them. A room on standard kit stays equal: it fields nobody's owned kit.
 - **A first shelf of cosmetics**, such as emblems, colour sets and banners. A cosmetic changes only how
   something looks.
 - **Crash reporting**, with an opt-out, and clearer terms and privacy pages.
@@ -222,7 +222,7 @@ Built only from the lead's rulings of 16 Nov 2026 on GH-1378 (all twelve), the l
 ("I want users to be able to use coins to buy new units. That's the leading rule.", relayed on GH-1378 and
 GH-1415, which reverses the first half of ruling 6), the lead's second ruling of 18 Nov 2026
 ("coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is RETIRED.",
-relayed by the PM; it answers judgement call 5), and from the open issues of the "80 programme". Issue
+relayed by the PM; it answers judgement call 5; a third ruling the same day keeps standard-kit rooms equal), and from the open issues of the "80 programme". Issue
 GH-1420 sets the constraint: the roadmap promises only what a ticket covers. There is no GitHub label
 `roadmap-80` (the label list has none); the programme issues were found by the sentence
 "reach 80 on all twelve audit dimensions" in their bodies. They carry a phase (P1 to P6) in their body, not a
@@ -247,7 +247,7 @@ GitHub milestone.
 | 5 | "A few missions where the enemy has a camp" |
 | 6 | About twelve campaigns (the ownership target stands). Its first half, "paid coins buy cosmetics only at launch", was reversed on 18 Nov, so the draft's "No selling of power" bullet is gone |
 | 18 Nov | "Roar coins buy units" |
-| 18 Nov (scope) | "A unit bought with coins is yours in versus too" (judgement call 5, answered) |
+| 18 Nov (scope) | "A unit bought with coins is yours in versus too" (judgement call 5, answered; standard-kit rooms stay equal) |
 | 7 | Launch languages (the gate A14 wishlist figure is internal and left off the page) |
 | 8 | The premise line and the no-real-names rule; no store copy is written here |
 | 9 | Ambience beds |
@@ -281,5 +281,6 @@ GitHub milestone.
    "coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is RETIRED."
    The page now says a coin-bought unit is yours in versus too. It describes the mechanism as built: a friends' room whose host turns on "Bring your brigade" fields
    what each KDF player owns, coin-bought included (ruled 11 Oct, D4); a matched versus room (the default)
-   fields nobody's owned kit, coins or credits alike, and the ruling does not change that. Still for the
-   lead: whether "everywhere" should also reach matched rooms (a code change); the page does not promise it.
+   fields nobody's owned kit, coins or credits alike. The lead ruled the matched-room question the same day
+   (relayed by the PM): "standard-kit rooms stay EQUAL (no owned kit, coins or credits); coin-bought units
+   reach PvP only through 'Bring your brigade' rooms. No code change." Nothing about it is open.
