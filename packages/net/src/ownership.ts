@@ -36,6 +36,10 @@ export interface SeatWorld {
   /** GH-976 v2: a flag room that plays the set-up rules (`flagSetupRoom(config)`). The three set-up commands -- `setupReady`,
    *  `fortify`, `unfortify` -- pass only here, and only for the seat's own side: the same answer on both machines, from the shared config. */
   readonly setupRoom: boolean;
+  /** Versus field works (the lead's ruling, 18 Nov 2026): a room the host opened with `fieldWorks` (`fieldWorksRoom(config)`),
+   *  which runs a works-only runtime. There `raiseWorks` and `cancelWorks` pass for the seat's OWN side; in every other versus
+   *  room they drop, as before. Optional so a world built before it reads as false. */
+  readonly fieldWorks?: boolean;
   /** GH-859 P1a: whether `seat` may order formation `id` -- a shipped formation whose `factions` include
    *  the seat's own. Shipped data, so both machines answer alike; an id nobody ships answers false and the
    *  order vanishes on both. */
@@ -128,11 +132,13 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       // refuses them): a client asks with `raiseWorks`/`cancelWorks`, below.
       return false;
     case 'raiseWorks':
-      // Field works (GH-277) are priced only by the mission runtime, like `build`,
-      // so they drop in versus. Builders, when named, must be the seat's own.
-      return !world.versus && cmd.side === side && cmd.ids.every(own);
+      // Field works (GH-277) are priced only by the mission runtime, like `build`, so they drop
+      // in versus -- except in a field-works room, whose works-only runtime prices them for each
+      // side (the lead, 18 Nov 2026). Builders, when named, must be the seat's own.
+      return (!world.versus || world.fieldWorks === true) && cmd.side === side && cmd.ids.every(own);
     case 'cancelWorks':
-      return !world.versus && cmd.side === side;
+      // The site must be the seat's own as well: the runtime refuses another side's (`canCancelWorks`).
+      return (!world.versus || world.fieldWorks === true) && cmd.side === side;
     case 'setupReady':
       // GH-976 v2: a set-up room's own side. Whether the bell has rung is the sim's (a late Ready is a no-op there).
       return world.setupRoom && cmd.side === side;
