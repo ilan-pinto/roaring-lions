@@ -59,7 +59,7 @@ describe('upgradeBenefits', () => {
 
   it('agrees with applyUpgrades: after-values equal the applied unit at that tier', async () => {
     const { applyUpgrades } = await import('@lions/data');
-    const applied = applyUpgrades(lavi, { armour: 2 });
+    const applied = applyUpgrades(lavi, { armour: 2 }, {});
     const t2 = upgradeBenefits(lavi, 'armour', 2);
     expect(t2.find((b) => b.path === 'hull.hp')?.after).toBe(applied.hull.hp);
     expect(t2.find((b) => b.path === 'hull.armor.front')?.after).toBe(applied.hull.armor.front);
@@ -101,13 +101,15 @@ describe('upgradeBenefits', () => {
     let checked = 0;
     for (const unit of all) {
       for (const [track, def] of Object.entries(unit.upgrades ?? {})) {
+        // GH-1384: a branched rung's lines are the branch it would buy; both are swept.
+        for (const pick of [1, 2] as const)
         for (let tier = 1; tier <= def.tiers.length; tier++) {
-          const applied = data.applyUpgrades(unit, { [track]: tier }) as unknown as Record<string, unknown>;
-          const previous = data.applyUpgrades(unit, { [track]: tier - 1 }) as unknown as Record<string, unknown>;
-          const lines = upgradeBenefits(unit, track, tier);
+          const applied = data.applyUpgrades(unit, { [track]: tier }, { [track]: pick }) as unknown as Record<string, unknown>;
+          const previous = data.applyUpgrades(unit, { [track]: tier - 1 }, { [track]: pick }) as unknown as Record<string, unknown>;
+          const lines = upgradeBenefits(unit, track, tier, pick);
           // Every path the tier patches produces a line -- a silently dropped
           // path is the failure mode a per-line loop alone cannot see.
-          expect(lines.map((l) => l.path)).toEqual(Object.keys(def.tiers[tier - 1].patch));
+          expect(lines.map((l) => l.path)).toEqual(Object.keys(data.tierPatch(def.tiers[tier - 1], pick) ?? { none: 0 }));
           for (const line of lines) {
             expect(line.after).toBe(round(readAt(applied, line.path)));
             expect(line.before).toBe(round(readAt(previous, line.path)));

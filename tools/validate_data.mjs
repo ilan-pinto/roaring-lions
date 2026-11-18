@@ -20,6 +20,7 @@
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
+//   data/units/** branched upgrade tiers: B1-B7 and the C1 cap in tools/validate_branches.mjs (GH-1384)
 //   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
 //                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   data/chat/filter.*.json against data/schemas/chat_filter.schema.json, plus the provenance,
@@ -49,6 +50,7 @@ import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
 import { chatFilterFailures } from './validate_chat_filters.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
@@ -113,29 +115,6 @@ function unitHasPath(unit, path) {
     }
   }
   return cur !== undefined;
-}
-
-// Compares tier `curr` against the tier immediately before it (`prev`) and
-// returns one description string per field that regressed — a lower price,
-// a lower delta on a path both tiers touch, or a path `prev` patched that
-// `curr` drops entirely (which the brief's rule (c) counts as lower, since
-// dropping it is indistinguishable from patching it back to zero).
-function tierRegressions(prev, curr) {
-  const whats = [];
-  if (curr.price < prev.price) {
-    whats.push(`price ${curr.price} < ${prev.price}`);
-  }
-  const prevPatch = prev.patch ?? {};
-  const currPatch = curr.patch ?? {};
-  for (const path of Object.keys(prevPatch)) {
-    const prevVal = prevPatch[path];
-    if (!(path in currPatch)) {
-      whats.push(`${path} missing (was ${prevVal})`);
-    } else if (currPatch[path] < prevVal) {
-      whats.push(`${path} ${currPatch[path]} < ${prevVal}`);
-    }
-  }
-  return whats;
 }
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -431,27 +410,7 @@ const garrisonableSymbols = new Set(
           `${rel(file)}: upgrades are only valid on faction 'kdf' units`
         );
       }
-      for (const [trackName, track] of Object.entries(u.upgrades)) {
-        const tiers = track.tiers ?? [];
-        tiers.forEach((tier, i) => {
-          for (const path of Object.keys(tier.patch ?? {})) {
-            if (!unitHasPath(u, path)) {
-              failures.push(
-                `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
-                  `which this unit does not have`
-              );
-            }
-          }
-        });
-        for (let i = 1; i < tiers.length; i++) {
-          for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
-            failures.push(
-              `${rel(file)}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
-                `tier ${i} (${what})`
-            );
-          }
-        }
-      }
+      failures.push(...upgradeTierFailures(rel(file), u, unitHasPath));
     }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
@@ -1471,6 +1430,13 @@ const garrisonableSymbols = new Set(
   const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
+}
+
+// --- branched upgrade tiers (GH-1384): B1-B7 per branched track, and the C1 cap ------------
+{
+  const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const unitFiles = jsonFilesIn(join(ROOT, 'data/units')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...validateBranches(unitFiles, { en }));
 }
 
 // --- chat word lists (GH-1417 S2): provenance, licence record and tiers -------

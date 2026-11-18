@@ -13,12 +13,15 @@ import {
   type UnitTypeJson,
 } from '@lions/sim';
 import {
+  BRANCHES_OPEN,
   applyUpgrades,
+  maxPicks,
   maxTiers,
   units,
   world,
   type UpgradableUnit,
 } from '@lions/data';
+import { branchTwoMaxTierLabel } from './pinned-only';
 import { missions } from '@lions/data/content';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
@@ -3248,7 +3251,12 @@ let maxTierHeld = 0;
 /** GH-330: each plain victory's credits at max tier, for the second-campaign report. */
 const maxTierCredits = new Map<string, number>();
 // Not in a plan-sweep child: the replay is held on 424242 only.
-for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
+// GH-1384 §6.2: a branched last tier needs a branch, so each replay runs once per uniform branch vector.
+// Branch 1 keeps the label `<id> (max tier)` (and is the run the second-campaign report reads); branch 2
+// is `<id> branch 2 (max tier)`, which still ends in the pinned-only suffix.
+// While `BRANCHES_OPEN` is false a branched tier plays as its envelope, so there is one replay per victory, labelled as on dev.
+for (const [probe, branch] of PLAN_CHILD ? [] : maxTierProbes.flatMap((p) => (BRANCHES_OPEN ? ([[p, 1], [p, 2]] as const) : ([[p, 1]] as const)))) {
+  const label = branch === 1 ? `${probe.id} (max tier)` : branchTwoMaxTierLabel(probe.id);
   const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
     result: 'ongoing',
     stars: 0,
@@ -3260,12 +3268,12 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
     probe.plan,
     probe.ledger,
     'victory',
-    `${probe.id} (max tier)`,
+    label,
     probe.expectStar,
     probe.fielded,
     probe.bought,
     probe.gateOf,
-    'max',
+    branch === 1 ? 'max' : { max: 2 },
     measured
   );
   const held = measured.result === 'victory' && measured.stars >= probe.baseStars;
@@ -3273,7 +3281,7 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
     maxTierHeld++;
   } else {
     console.error(
-      `${probe.id} (max tier): FAILED — base ${probe.baseResult.toUpperCase()}/${probe.baseStars}★, ` +
+      `${label}: FAILED — base ${probe.baseResult.toUpperCase()}/${probe.baseStars}★, ` +
         `max ${measured.result.toUpperCase()}/${measured.stars}★`
     );
     process.exitCode = 1;
@@ -3283,12 +3291,12 @@ for (const probe of PLAN_CHILD ? [] : maxTierProbes) {
   // so a reader can SEE how much a max-tier force's ROE/credits drifted from its
   // own base run without re-running the harness twice by hand.
   console.log(
-    `${probe.id} (max tier): ROE ${measured.roeScore} (base ${probe.baseRoe}), ` +
+    `${label}: ROE ${measured.roeScore} (base ${probe.baseRoe}), ` +
       `credits ${measured.credits} (base ${probe.baseCredits})`
   );
-  maxTierCredits.set(probe.id, measured.credits);
+  if (branch === 1) maxTierCredits.set(probe.id, measured.credits);
 }
-console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
+console.log(`max tier: ${maxTierHeld} of ${(BRANCHES_OPEN ? 2 : 1) * maxTierProbes.length} plain victories hold${BRANCHES_OPEN ? ' (both branch vectors)' : ''}`);
 
 // --- GH-1144: every upgrade track of the nine bought-only units -------------
 //
@@ -3376,7 +3384,7 @@ if (!PLAN_CHILD) {
           variant.tiers === undefined
             ? json
             : variant.tiers.tracks.length === own.length
-              ? (applyUpgrades(json as unknown as UpgradableUnit & UnitTypeJson, maxTiers(json as unknown as UpgradableUnit)) as UnitTypeJson)
+              ? (applyUpgrades(json as unknown as UpgradableUnit & UnitTypeJson, maxTiers(json as unknown as UpgradableUnit), maxPicks(json as unknown as UpgradableUnit, 1)) as UnitTypeJson)
               : aloneAtMax(json, variant.tiers.tracks[0]);
         const registeredAsAsked = JSON.stringify(registeredUnits.get(unitId)) === JSON.stringify(expected);
         const ok = registeredAsAsked && seen.accepted && seen.fielded && measured.result === 'victory' && measured.stars >= hostStars;

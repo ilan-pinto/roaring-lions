@@ -25,6 +25,14 @@
       "then": { "required": ["demolition_method"], "properties": { "demolition_method": { "const": "placed" } } }
     }
   ],
+  "$defs": {
+    "upgradePatch": {
+      "description": "A tier's (or a branch's) patch: the cumulative DELTA over base on the closed whitelist (@lions/data's UPGRADE_PATHS).",
+      "type": "object", "minProperties": 1, "additionalProperties": false,
+      "propertyNames": { "pattern": "^(hull\\.hp|hull\\.armor\\.(front|side|rear)|hull\\.suppression_resistance|sensors\\.optics|sensors\\.sight_tiles|weapons\\[[0-9]+\\]\\.(accuracy|penetration))$" },
+      "patternProperties": { "": { "type": "number", "minimum": 0 }, "^hull\\.hp$": { "maximum": 32767 } }
+    }
+  },
   "properties": {
     "id": {
       "type": "string",
@@ -117,13 +125,22 @@
             "tiers": {
               "type": "array", "minItems": 1, "maxItems": 3,
               "items": {
-                "type": "object", "additionalProperties": false, "required": ["price", "patch"],
+                "description": "A tier is one of two shapes (GH-1384): { price, patch }, or { price, branches } with exactly two branches sharing the one price. Only a track's last tier may be branched, and the rest of the branch rules (B1-B7, C1) are cross-field: tools/validate_branches.mjs.",
+                "type": "object", "additionalProperties": false, "required": ["price"],
+                "oneOf": [{ "required": ["patch"] }, { "required": ["branches"] }],
                 "properties": {
                   "price": { "type": "integer", "minimum": 1 },
-                  "patch": {
-                    "type": "object", "minProperties": 1, "additionalProperties": false,
-                    "propertyNames": { "pattern": "^(hull\\.hp|hull\\.armor\\.(front|side|rear)|hull\\.suppression_resistance|sensors\\.optics|sensors\\.sight_tiles|weapons\\[[0-9]+\\]\\.(accuracy|penetration))$" },
-                    "patternProperties": { "": { "type": "number", "minimum": 0 }, "^hull\\.hp$": { "maximum": 32767 } }
+                  "patch": { "$ref": "#/$defs/upgradePatch" },
+                  "branches": {
+                    "type": "array", "minItems": 2, "maxItems": 2,
+                    "items": {
+                      "type": "object", "additionalProperties": false, "required": ["id", "label", "patch"],
+                      "properties": {
+                        "id": { "type": "string", "pattern": "^[a-z][a-z_]{1,23}$" },
+                        "label": { "type": "string", "pattern": "^garage\\.branch\\.", "description": "An en.json KEY, never text." },
+                        "patch": { "$ref": "#/$defs/upgradePatch" }
+                      }
+                    }
                   }
                 }
               }

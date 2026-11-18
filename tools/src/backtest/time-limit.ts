@@ -5,6 +5,8 @@
 // HEADROOM_S and by HEADROOM_RATIO, whichever is larger. A limit below a win already shows up as a
 // missed seed; this catches the one that is merely too close, before a re-scripted plan crosses it.
 
+import { isFloorReportOnly } from './pinned-only';
+
 export const HEADROOM_S = 120;
 export const HEADROOM_RATIO = 1.2;
 
@@ -50,6 +52,8 @@ export function limitHeadroom(
 export function fastestWins(wins: readonly WinTime[]): Map<string, WinTime> {
   const fastest = new Map<string, WinTime>();
   for (const w of wins) {
+    // GH-1384 (the lead, PR 1584): a branch-2 max-tier replay is report-only for the floor.
+    if (isFloorReportOnly(w.label)) continue;
     const f = fastest.get(w.id);
     if (!f || w.seconds < f.seconds) fastest.set(w.id, w);
   }
