@@ -362,6 +362,10 @@ export type { AvatarPreset, AvatarView, AvatarInput } from './avatar';
  *  would be silently inert. The renderer bakes the one the app picks (`gradeOf`) into a 32^3 LUT. */
 export const grades = [gradeDawn, gradeDusk] as const;
 
+/** The chat word lists (GH-1417 S2) are NOT here: they live on the subpath `@lions/data/chat-filters`, loaded only with the app's
+ *  lazily imported word filter, so they stay out of the entry chunk (the main-chunk guard). Only the type is re-exported. */
+export type { ChatFilterJson } from './chat-filters';
+
 /** Building types, keyed by id. Shapes match structure.schema.json. */
 export const structures = structureCatalogue.types;
 export type StructureId = keyof typeof structures;

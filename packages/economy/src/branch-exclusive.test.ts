@@ -307,7 +307,9 @@ describe('case 1: exhaustive reachability, from the empty pair and from the lega
     };
     frontier.forEach(check);
     const t0 = Date.now();
-    for (let depth = 0; depth < 8 && frontier.length > 0; depth++) {
+    // Stops at the first depth that found a failure: a broken rule can open far more states than a sound one, and the
+    // search must go red on its assertion, never run the worker out of memory first.
+    for (let depth = 0; depth < 8 && frontier.length > 0 && failures.length === 0; depth++) {
       console.log(`depth ${depth}: ${frontier.length} states, ${seen.size} seen, ${((Date.now() - t0) / 1000).toFixed(1)} s`);
       const next: State[] = [];
       for (const s of frontier) {

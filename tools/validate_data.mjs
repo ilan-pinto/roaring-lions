@@ -23,6 +23,8 @@
 //   data/units/** branched upgrade tiers: B1-B7 and the C1 cap in tools/validate_branches.mjs (GH-1384)
 //   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
 //                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
+//   data/chat/filter.*.json against data/schemas/chat_filter.schema.json, plus the provenance,
+//                    licence and tier rules in tools/validate_chat_filters.mjs (GH-1417 S2)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -49,6 +51,7 @@ import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
 import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
+import { chatFilterFailures } from './validate_chat_filters.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
@@ -211,6 +214,7 @@ const schemas = {
   challenge: loadJson(join(ROOT, 'data/schemas/challenge.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
+  chatFilter: loadJson(join(ROOT, 'data/schemas/chat_filter.schema.json')),
 };
 
 let checked = 0;
@@ -221,7 +225,7 @@ const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -250,6 +254,7 @@ if (
     challenge: ajv.compile(schemas.challenge),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
+    chatFilter: ajv.compile(schemas.chatFilter),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -264,6 +269,8 @@ if (
   // GH-1360 S3a: starting layouts share the schema; their cross-file rules (HUD keys, picker ids) do not apply, they are never registered.
   checked += validateDir(join(ROOT, 'data/layouts'), validators.formation, 'formation.schema');
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
+  // GH-1417 S2: the chat word lists. The pristine upstream copies under data/chat/third_party/ are not JSON and are not walked.
+  checked += validateDir(join(ROOT, 'data/chat'), validators.chatFilter, 'chat_filter.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1490,6 +1497,18 @@ const garrisonableSymbols = new Set(
   const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const unitFiles = jsonFilesIn(join(ROOT, 'data/units')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...validateBranches(unitFiles, { en }));
+}
+
+// --- chat word lists (GH-1417 S2): provenance, licence record and tiers -------
+// The schema sees one file; these rules read the pristine upstream copy beside it. A language whose hide tier waits for a native
+// reader is a WARNING, printed every run, so the gate never reads as full coverage.
+{
+  const chatDir = join(ROOT, 'data/chat');
+  const chatFiles = jsonFilesIn(chatDir).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  if (chatFiles.length === 0) failures.push('data/chat: no filter.<lang>.json, and the English list is required (GH-1417 S2)');
+  const chat = chatFilterFailures(chatFiles, chatDir);
+  failures.push(...chat.failures);
+  warnings.push(...chat.warnings);
 }
 
 // --- the synchronous content manifest (B6-6) ----------------------------------

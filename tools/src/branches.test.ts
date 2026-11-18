@@ -109,7 +109,7 @@ describe('BRANCH_CEILING: the hand-written table (R13), pinned', () => {
 });
 
 describe('the per-tier checks every track gets (validate_data.mjs, through upgradeTierFailures)', () => {
-  const has = (u: { weapons: unknown[]; hull: unknown }, path: string): boolean =>
+  const has = (_u: never, path: string): boolean =>
     path === 'hull.hp' || path === 'hull.armor.front' || /^weapons\[0\]\./.test(path);
   it('a branch that patches a path the unit does not have is refused', () => {
     const bad = { ...B, patch: { 'weapons[0].accuracy': 0.06, 'weapons[0].penetration': 325, 'sensors.optics': 0.1 } };
