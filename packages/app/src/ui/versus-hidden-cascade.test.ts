@@ -43,7 +43,7 @@ function authorDisplay(el: Element): string | null {
       const value = rule.style.getPropertyValue('display');
       if (value === '') continue;
       for (const sel of rule.selectorText.split(',').map((x) => x.trim())) {
-        let hit = false;
+        let hit: boolean;
         try { hit = el.matches(sel); } catch { hit = false; }
         if (!hit) continue;
         const spec = specificity(sel);
