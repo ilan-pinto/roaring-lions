@@ -7,7 +7,7 @@
  * kit tiers, the bought units (the unlock gates) and the deploy pick: those four are the record's `campaign` field. The seed is a constant of
  * the build (`SIM_SEED`) and rides in the record's own `seed`.
  */
-import { DIFFICULTY_LEDGER_KEY, postureOf, type PostureId } from '@lions/data';
+import { BRANCHES_OPEN, DIFFICULTY_LEDGER_KEY, postureOf, type PostureId } from '@lions/data';
 import type { CampaignLedger } from './ledger-store';
 import { digestOf, prepareResume, type JsonValue, type PreparedResume, type SuspendedMission } from './mission-save';
 import { readSuspended, type KeyStore } from './mission-save-store';
@@ -18,6 +18,12 @@ export interface StartInputs {
   ledger: CampaignLedger;
   /** The bought kit, unit type id -> track -> tier (`bootKit`). */
   tiers: Record<string, Record<string, number>>;
+  /** GH-1384 §4.5: the branch owned per branched (unit, track), frozen with the tiers (`branchPicks`).
+   *  Once branching is open it is REQUIRED: a record from before branching has none, and is refused
+   *  rather than resumed with `{}`, which would rebuild a branched tier 3 at tier 2. While
+   *  `BRANCHES_OPEN` is false a branched tier plays as its envelope whatever the picks, so a record
+   *  is read and written exactly as dev reads and writes it: no `picks` key, read back as `{}`. */
+  picks: Record<string, Record<string, 1 | 2>>;
   /** The bought unit ids, sorted. */
   unlocks: string[];
   /** The deploy pick as sorted roster indices (`DeploySelection.chosen`), or null when the screen was never touched. */
@@ -38,15 +44,17 @@ const isAmendmentIds = (v: unknown): v is string[] =>
 /** The JSON a save carries (`MissionSaveInput.campaign`). Sets become sorted arrays, so the digest does not depend on insertion order. */
 export function startInputsJson(i: {
   ledger: CampaignLedger;
-  tiers: Record<string, Record<string, number>>;
+  tiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  picks: Readonly<Record<string, Readonly<Record<string, 1 | 2>>>>;
   unlocks: Iterable<string>;
   deploy: ReadonlySet<number> | null;
   /** The run's amendment ids (`amendmentsForRun`); none or empty writes no field. */
   amendments?: readonly string[];
 }): JsonValue {
-  const out: StartInputs = {
+  const out: Omit<StartInputs, 'picks'> & { picks?: StartInputs['picks'] } = {
     ledger: i.ledger,
-    tiers: i.tiers,
+    tiers: i.tiers as Record<string, Record<string, number>>,
+    ...(BRANCHES_OPEN ? { picks: i.picks as Record<string, Record<string, 1 | 2>> } : {}),
     unlocks: [...i.unlocks].sort(),
     deploy: i.deploy === null ? null : [...i.deploy].sort((a, b) => a - b),
     ...(i.amendments !== undefined && i.amendments.length > 0 ? { amendments: [...i.amendments] } : {}),
@@ -57,17 +65,25 @@ export function startInputsJson(i: {
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The inputs, or null when the record's `campaign` is not exactly what `startInputsJson` writes. */
-export function parseStartInputs(v: unknown): StartInputs | null {
-  if (!isRec(v) || !isRec(v.ledger) || !isRec(v.tiers)) return null;
+export function parseStartInputs(raw: unknown, open: boolean = BRANCHES_OPEN): StartInputs | null {
+  if (!isRec(raw)) return null;
+  // Open, a record with no picks is refused. Closed, the record is read exactly as dev reads it: any `picks` key is
+  // ignored, and the picks read as none (a branched tier plays as its envelope whatever they say).
+  const v: Record<string, unknown> = open ? raw : { ...raw, picks: {} };
+  if (!isRec(v.ledger) || !isRec(v.tiers) || !isRec(v.picks)) return null;
   if (!Array.isArray(v.unlocks) || !v.unlocks.every((u) => typeof u === 'string')) return null;
   for (const tracks of Object.values(v.tiers)) {
     if (!isRec(tracks) || !Object.values(tracks).every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0)) return null;
+  }
+  for (const tracks of Object.values(v.picks)) {
+    if (!isRec(tracks) || !Object.values(tracks).every((n) => n === 1 || n === 2)) return null;
   }
   if (v.deploy !== null && !(Array.isArray(v.deploy) && v.deploy.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0))) return null;
   if (v.amendments !== undefined && !isAmendmentIds(v.amendments)) return null;
   return {
     ledger: v.ledger as CampaignLedger,
     tiers: v.tiers as Record<string, Record<string, number>>,
+    picks: v.picks as Record<string, Record<string, 1 | 2>>,
     unlocks: [...(v.unlocks as string[])],
     deploy: v.deploy === null ? null : [...(v.deploy as number[])],
     ...(v.amendments === undefined ? {} : { amendments: [...v.amendments] }),
@@ -79,7 +95,16 @@ export function parseStartInputs(v: unknown): StartInputs | null {
  * Resuming then would write the victory from the frozen ledger over the player's later progress, so the resume is refused and the save kept
  * (design 5.3). Compared by digest of the canonical JSON, so key order cannot matter.
  */
-export function campaignMoved(frozen: StartInputs, live: { ledger: CampaignLedger; unlocks: Iterable<string>; tiers: Record<string, Record<string, number>> }): boolean {
+/** The live campaign `whatMoved` compares against. */
+export interface LiveCampaign {
+  ledger: CampaignLedger;
+  unlocks: Iterable<string>;
+  tiers: Record<string, Record<string, number>>;
+  /** GH-1384: the live branch picks; a change (a legacy Switch since the suspend) reads as `upgrades`. */
+  picks: Record<string, Record<string, 1 | 2>>;
+}
+
+export function campaignMoved(frozen: StartInputs, live: LiveCampaign): boolean {
   return whatMoved(frozen, live).length > 0;
 }
 
@@ -100,12 +125,12 @@ const withoutPosture = (l: CampaignLedger): CampaignLedger => {
 
 /** Which of the four parts of the campaign differ, in a fixed order; empty when none does. `campaignMoved` is exactly "not empty". The posture is
  *  compared as a POSTURE (`postureOf`), so an absent key and an explicit `standard` are the same campaign. */
-export function whatMoved(frozen: StartInputs, live: { ledger: CampaignLedger; unlocks: Iterable<string>; tiers: Record<string, Record<string, number>> }): MovedWhat[] {
+export function whatMoved(frozen: StartInputs, live: LiveCampaign): MovedWhat[] {
   const j = (x: unknown): number => digestOf(JSON.parse(JSON.stringify(x)) as JsonValue);
   const out: MovedWhat[] = [];
   if (j(withoutPosture(frozen.ledger)) !== j(withoutPosture(live.ledger))) out.push('ledger');
   if (j(frozen.unlocks) !== j([...live.unlocks].sort())) out.push('units');
-  if (j(frozen.tiers) !== j(live.tiers)) out.push('upgrades');
+  if (j(frozen.tiers) !== j(live.tiers) || j(frozen.picks) !== j(live.picks)) out.push('upgrades');
   if (postureOf(frozen.ledger) !== postureOf(live.ledger)) out.push('posture');
   return out;
 }
@@ -160,7 +185,7 @@ export async function loadResume(o: {
   missionId: string;
   store: KeyStore | null;
   seed: number;
-  live: { ledger: CampaignLedger; unlocks: Iterable<string>; tiers: Record<string, Record<string, number>> };
+  live: LiveCampaign;
   knownMission?: (id: string) => boolean;
 }): Promise<{ ok: true; loaded: ResumeLoaded } | { ok: false; why: ResumeFailure }> {
   const read = readSuspended(o.store, o.knownMission === undefined ? {} : { knownMission: o.knownMission });

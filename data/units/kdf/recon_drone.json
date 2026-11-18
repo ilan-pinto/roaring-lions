@@ -80,10 +80,24 @@
         },
         {
           "price": 145,
-          "patch": {
-            "sensors.optics": 0.5,
-            "sensors.sight_tiles": 3
-          }
+          "branches": [
+            {
+              "id": "gimbal",
+              "label": "garage.branch.recon_drone.gimbal",
+              "patch": {
+                "sensors.optics": 0.5,
+                "sensors.sight_tiles": 2
+              }
+            },
+            {
+              "id": "wide_angle",
+              "label": "garage.branch.recon_drone.wide_angle",
+              "patch": {
+                "sensors.optics": 0.3,
+                "sensors.sight_tiles": 3
+              }
+            }
+          ]
         }
       ]
     }

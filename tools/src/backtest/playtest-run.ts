@@ -29,6 +29,7 @@ import {
   applyTerrain,
   roadMaskOf,
   applyUpgrades,
+  maxPicks,
   maxTiers,
   applyOverlays,
   amendmentOps,
@@ -36,6 +37,7 @@ import {
   challengeOf,
   challengeTerms,
   type ChallengeTerm,
+  type BranchPick,
   type PostureId,
 } from '@lions/data';
 import { maps, missions } from '@lions/data/content';
@@ -311,7 +313,7 @@ export function run(
    *  bought. Enemy (non-kdf) types are never patched, matching `main.ts` exactly.
    *  GH-1144: `{ unit, tracks }` patches ONLY that unit, and only those tracks, to their top tier
    *  (a bought unit one track at a time; every other type registers raw). */
-  tiers?: 'max' | { unit: string; tracks: readonly string[] },
+  tiers?: 'max' | { max: BranchPick } | { unit: string; tracks: readonly string[] },
   /** Written by the max-tier replay pass at the end of `playtest.ts` so it can read back
    *  what THIS run actually measured, without widening `run`'s return type -- every
    *  existing call site still gets back exactly the produced `LedgerData` it always
@@ -377,11 +379,14 @@ export function run(
   for (const u of [...Object.values(units), ...extraUnits] as (typeof units)[keyof typeof units][]) {
     // Mirrors main.ts's own pre-pass exactly (see the `tiers` doc comment above) --
     // enemy units never go through applyUpgrades, only a KDF unit can carry a tier.
+    // GH-1384: a branched last tier needs a branch. `'max'` is the uniform branch-1 vector and
+    // `{ max: 2 }` the branch-2 one (`maxPicks`); a one-unit track replay takes branch 1.
+    const maxBranch: BranchPick | null = tiers === 'max' ? 1 : tiers !== undefined && 'max' in tiers ? tiers.max : null;
     const registered =
-      tiers === 'max' && u.faction === 'kdf'
-        ? applyUpgrades(u, maxTiers(u))
-        : tiers !== undefined && tiers !== 'max' && u.id === tiers.unit
-          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))))
+      maxBranch !== null && u.faction === 'kdf'
+        ? applyUpgrades(u, maxTiers(u), maxPicks(u, maxBranch))
+        : tiers !== undefined && tiers !== 'max' && 'unit' in tiers && u.id === tiers.unit
+          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))), maxPicks(u, 1))
           : u;
     registeredUnits.set(u.id, registered as unknown as UnitTypeJson);
     typeOf.set(u.id, sim.addUnitType(registered));

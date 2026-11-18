@@ -1,0 +1,379 @@
+{
+  "id": "bir_tarsha_2_foothold",
+  "name": "Bir Tarsha II — The Gate",
+  "town": "bir_tarsha",
+  "phase": "foothold",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "S",
+  "map": {
+    "file": "bir_tarsha_2",
+    "time_of_day": "day",
+    "player_start": [
+      24,
+      3
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "briefing": "The gate is a two-tile gap in the Fence between two concrete blocks, and it is yours if you can keep it for four minutes. I expect two pushes, both from the east end of the Fence Road, and the second harder than the first. Hold the gate for four minutes. The camp buys infantry and a Lavi, and you will want both. Ten residents are on the cross road north of the safe quarter, and it is the one quarter in the town that is nobody's. They walk in once one of ours is within four tiles of them. Seven in inside five minutes, or the quarter is a wall and not a quarter. Do not put a mortar round near it to buy the gate. Their mortar is on the east firing position and it is laid on the cross road. The Badlands edge is behind you, and a round that lands across the Fence costs more than any you can spend here. The terminal's roof is worth fifteen seconds if you can spare the rifles. The gate comes first.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "The gate is ours, and the safe quarter is still a quarter. The camp stays, and the next time that road is open it will be open from our side."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "The gate is theirs again, and the quarter with it. The camp does not carry; the ground does."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        22.5,
+        9.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        26.5,
+        10.5
+      ]
+    },
+    {
+      "unit": "mortar_team",
+      "count": 1,
+      "at": [
+        21.5,
+        11.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        22.5,
+        12.5
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        25.5,
+        12.5
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      {
+        "zone": "the_gate",
+        "rate_per_min": 28
+      }
+    ]
+  },
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        27,
+        6
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        29,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        38,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        43,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        46,
+        32
+      ],
+      "size": [
+        1,
+        1
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        18,
+        33
+      ],
+      "size": [
+        1,
+        1
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        29,
+        33
+      ],
+      "size": [
+        1,
+        1
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "hold_the_gate",
+      "type": "hold_for",
+      "primary": true,
+      "target": "the_gate",
+      "seconds": 240,
+      "text": "Hold the gate for four minutes"
+    },
+    {
+      "id": "seven_in",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "safe_quarter",
+      "count": 7,
+      "seconds": 300,
+      "text": "Walk seven residents into the safe quarter",
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "The quarter is not open. A gate with nobody behind it is a wall, and there is nothing left in this town for us to hold it for."
+      }
+    },
+    {
+      "id": "take_the_roof",
+      "type": "capture",
+      "primary": false,
+      "target": "terminal_roof",
+      "seconds": 15,
+      "text": "Hold the terminal's roof for fifteen seconds",
+      "say": {
+        "speaker": "shai",
+        "text": "The roof is ours. Every window on the Fence Road is now looking at us from our own side."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "safe_quarter",
+      "badlands_edge"
+    ],
+    "fail_below": 55
+  },
+  "civilians": {
+    "refuge": "safe_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          22.5,
+          19.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          21.5,
+          20.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 4,
+        "at": [
+          26.5,
+          19.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          20.5,
+          36.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            20,
+            36
+          ]
+        },
+        "group": "gate"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          26.5,
+          36.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            26,
+            36
+          ]
+        },
+        "group": "gate"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          17.5,
+          33.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "posts",
+        "tag": "bt_works_crew"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          31.5,
+          33.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "posts",
+        "tag": "bt_works_crew"
+      },
+      {
+        "unit": "mortar_crew",
+        "count": 1,
+        "at": [
+          31.5,
+          31.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "mortar"
+      }
+    ],
+    "waves": [
+      {
+        "at_seconds": 150,
+        "to": "gate_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "fence_east",
+            "group": "push_1"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "fence_east",
+            "group": "push_1"
+          },
+          {
+            "unit": "charge_squad",
+            "count": 1,
+            "from": "fence_east",
+            "group": "push_1"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "First push, from the east end of the Fence Road. It is the lighter of two, and it is meant to show us where the weight goes."
+        }
+      },
+      {
+        "at_seconds": 270,
+        "to": "terminal_point",
+        "units": [
+          {
+            "unit": "militia_cell",
+            "count": 2,
+            "from": "fence_east",
+            "group": "push_2"
+          },
+          {
+            "unit": "rpg_team",
+            "count": 1,
+            "from": "fence_east",
+            "group": "push_2"
+          },
+          {
+            "unit": "charge_squad",
+            "count": 1,
+            "from": "fence_east",
+            "group": "push_2"
+          }
+        ],
+        "say": {
+          "speaker": "idit",
+          "text": "Second push. A charge squad is walking with it, and it is walking at the terminal, not at you."
+        }
+      }
+    ]
+  }
+}
