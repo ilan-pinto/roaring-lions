@@ -277,7 +277,7 @@
     },
     "wave_say": {
       "0": "Todos los accesos a la vez. Aquí no hay esfuerzo principal: no lo necesita.",
-      "2": "Es una escuadra suicida avanzando hacia la cara noroeste. Lo que haya ahí fuera, ahí fuera está ya.",
+      "2": "Es una escuadra de cargas avanzando hacia la cara noroeste. Lo que haya ahí fuera, ahí fuera está ya.",
       "4": "Ahora al sudeste. Misma cara, otra esquina: está leyendo cuál ha reforzado usted."
     },
     "src": {
@@ -406,12 +406,12 @@
     "triggers": {
       "the_village_comes_down_to_the_yard": "La aldea baja hacia el patio",
       "the_yard_party_falls_back_up_the_lane": "La partida del patio se repliega por el callejón",
-      "a_charge_squad_comes_down_the_lane": "Escuadra suicida baja por el callejón"
+      "a_charge_squad_comes_down_the_lane": "Escuadra de cargas baja por el callejón"
     },
     "trigger_say": {
       "the_village_comes_down_to_the_yard": "La aldea baja por el callejón hacia el patio. Hay nueve casas allí arriba y ni una persona en ellas; cada cuerpo de esa calle es un combatiente.",
       "the_yard_party_falls_back_up_the_lane": "La partida del patio ha salido de la casa de bombas y va hacia el norte por el callejón.",
-      "a_charge_squad_comes_down_the_lane": "Escuadra suicida bajando por el callejón. Saque a los zapadores de la boca o ponga algo entre él y ellos."
+      "a_charge_squad_comes_down_the_lane": "Escuadra de cargas bajando por el callejón. Saque a los zapadores de la boca o ponga algo entre él y ellos."
     },
     "wave_say": {
       "2": "Dos secciones cruzan el vado central. No van al patio: van al campamento de la orilla, y el campamento está a cuatro casillas de ese vado."
@@ -473,12 +473,12 @@
     "triggers": {
       "the_village_comes_out_of_its_houses": "El pueblo sale a las callejas",
       "he_falls_back_onto_his_own_spoil": "El jefe retrocede a su escombrera",
-      "a_charge_squad_comes_for_the_engineers": "Escuadra suicida va a por los zapadores"
+      "a_charge_squad_comes_for_the_engineers": "Escuadra de cargas va a por los zapadores"
     },
     "trigger_say": {
       "the_village_comes_out_of_its_houses": "Han salido de las casas y avanzan por las callejas entre las bocas.",
       "he_falls_back_onto_his_own_spoil": "Ha vuelto a la escombrera. Es el único terreno elevado bajo el borde y sus propias cuadrillas lo levantaron con las rutas que usted ha venido a derribar.",
-      "a_charge_squad_comes_for_the_engineers": "Escuadra suicida en las callejas, y sus zapadores son lo único en este mapa que debe quedarse quieto. Cúbralos o muévalos."
+      "a_charge_squad_comes_for_the_engineers": "Escuadra de cargas en las callejas, y sus zapadores son lo único en este mapa que debe quedarse quieto. Cúbralos o muévalos."
     },
     "wave_say": {
       "1": "Un equipo de cohetes y un technical por el camino del flanco oeste. Es lo último que pueden enviar los flancos; después gastará lo que hay bajo tierra."
@@ -778,12 +778,12 @@
     "triggers": {
       "they_walk_into_the_ward": "El enemigo entra en el distrito",
       "the_block_pulls_back_into_the_souk": "La manzana retrocede al zoco",
-      "a_charge_squad_comes_for_the_gate": "Escuadra suicida va a por la puerta"
+      "a_charge_squad_comes_for_the_gate": "Escuadra de cargas va a por la puerta"
     },
     "trigger_say": {
       "they_walk_into_the_ward": "Entran en el distrito. No lo rodean ni van a las puertas: entran, porque es el único terreno de este mapa donde sus armas son las que le cuestan.",
       "the_block_pulls_back_into_the_souk": "El grupo por delante del recinto ha vuelto al zoco. No han terminado; se acortan.",
-      "a_charge_squad_comes_for_the_gate": "Una escuadra suicida, fuera del zoco, hacia la puerta. Es lo único de este mapa que puede matar a una familia dentro del muro, y le da igual de qué lado del muro muera."
+      "a_charge_squad_comes_for_the_gate": "Una escuadra de cargas, fuera del zoco, hacia la puerta. Es lo único de este mapa que puede matar a una familia dentro del muro, y le da igual de qué lado del muro muera."
     },
     "wave_say": {
       "0": "Dos secciones por la carretera norte hacia la puerta. Cada dos minutos, puntuales, haya o no algo que combatir en la puerta.",
