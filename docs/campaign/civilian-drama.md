@@ -1,7 +1,7 @@
 # Civilian drama: crowds, threats and the compound gate
 
-**Date:** 2026-11-18 · **Status:** design, **HOLD FOR LEAD**. Nothing here is canon or
-scheduled until the lead answers §7. **Written against** `origin/dev` at `93448908f`; every
+**Date:** 2026-11-18 · **Status:** design. Q1 to Q3 are RULED (18 Nov, below) and D18 is written into `storyline.md`;
+Q4 to Q11 stay **HOLD FOR LEAD** and nothing else here is canon or scheduled until the lead answers §7. **Written against** `origin/dev` at `93448908f`; every
 code claim cites a file and line range read this session. Claims not read are marked
 **UNREAD**; estimates are marked **ESTIMATE**.
 **Contract:** `docs/campaign/README.md`. **Canon:** `docs/campaign/storyline.md`.
@@ -15,6 +15,26 @@ while the enemy shoots some of them or abducts them. The compound has huge yello
 metal gates that open only when KDF soldiers come close. Wherever there are civilians there
 should be many, and the enemy should do something bad to them that needs the KDF's help at
 once.
+
+**Rulings of 18 Nov 2026 (the lead, relayed by the PM).**
+- **Q1: Option A, adults only.** Decision D18 is written into `docs/campaign/storyline.md` §0.2 exactly as §7 words it (with the
+  follow-on edits of §9.5 that follow from it: D12 "in play, within D18", the breach twist T1 and the `execute` verb retired, rule 7
+  of §2.4). Enemy troops may fire toward running civilians, who fall and lie still; groups may lead civilians away on foot or by
+  vehicle to the map edge; no harm to the taken, no blood or body effect beyond the shipped `down` pose, adults only. The story voice
+  names only "fell", "taken" and a number. The GDD §11 reconciliation of §9.5 is NOT yet made (it needs a GDD version bump) and stays
+  an open follow-up.
+- **Q2: the pilot is `beit_sahwan_breach`**, not `beit_sahwan_1_recon`: its compound already exists (`marj_perimeter`, with its wall
+  gaps) with 11 civilians, growing toward about 100. Sections 6 and 10.1 were written for recon; the pilot script must be re-derived for
+  the breach (new numbers, and Q11, the canon "eleven, two counted in, nine not", is now live: §9.6 N5 recommends keeping the
+  ratio's meaning, and the lead has to restate or keep the numbers).
+- **Q3: each front's own enemy does it**: the Ashwar on the Marj, Sarim on Sur, and so on; never one doctrine everywhere.
+- **Also done in this change:** the two shipped text bugs of §9.4 are fixed (`wadi_halam_1_fords` said "Four of them off the ford"
+  when the objective counts three; `wadi_halam_4_village` said "Every one of them is at the refuge" when it counts three of four;
+  the English catalogue is regenerated and the two German lines changed to match, AI-translated and not proofread), and the
+  `evacuate_before` over-count is recorded as gap **G-6** (§4).
+- **Still HOLD FOR LEAD:** Q4 (the 256-entity cap), Q5 (the pilot's frame measurement), Q6 (scoring on the after-action report), Q7,
+  Q8, Q9, Q10 (art numbers: the gate is a Blender build at 0 credits, six Meshy civilian variants at about 240 to 420 credits, nothing
+  spent) and Q11.
 
 **The one-line answer.** Most of this is buildable. The crowd, the time pressure, the scoring
 and a "blocked road" threat can ship as data today. The gate needs one medium sim change. Two
