@@ -141,3 +141,37 @@ describe("the battlefield and the shell load content by id, the house way (main.
     expect(main).not.toMatch(/^import [^;]*from '\.\/net\/(content-digest|frame-step)';/m);
   });
 });
+
+describe('GH-1381: the Sarim side of Free play loads on demand', () => {
+  const reached = closure(join(SRC, 'main.ts'));
+
+  it("the entry's static graph reaches neither the Sarim Free play module nor the versus forces it places", () => {
+    expect(reached.has('packages/app/src/sandbox-sarim.ts')).toBe(false);
+    expect(reached.has('packages/app/src/net/versus-force.ts')).toBe(false);
+    // Not vacuous: the module itself reaches the versus forces, and the KDF sandbox's spawner is on the entry.
+    expect(closure(join(SRC, 'sandbox-sarim.ts')).has('packages/app/src/net/versus-force.ts')).toBe(true);
+    expect(reached.has('packages/app/src/sandbox-spawn.ts')).toBe(true);
+  });
+
+  it('main.ts takes its types only, and the module through importWithRetry, awaited only for a Sarim pick, the abort checked after', () => {
+    expect(main).toMatch(/^import type \* as SandboxSarim from '\.\/sandbox-sarim';$/m);
+    expect(main).not.toMatch(/^import (?!type)[^;]*from '\.\/sandbox-sarim';/m);
+    expect(main).toMatch(/return importWithRetry\(\(\) => import\('\.\/sandbox-sarim'\)\);/);
+    expect(main).toMatch(
+      /const sarim: typeof SandboxSarim \| null = playSide === 'sarim' \? await sandboxSarim\(\) : null;\s*if \(req\.signal\.aborted\) return \(\) => undefined;/,
+    );
+  });
+
+  it('a Sarim pick spawns, rosters and kits through the module, and the KDF opposition fields the base ladder', () => {
+    expect(main).toMatch(/\} else if \(sarim !== null\) \{[^}]*sandboxForce = sarim\.sarimSandboxSpawns\(sim, typeOf, anchors, \{ civ: wantCiv \}\);\s*\} else \{\s*sandboxForce = sandboxSpawns\(/);
+    expect(main).toMatch(/: sarim !== null\s*\? withWoundedTypes\(sarim\.sarimSandboxUnitTypes\(\{ civ: wantCiv \}\), woundsOf\)/);
+    expect(main).toMatch(/const bootKit = inRoom \|\| playSide === 'sarim' \? \{\} : bootTiers\(/);
+    expect(main).toMatch(/const seatWorld = seatWorldFor\(netConfig, sim, undefined, playSide\);/);
+    // The side and the extras come from the ONE pipeline `boot-flags.test.ts` runs, every dropped line printed
+    // (GH-1381 review notes 1 and 2): a mission or a room is told apart by the boot's own two facts.
+    expect(main).toMatch(/const \{ side: playSide, flags \} = bootFlags\(params, \{ missionId: req\.missionId, inRoom \}, \(line\) => console\.warn\(line\)\);/);
+    expect(main).not.toMatch(/\b(sandboxSideOf|sideFlags|roomFlags|readFlags)\(/);
+    // Note 3: a Sarim Free play's radio net speaks the side's language, not a literal KDF one.
+    expect(main).toMatch(/announceLang: voiceLangs\[playSide\] \?\? 'he',/);
+  });
+});
