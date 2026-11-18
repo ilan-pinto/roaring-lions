@@ -1,6 +1,6 @@
 # Naming review: age rating and the neutral register
 
-**Status:** proposal, **HOLD FOR LEAD**. Docs and one test only. **No name is changed by this PR**: the test pins what the English text says today, and a rename arrives only when the lead picks (below). Written 2026-11-18 against `origin/dev` `74f9a0ff3`.
+**Status:** **RULED and applied (lead, 18 Nov 2026).** Four renames are applied, display text only: "Suicide Squad" to **"Charge Squad"**, "Explosive vests" to **"Satchel charges"**, the "kamikaze" dock bucket to **"one-way"**, and "civilians killed" (`conduct.cause.civilians`, `intel.strike.civilians`) to **"civilians lost"**. "Execution" (the orders heading) stays. The cluster-munition names stay a separate, later decision. Written 2026-11-18 against `origin/dev` `74f9a0ff3`; the sections below are the proposal as put to the lead, kept for the record, and §7 says what was applied.
 **Why:** PR 1581 (the legal pack) found the enemy `charge_squad` named "Suicide Squad", carrying "Explosive vests", placed in 7 of 35 missions. The age-rating boards ask about exactly these themes, and `docs/campaign/storyline.md` §2.4 holds a neutral register (doctrine, never a people or a faith) that D18 (18 Nov: civilians in danger, in play) makes stricter, not looser.
 **Scope rule (the lead's, binding):** **display text only.** Never a unit id, a weapon id, an ability id, a section id or a save key. `charge_squad`, the weapon id `vest`, the ability `kamikaze` and the section id `execution` all stay.
 
@@ -80,3 +80,15 @@ The test passes today and changes nothing in the build. **No rename is applied u
 3. **F4**: leave "Execution" (a standard heading) or rename to "Tasks"?
 4. **F5**: align the after-action wording with D18 ("lost"), or keep "killed"?
 5. **Rating tier**: the `kill*` vocabulary (53 strings) and the cluster-munition names are not naming fixes; they are inputs to the rating questionnaire in `docs/legal/age-rating-questionnaire-draft.md`. Say which tier the game is aiming for and the review can be re-run against it.
+
+## 7. What was applied
+
+| row | applied | English source | also changed |
+|---|---|---|---|
+| F1 | **Charge Squad** | `data/units/enemy/charge_squad.json` `name`, `data/locales/en/units.json` (regenerated) | de "Ladungstrupp", fr "Groupe de charge", es-ES "Escuadra de cargas" (unit names, new `src` hashes); the fr and es-ES mission lines that had rendered the same unit "groupe kamikaze" / "escuadra suicida" (7 lines each); README's enemy table; `data/locales/README.md` glossary; `docs/ASSET_PROVENANCE.md` and the two art-prompt files (display name only: the prompts and a Meshy folder name are the historical record); `tools/units/teams.py` docstring |
+| F2 | **Satchel charges** | `en.json` `weapon.vest` | de "Trageladungen", fr "Charges portées", es-ES "Cargas portadas" (+ sidecar hashes) |
+| F3 | **one-way** | `en.json` `dock.bucket.kamikaze` | de "Einweg", fr "sens unique", es-ES "de un solo uso" (+ hashes); `dock-model.test.ts` expects `one-way`; the comment in `dock-model.ts` |
+| F4 | **kept** ("Execution") | none | none (it stays the one recorded exception in the test) |
+| F5 | **civilians lost** | `en.json` `conduct.cause.civilians`, `intel.strike.civilians` | de "Zivilisten verloren", fr "Civils perdus", es-ES "Civiles perdidos" (+ hashes); the `conduct-invoice.ts` comment |
+
+Not done here: **ru** (PR 1542 is not on `dev` yet; its four chrome strings and the unit name follow when it lands, via `locales:pending`). Translations are machine translation by Claude, not proofread. No id, weapon id, ability id, section id or save key changed. The guard now lists `suicid*`, `explosive vest(s)` and `kamikaze` in its zero-tolerance set, so none of the three can return in English text.

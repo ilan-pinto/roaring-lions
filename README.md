@@ -133,7 +133,7 @@ You meet these in the campaign, one doctrine per front. The six in bold are also
 | RPG Team | Ashwar | Anti-tank | Short reach, hidden setup, tunnels. |
 | Mortar Crew | Ashwar | Artillery | 82mm mortar, 16 tiles. |
 | Digger Crew | Ashwar | Engineer | Digs the tunnels the Marj Strip is built on. |
-| Suicide Squad, Powered Parachute | Ashwar | Raiders | Kamikaze infantry, and paramotor gunmen over the wire. |
+| Charge Squad, Powered Parachute | Ashwar | Raiders | Infantry that run a charge onto a target, and paramotor gunmen over the wire. |
 | Armed Technical, Armed Motorcycle | Rif | Light vehicle | Fast raiders with a heavy machine gun or an RPG. |
 
 ## The brigade: garage and upgrades

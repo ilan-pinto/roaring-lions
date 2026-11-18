@@ -1,12 +1,13 @@
 // The neutral register of the English text (docs/legal/naming-review.md): the words an age-rating board or storyline.md's register would
-// object to, kept out of every string a player reads in English, and the four that are in today pinned to the exact string that holds them.
+// object to, kept out of every string a player reads in English. The lead ruled on 18 Nov 2026 (PR 1594): "Suicide Squad", "Explosive vests"
+// and the "kamikaze" dock bucket are renamed (Charge Squad, Satchel charges, one-way), so they join the zero-tolerance list; "Execution" (the
+// orders heading) stays and is the one recorded exception.
 //
 // Two guards, both on VALUES (a key or an id is not text, and ids such as `charge_squad` and the weapon id `vest` are not touched):
 //   1. ZERO TOLERANCE: no English string may contain martyr, terror*, massacre, slaughter, genocid*, torture, rape, behead*, jihad,
-//      infidel, crusad* or "holy war". Today there are none; a new one fails here.
-//   2. THE RECORDED CENSUS: suicid*, explosive vest(s), kamikaze and execut* occur exactly where the review recorded them. A fifth place
-//      fails (the guard), and so does a recorded place that has gone (the demotion assertion: when the lead picks a rename, delete the
-//      matching entry in the same commit, which is what makes the rename visible).
+//      infidel, crusad*, "holy war", and since the rulings suicid*, "explosive vest(s)" and kamikaze. Today there are none; a new one fails.
+//   2. THE RECORDED CENSUS: execut* occurs exactly where the review recorded it (the orders heading). A second place fails, and so does
+//      the recorded place going (the demotion assertion: a rename must delete the entry in the same commit).
 // The oracles are LITERALS from the review's census, never read back from the data under test.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -33,18 +34,12 @@ function corpus(): Leaf[] {
   return out.filter(([, path]) => path !== 'src' && !/(^|\.)src(\.|$)/.test(path));
 }
 
-const BANNED = /martyr|terroris|terror\b|terrorism|massacre|slaughter|genocid|torture|\brape\b|behead|jihad|infidel|crusad|holy war/i;
+const BANNED = /martyr|terroris|terror\b|terrorism|massacre|slaughter|genocid|torture|\brape\b|behead|jihad|infidel|crusad|holy war|suicid|explosive vests?|kamikaze/i;
 const CENSUS_TERMS: Record<string, RegExp> = {
-  suicide: /suicid/i,
-  vest: /\bvests?\b/i,
-  kamikaze: /kamikaze/i,
   execution: /\bexecut/i,
 };
 /** Where each recorded term lives today: `source :: path => text`. LITERALS (the review's census, 18 Nov 2026). */
 const RECORDED: Record<string, readonly string[]> = {
-  suicide: ['data/locales/en/units.json :: charge_squad.name => Suicide Squad'],
-  vest: ['packages/app/src/i18n/en.json :: weapon.vest => Explosive vests'],
-  kamikaze: ['packages/app/src/i18n/en.json :: dock.bucket.kamikaze => kamikaze'],
   execution: ['packages/app/src/i18n/en.json :: briefing.section.execution => Execution'],
 };
 
@@ -73,12 +68,14 @@ describe('the scanner can fail (constructed corpora)', () => {
     expect(hitsOf([...base, ['u', 'b.blurb', 'Fear of terrorism.']], BANNED)).toHaveLength(1);
     expect(hitsOf(base, BANNED)).toEqual([]);
   });
-  it('finds a census term in a place nobody recorded, and does not match a harmless word', () => {
-    expect(hitsOf([...base, ['c', 'new.label', 'Suicide run']], CENSUS_TERMS.suicide)).toHaveLength(1);
-    expect(hitsOf([...base, ['c', 'new.label', 'The harvest vestibule']], CENSUS_TERMS.vest)).toEqual([]);
-    expect(hitsOf([...base, ['c', 'new.label', 'Explosive vest']], CENSUS_TERMS.vest)).toHaveLength(1);
+  it('finds the renamed words if they come back, and does not match a harmless word', () => {
+    expect(hitsOf([...base, ['c', 'new.label', 'Suicide Squad']], BANNED)).toHaveLength(1);
+    expect(hitsOf([...base, ['c', 'new.label', 'Explosive vests']], BANNED)).toHaveLength(1);
+    expect(hitsOf([...base, ['c', 'new.label', 'kamikaze']], BANNED)).toHaveLength(1);
+    expect(hitsOf([...base, ['c', 'new.label', 'The harvest vestibule, one-way']], BANNED)).toEqual([]);
   });
-  it('reads a recorded place that has gone as a difference, so a rename must delete its entry', () => {
-    expect(hitsOf(base, CENSUS_TERMS.suicide)).not.toEqual(RECORDED.suicide);
+  it('finds a census term in a second place, and reads the recorded place going as a difference', () => {
+    expect(hitsOf([...base, ['c', 'new.label', 'Execution']], CENSUS_TERMS.execution)).not.toEqual(RECORDED.execution);
+    expect(hitsOf(base, CENSUS_TERMS.execution)).not.toEqual(RECORDED.execution);
   });
 });

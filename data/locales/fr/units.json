@@ -70,9 +70,9 @@
     }
   },
   "charge_squad": {
-    "name": "Groupe kamikaze",
+    "name": "Groupe de charge",
     "src": {
-      "name": "3d951ba5"
+      "name": "26a92c0f"
     }
   },
   "civilians": {

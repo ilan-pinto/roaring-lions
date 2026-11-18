@@ -277,7 +277,7 @@
     },
     "wave_say": {
       "0": "Toutes les approches à la fois. Il n'y a pas d'effort principal là-dedans — il n'en a pas besoin.",
-      "2": "Un groupe kamikaze marche sur la face nord-ouest. Ce qui est dehors est dehors, maintenant.",
+      "2": "Un groupe de charge marche sur la face nord-ouest. Ce qui est dehors est dehors, maintenant.",
       "4": "Sud-est maintenant. Même face, autre coin — il lit lequel vous avez renforcé."
     },
     "src": {
@@ -406,12 +406,12 @@
     "triggers": {
       "the_village_comes_down_to_the_yard": "Le village descend vers la cour",
       "the_yard_party_falls_back_up_the_lane": "Le détachement de la cour remonte la ruelle",
-      "a_charge_squad_comes_down_the_lane": "Un groupe kamikaze descend la ruelle"
+      "a_charge_squad_comes_down_the_lane": "Un groupe de charge descend la ruelle"
     },
     "trigger_say": {
       "the_village_comes_down_to_the_yard": "Le village descend la ruelle vers la cour. Il y a neuf maisons là-haut et pas une personne dedans ; chaque corps dans cette rue est un combattant.",
       "the_yard_party_falls_back_up_the_lane": "Le détachement de la cour a quitté la pompe et remonte la ruelle vers le nord.",
-      "a_charge_squad_comes_down_the_lane": "Groupe kamikaze dans la ruelle. Sortez les sapeurs de l'orifice ou mettez quelque chose entre lui et eux."
+      "a_charge_squad_comes_down_the_lane": "Groupe de charge dans la ruelle. Sortez les sapeurs de l'orifice ou mettez quelque chose entre lui et eux."
     },
     "wave_say": {
       "2": "Deux sections traversent le gué central. Elles ne vont pas à la cour — elles vont au camp sur la berge, et le camp est à quatre cases de ce gué."
@@ -473,12 +473,12 @@
     "triggers": {
       "the_village_comes_out_of_its_houses": "Le village se vide dans les ruelles",
       "he_falls_back_onto_his_own_spoil": "Le chef se replie sur les déblais",
-      "a_charge_squad_comes_for_the_engineers": "Un groupe kamikaze vise les sapeurs"
+      "a_charge_squad_comes_for_the_engineers": "Un groupe de charge vise les sapeurs"
     },
     "trigger_say": {
       "the_village_comes_out_of_its_houses": "Ils sortent des maisons et gagnent les ruelles entre les entrées.",
       "he_falls_back_onto_his_own_spoil": "Il est retourné sur le champ de déblais. C'est le seul terrain surélevé sous l'escarpement, et ses équipes l'ont bâti avec les tunnels que vous êtes venus faire tomber.",
-      "a_charge_squad_comes_for_the_engineers": "Groupe kamikaze dans les ruelles, et vos sapeurs sont la seule chose sur cette carte qui doit rester immobile. Couvrez-les ou déplacez-les."
+      "a_charge_squad_comes_for_the_engineers": "Groupe de charge dans les ruelles, et vos sapeurs sont la seule chose sur cette carte qui doit rester immobile. Couvrez-les ou déplacez-les."
     },
     "wave_say": {
       "1": "Une équipe de roquettes et un technical sur la route du flanc ouest. C'est tout ce que les flancs peuvent envoyer ; après cela, il dépense ce qu'il a sous terre."
@@ -778,12 +778,12 @@
     "triggers": {
       "they_walk_into_the_ward": "L'ennemi s'avance dans le quartier",
       "the_block_pulls_back_into_the_souk": "Le pâté de maisons se replie dans le souk",
-      "a_charge_squad_comes_for_the_gate": "Un groupe kamikaze vise la porte"
+      "a_charge_squad_comes_for_the_gate": "Un groupe de charge vise la porte"
     },
     "trigger_say": {
       "they_walk_into_the_ward": "Ils entrent dans le quartier. Ni autour, ni vers les portes : dedans, car c'est le seul terrain de cette carte où vos armes sont celles qui vous coûtent.",
       "the_block_pulls_back_into_the_souk": "Le groupe en avant de l'enceinte est retourné dans le souk. Ils n'ont pas fini ; ils raccourcissent leur front.",
-      "a_charge_squad_comes_for_the_gate": "Un groupe kamikaze, sorti du souk, vient vers la porte. C'est la seule chose sur cette carte qui peut tuer une famille dans le mur, et peu lui importe de quel côté du mur il meurt."
+      "a_charge_squad_comes_for_the_gate": "Un groupe de charge, sorti du souk, vient vers la porte. C'est la seule chose sur cette carte qui peut tuer une famille dans le mur, et peu lui importe de quel côté du mur il meurt."
     },
     "wave_say": {
       "0": "Deux sections descendent la route nord vers la porte. Toutes les deux minutes, à l'heure, qu'il y ait ou non quelque chose à combattre à la porte.",
