@@ -3,7 +3,7 @@
   DRAFT. HOLD FOR LEAD: store copy is the lead's call. Nothing here has been published.
   Rules it keeps (GH-1378 rulings, 16 Nov 2026): the fiction (KDF, Kedem, the Sarim) plus the line "inspired by modern Middle East conflicts";
   no real war, person, place, operation or faith named; nothing claimed that the build on main cannot back (evidence per claim: data/store/README.md);
-  brigade credits are earned and never sold; paid coins buy cosmetics only at launch.
+  brigade credits are earned and never sold; Roar coins buy new units and upgrade tiers (the lead's rule, 18 Nov 2026).
   This file is the SOURCE. de.md, fr.md and es-ES.md are AI translations (Claude, in-house), not proofread by a human.
 -->
 
@@ -21,7 +21,7 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 
 **Restraint is a score.** Every mission has rules of engagement. Fire into a protected building or a flagged street and your Conduct score pays for it. The unit that wins the fight is not always the one you can afford to use.
 
-**A campaign of short missions.** Thirty missions across the Kedem towns, almost all designed for five to seven minutes. The units you keep and the credits you earn carry on to the next mission.
+**A campaign of short missions.** Thirty-nine missions across the Kedem towns, almost all designed for five to seven minutes. The units you keep and the credits you earn carry on to the next mission.
 
 **Tools for a real operation.**
 - Smoke, mortar barrages, drone sweeps and precision strikes, paid for with intelligence you earn by doing the job.
@@ -31,22 +31,22 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 
 **Your brigade.** Earn credits in the campaign, upgrade your units and look them over in the garage. Brigade credits are earned and never sold.
 
-**Beyond the campaign.** Walk any of the 38 maps in free play with a full task force. Play a friend with a room code, KDF against Sarim, or play the computer.
+**Beyond the campaign.** Walk any of the 48 maps in free play with a full task force. Play a friend with a room code, KDF against Sarim, or play the computer.
 
 **Yours to set up.** Remappable keys, colour-vision modes, adjustable text and interface size, reduced motion, three quality presets, and a save you can resume in the middle of a mission.
 
-**Free to play.** Optional Roar coins buy cosmetics only. They never buy units, upgrades or anything that changes a fight.
+**Free to play.** Roar coins buy new units and upgrade tiers, the same ones credits buy. You earn them as you play.
 
 ## Key features
 - A realistic combat model: armour facing, cover, line of sight, height and suppression
 - Rules of engagement and a Conduct score that make restraint part of winning
-- A campaign of thirty short missions in the fictional land of Kedem
+- A campaign of thirty-nine short missions in the fictional land of Kedem
 - Smoke, mortar, drone and precision fire support, garrisons, tunnels, wounded and civilians
 - More than 40 unit types, from rifle squads to tanks and helicopters
 - A persistent brigade with credits, upgrades and a garage
-- Free play on 38 maps, friend matches with a room code, and a match against the computer
+- Free play on 48 maps, friend matches with a room code, and a match against the computer
 - Accessibility options: remappable keys, colour-vision modes, text size, reduced motion
-- Free to play, with cosmetic-only purchases
+- Free to play, with Roar coins for new units and upgrade tiers
 
 ## Languages
 English. [LEAD: add each language here when it ships; the five planned (Simplified Chinese, Russian, German, French, Spanish) are not claimed until then.]

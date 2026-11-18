@@ -29,12 +29,15 @@ const NEVER_SOLD: Record<Lang, string> = {
   fr: 'se gagnent et ne se vendent jamais',
   'es-ES': 'se ganan y nunca se venden',
 };
-const COSMETICS_ONLY: Record<Lang, string> = {
-  en: 'buy cosmetics only',
-  de: 'kaufen nur Kosmetik',
-  fr: "n'achètent que des éléments cosmétiques",
-  'es-ES': 'solo compran elementos cosméticos',
+/** What coins buy, said truthfully (the lead's rule, 18 Nov 2026: coins buy new units; the Stores also sell upgrade tiers for coins, `stores.lede`). */
+const COINS_BUY_UNITS: Record<Lang, string> = {
+  en: 'buy new units and upgrade tiers',
+  de: 'kaufen neue Einheiten und Aufrüstungsstufen',
+  fr: 'achètent de nouvelles unités et des niveaux d\'amélioration',
+  'es-ES': 'compran unidades nuevas y niveles de mejora',
 };
+/** The old promise, in each language: coins buy cosmetics only. It is no longer true and must not come back. */
+const COSMETICS_PROMISE = /cosmeti[cq]|kosmet|cosm[ée]ti[cq]/i;
 /** "Free to play", said the same way everywhere in a language: the short description, the bold heading and the key-features bullet. */
 const FREE_TO_PLAY: Record<Lang, string> = {
   en: 'Free to play',
@@ -124,10 +127,13 @@ describe('the store page copy (data/store)', () => {
         expect(names.length, 'the name list is not empty').toBeGreaterThan(10);
         for (const n of names) expect(new RegExp(`(^|[^\\p{L}])${n.replace(/[-.]/g, '\\$&')}([^\\p{L}]|$)`, 'u').test(c), `"${n}" in ${l}.md`).toBe(false);
       });
-      it('says credits are earned and never sold, and that paid coins buy cosmetics only (GH-1378 Q6)', () => {
+      it('says credits are earned and never sold, and that coins buy new units and upgrade tiers (GH-1378 Q6, as reversed by the lead on 18 Nov 2026)', () => {
         const about = section(l, 'About this game');
         expect(about).toContain(NEVER_SOLD[l]);
-        expect(about).toContain(COSMETICS_ONLY[l]);
+        expect(about).toContain(COINS_BUY_UNITS[l]);
+      });
+      it('makes no cosmetics-only promise anywhere in the copy (the rule was reversed)', () => {
+        expect(copy(l)).not.toMatch(COSMETICS_PROMISE);
       });
       it('says "free to play" one way: in the short description, as a bold heading, and in a key-features bullet', () => {
         expect(section(l, 'Short description')).toContain(`${FREE_TO_PLAY[l]}.`);

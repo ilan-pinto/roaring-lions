@@ -17,7 +17,7 @@ Vous commandez un bataillon des Kedem Defence Forces dans le pays fictif de Kede
 
 **La retenue est un score.** Chaque mission a ses règles d'engagement. Tirer sur un bâtiment protégé ou dans une rue signalée fait baisser votre score de Conduite. L'unité qui gagne le combat n'est pas toujours celle que l'on peut se permettre d'employer.
 
-**Une campagne de missions courtes.** Trente missions dans les villes de Kedem, presque toutes pensées pour durer de cinq à sept minutes. Les unités que vous gardez et les crédits que vous gagnez passent à la mission suivante.
+**Une campagne de missions courtes.** Trente-neuf missions dans les villes de Kedem, presque toutes pensées pour durer de cinq à sept minutes. Les unités que vous gardez et les crédits que vous gagnez passent à la mission suivante.
 
 **Les outils d'une vraie opération.**
 - Fumée, barrages de mortier, balayages de drones et frappes de précision, payés avec le renseignement que vous gagnez en faisant le travail.
@@ -27,22 +27,22 @@ Vous commandez un bataillon des Kedem Defence Forces dans le pays fictif de Kede
 
 **Votre brigade.** Gagnez des crédits dans la campagne, améliorez vos unités et examinez-les au garage. Les crédits de brigade se gagnent et ne se vendent jamais.
 
-**Au-delà de la campagne.** Parcourez n'importe laquelle des 38 cartes en partie libre avec une force complète. Affrontez un ami avec un code de salle, KDF contre Sarim, ou jouez contre l'ordinateur.
+**Au-delà de la campagne.** Parcourez n'importe laquelle des 48 cartes en partie libre avec une force complète. Affrontez un ami avec un code de salle, KDF contre Sarim, ou jouez contre l'ordinateur.
 
 **À régler comme vous voulez.** Touches reconfigurables, modes pour la vision des couleurs, taille du texte et de l'interface réglable, animations réduites, trois niveaux de qualité, et une sauvegarde que l'on peut reprendre en pleine mission.
 
-**Jouable gratuitement.** Les pièces Roar facultatives n'achètent que des éléments cosmétiques. Elles n'achètent jamais d'unités, d'améliorations ni rien qui change un combat.
+**Jouable gratuitement.** Les pièces Roar achètent de nouvelles unités et des niveaux d'amélioration, les mêmes que les crédits. Vous les gagnez en jouant.
 
 ## Key features
 - Un modèle de combat réaliste : orientation du blindage, couvert, ligne de vue, hauteur et neutralisation par le feu
 - Des règles d'engagement et un score de Conduite qui font de la retenue une part de la victoire
-- Une campagne de trente missions courtes dans le pays fictif de Kedem
+- Une campagne de trente-neuf missions courtes dans le pays fictif de Kedem
 - Appui-feu par fumée, mortier, drones et frappes de précision, occupation de bâtiments, tunnels, blessés et civils
 - Plus de 40 types d'unités, du groupe de fusiliers aux chars et aux hélicoptères
 - Une brigade qui dure, avec crédits, améliorations et garage
-- Partie libre sur 38 cartes, parties entre amis avec code de salle et partie contre l'ordinateur
+- Partie libre sur 48 cartes, parties entre amis avec code de salle et partie contre l'ordinateur
 - Accessibilité : touches reconfigurables, modes pour la vision des couleurs, taille du texte, animations réduites
-- Jouable gratuitement, avec des achats uniquement cosmétiques
+- Jouable gratuitement, avec des pièces Roar pour de nouvelles unités et des niveaux d'amélioration
 
 ## Languages
 Anglais. [LEAD : ajouter chaque langue ici quand elle est livrée ; les cinq prévues (chinois simplifié, russe, allemand, français, espagnol) ne sont pas revendiquées d'ici là.]

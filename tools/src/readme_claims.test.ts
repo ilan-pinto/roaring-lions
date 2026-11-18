@@ -86,6 +86,12 @@ describe('README: credits, coins and the unit table', () => {
     expect(wallet).toMatch(/export const PURCHASES_OPEN\s*(:\s*boolean\s*)?=\s*false/);
     expect(README).toContain('the real-money coin packs are switched off');
   });
+  it('says coins buy units (the lead\'s rule of 18 Nov 2026), and no longer promises cosmetics only', () => {
+    expect(README).toContain('**coins buy new units**');
+    expect(README).not.toMatch(/cosmetics only/i);
+    const lede = JSON.parse(readFileSync(join(ROOT, 'packages/app/src/i18n/en.json'), 'utf8'))['stores.lede'] as string;
+    expect(lede, 'the Stores screen still says coins buy what credits buy').toContain('Coins buy what credits buy');
+  });
   const units = new Map<string, { id: string; unlock?: { roe_rating_min?: number; stars_min?: number; price?: number } }>();
   for (const f of readdirSync(join(ROOT, 'data/units/kdf'))) {
     const d = json<{ id: string; name: string; unlock?: { roe_rating_min?: number; stars_min?: number; price?: number } }>(`data/units/kdf/${f}`);

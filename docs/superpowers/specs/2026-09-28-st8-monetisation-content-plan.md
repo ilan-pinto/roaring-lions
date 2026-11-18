@@ -1,5 +1,7 @@
 # The monetisation content plan — design (WP-ST8, #207)
 
+> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units and upgrade tiers; "cosmetics only" below is the earlier posture and is kept as history.** See `data/store/README.md` E13 and `docs/superpowers/specs/2026-10-11-monetisation-content-plan.md`.
+
 **Date:** 2026-09-28 · **Status:** the rule is **approved by the lead, 2026-09-29** (G7, #199:
 "Approve the rule"), and the cosmetic currency is named **Roar coins**. The remaining open
 questions (§9) stand as taken defaults.

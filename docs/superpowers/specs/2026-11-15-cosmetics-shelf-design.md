@@ -18,6 +18,8 @@ document from here. This design assumes the ST8 lane stands as ruled on 11 Oct (
 fenced, **cosmetics horizontal**, no paid art shipped before D5. Everything below is cosmetic, so it holds under either
 reading of the power lane; if the ruling changes what coins may buy, only §5 (spend rules) moves.
 
+> **Ruled (the lead, 18 Nov 2026): Roar coins buy new units** (and the Stores already sell upgrade tiers for coins). The cosmetics shelf is therefore one shelf among the coin shop's, not the only thing coins buy. §5, the never-power guard, still holds **for cosmetics**: a cosmetic never changes a fight. It no longer says what coins as a whole may buy.
+
 **D5 is the real gate on shipping anything** (ST8 F5): the repository is public and the art is all rights reserved, so a
 paid asset committed beside the free art is downloadable though not licensed. This note's first shelf is deliberately
 small SVGs, tokens and one JSON preset so that the exposure is a few kilobytes, and §7 asks the lead to rule on it.
