@@ -1,11 +1,14 @@
 // GH-382: every campaign mission is played on its own ground. See map_distinctness.ts for the
-// metric (feature identity over all eight orientations, plus elevation); there is no allowlist.
+// metric (feature identity over all eight orientations, plus elevation). The only excuse is the NAMED_EXCEPTIONS list (one entry,
+// lead's ruling 17 Nov 2026), with a demotion assertion below.
 import { describe, expect, it } from 'vitest';
 import {
   FEATURE_GATE,
+  NAMED_EXCEPTIONS,
   allPairs,
   campaignMissions,
   compare,
+  isNamedException,
   orientations,
   report,
   tooAlike,
@@ -23,14 +26,42 @@ const mk = (rows: string[], elevation?: string[]): GridMap => ({
 const SAMPLE = ['..h.......', '..h..oo...', '.......b..', '1111......', '.....rrrrr', '..........', '.mmm......', '.mmm..#...', '..........', '.........f'];
 
 describe('map distinctness', () => {
-  it('every pair of missions is distinct: the gate holds the whole campaign, with no allowlist', () => {
+  it('every pair of missions is distinct: the gate holds the whole campaign, but for the named exceptions', () => {
     const rows = allPairs(campaignMissions());
     const bad = rows.filter((r) => r.fails);
     expect(report(bad)).toBe('');
     expect(bad).toEqual([]);
   });
 
-  it('there is nothing to excuse: two towns, or one, playing on one map file both fail', () => {
+  it('the named exceptions are needed, real and closed: each excused pair is still alike, each id is a campaign mission, and only those pairs are excused', () => {
+    const rows = allPairs(campaignMissions());
+    const ids = new Set(campaignMissions().map((m) => m.mission));
+    expect(NAMED_EXCEPTIONS.length).toBe(1);
+    for (const e of NAMED_EXCEPTIONS) {
+      expect(e.reason.length, 'a reason').toBeGreaterThan(20);
+      for (const m of e.missions) expect(ids.has(m), `${m} is a campaign mission`).toBe(true);
+    }
+    const excused = rows.filter((r) => r.excused);
+    // Demotion: an entry that stops being needed (its maps diverge) reads here as a pair that is not alike any more.
+    expect(excused.map((r) => `${r.a.mission}~${r.b.mission}`)).toEqual([
+      'bir_tarsha_1_recon~bir_tarsha_2_foothold',
+      'bir_tarsha_1_recon~bir_tarsha_3_clearance',
+      'bir_tarsha_2_foothold~bir_tarsha_3_clearance',
+    ]);
+    for (const e of NAMED_EXCEPTIONS)
+      for (const a of e.missions)
+        for (const b of e.missions)
+          if (a < b) {
+            const r = rows.find((x) => (x.a.mission === a && x.b.mission === b) || (x.a.mission === b && x.b.mission === a));
+            expect(r, `${a} ~ ${b} is a pair of the campaign`).toBeDefined();
+            expect(r?.excused, `${a} ~ ${b} is still alike, so the exception is still needed (delete the entry when the maps diverge)`).toBe(true);
+          }
+    // Closed: a pair with one id named and one not is not excused, and a mission is never excused against itself.
+    expect(isNamedException('bir_tarsha_1_recon', 'qarn_hadid_2_foothold')).toBe(false);
+    expect(isNamedException('bir_tarsha_1_recon', 'bir_tarsha_1_recon')).toBe(false);
+  });
+
+  it('there is nothing else to excuse: two towns, or one, playing on one map file both fail', () => {
     const copy = (mission: string, town: string) => ({ mission, town, map: 'qarn_hadid_2' });
     expect(allPairs([copy('a', 'x'), copy('b', 'y')]).every((r) => r.fails)).toBe(true);
     expect(allPairs([copy('a', 'x'), copy('b', 'x')]).every((r) => r.fails)).toBe(true);

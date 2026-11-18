@@ -1,6 +1,6 @@
 // The replay log (GH-464, spec §4.3): whole or nothing.
 import { describe, expect, it } from 'vitest';
-import { COMMANDS_MAX_BYTES, ReplayRecorder, START_MAX_BYTES, type ReplayLog, type ReplayStart } from './replay';
+import { COMMANDS_MAX_BYTES, ReplayRecorder, START_MAX_BYTES, replayStartPicks, type ReplayLog, type ReplayStart } from './replay';
 
 const start = (o: Partial<ReplayStart> = {}): ReplayStart => ({ mission: 'beit_sahwan_2_foothold', build: '0.122.0', seed: 20260727, ledger: {}, tiers: {}, unlocks: [], deploy: null, ...o });
 const order = { kind: 'move', ids: [3, 4, 5], x: 1310720, y: 655360 };
@@ -56,5 +56,23 @@ describe('ReplayRecorder', () => {
     r.begin(start({ mission: 'tel_marum_1_recon' }));
     expect(r.count).toBe(0);
     expect(JSON.parse(r.log(0, 0) ?? 'null').start.mission).toBe('tel_marum_1_recon');
+  });
+});
+
+// GH-1384, the PR 1584 review's N2: the replay start's `picks` come only through `replayStartPicks`, whose default is the
+// branch switch. Closed (as shipped), the start the battlefield begins is dev's: no `picks` key, byte for byte.
+describe('replayStartPicks (GH-1384)', () => {
+  const owned = { mbt_lavi: { firepower: 2 } };
+  it('closed, as shipped: adds nothing, so the recorded start is dev\'s bytes', () => {
+    expect(replayStartPicks(owned)).toEqual({});
+    const r = new ReplayRecorder();
+    r.begin({ ...start(), ...replayStartPicks(owned) });
+    expect(r.log(0, 0)).toBe(
+      '{"v":1,"start":{"mission":"beit_sahwan_2_foothold","build":"0.122.0","seed":20260727,"ledger":{},"tiers":{},"unlocks":[],"deploy":null},"commands":[],"hash":0,"tick":0}'
+    );
+  });
+  it('open (a test passes the switch): carries the picks as the prepass read them', () => {
+    expect(replayStartPicks(owned, true)).toEqual({ picks: { mbt_lavi: { firepower: 2 } } });
+    expect(replayStartPicks(owned, false)).toEqual({});
   });
 });

@@ -175,11 +175,12 @@ describe('the 3D board reads the ledger the same way the flat one does', () => {
   it('opens the next region once its gate is met', async () => {
     // Sur and naharin used to share one gate (beit_sahwan_3_clearance), so
     // clearing it opened both at once. They now gate on different missions --
-    // sur on deir_amun_3_subterranean (moved with the Marj's completion,
+    // sur on bir_tarsha_5_subterranean (deir_amun_3_subterranean until Bir
+    // Tarsha opened after it, GH-1438; moved with the Marj's completion,
     // design.md C3 / O-KR1), naharin on umm_zeitoun_4_clearance, a mission
     // inside sur's own progression -- so meeting sur's gate alone no longer
     // opens naharin too.
-    const s = mountScreen({ 'campaign.completed_missions': ['deir_amun_3_subterranean'] });
+    const s = mountScreen({ 'campaign.completed_missions': ['bir_tarsha_5_subterranean'] });
     await s.ready;
     expect(s.view().statuses.sur).toBe('live');
     expect([...s.view().clickable].sort()).toEqual(['marj', 'sur']);
@@ -263,14 +264,14 @@ describe('clicking the ground', () => {
       {},
       {
         missionOf: (id) =>
-          id === 'deir_amun_3_subterranean' ? { objectives: [], name: 'Deir Amun III — All Four' } : undefined,
+          id === 'bir_tarsha_5_subterranean' ? { objectives: [], name: 'Bir Tarsha V — Under the Road' } : undefined,
       }
     );
     await s.ready;
     s.view().pick('sur');
     expect(s.went).toEqual([]);
-    expect(say(s.el)).toBe('Sur — Clear Deir Amun III — All Four first');
-    expect(say(s.el)).not.toContain('deir_amun_3_subterranean');
+    expect(say(s.el)).toBe('Sur — Clear Bir Tarsha V — Under the Road first');
+    expect(say(s.el)).not.toContain('bir_tarsha_5_subterranean');
   });
 
   it('points at the locked region’s own card, so the eye follows the sentence', async () => {

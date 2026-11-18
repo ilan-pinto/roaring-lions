@@ -152,7 +152,11 @@ describe('GH-1077 T12: the bought-only units carry tracks', () => {
   it('the camo Lavi\'s deltas equal the Lavi\'s; the medevac\'s front stays +0; the robot\'s armour is hp only', () => {
     const lavi = unitOf('mbt_lavi').upgrades;
     for (const [track, { tiers }] of Object.entries(unitOf('mbt_lavi_camo').upgrades ?? {})) {
-      expect(tiers.map((t) => t.patch), track).toEqual(lavi?.[track]?.tiers.map((t) => t.patch));
+      // GH-1384: the Lavi's firepower tier 3 branches and the camo Lavi's does not (it is not one of the design's thirteen), so
+      // the camo's linear tier 3 is held to the Lavi's ENVELOPE (the per-path max of its two branches), which is the old tier 3.
+      const envelope = (t: { patch?: Record<string, number>; branches?: readonly { patch: Record<string, number> }[] }) =>
+        t.patch ?? Object.fromEntries(Object.keys(t.branches?.[0]?.patch ?? {}).map((p) => [p, Math.max(...(t.branches ?? []).map((b) => b.patch[p]))]));
+      expect(tiers.map((t) => t.patch), track).toEqual(lavi?.[track]?.tiers.map(envelope));
     }
     expect(patches('air_medevac_heli', 'armour', 'hull.armor.front')).toEqual([0, 0, 0]);
     for (const t of unitOf('ugv_recon_dog').upgrades?.armour.tiers ?? []) expect(Object.keys(t.patch)).toEqual(['hull.hp']);

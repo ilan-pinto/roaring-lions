@@ -174,8 +174,12 @@ jobs:
       # rather than defaulted inside the script -- see that file's own docstring
       # for why the two invocations answer different questions and neither
       # replaces the other.
-      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02
+      # GH-1384: a branched tier needs a pick, so each max-tier line runs once per uniform
+      # branch vector (`--branch=1`, `--branch=2`); without one the pass refuses (exit 2).
+      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=1
+      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=2
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=1
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=2
       - run: pnpm balance
       # Headless mission playtests (tools/src/backtest/playtest.ts): each Beit Sahwan/
       # Wadi Halam mission must be winnable by a sensible scripted plan inside its time
