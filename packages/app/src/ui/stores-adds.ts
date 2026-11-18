@@ -4,7 +4,7 @@
 // `t()` sentence. Every predicate reads `unitTypeFromJson(json)` (the sim's own resolution of defaults) or a
 // JSON field; no unit id is spelled anywhere in this file (a test greps the source for every KDF id).
 // Nothing here reads the wallet, the DOM, or a clock.
-import { applyUpgrades, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
+import { applyUpgrades, readPath, type BranchPicks, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
 import {
   isBoughtOnly,
   loanedPlacements,
@@ -57,6 +57,8 @@ export interface AddsInput {
   /** `accountView`'s open set minus the wounded type. */
   readonly open: ReadonlySet<string>;
   readonly ownedTiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  /** GH-1384: the branch owned per branched (unit, track), from the same view as `ownedTiers`. */
+  readonly ownedPicks: Readonly<Record<string, BranchPicks>>;
   readonly ledger: LedgerData;
   readonly missions: readonly MissionJson[];
   /** `data/campaign/world.json`'s mission ids. */
@@ -109,8 +111,12 @@ const typeOf = (j: UnitJson): UnitType => unitTypeFromJson(j);
 const bucketOf = (j: UnitJson, t: UnitType): string => roleBucket({ ...t, role: j.role });
 
 /** Applies a unit's owned tiers, as the Garage reads "the unit as it stands". */
-function asOwned(j: UnitJson, tiers: Readonly<Record<string, Readonly<Record<string, number>>>>): UnitJson {
-  return applyUpgrades(j as unknown as UpgradableUnit, tiers[j.id] ?? {}) as unknown as UnitJson;
+function asOwned(
+  j: UnitJson,
+  tiers: Readonly<Record<string, Readonly<Record<string, number>>>>,
+  picks: Readonly<Record<string, BranchPicks>>
+): UnitJson {
+  return applyUpgrades(j as unknown as UpgradableUnit, tiers[j.id] ?? {}, picks[j.id] ?? {}) as unknown as UnitJson;
 }
 
 const maxRange = (j: UnitJson): number => (j.weapons ?? []).reduce((m, w) => Math.max(m, w.range_tiles), 0);
@@ -226,7 +232,7 @@ export function unitAdds(input: AddsInput): UnitAdds {
   const closest = pick(others.filter((k) => k.role === unit.role)) ?? pick(others.filter((k) => bucketOf(k, typeOf(k)) === bucket));
   const compare = {
     against: closest === null ? null : (closest.name ?? closest.id),
-    rows: compareRows(asOwned(unit, input.ownedTiers), closest === null ? null : asOwned(closest, input.ownedTiers)),
+    rows: compareRows(asOwned(unit, input.ownedTiers, input.ownedPicks), closest === null ? null : asOwned(closest, input.ownedTiers, input.ownedPicks)),
   };
 
   // E. The gap it fills, over the open set (never the catalogue).
@@ -236,8 +242,8 @@ export function unitAdds(input: AddsInput): UnitAdds {
   const have = new Set<AddsTag>(openUnits.flatMap(bringTags));
   const fresh = tags.filter((tag) => !have.has(tag));
   if (fresh.length > 0) gap.push({ kind: 'newTags', tags: fresh });
-  const mineRange = maxRange(asOwned(unit, input.ownedTiers));
-  const bestOpen = openUnits.reduce((m, k) => Math.max(m, maxRange(asOwned(k, input.ownedTiers))), 0);
+  const mineRange = maxRange(asOwned(unit, input.ownedTiers, input.ownedPicks));
+  const bestOpen = openUnits.reduce((m, k) => Math.max(m, maxRange(asOwned(k, input.ownedTiers, input.ownedPicks))), 0);
   if (mineRange > bestOpen) gap.push({ kind: 'reach', n: mineRange, d: mineRange - bestOpen });
   if (gap.length === 0 && closest !== null) gap.push({ kind: 'plusOne', role, name: closest.name ?? closest.id });
 

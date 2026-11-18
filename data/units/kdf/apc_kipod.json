@@ -83,12 +83,28 @@
         },
         {
           "price": 480,
-          "patch": {
-            "hull.hp": 438,
-            "hull.armor.front": 65,
-            "hull.armor.side": 40,
-            "hull.armor.rear": 25
-          }
+          "branches": [
+            {
+              "id": "spall_liner",
+              "label": "garage.branch.apc_kipod.spall_liner",
+              "patch": {
+                "hull.hp": 438,
+                "hull.armor.front": 39,
+                "hull.armor.side": 24,
+                "hull.armor.rear": 15
+              }
+            },
+            {
+              "id": "applique",
+              "label": "garage.branch.apc_kipod.applique",
+              "patch": {
+                "hull.hp": 262,
+                "hull.armor.front": 65,
+                "hull.armor.side": 40,
+                "hull.armor.rear": 25
+              }
+            }
+          ]
         }
       ]
     },
