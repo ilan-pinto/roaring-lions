@@ -4,7 +4,7 @@
 
 Everything in this folder was written by an AI coding assistant from the contents of this repository. No lawyer has read it. None of it is in force. Nothing here is wired into the game, the Worker or a store page. The lead decides what goes to the lawyer. The lawyer decides what is true in law.
 
-Second version: 18 Nov 2026, from `origin/dev` `e1845a77e`. The first was PR 1475 (15 Nov). This version catches up with what has landed or opened since: the chat safety work (PRs 1476, 1479, 1484, 1488, 1490 merged; 1492 and 1502 open), the private privacy form (PR 1481, open) and the coins-for-cosmetics switch (PR 1565, closed unmerged on 18 Nov, when the lead ruled that coins buy units; the coin clauses follow that ruling).
+Second version: 18 Nov 2026, from `origin/dev` `e1845a77e`. The first was PR 1475 (15 Nov). This version catches up with what has landed or opened since: the chat safety work (PRs 1476, 1479, 1484, 1488, 1490 merged; 1492 and 1502 open), the private privacy form (PR 1481, open) and the coins-for-cosmetics switch (PR 1565, closed unmerged on 18 Nov, when the lead ruled that coins buy units; the coin clauses follow that ruling and the same day's ruling that coin-bought units work everywhere, PvP included).
 
 | File | What it is |
 |---|---|
@@ -17,6 +17,7 @@ Second version: 18 Nov 2026, from `origin/dev` `e1845a77e`. The first was PR 147
 - A path, or a path and a symbol, is the file an answer comes from, at `e1845a77e`.
 - **Open PR n** means the fact is true only once that pull request merges. Re-check it then.
 - **(not verified)**, **CHECKED** or **UNCERTAIN** means I looked and could not settle it. That is weaker than a proof.
+- **PLAN** (age-rating draft) marks an answer that rests on a lead ruling not yet built, such as paid coins; it is true of the game only once it ships.
 - Word searches read `packages/app/src/i18n/en.json` and `data/locales/en/*.json`.
 
 ## What is deliberately blank
@@ -26,7 +27,7 @@ Brackets `[LIKE THIS]` belong to the lead or the lawyer: the operator's legal na
 ## Re-check this pack when
 
 - PRs 1481, 1492 or 1502 merge, or change their wording;
-- `PURCHASES_OPEN` is flipped, or the lead rules on where coin-bought units may be used (terms Q20);
+- `PURCHASES_OPEN` is flipped (the lead ruled on 18 Nov 2026 that coin-bought units work everywhere, PvP included; terms Q20), or matched-kit rooms start fielding owned kit;
 - ragdolls are switched on in a quality preset;
 - public rooms or matchmaking open (lead ruling D10);
 - avatar uploads are served;
