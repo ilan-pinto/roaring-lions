@@ -10,6 +10,7 @@
  */
 import { canonicalOrder, callsignOrDefault, factionsOfMatchup, flagSetupFor, sidesOfFactions, validateConfig, type Frame, type Matchup, type MatchConfig, type MatchTransport, type Seat, type Stamped, type TransportStatus, type WinMode } from '@lions/net';
 import type { Command } from '@lions/sim';
+import { computerLevelOf, withholdOf, type ComputerLevelId } from '@lions/data';
 import { createCommander } from './computer/commander';
 import { ComputerSeat, type ComputerSeatOptions } from './computer/computer-seat';
 import { computerSeatOpen } from './computer/open-cells';
@@ -73,6 +74,9 @@ export interface OfflineRequest {
   /** The build string; informational offline. */
   build: string;
   seed: number;
+  /** GH-1389: the computer level (data/computer/levels.json), a stated handicap on the computer's force size. Absent: the
+   *  computer fields its whole force, exactly as before levels existed. */
+  level?: ComputerLevelId;
 }
 
 /** The match both sides run: matched kits, real time, the human at the host end. */
@@ -82,9 +86,14 @@ export function offlineConfig(r: OfflineRequest): MatchConfig {
   if (!computerSeatOpen(r.map, r.matchup, r.winMode ?? null)) throw new Error(`offline match: the computer seat is not open on ${r.map} (${r.matchup}, ${r.winMode ?? 'annihilation'})`);
   const factions = factionsOfMatchup(r.matchup);
   const sides = sidesOfFactions(factions);
+  // GH-1389: the level's handicap goes on the COMPUTER seat's `withhold`, and only when it leaves something at home, so a level
+  // that fields the whole force (and no level at all) mints the very config it always did.
+  const withhold = r.level === undefined ? {} : withholdOf(computerLevelOf(r.level));
+  const handicap = Object.keys(withhold).length > 0 ? { withhold } : {};
   const seat = (s: Seat, kind: 'human' | 'bot', name: string) => ({
     seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [],
     player: kind === 'bot' ? 'computer' : 'you', callsign: name, kind,
+    ...(kind === 'bot' ? handicap : {}),
   });
   const c = validateConfig({
     matchId: OFFLINE_CODE, code: OFFLINE_CODE, seed: r.seed, map: r.map, mode: 'versus',

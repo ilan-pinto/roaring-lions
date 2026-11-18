@@ -406,6 +406,13 @@
             "type": "boolean",
             "description": "This evacuate_before brings back people the enemy took. On completion its count is written to the ledger key civ.hostages_recovered for this mission, and the campaign board's account of the taken moves. Legal ONLY on evacuate_before, and enforced -- the runtime counts a completed hostages objective's `count` and nothing else, so the flag on any other type is a silent no-op that reads in the JSON as though the mission recovers people."
           },
+          "group": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+            ],
+            "description": "E3 (GH-1438): evacuate_before only. The civilian groups this evacuation counts, one name or several, each a `group` on a civilians.groups placement (validate:data and the runtime refuse any other). The objective counts only those people, and its zone collects (counts and takes off the map) only them while it is active: a person of another group who walks in is not counted by it, and once it is complete a late arrival of its own group stands in the zone uncounted. When every primary evacuate_before is scoped, civ.settlements_evacuated counts the people of the primaries' groups. Absent: every civilian, one shared tally, as before."
+          },
           "side": {
             "enum": [
               0,
@@ -477,6 +484,10 @@
           },
           {
             "if": { "properties": { "hostages": { "const": true } }, "required": ["hostages"] },
+            "then": { "properties": { "type": { "const": "evacuate_before" } } }
+          },
+          {
+            "if": { "required": ["group"] },
             "then": { "properties": { "type": { "const": "evacuate_before" } } }
           },
           {

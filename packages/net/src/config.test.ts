@@ -32,6 +32,20 @@ describe('validateConfig', () => {
     expect(validateConfig(withUnlocks(Array.from({ length: 33 }, (_, i) => `u${i}`)))).toBeNull();
     expect(validateConfig(withUnlocks(['demo_tzav', 7]))).toBeNull();
   });
+  it('GH-1389: a force handicap (`withhold`) rides a BOT seat of a versus config only, as positive bounded counts', () => {
+    const versus = (seat1: Record<string, unknown>, mode = 'versus') => ({ ...CONFIG, mode, map: 'tel_marum', seats: [CONFIG.seats[0], { ...CONFIG.seats[1], ...seat1 }] });
+    const bot = { kind: 'bot', withhold: { mbt_lavi: 2 } };
+    expect(validateConfig(JSON.parse(JSON.stringify(versus(bot))))).toEqual(versus(bot));
+    // Only a computer level sets it, so a human seat carrying one is refused, and so is a sandbox room.
+    expect(validateConfig(versus({ kind: 'human', withhold: { mbt_lavi: 2 } }))).toBeNull();
+    expect(validateConfig(versus(bot, 'sandbox'))).toBeNull();
+    // Counts are integers from 1 to 64 (literal bounds), and no reserved key names a type.
+    for (const n of [0, -1, 1.5, 65, '2']) expect(validateConfig(versus({ kind: 'bot', withhold: { mbt_lavi: n } })), String(n)).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: { mbt_lavi: 64 } }))).not.toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: JSON.parse('{"__proto__": 1}') }))).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: [2] }))).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`u${i}`, 1])) }))).toBeNull();
+  });
 });
 
 describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type shape', () => {
