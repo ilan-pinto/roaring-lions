@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { missions, tutorials } from '@lions/data';
+import { tutorials } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { SIM_EVENT_KINDS, MISSION_EVENT_KINDS } from '@lions/sim';
 import { INTENT_KINDS } from '../input/intents';
 import type { PredicateJson, StepJson } from './runtime';

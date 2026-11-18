@@ -22,7 +22,8 @@
  * theme, and `@lions/render` may not import `@lions/data` or `@lions/app`.
  */
 import { describe, expect, it } from 'vitest';
-import { maps, paletteColor, parseMap } from '@lions/data';
+import { paletteColor, parseMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { TERRAIN_THEMES } from '../../packages/app/src/terrain-themes';
 import {
   decalBaseTone,

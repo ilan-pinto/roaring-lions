@@ -3,7 +3,7 @@ import en from './i18n/en.json';
 import { pseudo } from './i18n/pseudo';
 import { setCatalogue } from './i18n/t';
 
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 import worldJson from '../../../data/campaign/world.json';
 import commanderJson from '../../../data/campaign/commander.json';

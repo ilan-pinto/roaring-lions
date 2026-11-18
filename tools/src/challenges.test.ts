@@ -12,11 +12,11 @@ import {
   amendmentOps,
   applyOverlays,
   missionChallenges,
-  missions,
   POSTURE_IDS,
   TICKS_PER_TARGET_MINUTE,
   type PostureId,
 } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { creditsFor, MissionRuntime, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
 import { timeLimitFailures } from '../validate_time_limit.mjs';
 import { missionStage } from './mission-harness';

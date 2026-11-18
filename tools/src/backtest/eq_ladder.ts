@@ -23,7 +23,7 @@
 //
 // Every figure is from `run()` in playtest-run.ts, the instrument `pnpm playtest` uses.
 import { fx, type LedgerData, type MissionEvent, type MissionRuntime, type Sim } from '@lions/sim';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { run, setSweep, tapMissionEvents, type Plan } from './playtest-run';
 import { WADI_HALAM_CHAIN, WADI_HALAM_PLANS } from './plans/wadi_halam';
 import * as EQ from './plans/ein_qasab';

@@ -1,27 +1,28 @@
 /**
  * The A2 invariants under random play (GH-1075 A2-8, A2-21). A seeded generator drives every A2 write route and the
  * invariants are checked after EVERY op, not at the end: the coin journal balances (`wallet.free` is the sum of its
- * `free_delta`), the free coins credited since the last `reset` never pass the ceiling (925, plus 10 for each mission in
- * the GH-1395 challenge index: 985 for the pilot), and `earn_lifetime` never goes down. A red run prints its seed and op
- * list, so it replays.
+ * `free_delta`), the free coins credited since the last `reset` never pass the ceiling (1,050 over the 34 missions, plus
+ * 10 for each mission in the GH-1395 challenge index: 1,110 for the pilot), and `earn_lifetime` never goes down. A red
+ * run prints its seed and op list, so it replays.
  */
-import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
+import { emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
 import { CHALLENGE_COINS } from '@lions/economy/challenge-earn';
-import { challengeMissionIds, coupons, world } from '@lions/data';
+import { challengeMissionIds, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { handleAccount } from './routes';
-import { accountHarness, seedWalletMember } from './test-kit';
+import { accountHarness, seedWalletMember, testCouponTable, TEST_COUPON_COIN_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const ids = worldMissionIds(parseWorld(world));
 const CODE = 'TEST-CODE';
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+// 1,050 over the 34 missions: 100 + 10 a mission + 5 a star + 100 (was 925 over 29; the Qasr Liwan town makes it 34).
 // GH-1395: the ceiling rises by the challenge coin for each mission in the index, read from the index so the day a
 // mission gains a challenge this bound moves with it; the literal beside it is the pilot's, moved deliberately.
-const CEILING = 925 + CHALLENGE_COINS * challengeMissionIds.length;
-const CEILING_PILOT = 985;
+const CEILING = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + CHALLENGE_COINS * challengeMissionIds.length;
+const CEILING_PILOT = 1110;
 const FLOORS = Object.fromEntries(ids.map((id) => [id, 1]));
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
@@ -197,7 +198,8 @@ describe('invariants under random play', () => {
   }, 120_000);
 
   it('the_bound_holds (A2-21): over 50 seeds of 60 ops, the ceiling is never passed and earn_lifetime never decreases', async () => {
-    // GH-1395: the pilot's ceiling, moved deliberately from 925 by 10 for each of the six challenges.
+    // GH-1395: the pilot's ceiling, moved deliberately from 1,050 by 10 for each of the six challenges.
+    expect(ids.length).toBe(34);
     expect(CEILING).toBe(CEILING_PILOT);
     let reached = 0;
     for (let seed = 1; seed <= 50; seed++) {

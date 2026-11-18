@@ -7,7 +7,7 @@
  */
 import type { StorageLike } from '../brigade-account';
 import { SAVE_VERSION, type MatchOpponent, type MatchView } from '@lions/economy';
-import { maps } from '@lions/data';
+import { mapManifest } from '@lions/data';
 import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
@@ -98,7 +98,7 @@ function isError(x: unknown): x is AccountError {
   return typeof x === 'object' && x !== null && 'error' in x && 'status' in x;
 }
 
-const mapNames: Readonly<Record<string, { name: string }>> = maps;
+const mapNames: Readonly<Record<string, { name: string }>> = mapManifest;
 
 /** The outcome is read off the winning seat against the member's own; an unconfirmed row says so beside it. */
 function outcomeKey(m: MatchView): 'won' | 'lost' | 'drawn' {

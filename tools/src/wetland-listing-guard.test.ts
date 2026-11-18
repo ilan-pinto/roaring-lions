@@ -13,7 +13,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { maps } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { CHEAP_WET_GROUND_LANDED } from '../../packages/render/src/three/weather';
 import { QUALITY_PRESETS, type RenderQuality } from '../../packages/render/src/quality';
 import { UNLISTED_MAP_IDS } from '../../packages/app/src/ui/menu';

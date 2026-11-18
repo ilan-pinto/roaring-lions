@@ -11,7 +11,7 @@
  * `campaign.completed_missions`, which the ledger already writes, so the map cannot
  * disagree with what was actually played and there is no second save file to migrate.
  */
-import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
+import { unlockReason, type LedgerData, type MissionResult, type UnlockGate } from '@lions/sim';
 import { gateRequirement, gateSentence } from './gate-sentence';
 import { t } from './i18n/t';
 import { localizedUnit } from './unit-text';
@@ -439,7 +439,7 @@ const results = (ledger: LedgerData | undefined): Record<string, MissionResult> 
  *  structurally cannot contribute. Every mission that DOES declare the key
  *  still grades to the same ceiling (`MissionRuntime`'s ★★★), so this is a
  *  plain count times 3, not a sum of anything mission-specific. */
-export function possibleStars(world: ParsedWorld, missions: Record<string, MissionJson | undefined>): number {
+export function possibleStars(world: ParsedWorld, missions: Readonly<Record<string, { readonly ledger: { readonly produces: readonly string[] } } | undefined>>): number {
   let count = 0;
   for (const region of world.regions) {
     for (const town of region.towns) {
@@ -534,7 +534,9 @@ export function promotionAfter(
  */
 export function carryReaderOf(
   world: ParsedWorld,
-  missions: Readonly<Record<string, MissionJson | undefined>>,
+  // A whole mission, or the manifest's summary of one (B6-6): the summary carries `ledger.requires` and every tagged
+  // placement as `{ unit, tag }`, so the walk below finds in it exactly what it finds in the whole JSON.
+  missions: Readonly<Record<string, { readonly ledger: { readonly requires: readonly string[] } } | undefined>>,
   fromId: string,
   tag: string
 ): string | undefined {

@@ -12,7 +12,7 @@ import {
   type TerrainSink,
 } from './map';
 import structureCatalogue from '../../../data/structures.json';
-import { maps } from './index';
+import { maps } from './content';
 
 const structures = structureCatalogue.types;
 

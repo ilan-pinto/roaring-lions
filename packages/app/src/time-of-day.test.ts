@@ -41,6 +41,7 @@ describe('timeOfDayOf (R-12, N-23)', () => {
       'beit_sahwan_0_tutorial.json': 'day',
       'beit_sahwan_2_foothold.json': 'dusk',
       'beit_sahwan_4_subterranean.json': 'dusk',
+      'qasr_liwan_1_recon.json': 'night',
       'khan_rafid_1_recon.json': 'dawn',
       'khan_rafid_3_clearance.json': 'dusk',
       'deir_amun_1_recon.json': 'dawn',
