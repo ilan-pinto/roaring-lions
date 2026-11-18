@@ -211,7 +211,8 @@ SOURCES = {
     "sarim_rifles": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
     "mortar_team": (os.path.join(REPO, "art", "meshy", "mortar-team-*-01a0f89f", "model.glb"), 1.76),
     "sniper_team": (os.path.join(REPO, "art", "meshy", "sniper-team-*-01a0f8a1", "model.glb"), 1.78),
-    "yahalom_squad": (os.path.join(REPO, "art", "meshy", "yahalom-squad-*-01a0f8ab", "model.glb"), 1.78),
+    # (yahalom_squad's row, the B7 remesh 01a0f8ab, left with the team on 17 Nov 2026: GH-826 unit "Yahalom", the
+    # skinned importer's now. The rigid figure it built is frozen as tools/src/fixtures/yahalom_squad_rigid_*.glb.)
     # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team reuses the KDF
     # mortar crewman (the lead's ruling, Q1: Meshy makes only the launcher) --
     # mortar_team's own remesh, committed with this team as its source of record.
@@ -245,7 +246,7 @@ TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
             # B7: the two B2 teams, refined on their own previews, and the
             # five replaced supplied teams.
             "manpad_team", "recoilless_team",
-            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team",
             # GH-709 Phase 7: the mortar crewman's bake, the launcher in the atlas.
             "at_nlos_team",
             # GH-709 phase 3: the grenadier squad ships its own bake the same way.
@@ -298,7 +299,7 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # B7: four KDF teams (helmets, see HEAD_ROLE); sarim_rifles
                 # set from its preview.
                 "inf_squad": False, "mortar_team": False, "sniper_team": False,
-                "yahalom_squad": False, "inf_grenadier": False,
+                "inf_grenadier": False,
                 # B7 (2 Oct ruling): both on the militia_cell body, which came
                 # bare-headed -- kit's keffiyeh, militia's own fix.
                 "sarim_rifles": True,
@@ -313,7 +314,7 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
 HEAD_ROLE = {"breach_team": "uniform",
              # B7: the four KDF teams on this path wear helmets.
              "inf_squad": "uniform", "mortar_team": "uniform",
-             "sniper_team": "uniform", "yahalom_squad": "uniform",
+             "sniper_team": "uniform",
              # GH-709 Phase 7: mortar_team's body.
              "at_nlos_team": "uniform",
              "inf_grenadier": "uniform"}
@@ -661,30 +662,6 @@ def _inside_count(sample_objs, body_objs):
     P = _part_samples(sample_objs)
     T = np.concatenate([_tris(o) for o in body_objs])
     return int((_winding(P, T) > 0.5).sum())
-
-
-def _pack_behind(name, pfx, parts, kneel):
-    """yahalom_squad's square pack seated BEHIND the figure's own measured
-    back (B7 review): `teams._yah_pack` centres it 0.18 m behind the kit
-    figure's axis, which on a Meshy torso (back at x -0.25) ran the box
-    through the chest. The pack's front face sits 1 cm behind the furthest
-    back point of the torso in the pack's own height band."""
-    seq = parts.values() if isinstance(parts, dict) else parts
-    torso = next(o for o in seq if o.name == f"{pfx}_torso")
-    hips = next((o for o in seq if o.name == f"{pfx}_hips"), None)
-    sx, sy, sz = teams.YAH_PACK_SIZE
-    cz = 0.95 - (0.54 if kneel else 0.0)
-    tc = _coords(torso)
-    band = tc[(tc[:, 2] > cz - sz / 2.0) & (tc[:, 2] < cz + sz / 2.0)]
-    if len(band) == 0:
-        band = tc
-    back_x = float(band[:, 0].min())
-    cy = float(band[:, 1].mean())
-    pack = kit.box(name, (sx, sy, sz), (back_x - sx / 2.0 - 0.01, cy, cz), role="webbing")
-    inside = _inside_count([pack], [o for o in (torso, hips) if o is not None])
-    log(f"{pfx}: pack behind the back at x {back_x - sx / 2.0 - 0.01:+.3f} (back {back_x:+.3f}); "
-        f"{inside} samples inside the torso")
-    return pack, inside
 
 
 def _recolour_head(team_id, ob, height, target, hue_window):
@@ -2924,7 +2901,6 @@ HAND_PARTS = {
     "mortar_team": ("kdf_carbine",),
     # Motion pass (5 Oct): the new rifleman is empty-handed, so he carries it.
     "inf_squad": ("kdf_carbine",),
-    "yahalom_squad": ("kdf_carbine",),
     "breach_team": ("kdf_carbine",),
     # GH-709 phase 3: the leader's carbine (the shipped kdf_carbine, re-cut from
     # inf_squad.glb's bytes: its Meshy source is on no reachable disk, see
@@ -3885,29 +3861,6 @@ def _figure_cut(src, height, spec, kneel):
         forced[parts["carbine"]] = f"{prefix}_spine"   # WEAPON_ON_SPINE
         log(f"{prefix}: baked carbine kept as `weapon` on spine, {len(parts['carbine'].data.polygons)} faces")
     out = list(parts.values())
-    if spec.get("work_posture") == "kneeling":
-        # B7 (yahalom_squad): a third body, kneeling, shown in `work` alone --
-        # the same cut on a kneel, its own mast pitched from its right hand
-        # into the ground on `{kp}_forearm_R`, its pack on `{kp}_spine`.
-        kp = rig._kneeler_prefix(spec)
-        kparts, kjoints = cut_figure(src, height, kp)
-        kbones, _eye = _kneel(kparts, kjoints, kp)
-        bones += rig._translate(kbones, x, y, kp)
-        _place(kparts, x, y)
-        out += list(kparts.values())
-        wr = Vector(kjoints["arm"][1]["wrist"]) + Vector((x, y, -kjoints["drop"]))
-        ground = Vector((wr.x + 0.85, wr.y, 0.0))
-        d = ground - wr
-        length = d.length + 0.25
-        pitch = math.atan2(d.z, math.hypot(d.x, d.y))
-        mid = wr + d.normalized() * (length * 0.5 - 0.15)
-        mast = kit.tube(f"{kp}_mast", length, 0.030, tuple(mid), yaw=math.atan2(d.y, d.x), pitch=pitch, role="metal")
-        pack, _in = _pack_behind(f"{kp}_pack", kp, kparts, kneel=True)
-        forced[mast] = f"{kp}_forearm_R"
-        forced[pack] = f"{kp}_spine"
-        out += [mast, pack]
-        log(f"{prefix}: work kneeler {kp}, mast {length:.2f} m from hand {tuple(round(v, 2) for v in wr)} "
-            f"at {math.degrees(pitch):.0f} deg")
     dy_death = CORPSE_Y_OFFSET.get(_TEAM["id"], {}).get(prefix, 0.0)
     # A CAPTURED team (tools/units/mocap.py) dies on its living body -- the
     # capture's own fall, and a wreck that is its last frame -- so the posed
@@ -4359,37 +4312,6 @@ def build_team(team_id):
                 lying = [_seat_on_ground(scope_m, f"{pfx}_death_scope", "metal", hx + 0.30, hy)]
             forced.update({ob: f"{pfx}_death_root" for ob in lying})
             parts += carried + lying
-    elif team_id == "yahalom_squad":
-        # B7: the packs verbatim from `rig._yahalom_extras` (kit, on both
-        # spines -- the boxy tell), the rifle at yah_b's hand, and the mast
-        # held LEVEL at yah_a's own measured right hand rather than at the
-        # kit figure's: 1.45 m with the sensor head box at its far end, on
-        # `forecarm_R` so it hides with him in down/wreck.
-        a = hands["yah_a"]["arm"][1]
-        elbow, wrist = Vector(a["elbow"]), Vector(a["wrist"])
-        hand = wrist + (wrist - elbow).normalized() * HAND_REACH + Vector((0.30, -0.20, 0.0))
-        mast_len = 1.45
-        # `metal`, not kit's default `weapon`: a sensor mast is not a barrel,
-        # and the gait test's weapon-axis sweep reads every `weapon` vertex
-        # on a `forearm_R` as one (48 vertices of mast failed its 50 floor).
-        mast = [kit.tube("yah_mast", mast_len, 0.030, (hand.x + mast_len * 0.5 - 0.20, hand.y, hand.z), yaw=0.0, pitch=0.0, role="metal")]
-        head = [kit.box("yah_head", (0.16, 0.10, 0.04), (hand.x + mast_len - 0.20, hand.y, hand.z), "metal")]
-        forced.update({ob: "yah_a_forearm_R" for ob in mast + head})
-        # Kit's own positions ran the boxes through both torsos (B7 review);
-        # the "before" count is logged beside the seated one.
-        packs = []
-        for pfx, at in (("yah_a", (0.30, -0.20, 0.0)), ("yah_b", (-0.34, 0.26, 0.0))):
-            kit_pack = teams._yah_pack(f"{pfx}_kitpack", at)
-            body = [o for o in parts if o.name in (f"{pfx}_torso", f"{pfx}_hips")]
-            log(f"{pfx}: kit pack position -- {_inside_count([kit_pack], body)} samples inside the torso (before)")
-            bpy.data.objects.remove(kit_pack, do_unlink=True)
-            pack, _in = _pack_behind(f"yah_pack_{pfx[-1]}", pfx, parts, kneel=False)
-            forced[pack] = f"{pfx}_spine"
-            packs.append(pack)
-        parts += mast + head + packs
-        w = _hand_rifle("yah_b", hands["yah_b"], -0.34, 0.26)
-        forced.update({ob: "yah_b_forearm_R" for ob in w})
-        parts += w
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
 
@@ -4411,7 +4333,6 @@ def build_team(team_id):
                 f"-> {forced.get(ob, '(table)')}")
     arm_obj = rig.build_armature(bones)
     prefixes = {s["prefix"] for s in figures} | {s["prefix"] for s in rig._walker_specs(figures)}
-    prefixes |= {rig._kneeler_prefix(s) for s in figures if s.get("work_posture") == "kneeling"}
     rig.rig_parts(parts, arm_obj, forced, prefixes)
     merged = rig.join_by_role(parts)
     rig.build_clips(arm_obj, team_id)
