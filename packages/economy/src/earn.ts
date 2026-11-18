@@ -9,8 +9,8 @@
  *   campaign complete     100   once, on the win that finishes the campaign
  *   replays, Conduct points, time, losses, versus: 0
  *
- * That caps a lifetime at 100 + 10 per mission + 5 per star + 100: 830 coins over
- * the 29 missions and the 68 stars the playtest ladder reaches, and one campaign
+ * That caps a lifetime at 100 + 10 per mission + 5 per star + 100: 940 coins over
+ * the 34 missions and the 80 stars the playtest ladder reaches, and one campaign
  * buys the dearest unit in the Stores (800). `roar_earn.test.ts` pins that against
  * the ladder (gate G-E2). Conduct is paid through the second star (the Conduct
  * line), so a Conduct point pays nothing of its own.

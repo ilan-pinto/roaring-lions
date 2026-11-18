@@ -9,7 +9,7 @@
  * the lazily loaded victory settle (`packages/app/src/victory-settle.ts`) and the Worker (`account/victory.ts`,
  * `account/claim.ts`). So the entry chunk carries none of it.
  *
- * The lifetime cap it adds: 10 x the challenge index's length (60 for the six-mission pilot), on top of `earn.ts`'s 830;
+ * The lifetime cap it adds: 10 x the challenge index's length (60 for the six-mission pilot), on top of `earn.ts`'s 940;
  * the G-E2 pin reads the count from the index.
  */
 import { challengeMissionIds, hasChallenge } from '@lions/data';
