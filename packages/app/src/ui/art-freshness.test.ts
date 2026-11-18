@@ -29,11 +29,16 @@ interface Recorded {
   recorded: string | undefined;
 }
 
+/** Each GLB is read and hashed once per run, by its path: the specs below share it. */
+const hashByFile = new Map<string, string>();
+
 export function glbBytesHash(unit: string, root: string = ROOT): string {
   const vehicle = path.join(root, 'assets/meshes/vehicles', `${unit}.glb`);
   const team = path.join(root, 'assets/meshes', `${unit}.glb`);
   const file = fs.existsSync(vehicle) ? vehicle : team;
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  let h = hashByFile.get(file);
+  if (h === undefined) hashByFile.set(file, (h = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')));
+  return h;
 }
 
 function readJson<T>(rel: string, root: string): T {
@@ -71,12 +76,7 @@ export function collectRecorded(root: string = ROOT): Recorded[] {
 /** What is stale: recorded hash differs from the GLB, and no ledger entry
  *  pins the current GLB hash. */
 export function staleOnes(root: string = ROOT, adopted: Record<string, string> = readAdopted(root)): string[] {
-  const hashes = new Map<string, string>();
-  const now = (u: string): string => {
-    let h = hashes.get(u);
-    if (h === undefined) hashes.set(u, (h = glbBytesHash(u, root)));
-    return h;
-  };
+  const now = (u: string): string => glbBytesHash(u, root);
   return collectRecorded(root)
     .filter((r) => r.recorded !== now(r.unit) && adopted[r.ledger] !== now(r.unit))
     .map((r) => `${r.key} (${r.unit}): ${r.recorded ? 'photographed from older bytes' : 'no GLB hash recorded'}`);
@@ -87,9 +87,13 @@ function readAdopted(root: string): Record<string, string> {
 }
 
 describe('art freshness (GH-1079): no picture is older than its GLB', () => {
+  // Its own timeout, and why: this spec reads and sha256-hashes every GLB a picture names (49 files, 66 MB,
+  // 18 Nov 2026), and that work is the check: the bytes on disk are what it compares. Alone, warm, it takes ~120 ms;
+  // a loaded box with a cold page cache took it past vitest's 5 s default. The hashes are cached by path, so the
+  // specs after it read nothing again.
   it('every plate, kit plate, close-up and portrait was made from the GLB on disk', () => {
     expect(staleOnes()).toEqual([]);
-  });
+  }, 30_000);
 
   it('reads a non-trivial number of pictures (the check is not vacuous)', () => {
     expect(collectRecorded().length).toBeGreaterThan(100);
