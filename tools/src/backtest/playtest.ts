@@ -20,6 +20,7 @@ import {
   world,
   type UpgradableUnit,
 } from '@lions/data';
+import { branchTwoMaxTierLabel } from './pinned-only';
 import { missions } from '@lions/data/content';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
@@ -3227,7 +3228,7 @@ const maxTierCredits = new Map<string, number>();
 // Branch 1 keeps the label `<id> (max tier)` (and is the run the second-campaign report reads); branch 2
 // is `<id> branch 2 (max tier)`, which still ends in the pinned-only suffix.
 for (const [probe, branch] of PLAN_CHILD ? [] : maxTierProbes.flatMap((p) => [[p, 1], [p, 2]] as const)) {
-  const label = branch === 1 ? `${probe.id} (max tier)` : `${probe.id} branch 2 (max tier)`;
+  const label = branch === 1 ? `${probe.id} (max tier)` : branchTwoMaxTierLabel(probe.id);
   const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
     result: 'ongoing',
     stars: 0,
