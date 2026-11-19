@@ -1,4 +1,6 @@
-import { BRANCHES_OPEN } from '@lions/data';
+// GH-1384 x GH-1397: the switch's own module, never `@lions/data`'s index: this file is in the relay Worker's closure
+// (`relay-config.test.ts`, F8), and the index would pull every data module and content JSON in with it.
+import { BRANCHES_OPEN } from '@lions/data/branches-open';
 import { callsignOrDefault, type Pace, type SeatConfig } from '@lions/net';
 import { isShippedMap } from './map-ids';
 import { KIT_BRANCHES, KIT_TRACKS } from './kit-tracks';

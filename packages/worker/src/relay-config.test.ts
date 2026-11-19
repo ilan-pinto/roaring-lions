@@ -105,6 +105,9 @@ export const RELAY_WATCH_INCLUDE = [
   'packages/worker/src/retention.ts',
   'packages/net/src/*',
   'packages/sim/src/*',
+  // GH-1384 (the net slice): the branch switch, read by `match/room-fields.ts`'s `picksOpen`; flipping it changes what a
+  // room mints, so it redeploys the relay.
+  'packages/data/src/branches-open.ts',
   'wrangler.relay.jsonc',
   'pnpm-lock.yaml',
 ] as const;
