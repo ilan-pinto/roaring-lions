@@ -121,8 +121,10 @@ em dashes. Latin-script names (KDF, Sarim, the units, the towns) stay in Latin a
 **Terminology calls for a proofreader:** Conduct = "Поведение", rules of engagement = "правила применения силы", mission = "задание" (the
 briefing section "Mission" = "Задача"), objective = "цель", tile = "клетка" (a UI build tile = "плитка"), squad = "отделение", team =
 "расчёт" or "группа", Store = "Интендантство", garrison (verb) = "занимать" (a garrisoned building = "занят гарнизоном"), medic = "санитар",
-fire support = "огневая поддержка", suppression = "подавление", Loitering Munition = "барражирующий боеприпас", Suicide Squad = "отряд смертников"
-(mission prose says "charge squad" for the same unit, rendered the same way), the unit name "technical" = "Вооружённый пикап" but the loanword is
+fire support = "огневая поддержка", suppression = "подавление", Loitering Munition = "барражирующий боеприпас", Charge Squad = "отряд подрыва"
+(mission prose says "charge squad" for the same unit, rendered the same way), satchel charges = "ранцевые заряды",
+the dock bucket "one-way" = "в один конец", civilians lost = "потеряно" / "потеряны" (never "убито"), campaign posture = "режим", the border
+fence = "ограда" (Fence Road and Badlands stay Latin), a D9 "blade" in Bir Tarsha IV = "бульдозер", the unit name "technical" = "Вооружённый пикап" but the loanword is
 kept in Latin in prose, civic hall = "общинный зал", souk = "рынок", Old Town = "Старый город" (Main Street stays Latin), Roar coin = "монета Roar",
 brigade packs Патруль / Рота / Бригада / Дивизия, a counted game unit = "единица" in numbers and "подразделение" elsewhere, intel =
 "разведданные", checkpoint = "КТ" on chips, tiles per second = "кл/с", HP stays "HP", advisor roles = "Советовать" / "Помогать", Desync =
