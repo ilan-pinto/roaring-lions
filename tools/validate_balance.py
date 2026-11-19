@@ -126,6 +126,34 @@ def _add_delta_along_path(root, path, delta, unit_id):
         container = next_copy
 
 
+def tier_patches(tier):
+    """GH-1384: the patch(es) a tier carries -- `[patch]` for a plain tier, `[a, b]` (the two
+    branch patches) for a branched one. Raises on a tier with neither `patch` nor `branches`,
+    or with both: a shape this reader does not know is an error, never `{}`, so a branched tier
+    can never be measured as tier 2 without a word (the casebook's "empty input" shape)."""
+    if not isinstance(tier, dict):
+        raise ValueError("tier is not an object")
+    has_patch = "patch" in tier
+    has_branches = "branches" in tier
+    if has_patch and has_branches:
+        raise ValueError('tier has both "patch" and "branches"')
+    if has_patch:
+        return [tier["patch"]]
+    if has_branches:
+        return [b["patch"] for b in tier["branches"]]
+    raise ValueError('tier has neither "patch" nor "branches"')
+
+
+def branched_tracks(unit):
+    """Mirrors upgrades.ts's `branchedTracks`: the tracks whose LAST tier is branched, sorted."""
+    out = []
+    for name, track in (unit.get("upgrades") or {}).items():
+        tiers = track.get("tiers", [])
+        if tiers and "branches" in tiers[-1]:
+            out.append(name)
+    return sorted(out)
+
+
 def max_tiers(unit):
     """Mirrors upgrades.ts's `maxTiers`: every track at its own maximum tier."""
     tracks = unit.get("upgrades")
@@ -134,15 +162,21 @@ def max_tiers(unit):
     return {name: len(track.get("tiers", [])) for name, track in tracks.items()}
 
 
-def apply_upgrades(unit, tiers):
+def apply_upgrades(unit, tiers, picks=None):
     """Mirrors upgrades.ts's `applyUpgrades`: pure, returns a NEW unit. WITHIN a
     track, a tier's patch is cumulative over base, so the highest requested tier
     for a path wins over an earlier tier's value for that same path rather than
     adding to it; deltas for a path that appears on more than one track are
     summed across tracks, since two independent tracks that happen to patch the
     same path (e.g. an armour track and a survivability track both raising
-    hull.hp) both contribute rather than one silently overriding the other."""
+    hull.hp) both contribute rather than one silently overriding the other.
+
+    GH-1384: `picks` maps a TRACK to the branch (1 or 2) of its branched tier, keyed by
+    (unit, track) as the TypeScript's `picks` is. Unlike `applyUpgrades` (which stops below an
+    unpicked branched tier), this gate RAISES when it reaches a branched tier with no pick, so a
+    forgotten `--branch` can never fall back to tier 2 silently."""
     out = dict(unit)
+    picks = picks or {}
     tracks = unit.get("upgrades") or {}
     merged = {}
     for track_name, requested_tier in tiers.items():
@@ -153,7 +187,18 @@ def apply_upgrades(unit, tiers):
         tier_index = min(max(requested_tier, 0), len(tier_list))
         per_track = {}
         for i in range(tier_index):
-            for path, delta in tier_list[i].get("patch", {}).items():
+            patches = tier_patches(tier_list[i])
+            if len(patches) == 1:
+                patch = patches[0]
+            else:
+                pick = picks.get(track_name)
+                if pick not in (1, 2):
+                    raise ValueError(
+                        f"apply_upgrades: {unit.get('id', '?')} {track_name} tier {i + 1} is branched "
+                        "and no branch was picked (pass --branch=1 or --branch=2 with --max-tier)"
+                    )
+                patch = patches[pick - 1]
+            for path, delta in patch.items():
                 if not _is_whitelisted(path):
                     raise ValueError(
                         f'apply_upgrades: patch path "{path}" is outside the UPGRADE_PATHS whitelist'
@@ -177,7 +222,7 @@ def total_tier_price(unit):
     return sum(tier.get("price", 0) for track in tracks.values() for tier in track.get("tiers", []))
 
 
-def patch_to_max_tier(units, k):
+def patch_to_max_tier(units, k, branch=None):
     """Every (path, unit) pair that carries an `upgrades` block, patched to its own
     max tiers with its cost bumped by `k * total_tier_price`; every other unit
     (including every enemy-faction one) passes through unchanged. Returns a NEW
@@ -193,7 +238,9 @@ def patch_to_max_tier(units, k):
         if not u.get("upgrades"):
             out.append((path, u))
             continue
-        patched = apply_upgrades(u, max_tiers(u))
+        # GH-1384: every branched track at the one uniform `branch` (upgrades.ts's `maxPicks(u, pick)`).
+        picks = {t: branch for t in branched_tracks(u)} if branch is not None else {}
+        patched = apply_upgrades(u, max_tiers(u), picks)
         cost = dict(patched.get("cost", {}))
         cost["logistics"] = cost.get("logistics", 0) + k * total_tier_price(u)
         patched["cost"] = cost
@@ -459,6 +506,29 @@ def fit_curve(samples):
     return a, b
 
 
+def load_units(units_dir, also=()):
+    """The (path, unit) rows the curve is fitted on: every JSON under `units_dir` and each `also`
+    dir, sorted, civilians and `wounded` left out. Also called by tools/doctrine_balance.py
+    (GH-1383), so both scripts fit the same roster."""
+    found = glob.glob(os.path.join(units_dir, "**", "*.json"), recursive=True)
+    for extra in also:
+        found += glob.glob(os.path.join(extra, "**", "*.json"), recursive=True)
+    # A dir named twice (--also overlapping --units) must not put a unit on the curve twice.
+    paths = sorted({os.path.normpath(p) for p in found})
+    units = []
+    for p in paths:
+        with open(p) as fh:
+            u = json.load(fh)
+        if u.get("faction") == "civilian":
+            continue
+        # GH-707: a `wounded` man is shed by a squad, never bought or built -- he has no
+        # price and no gun, so he would be a zero on both axes of the curve.
+        if u.get("role") == "wounded":
+            continue
+        units.append((p, u))
+    return units
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--units", default="data/units")
@@ -486,35 +556,34 @@ def main():
         help="K in 'logistics + K * total tier price' -- required with --max-tier, "
         "read from docs/campaign/economy/upgrades.md section 5, never hardcoded here",
     )
+    ap.add_argument(
+        "--branch",
+        type=int,
+        choices=(1, 2),
+        default=None,
+        help="GH-1384: with --max-tier, put EVERY branched track of every unit on this branch "
+        "(the uniform vector). Required when the roster holds a branched tier: without it the "
+        "max-tier pass refuses rather than measure tier 2",
+    )
     args = ap.parse_args()
 
     if args.max_tier and args.upgrade_cost_factor is None:
         ap.error("--max-tier requires --upgrade-cost-factor K")
 
-    found = glob.glob(os.path.join(args.units, "**", "*.json"), recursive=True)
-    for extra in args.also:
-        found += glob.glob(os.path.join(extra, "**", "*.json"), recursive=True)
-    # A dir named twice (--also overlapping --units) must not put a unit on the curve twice.
-    paths = sorted({os.path.normpath(p) for p in found})
-    units = []
-    for p in paths:
-        with open(p) as fh:
-            u = json.load(fh)
-        if u.get("faction") == "civilian":
-            continue
-        # GH-707: a `wounded` man is shed by a squad, never bought or built -- he has no
-        # price and no gun, so he would be a zero on both axes of the curve.
-        if u.get("role") == "wounded":
-            continue
-        units.append((p, u))
+    units = load_units(args.units, args.also)
 
     if len(units) < MIN_ROSTER_FOR_FIT:
         print(f"roster has {len(units)} units, need {MIN_ROSTER_FOR_FIT} to fit a curve -- skipping")
         return 0
 
     if args.max_tier:
-        units = patch_to_max_tier(units, args.upgrade_cost_factor)
-        print(f"max-tier pass: every 'upgrades'-bearing unit patched, K={args.upgrade_cost_factor}\n")
+        try:
+            units = patch_to_max_tier(units, args.upgrade_cost_factor, args.branch)
+        except ValueError as err:
+            print(f"max-tier pass refused: {err}")
+            return 2
+        branch_note = f", branch {args.branch}" if args.branch is not None else ""
+        print(f"max-tier pass: every 'upgrades'-bearing unit patched, K={args.upgrade_cost_factor}{branch_note}\n")
 
     power_score = build_power_fn([u for _, u in units])
 

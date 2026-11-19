@@ -20,6 +20,7 @@ import {
   SANDBOX_WORKS_KDF,
   SANDBOX_TUNNEL_KDF,
   bootTiers,
+  sandboxKitPicks,
   sandboxKitTiers,
   sandboxUnitTypes,
 } from './sandbox-force';
@@ -208,5 +209,17 @@ describe('the sandbox force garrisons nobody', () => {
         expect(sim.isPatrolling(id), `${mapId}: unit ${id} patrol`).toBe(false);
       }
     }
+  });
+});
+
+// GH-1384: `&kit` stays one reproducible picture: branch 1 on every branched track the ladder puts at its branched
+// tier (the three level-3 types branch firepower, sensors and armour), and nothing at level 1 or 2.
+describe('sandboxKitPicks (GH-1384)', () => {
+  it('is branch 1 on exactly the level-3 types\' branched tracks', () => {
+    expect(sandboxKitPicks(Object.values(units))).toEqual({
+      mbt_lavi: { firepower: 1 },
+      mortar_team: { sensors: 1 },
+      dozer_d9: { armour: 1 },
+    });
   });
 });

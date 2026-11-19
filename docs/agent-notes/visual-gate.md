@@ -36,7 +36,7 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   still has to be blessed per environment, and CI's must be created by the
   `visual-baseline-bless` workflow, which **opens a review PR by default** since
   2026-10-04 (it committed to `main` directly from 2026-09-02 to then; `direct: true`
-  restores that) — but the reason is no longer "we do not
+  restores a direct commit, to `dev` since B5-1) — but the reason is no longer "we do not
   know whether a capture even works there". **Cross-OS CAPTURE is measured now
   and it works**, which retires the "unmeasured" this line used to carry: on
   `ubuntu-latest` (run 33591712714, 2026-09-02) all four gated scenarios
@@ -329,7 +329,9 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   which refuses to run without the reason and writes it into `manifest.json`;
   on CI it is the `visual-baseline-bless` `workflow_dispatch`.
   **Since 2026-10-04 (the lead's G2 call, #166) it pushes the new PNGs to
-  `visual-bless/<run id>` and opens a PR to `main`**, its body naming the reason,
+  `visual-bless/<run id>` and opens a PR to `dev`** (to `main` until B5-1, 17 Nov
+  2026: every PR now lands on `dev`, and `main` moves only by the weekly
+  promotion; the job refuses a dispatch on `main`, whose pictures lag `dev`'s), its body naming the reason,
   the scenarios that changed and the captures artifact
   (`visual-baseline-bless-captures`), so the picture is seen before it becomes
   the reference — look at it, every time. That needs the repo setting
@@ -337,7 +339,7 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   Actions → General → Workflow permissions); with it off, PR creation fails, the
   job prints the `pull/new/<branch>` URL, names the setting and exits 0, and a
   human opens the PR by hand (as with PR #150, the first Linux baseline). The
-  `direct` input (default false) keeps the old straight-to-`main` commit, with
+  `direct` input (default false) keeps the old direct commit, now straight to `dev`, with
   its three-try push retry, for when speed matters; nobody sees the picture on
   that path. Both paths keep the `git status --porcelain -uall` guard. A bot
   push or PR from `GITHUB_TOKEN` triggers NO `ci.yml` run, so the PR's `visual`

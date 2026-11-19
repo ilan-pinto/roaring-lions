@@ -311,6 +311,10 @@ TOWN_SITES = {
                                               # from it) on the strip's west flank,
                                               # 0.07 of Marj to spare before
                                               # Naharin's border -- 2026-11-15
+    "bir_tarsha": ("marj", 0.572, 0.210),    # the gate town on the Marj's inside: east
+                                              # of Deir Amun along the same strip
+                                              # (world.json at 345,470 against Deir
+                                              # Amun's 281,481) -- 2026-11-18
     # sur -- the north-central basin under the mountain wall
     "tel_marum": ("sur", 0.413, 0.481),      # the grid town
     "qarn_hadid": ("sur", 0.466, 0.540),     # midpoint of the pass road climbing

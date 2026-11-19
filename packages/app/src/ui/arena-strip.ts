@@ -42,6 +42,7 @@ export function mountArenaStrip(host: HTMLElement, deps: ArenaStripDeps): ArenaS
   const clock = line('clock');
   const status = line('status');
   const verdict = line('verdict');
+  const rules = line('rules');
   const views = document.createElement('div');
   views.className = 'rl-arena-strip__views';
   views.setAttribute('role', 'radiogroup');
@@ -51,7 +52,7 @@ export function mountArenaStrip(host: HTMLElement, deps: ArenaStripDeps): ArenaS
   stop.className = 'rl-arena-strip__stop';
   stop.textContent = deps.stopLabel ?? t('arena.watch.stop');
   stop.addEventListener('click', () => deps.onStop());
-  el.append(game, players, score, force, clock, status, verdict, views, ...(deps.extra === undefined ? [] : [deps.extra]), stop);
+  el.append(game, players, score, force, clock, status, verdict, rules, views, ...(deps.extra === undefined ? [] : [deps.extra]), stop);
   host.appendChild(el);
 
   let painted = '';
@@ -72,6 +73,7 @@ export function mountArenaStrip(host: HTMLElement, deps: ArenaStripDeps): ArenaS
       set(clock, text.clock);
       set(status, text.status);
       set(verdict, text.verdict);
+      set(rules, text.rules);
       for (const v of text.views) {
         let b = buttons.get(v.choice);
         if (b === undefined) {

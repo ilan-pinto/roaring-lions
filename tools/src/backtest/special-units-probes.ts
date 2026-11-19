@@ -33,7 +33,7 @@ import {
   type WeaponJson,
 } from '@lions/sim';
 import { runBattle, units } from './harness';
-import { applyUpgrades, maxTiers, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, maxPicks, maxTiers, type UpgradableUnit } from '@lions/data';
 import { START_LAYOUT } from '../mission-harness';
 
 const WEST = 32768;
@@ -60,7 +60,7 @@ export function atMaxTier(id: string, json: UnitTypeJson): UnitTypeJson {
   const block = own ?? stagedTracks()[id];
   if (!block) return json;
   const withTracks = { ...json, upgrades: block } as unknown as UpgradableUnit & UnitTypeJson;
-  return applyUpgrades(withTracks, maxTiers(withTracks)) as UnitTypeJson;
+  return applyUpgrades(withTracks, maxTiers(withTracks), maxPicks(withTracks, 1)) as UnitTypeJson;
 }
 
 /** A unit still staged in gh709 is read from disk; one that has landed (Phase 2 on) is the

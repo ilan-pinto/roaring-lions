@@ -37,6 +37,7 @@ import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import { shippedContentDigest } from './content-digest';
 import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from './snapshot-link';
 import type { StorageLike } from '../telemetry/identity';
+import { BRANCHES_OPEN } from '@lions/data';
 import { LocalTransport, WsTransport, callsignOrDefault, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike, type WinMode } from '@lions/net';
 
 export interface ConnectDeps {
@@ -247,8 +248,9 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
 export type RoomRequest =
   /** `matchup`: the host's pick -- KDF or Sarim for itself, or the mirror.
    *  `kit`: the host's "Bring your brigade" toggle (per-seat kit); absent is `matched`.
-   *  `winMode` (GH-976 P2): the host's win mode; absent is annihilation and the body says nothing of it. */
-  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup; kit?: LobbyKit; winMode?: WinMode }
+   *  `winMode` (GH-976 P2): the host's win mode; absent is annihilation and the body says nothing of it.
+   *  `fieldWorks` (versus field works): the host's toggle, offered for an annihilation KDF-v-KDF room only; absent is off. */
+  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup; kit?: LobbyKit; winMode?: WinMode; fieldWorks?: true }
   | { kind: 'join'; code: string; callsign: string };
 
 /** The room as its first `lobby` message described it. */
@@ -261,6 +263,8 @@ export interface LobbyState {
   kit: LobbyKit;
   /** The room's win mode when the lobby names one (GH-976 P2); absent is annihilation. */
   winMode?: WinMode;
+  /** Versus field works: the host opened the room with them; absent is off. */
+  fieldWorks?: true;
 }
 
 /** An open room: its code, this tab's seat, the live transport (nothing said
@@ -277,7 +281,25 @@ export type OpenDeps = Pick<ConnectDeps, 'fetch' | 'origin' | 'openSocket' | 'st
    *  `tiers` by the same rule, in the BODY only. The room cleans them, and mints them into a
    *  brigade room only; the world is built from the room's config. Absent is none. */
   specials?: () => readonly string[];
+  /** GH-1384: the branch the local account owns on each branched track it holds at the branched tier
+   *  (`accountState().ownedPicks`, the SAME view as `tiers`), sent beside `tiers` by the same rule, in the BODY
+   *  only, and only while branching is open (`roomClaim`). Absent is none. */
+  picks?: () => Record<string, Record<string, 1 | 2>>;
 };
+
+/**
+ * The seat's claim, as a create or join body carries it. A create sends it just for a brigade room, so a matched
+ * room's storage never holds the host's account; a join (`kit` null) always sends it, since a guest cannot know
+ * the room's rule (the room records it and mints it only into a brigade room, decision 22). The claim is the tiers
+ * and, since GH-1102, the owned Store specials beside them; since GH-1384, the branch picks too, INSIDE the same
+ * matched-or-not rule (the lead's Q10: picks go wherever tiers go, and a matched room carries neither), and only
+ * while branching is open (`open`, `BRANCHES_OPEN` unless a test says otherwise), so a closed build's body is dev's.
+ */
+export function roomClaim(kit: LobbyKit | null, deps: Pick<OpenDeps, 'tiers' | 'specials' | 'picks'>, open: boolean = BRANCHES_OPEN): Record<string, unknown> {
+  return kit === 'matched'
+    ? {}
+    : { tiers: deps.tiers?.() ?? {}, ...(open ? { picks: deps.picks?.() ?? {} } : {}), specials: [...(deps.specials?.() ?? [])] };
+}
 
 /** Why a room could not be opened, as the lobby words it: no such room, a
  *  full one, a different build, or anything else (offline, a 5xx, a room
@@ -335,15 +357,11 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   const creating = req.kind === 'create';
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(req.code.toUpperCase())}/join`;
   const player = playerId(deps.store);
-  // The seat's claim travels in the body only. A create sends it just for a
-  // brigade room, so a matched room's storage never holds the host's account;
-  // a join always sends it, since a guest cannot know the room's rule (the room
-  // records it and mints it only into a brigade room, decision 22). The claim
-  // is the tiers and, since GH-1102, the owned Store specials beside them.
+  // The seat's claim travels in the body only (`roomClaim`).
   const kit = creating ? req.kit ?? 'matched' : null;
-  const claim = kit === 'matched' ? {} : { tiers: deps.tiers?.() ?? {}, specials: [...(deps.specials?.() ?? [])] };
+  const claim = roomClaim(kit, deps);
   const body = creating
-    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...(req.winMode === undefined ? {} : { winMode: req.winMode }), ...claim }
+    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...(req.winMode === undefined ? {} : { winMode: req.winMode }), ...(req.fieldWorks === true ? { fieldWorks: true } : {}), ...claim }
     : { player, callsign: callsignOrDefault(req.callsign), build, ...claim };
   let res: Response;
   try {
@@ -391,11 +409,11 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
     };
     const onAbort = (): void => fail(aborted());
     const transport: WsTransport = new WsTransport(() => deps.openSocket(wsUrl), ticket, build, {
-      onLobby: (seats, _you, map, factions, kit, winMode) => {
+      onLobby: (seats, _you, map, factions, kit, winMode, fieldWorks) => {
         if (settled) return;
         settled = true;
         deps.signal?.removeEventListener('abort', onAbort);
-        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'], kit: kit ?? 'matched', ...(winMode === undefined ? {} : { winMode }) } });
+        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'], kit: kit ?? 'matched', ...(winMode === undefined ? {} : { winMode }), ...(fieldWorks === true ? { fieldWorks } : {}) } });
       },
       onStart: (config) => fail(new RoomStarted(config.map, code), false),
       onError: (c) => {

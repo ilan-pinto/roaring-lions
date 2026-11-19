@@ -67,9 +67,27 @@ export const VERSUS_SARIM: readonly SandboxPlacement[] = [
   ['rocket_battery', -4, 5],
 ];
 
-/** The force a faction fields in a versus room. */
-export function versusForceOf(faction: Faction): readonly SandboxPlacement[] {
-  return faction === 'sarim' ? VERSUS_SARIM : VERSUS_KDF;
+/** A seat's force handicap (GH-1389, `SeatConfig.withhold`): unit type id -> how many of its placements stay home. */
+export type Withhold = Readonly<Record<string, number>>;
+
+/**
+ * The force a faction fields in a versus room. With a `withhold` (a computer level's stated force handicap, GH-1389) the
+ * LAST `n` placements of each named type are left out and every other placement keeps its order; a count above what the
+ * force fields leaves none of that type, and a type the force does not field leaves nothing out. Absent, or empty, it is
+ * the very array, so a room with no level spawns what it always did.
+ */
+export function versusForceOf(faction: Faction, withhold?: Withhold): readonly SandboxPlacement[] {
+  const force = faction === 'sarim' ? VERSUS_SARIM : VERSUS_KDF;
+  if (withhold === undefined || Object.keys(withhold).length === 0) return force;
+  const left = new Map(Object.entries(withhold));
+  const out: SandboxPlacement[] = [];
+  for (let i = force.length - 1; i >= 0; i--) {
+    const p = force[i];
+    const n = left.get(p[0]) ?? 0;
+    if (n > 0) left.set(p[0], n - 1);
+    else out.push(p);
+  }
+  return out.reverse();
 }
 
 /** Each SIDE's faction in a versus room (index 0 is side 0), from the config
@@ -101,13 +119,15 @@ export function versusUnitTypes(factions: readonly [Faction, Faction], specials:
  *
  *  `typeOf` is one id -> type map for both sides (the headless probes, and
  *  every room before per-seat kit), or one per SIDE (`buildMatchWorld`), so
- *  each side spawns the types its own kit registered. */
+ *  each side spawns the types its own kit registered. `withhold`, by SIDE, is each side's stated force handicap
+ *  (GH-1389): absent on both, as in every room but an offline match against a computer level. */
 export function versusSpawns(
   sim: Sim,
   typeOf: Map<string, number> | readonly [Map<string, number>, Map<string, number>],
   anchors: SandboxAnchors,
   factions: readonly [Faction, Faction] = ['kdf', 'kdf'],
   ends: readonly [SpawnEnd, SpawnEnd] = ['friendly', 'hostile'],
+  withhold: readonly [Withhold | undefined, Withhold | undefined] = [undefined, undefined],
 ): VersusForce {
   if (ends[0] === ends[1]) throw new Error(`versusSpawns: the two sides need two ends, got ${ends[0]} twice`);
   const typeOfBySide = typeOf instanceof Map ? [typeOf, typeOf] as const : typeOf;
@@ -120,8 +140,8 @@ export function versusSpawns(
   const faceA = hostileFacing(bx, by, ax, ay); // the friendly end looks at the hostile one
   const faceB = hostileFacing(ax, ay, bx, by); // the hostile end looks back
   const bySide: [number[], number[]] = [[], []];
-  for (const [id, dx, dy] of versusForceOf(factions[atFriendly])) bySide[atFriendly].push(placeF(id, atFriendly, ax + dx, ay + dy, faceA));
-  for (const [id, dx, dy] of versusForceOf(factions[atHostile])) bySide[atHostile].push(placeH(id, atHostile, bx - dx, by - dy, faceB));
+  for (const [id, dx, dy] of versusForceOf(factions[atFriendly], withhold[atFriendly])) bySide[atFriendly].push(placeF(id, atFriendly, ax + dx, ay + dy, faceA));
+  for (const [id, dx, dy] of versusForceOf(factions[atHostile], withhold[atHostile])) bySide[atHostile].push(placeH(id, atHostile, bx - dx, by - dy, faceB));
   return { bySide };
 }
 

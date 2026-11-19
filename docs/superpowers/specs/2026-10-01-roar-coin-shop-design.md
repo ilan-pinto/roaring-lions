@@ -1,5 +1,7 @@
 # The Roar coin shop and the coin — design (GH-317)
 
+> **Superseded in part, 18 Nov 2026:** the lead ruled "I want users to be able to use coins to buy new units. That's the leading rule." (relayed on GH-1378 and GH-1415; it reverses the 16 Nov GH-1378 item 6, "paid coins buy cosmetics only at launch"). "Coins buy what credits buy" (§0.1) is now the leading rule, not a fenced exception to a cosmetic store, and the 16 Nov plan to narrow paid coins to cosmetics is withdrawn. The single-player-only fence of §0.1 is retired too. The current rule is `docs/GDD.md` §9: Roar coins buy units and upgrade tiers as brigade credits do, coins bought with money included once purchases open; credits are still never sold. A second ruling the same day answers where they may be used: "coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is RETIRED" (`docs/HANDOVER.md`, rows G7 and G7-R); its scope is set by a third ruling the same day: "standard-kit rooms stay EQUAL (no owned kit, coins or credits); coin-bought units reach PvP only through 'Bring your brigade' rooms. No code change.". The body below is kept as history.
+
 **Date:** 2026-10-01 · **Revised:** 2026-10-01, to the lead's rulings of 1 Oct (§0.1).
 **Status:** draft for the lead. Design only: no money flows, no shipping code, and the sim is
 untouched.

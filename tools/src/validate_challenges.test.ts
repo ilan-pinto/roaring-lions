@@ -14,10 +14,11 @@ for (const f of readdirSync(join(ROOT, 'data/missions'))) {
   const m = readJson(`data/missions/${f}`) as { id: string };
   missions[m.id] = m;
 }
-type Doc = { mission: string; offers: string[]; own?: { id: string; label: string; blurb: string; ops: Record<string, unknown>[] }[]; challenge: { id: string; amendments: string[]; label: string; blurb: string } };
+type Doc = { mission: string; offers: string[]; own?: { id: string; label: string; blurb: string; ops: Record<string, unknown>[] }[]; challenge: { id: string; amendments: string[]; label: string; blurb: string; win: Record<string, unknown> } };
 const shipped = readdirSync(join(ROOT, 'data/challenges'))
   .filter((f) => f !== 'amendments.json')
   .map((f) => ({ file: `data/challenges/${f}`, doc: readJson(`data/challenges/${f}`) as Doc }));
+const bs1 = (): { file: string; doc: Doc } => structuredClone(shipped.find((s) => s.doc.mission === 'beit_sahwan_1_recon') as { file: string; doc: Doc });
 const bs2 = (): { file: string; doc: Doc } => structuredClone(shipped.find((s) => s.doc.mission === 'beit_sahwan_2_foothold') as { file: string; doc: Doc });
 const run = (o: { lib?: unknown; files?: { file: string; doc: unknown }[] } = {}) => challengeFailures({ library: o.lib ?? library, files: o.files ?? shipped, missions });
 
@@ -91,6 +92,27 @@ describe('challengeFailures', () => {
     const w = bs2();
     w.doc.challenge.blurb = 'Hold until the column is withdrawn.';
     expect(run({ files: [w] }).some((x) => /PA-01/.test(x))).toBe(true);
+  });
+  // The lead's ruling on PR 1568: Whole Picture needs only the ATGM pair, a secondary of Beit Sahwan I.
+  it('objective_done: Whole Picture names hvt_seen, a secondary of its mission, and is clean', () => {
+    expect(bs1().doc.challenge.win).toEqual({ objective_done: 'hvt_seen' });
+    expect(run({ files: [bs1()] })).toEqual([]);
+  });
+  it('objective_done: refuses an id the mission does not have, and one of another mission', () => {
+    const none = bs1();
+    none.doc.challenge.win = { objective_done: 'hvt_sighted' };
+    expect(run({ files: [none] })).toEqual(['data/challenges/beit_sahwan_1_recon.json: challenge "whole_picture" needs objective "hvt_sighted", which beit_sahwan_1_recon does not have']);
+    const other = bs2();
+    const bs3obj = (missions.beit_sahwan_3_clearance as { objectives: { id: string }[] }).objectives.map((o) => o.id);
+    const foothold = (missions.beit_sahwan_2_foothold as { objectives: { id: string }[] }).objectives.map((o) => o.id);
+    const foreign = bs3obj.find((id) => !foothold.includes(id)) as string;
+    other.doc.challenge.win = { ...other.doc.challenge.win, objective_done: foreign };
+    expect(run({ files: [other] }).some((x) => /does not have/.test(x))).toBe(true);
+  });
+  it('objective_done: refuses the primary (a win completes it anyway, so the term would restrict nothing)', () => {
+    const f = bs1();
+    f.doc.challenge.win = { objective_done: 'picture' };
+    expect(run({ files: [f] })).toEqual(['data/challenges/beit_sahwan_1_recon.json: challenge "whole_picture" needs objective "picture", a primary of beit_sahwan_1_recon: objective_done names a secondary']);
   });
   it('refuses an own amendment that shadows a library id or is not offered', () => {
     const breach = structuredClone(shipped.find((s) => s.doc.mission === 'beit_sahwan_breach') as { file: string; doc: Doc });
@@ -177,6 +199,19 @@ describe('add_wave carries mission.schema.json\'s wave shape', () => {
   };
   it('the shipped files pass the schema', () => {
     for (const s of shipped) expect(validate(s.doc), s.file).toBe(true);
+  });
+  it('objective_done is closed: an objective id string passes; a number, an empty string or a true does not', () => {
+    const withWin = (win: unknown): Doc => {
+      const f = bs1();
+      f.doc.challenge.win = win as Record<string, unknown>;
+      return f.doc;
+    };
+    expect(validate(withWin({ objective_done: 'hvt_seen' }))).toBe(true);
+    expect(validate(withWin({ objective_done: 'hvt_seen', lost_at_most: 2 }))).toBe(true);
+    expect(validate(withWin({ objective_done: 2 }))).toBe(false);
+    expect(validate(withWin({ objective_done: '' }))).toBe(false);
+    expect(validate(withWin({ objective_done: true }))).toBe(false);
+    expect(validate(withWin({ objective_done_all: true }))).toBe(false);
   });
   it('a wave in the mission shape passes; one with no at_seconds, or a field the mission schema does not know, does not', () => {
     expect(validate(withWave({ at_seconds: 60, units: [{ unit: 'sarim_rifles', count: 2 }] }))).toBe(true);

@@ -154,6 +154,10 @@ export interface RuntimeRow {
   readonly name: string;
   readonly cls: RuntimeClass;
   readonly kind: RuntimeKind;
+  /** A top-level row that belongs to ONE kind of runtime only: `worksOnly` is a works-only runtime's (versus field works,
+   *  `MissionContext.worksOnly`). Elsewhere the row is not written, not read and not folded into `runtimeSchemaDigest`, so a
+   *  runtime of any other kind has the section and the digest it had before the row existed. */
+  readonly when?: 'worksOnly';
 }
 
 // --- kind builders ---------------------------------------------------------------------
@@ -343,12 +347,19 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'worksPending', cls: 'state', kind: array(record('WorksCharge')) },
   { name: 'worksSites', cls: 'state', kind: map(SCALAR, record('WorksCharge')) },
   { name: 'worksStructures', cls: 'state', kind: map(SCALAR, record('WorksStructure')) },
+  // Versus field works (`ctx.worksOnly`): side 1's offers (built with `worksList`, in its order), its pending charges and its
+  // sites. Side 0's are the rows above, unchanged; these exist on every runtime and are carried only by a works-only one.
+  { name: 'worksOfferList1', cls: 'state', kind: array(record('WorksOffer')), when: 'worksOnly' },
+  { name: 'worksPending1', cls: 'state', kind: array(record('WorksCharge')), when: 'worksOnly' },
+  { name: 'worksSites1', cls: 'state', kind: map(SCALAR, record('WorksCharge')), when: 'worksOnly' },
 
   // --- production ---
   // GH-277 follow-on: the structure index of each line a completed production work (a forward camp) opened on
   // side 0, in the order opened. Created beside `lines`, and read by the restore BEFORE it, because those lines
   // are the TAIL of `lines[0]` and the target's setup built none of them.
   { name: 'appendedAnchors', cls: 'state', kind: IDS },
+  // Versus field works (`ctx.worksOnly`): the same for side 1, the tail of `lines[1]`. Read by the restore before `lines` too.
+  { name: 'appendedAnchors1', cls: 'state', kind: IDS, when: 'worksOnly' },
   // config: `buildLines` sets it once at the end of `start()` (side 0's authored lines: where the tail begins).
   { name: 'authoredLines0', cls: 'config', kind: SCALAR },
   // [side 0's lines, side 1's lines]. The lines built by `buildLines` in `start()` and their `side` / `anchor`

@@ -3,18 +3,30 @@
 # Manual dispatch only, with a required `reason` that is written into
 # `manifest.json` and printed on every future mismatch.
 #
-# DEFAULT (since 2026-10-04, the lead's G2 call, recorded on #166): the new
+# DEFAULT (since 2026-10-04, the lead's G2 call, recorded on GH-166): the new
 # PNGs are committed to a branch `visual-bless/<run id>` and a PULL REQUEST to
-# `main` is opened, so a human sees each picture before it becomes the
-# reference. If PR creation is refused because the repo setting "Allow GitHub
+# `dev` is opened, so a human sees each picture before it becomes the
+# reference. `dev` and never `main` (B5-1, the lead's ruling of 17 Nov 2026):
+# every PR merges into `dev`, and `main` is production, moved only by the
+# weekly promotion PR, so a baseline reaches `main` the way code does.
+#
+# If PR creation is refused because the repo setting "Allow GitHub
 # Actions to create and approve pull requests" is off, the job prints the
 # `pull/new/<branch>` URL, names the setting, and exits 0 -- the branch is
 # already pushed and a human finishes it by hand.
 #
-# `direct: true` keeps the 2026-09-02 behaviour (commit straight to `main`, the
-# lead's "instead of PR merge to main and push"), for when he wants speed. That
-# path trades away the human look at the picture: a wrong baseline landed there
-# silently disarms the visual gate, and the reason is the whole audit trail.
+# `direct: true` commits straight to `dev` (it committed straight to `main`
+# from 2026-09-02, the lead's "instead of PR merge to main and push", until
+# B5-1), for when he wants speed. That path trades away the human look at the
+# picture: a wrong baseline landed there silently disarms the visual gate, and
+# the reason is the whole audit trail. It never touches `main`.
+#
+# The capture is taken on the ref the workflow is DISPATCHED on, and the PNGs
+# are then committed on top of `dev`. Dispatched on `main`, that would bless
+# production's older pictures as dev's reference, so the job refuses `main`:
+# choose `dev` (or the branch whose picture is meant to change) under "Use
+# workflow from". NOTE: until a promotion carries this file to `main`, a
+# dispatch on `main` still runs main's older copy, which targets `main`.
 #
 # Two jobs this workflow does that a local `pnpm golden-baseline:bless` cannot:
 #
@@ -44,7 +56,7 @@ on:
         required: false
         type: string
       direct:
-        description: 'true = commit straight to main (no review PR); false = open a review PR'
+        description: 'true = commit straight to dev (no review PR); false = open a review PR against dev. Never main.'
         required: false
         type: boolean
         default: false
@@ -61,6 +73,13 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # Before anything expensive: a capture of `main` committed onto `dev`
+      # would be production's pictures judged as dev's (see the header).
+      - name: Refuse a dispatch on main
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "::error title=Dispatched on main::main is production and lags dev. Re-run with 'Use workflow from' set to dev, or to the branch whose picture is meant to change; the baseline is committed to dev either way."
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -97,7 +116,7 @@ jobs:
 
       # An explicit path list, never `git add -A`: this job must not sweep up a
       # build artifact or anything else the capture left in the tree.
-      - name: Commit the new baseline (review PR by default, main if direct)
+      - name: Commit the new baseline (review PR against dev by default, dev itself if direct)
         env:
           REASON: ${{ inputs.reason }}
           SCENARIO: ${{ inputs.scenario }}
@@ -137,8 +156,8 @@ jobs:
 
           # The captured PNGs are the only thing worth keeping out of this
           # checkout. Park them outside the work tree, because the next step
-          # moves HEAD to main and the workflow may have been dispatched on any
-          # ref -- as it was for the first Linux bless, which ran on
+          # moves HEAD to dev and the workflow may have been dispatched on any
+          # ref but main -- as it was for the first Linux bless, which ran on
           # `feat/three-renderer` because main still held the broken code.
           STASH="$(mktemp -d)"
           cp -R tools/golden-baselines/. "$STASH/"
@@ -155,23 +174,23 @@ jobs:
           exactly these pixels."
 
           if [ "${DIRECT:-false}" = "true" ]; then
-            # Retry: a push to main races anything else landing between the
+            # Retry: a push to dev races anything else landing between the
             # fetch and the push, and a lost baseline would be silent.
             for attempt in 1 2 3; do
-              git fetch origin main
-              git checkout -B main origin/main
+              git fetch origin dev
+              git checkout -B dev origin/dev
               mkdir -p tools/golden-baselines
               cp -R "$STASH/." tools/golden-baselines/
               git add -- tools/golden-baselines
               if git diff --cached --quiet; then
-                echo "::notice title=Baseline unchanged::Already on main byte for byte."
+                echo "::notice title=Baseline unchanged::Already on dev byte for byte."
                 exit 0
               fi
               git commit -m "$MSG"
-              if git push origin main; then
-                echo "::notice title=Baseline committed::Pushed to main on attempt $attempt."
+              if git push origin dev; then
+                echo "::notice title=Baseline committed::Pushed to dev on attempt $attempt. It reaches main with the next promotion PR."
                 {
-                  echo "### Baseline committed to \`main\` (direct)"
+                  echo "### Baseline committed to \`dev\` (direct)"
                   echo ""
                   echo "**Reason given:** $REASON"
                   echo ""
@@ -183,21 +202,21 @@ jobs:
                 } >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
-              echo "::warning title=Push rejected::main moved under us; retrying ($attempt of 3)."
+              echo "::warning title=Push rejected::dev moved under us; retrying ($attempt of 3)."
             done
-            echo "::error title=Baseline not committed::Three pushes to main were rejected."
+            echo "::error title=Baseline not committed::Three pushes to dev were rejected."
             exit 1
           fi
 
           # Review-PR path. The branch name is unique per run, so no retry loop.
           BRANCH="visual-bless/${GITHUB_RUN_ID}"
-          git fetch origin main
-          git checkout -B "$BRANCH" origin/main
+          git fetch origin dev
+          git checkout -B "$BRANCH" origin/dev
           mkdir -p tools/golden-baselines
           cp -R "$STASH/." tools/golden-baselines/
           git add -- tools/golden-baselines
           if git diff --cached --quiet; then
-            echo "::notice title=Baseline unchanged::Already on main byte for byte."
+            echo "::notice title=Baseline unchanged::Already on dev byte for byte."
             exit 0
           fi
           git commit -m "$MSG"
@@ -220,7 +239,7 @@ jobs:
             echo '```'
           } > "$BODY"
 
-          if URL="$(gh pr create --base main --head "$BRANCH" \
+          if URL="$(gh pr create --base dev --head "$BRANCH" \
                 --title "chore(visual): re-bless the golden baseline" \
                 --body-file "$BODY" 2>pr-error.txt)"; then
             echo "::notice title=Review PR opened::$URL"

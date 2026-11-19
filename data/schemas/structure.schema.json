@@ -247,6 +247,18 @@
               "dispatch_radius": { "type": "number", "minimum": 0, "maximum": 64 }
             }
           },
+          "gate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["open_radius_tiles"],
+            "description": "GH-1438 E1: a compound gate (docs/campaign/civilian-drama.md section 2). Raised shut and blocked like any structure; it swings open (swing_s) when a living, surface, standing ground unit of side opens_for comes within open_radius_tiles of its centroid, and swings shut hold_open_s after the last one left, never on anything standing in it. Integers only. A gate is one structure (per_tile false), 2x1 or 1x2 tiles, and never on a map with a versus rules file (validate_gate.mjs). Absent = not a gate.",
+            "properties": {
+              "opens_for": { "enum": [0], "default": 0, "description": "The side whose units open it: the KDF." },
+              "open_radius_tiles": { "type": "integer", "minimum": 1, "maximum": 8 },
+              "hold_open_s": { "type": "integer", "minimum": 0, "maximum": 30, "default": 3 },
+              "swing_s": { "type": "integer", "minimum": 1, "maximum": 10, "default": 2 }
+            }
+          },
           "construction_mesh": {
             "type": "string",
             "description": "Presentation only."

@@ -7,6 +7,7 @@ import { createTelemetry, type TelemetryDeps } from './telemetry';
 import type { TelemetryEvent } from '@lions/data/telemetry';
 import { t } from './i18n/t';
 import { buyTierWithCredits } from './credit-buy';
+import { emptyRoar } from '@lions/economy';
 import { creditAsk } from './upgrade-pay';
 import type { BrigadeAccount } from './brigade-account';
 import { showBrigade, type BrigadeOptions, type BrigadeUnit, type GarageState } from './ui/brigade';
@@ -60,7 +61,7 @@ function garage(coinTier: number, start: BrigadeAccount = account(), locked = fa
     ledger: {},
     possibleStars: 78,
     onBuyUpgrade: (unitId, track, to, price) => {
-      const r = buyTierWithCredits({ account: acct, owned: owned() }, PRICES, unitId, track, to, price);
+      const r = buyTierWithCredits({ account: acct, owned: owned(), roar: emptyRoar() }, PRICES, unitId, track, to, price);
       landed.push(r.ok);
       if (!r.ok) return state(false);
       acct = r.account;
@@ -68,7 +69,7 @@ function garage(coinTier: number, start: BrigadeAccount = account(), locked = fa
       return state(true);
     },
   } as BrigadeOptions);
-  return { host, events, landed, account: () => acct, setCoin: (n: number) => (coin = n), read: () => ({ account: acct, owned: owned() }) };
+  return { host, events, landed, account: () => acct, setCoin: (n: number) => (coin = n), read: () => ({ account: acct, owned: owned(), roar: emptyRoar() }) };
 }
 const buyBtn = (host: HTMLElement): HTMLButtonElement | null =>
   host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier');
@@ -120,7 +121,7 @@ describe('the Garage credit Buy asks creditAsk (WP5)', () => {
     expect(r.ok).toBe(false);
     expect(r.account).toBe(before);
     // and the shape the plan names: a press of {to: 2, price: 400} after the coin tier moved to 2
-    const r2 = buyTierWithCredits({ account: before, owned: { [UNIT_ID]: { armour: 2 } } }, PRICES, UNIT_ID, 'armour', 2, 400);
+    const r2 = buyTierWithCredits({ account: before, owned: { [UNIT_ID]: { armour: 2 } }, roar: emptyRoar() }, PRICES, UNIT_ID, 'armour', 2, 400);
     expect(r2.ok).toBe(false);
     expect(r2.account).toBe(before);
   });

@@ -43,12 +43,28 @@
         },
         {
           "price": 500,
-          "patch": {
-            "hull.hp": 600,
-            "hull.armor.front": 60,
-            "hull.armor.side": 42,
-            "hull.armor.rear": 28
-          }
+          "branches": [
+            {
+              "id": "reinforced_frame",
+              "label": "garage.branch.dozer_d9.reinforced_frame",
+              "patch": {
+                "hull.hp": 600,
+                "hull.armor.front": 36,
+                "hull.armor.side": 26,
+                "hull.armor.rear": 16
+              }
+            },
+            {
+              "id": "addon_plates",
+              "label": "garage.branch.dozer_d9.addon_plates",
+              "patch": {
+                "hull.hp": 360,
+                "hull.armor.front": 60,
+                "hull.armor.side": 42,
+                "hull.armor.rear": 28
+              }
+            }
+          ]
         }
       ]
     },

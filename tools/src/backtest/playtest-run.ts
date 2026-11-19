@@ -29,11 +29,15 @@ import {
   applyTerrain,
   roadMaskOf,
   applyUpgrades,
+  maxPicks,
   maxTiers,
   applyOverlays,
   amendmentOps,
   challengeMet,
   challengeOf,
+  challengeTerms,
+  type ChallengeTerm,
+  type BranchPick,
   type PostureId,
 } from '@lions/data';
 import { maps, missions } from '@lions/data/content';
@@ -200,7 +204,7 @@ export interface RunRecord extends IntelRun {
   /** GH-1394: starting-force bodies lost (`startingCount - startingHome`), for the per-mission posture comparison. */
   lost: number;
   /** GH-1395: present only in a challenge child, on a mission with a challenge: whether this run beat it. */
-  challenge?: { met: boolean };
+  challenge?: { met: boolean; terms: readonly { term: ChallengeTerm; held: boolean }[] };
   /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
    *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
   notes?: Record<string, number>;
@@ -249,6 +253,18 @@ export function currentPosture(): PostureId {
 const challengeReading = process.env.PT_CHALLENGE === '1';
 export function challengeReadingOn(): boolean {
   return challengeReading;
+}
+/** GH-1395 slice 2 (C6/C7, design §8): set only by `challengeRun` for the duration of one labelled CHALLENGE PLAN's `run()`,
+ *  in every process. That one run plays the mission with its challenge's named amendments on, exactly as a challenge child
+ *  does, and records the challenge row, which the 30-seed sweep gates (`plan-sweep.ts`). Every other run is untouched. */
+let challengePlan = false;
+export function challengeRun<T>(fn: () => T): T {
+  challengePlan = true;
+  try {
+    return fn();
+  } finally {
+    challengePlan = false;
+  }
 }
 
 /** GH-1394 (PM, 16 Nov): whether a WINNING plan uses a posture's relief. `PT_RELIEF_JOIN=1` (a seed child of the ladder's
@@ -309,7 +325,7 @@ export function run(
    *  bought. Enemy (non-kdf) types are never patched, matching `main.ts` exactly.
    *  GH-1144: `{ unit, tracks }` patches ONLY that unit, and only those tracks, to their top tier
    *  (a bought unit one track at a time; every other type registers raw). */
-  tiers?: 'max' | { unit: string; tracks: readonly string[] },
+  tiers?: 'max' | { max: BranchPick } | { unit: string; tracks: readonly string[] },
   /** Written by the max-tier replay pass at the end of `playtest.ts` so it can read back
    *  what THIS run actually measured, without widening `run`'s return type -- every
    *  existing call site still gets back exactly the produced `LedgerData` it always
@@ -338,8 +354,9 @@ export function run(
   registeredUnits.clear();
   // GH-1394: the posture is applied to the mission JSON before anything reads it, exactly where the app applies it
   // (`campaignMission` in main.ts): the runtime, the upgrades, the loans and the credit floor all see the overlaid run.
-  // GH-1395: and, in a challenge child, the mission's challenge amendments after it (none for a mission with no challenge).
-  const challenge = challengeReading ? challengeOf(id) : undefined;
+  // GH-1395: and, in a challenge child or a labelled challenge plan (`challengeRun`), the mission's challenge amendments after it
+  // (none for a mission with no challenge). Applied once whichever of the two asked.
+  const challenge = challengeReading || challengePlan ? challengeOf(id) : undefined;
   const mission = applyOverlays(missions[id] as unknown as MissionJson, { posture, amendments: amendmentOps(challenge?.challenge.amendments ?? [], id) });
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
@@ -375,11 +392,14 @@ export function run(
   for (const u of [...Object.values(units), ...extraUnits] as (typeof units)[keyof typeof units][]) {
     // Mirrors main.ts's own pre-pass exactly (see the `tiers` doc comment above) --
     // enemy units never go through applyUpgrades, only a KDF unit can carry a tier.
+    // GH-1384: a branched last tier needs a branch. `'max'` is the uniform branch-1 vector and
+    // `{ max: 2 }` the branch-2 one (`maxPicks`); a one-unit track replay takes branch 1.
+    const maxBranch: BranchPick | null = tiers === 'max' ? 1 : tiers !== undefined && 'max' in tiers ? tiers.max : null;
     const registered =
-      tiers === 'max' && u.faction === 'kdf'
-        ? applyUpgrades(u, maxTiers(u))
-        : tiers !== undefined && tiers !== 'max' && u.id === tiers.unit
-          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))))
+      maxBranch !== null && u.faction === 'kdf'
+        ? applyUpgrades(u, maxTiers(u), maxPicks(u, maxBranch))
+        : tiers !== undefined && tiers !== 'max' && 'unit' in tiers && u.id === tiers.unit
+          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))), maxPicks(u, 1))
           : u;
     registeredUnits.set(u.id, registered as unknown as UnitTypeJson);
     typeOf.set(u.id, sim.addUnitType(registered));
@@ -601,18 +621,16 @@ export function run(
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
   // GH-1395: the challenge predicate on this run's own row, as the app's `challengeMarkFor` reads it (the posture and
-  // open-at-boot halves are the app's; the reading runs at Standard on the harness's own ledgers).
+  // open-at-boot halves are the app's; the reading runs at Standard on the harness's own ledgers), and term by term for
+  // the reading's "held on wins" counts.
+  const challengeRun = challenge === undefined ? undefined : runRowOf(rt, rt.roeScore, sim.tickCount);
+  const target = (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0;
   const challengeRow =
-    challenge === undefined
+    challenge === undefined || challengeRun === undefined
       ? undefined
       : {
-          met:
-            rt.result === 'victory' &&
-            challengeMet(
-              challenge.challenge.win,
-              runRowOf(rt, rt.roeScore, sim.tickCount),
-              (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0
-            ),
+          met: rt.result === 'victory' && challengeMet(challenge.challenge.win, challengeRun, target),
+          terms: challengeTerms(challenge.challenge.win, challengeRun, target),
         };
   runLog.push({ id, label, posture, ...(challengeRow !== undefined ? { challenge: challengeRow } : {}), lost: rt.startingCount - rt.startingHome, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {

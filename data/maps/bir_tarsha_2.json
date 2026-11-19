@@ -70,6 +70,10 @@
     "terminal_point": [
       24,
       36
+    ],
+    "wounded_evac": [
+      26,
+      3
     ]
   },
   "zones": {
