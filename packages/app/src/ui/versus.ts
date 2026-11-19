@@ -46,6 +46,7 @@ import { t } from '../i18n/t';
 import { pointsExplainer } from './points-explainer';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
+import { computerSeatOpen } from '../net/computer/open-cells';
 import { isTextEntry } from '../shell/escape-back';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -106,7 +107,7 @@ export interface VersusDeps {
   advisorTicket(code: string, scope: AdvisorScope): Promise<string>;
   /** GH-1388: arms an OFFLINE match against the computer seat for the map and side picked here, and resolves to the `?net=` value that
    *  opens it. No room and no request. Absent: the lobby offers no computer seat. */
-  playComputer?(req: { map: string; matchup: Matchup; callsign: string }): Promise<string>;
+  playComputer?(req: { map: string; matchup: Matchup; winMode?: WinMode; callsign: string }): Promise<string>;
   /** Drops a match `playComputer` armed that nobody took (this screen was left while it armed). */
   discardComputer?(): void;
   /** The menu's still plate (`${BASE}${menuDiorama.plate}`), drawn behind
@@ -773,6 +774,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     matchupNote.hidden = !narrowed || winMode !== null;
     placedNote.hidden = !narrowed || winMode === null;
     describeFaction();
+    // GH-1390: the computer seat is offered on every ground, side and mode the coverage probe read clean (`computerSeatOpen`); a closed cell hides it.
+    if (cpuSection !== null) cpuSection.hidden = !computerSeatOpen(map, side, winMode);
     const target = winMode === 'points' ? versusModes[map]?.modes.points?.target ?? 0 : 0;
     // GH-976 R0.22: through the one reader, for the rules a room on this map would play (the Worker mints `flagSetup` from the same list).
     const flagFile = winMode === 'flag' ? versusModes[map] : undefined;
@@ -861,8 +864,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   body.appendChild(act);
 
   // --- GH-1388: a basic computer opponent, offline ---------------------------
-  // The arena's `rush` script as a seat. It needs no room, so it is offered whatever the map, on the mirror pairing only (it builds nothing); the plain description says what
-  // it is, because nothing here may claim more than it does (it attacks with the force it starts with and builds nothing).
+  // The commander as a seat (GH-1388, GH-1390). It needs no room, so it is offered on every map, side and win mode the coverage probe read clean (`computerSeatOpen`, net/computer/open-cells.ts);
+  // a closed cell hides this section. The plain description's copy is HOLD FOR LEAD: it still says the opponent builds nothing.
   let cpuBtn: HTMLButtonElement | null = null;
   let cpuSection: HTMLElement | null = null;
   const cpuMsg = messageLine('rl-versus__cpu-msg');
@@ -898,8 +901,6 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       else delete tile.label.dataset.off;
       tile.sub.textContent = off ? t('versus.lobby.map.offReason') : t('versus.lobby.map.pairing', { both: String(pairsBoth(tile.id)) });
     }
-    // The computer does not build, so it is offered on the mirror pairing only (an economy pairing could never end).
-    if (cpuSection !== null) cpuSection.hidden = narrowed;
     sideNote.hidden = !narrowed;
     matchupNote.hidden = !narrowed;
     paintCard(youCard, hostSide(side), youName);
@@ -1003,13 +1004,13 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), ...(fieldWorks && worksAllowed() ? { fieldWorks: true as const } : {}), callsign: callsignOrDefault(callsign.input.value) }, false));
   const playComputer = deps.playComputer;
   cpuBtn?.addEventListener('click', () => {
-    if (busy || playComputer === undefined || side !== 'mirror') return;
+    if (busy || playComputer === undefined || !computerSeatOpen(map, side, winMode)) return;
     busy = true;
     sync();
     cpuMsg.textContent = '';
     delete cpuMsg.dataset.tone;
     const picked = map;
-    playComputer({ map: picked, matchup: side, callsign: callsignOrDefault(callsign.input.value) }).then(
+    playComputer({ map: picked, matchup: side, ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }).then(
       (net) => {
         // Left while it armed: nobody will take it, so it is dropped here (the disposer contract).
         if (disposed) { deps.discardComputer?.(); return; }

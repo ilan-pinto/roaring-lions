@@ -96,7 +96,8 @@ describe('Save and quit (main.ts)', () => {
   });
 
   it('what is saved is what the mission was started from, and the shell', () => {
-    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen \}\) \?\? null;/);
+    // GH-1395 slice 2 (D10): the run's amendment ids are a start input too.
+    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen, amendments: runAmendments \}\) \?\? null;/);
     expect(main).toMatch(/shell: shellJson\(captureShell\(\{ log: missionLog, deductions, lost: lostThisMission, narratedRoe: narratedRoeReasons, evacuated: evacuatedSoFar, deadlinesWarned, limitWarned \}\)\),/);
   });
 });
@@ -106,7 +107,8 @@ describe('the save is dropped when its mission is over, and only then', () => {
     expect(main).toMatch(/if \(mev\.kind === 'missionEnd'\) \{\s*\/\/[^\n]*\n\s*if \(mission\) dropSavedMission\(mission\.id\);/);
     expect(main.match(/dropSavedMission\(/g)?.length).toBe(2); // the definition and the one call at the mission's end
     expect(main).toMatch(/if \(ok\) req\.navigate\(quitHref\(room !== null, !mission\)\);/);
-    expect(main).toMatch(/if \(!ok\) return;\s*\/\/[^\n]*\n\s*req\.restart\(\);/);
+    // GH-1395 slice 2 (D10): Restart carries the run's own amendments.
+    expect(main).toMatch(/if \(!ok\) return;\s*(\/\/[^\n]*\n\s*)+req\.restart\(\{ amendments: runAmendments \}\);/);
     expect(main).toMatch(/leaveCopy\(!mission, resumed !== null\)/); // the pause menu's Quit says it
     expect(main).toMatch(/freePlay: !mission,\s*resumed: resumed !== null,/); // and so does the HUD's own leave
   });
