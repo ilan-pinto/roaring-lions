@@ -39,7 +39,7 @@ import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 import { NINE } from './special-units-probes';
 import { aloneAtMax, judge as judgeTracks, orphanExemptions, trackChecks, tracksOf } from './bought-tracks';
-import { registeredUnits, run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { challengeReadingOn, challengeRun, currentPosture, registeredUnits, run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
 import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
@@ -47,7 +47,8 @@ import { bankedOver, bankingBoundFailure, bankingLine } from './banking';
 import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHalam5Plan } from './plans/wadi_halam';
-import { firstLightPlan } from './plans/beit_sahwan';
+import { firstLightPlan, wholePicturePlan } from './plans/beit_sahwan';
+import { challengePlanLabel } from './challenge-reading';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { QASR_LIWAN_PLANS } from './plans/qasr_liwan';
 import { BIR_TARSHA_PLANS } from './plans/bir_tarsha';
@@ -210,6 +211,17 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
   at(300, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 18) }));
   at(480, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(27, 20) }));
 }, led0, 'victory', 'beit_sahwan_1_recon', 3);
+
+// GH-1395 slice 2 (C6/C7, design §8): Whole Picture's gated challenge plan. Played with the challenge's amendments on
+// (`challengeRun`: no drone) from First Light's ledger, as the plain plan is, and NOT chained: nothing after reads its
+// ledger, and its label is not the mission id, so `missionStars`, `missionCredits` and both ladders never see it. The
+// 30-seed sweep holds it twice (`plan-sweep.ts`): it must win on every seed, and beat the challenge on every seed. It
+// plays at Standard only: the posture ladder and the report-only challenge children skip it (the challenge is closed on
+// Easier, and the challenge children amend every run already). Falsified 18 Nov by putting `carries_all` back beside
+// `objective_done` (both carried secondaries): the plan never identifies the track, so it missed on 30 of 30 seeds, red.
+if (currentPosture() === 'standard' && !challengeReadingOn()) {
+  challengeRun(() => run('beit_sahwan_1_recon', wholePicturePlan, led0, 'victory', challengePlanLabel('beit_sahwan_1_recon', 'whole_picture'), 2));
+}
 
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
 // GH-382 moved it onto beit_sahwan_2 (the western terraces): the plan is unchanged -- the whole force
@@ -4375,6 +4387,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
 // Bir Tarsha's four winning plans each earn a sweep (GH-1438): 49 -> 53 of 54 winning plans. Was 49.
 // Bir Tarsha IV's plan earns one too (240 intel on seed 424242): 53 -> 54 of 55. Was 53.
+// 2026-11-18, GH-1395 slice 2: unchanged at 54, now "54 of 56". Whole Picture's challenge plan (`beit_sahwan_1_recon (challenge whole_picture)`)
+// is a winning run that earns no sweep (128 intel on 424242): it wins in 95 s, at the sixth enemy identified, with no drone. It is the
+// second short plan, beside `beit_sahwan_2_foothold` (112).
 const INTEL_WINNERS_ONE_SWEEP = 54;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own

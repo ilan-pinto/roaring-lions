@@ -1689,24 +1689,54 @@ describe('the computer seat in the lobby', () => {
     expect(d.open).not.toHaveBeenCalled();
   });
 
-  it('an economy pairing hides the computer seat (it builds nothing, so the match could never end), and the mirror brings it back', async () => {
+  const pickSide = (stage: ParentNode, m: 'mirror' | 'kdf' | 'sarim'): void => {
+    const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
+    r.click();
+    r.dispatchEvent(new Event('change'));
+  };
+  const pickMap = (stage: ParentNode, id: string): void => {
+    const r = stage.querySelector<HTMLInputElement>(`.rl-versus__map-radio[value="${id}"]`)!;
+    r.click();
+    r.dispatchEvent(new Event('change'));
+  };
+
+  it('GH-1390: an economy pairing keeps the computer seat where the coverage probe read the cell clean, hides it where it is closed, and the mirror brings it back', async () => {
     const playComputer = vi.fn().mockResolvedValue('OFFLINE');
     const stage = mountPick(deps({ playComputer }));
     const section = stage.querySelector<HTMLElement>('.rl-versus__cpu')!;
     expect(section.hidden).toBe(false);
-    for (const m of ['kdf', 'sarim'] as const) {
-      const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
-      r.click();
-      r.dispatchEvent(new Event('change'));
-      expect(section.hidden, m).toBe(true);
+    // An economy pairing in annihilation is closed on every ground (the probe read the seat as stopped there); the camp race on Wadi Tarfan is open.
+    pickSide(stage, 'kdf');
+    for (const id of ['tel_marum', 'wadi_tarfan']) {
+      pickMap(stage, id);
+      expect(section.hidden, `${id} kdf annihilation`).toBe(true);
       cpuButton(stage)!.click();
       await flush();
-      expect(playComputer, m).not.toHaveBeenCalled();
+      expect(playComputer, `${id} kdf annihilation`).not.toHaveBeenCalled();
     }
-    const back = stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="mirror"]')!;
-    back.click();
-    back.dispatchEvent(new Event('change'));
+    const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
+    camp.click();
+    camp.dispatchEvent(new Event('change'));
+    expect(section.hidden, 'wadi_tarfan kdf camp').toBe(false);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' });
+    pickSide(stage, 'mirror');
     expect(section.hidden).toBe(false);
+  });
+
+  it('GH-1390: a win mode rides to the arming call (the mirror camp race on Wadi Tarfan), and the seat stays on offer there', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const stage = mountPick(deps({ playComputer }));
+    pickMap(stage, 'wadi_tarfan');
+    const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
+    camp.click();
+    camp.dispatchEvent(new Event('change'));
+    expect(stage.querySelector<HTMLElement>('.rl-versus__cpu')!.hidden).toBe(false);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'mirror', winMode: 'camp' });
   });
 
   it('a failure to arm says so on its own line, re-enables the button, and navigates nowhere', async () => {

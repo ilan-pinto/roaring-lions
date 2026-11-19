@@ -210,6 +210,12 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
       li.append(el('span', 'rl-aar__rung-stars', '★'.repeat(rung.stars)), el('span', 'rl-aar__rung-text', rung.text));
       ladder.appendChild(li);
     }
+    // GH-1395 slice 2: the challenge, after the stars, with the coin mark rather than a star (D2).
+    if (r.challenge) {
+      const li = el('li', `rl-aar__rung rl-aar__rung--challenge rl-aar__rung--${r.challenge.met ? 'met' : 'missed'}`);
+      li.append(el('span', 'rl-aar__rung-coin'), el('span', 'rl-aar__rung-text', r.challenge.text));
+      ladder.appendChild(li);
+    }
     b.appendChild(ladder);
   }
 
