@@ -183,11 +183,11 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Subterranean",
-    "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning. The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
+    "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning. Fifteen people are still in the district. Four are with him, two more are on the quarry floor, and nine are sheltering in the south yards, the souk, the market block and the clinic block; those nine stay where they are until a soldier gets close enough to walk them out. Nine at the collection point inside four minutes, twelve if you can, the four with Sahim if you can reach them, and anyone still in the streets when the clock is out is taken. The collection point is three tiles from your start line, and they are counted the moment they reach it. Five minutes for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team and a charge squad sit on the lane the market people must come down, a rifle cell holds the souk, and what is fired at your squads lands on the ground the people stand on. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
     "sections": {
       "situation": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning.",
-      "mission": "The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first.",
-      "execution": "Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
+      "mission": "Fifteen people are still in the district. Four are with him, two more are on the quarry floor, and nine are sheltering in the south yards, the souk, the market block and the clinic block; those nine stay where they are until a soldier gets close enough to walk them out. Nine at the collection point inside four minutes, twelve if you can, the four with Sahim if you can reach them, and anyone still in the streets when the clock is out is taken. The collection point is three tiles from your start line, and they are counted the moment they reach it. Five minutes for the routes; the second does not wait for the first.",
+      "execution": "Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team and a charge squad sit on the lane the market people must come down, a rifle cell holds the souk, and what is fired at your squads lands on the ground the people stand on. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
       "notes": "Get the people out, take the ground he stands on, then bring all four down."
     },
     "aftermath": "Four routes under Beit Sahwan, and the man who dug them came up out of the last one with his hands empty. Brigade took the file and said nothing else about it. The perimeter is ours. The enclave is not.",
@@ -199,43 +199,67 @@
     "objectives": {
       "bring_it_down": "Collapse every route under the district",
       "read_the_ground": "Find the crew reopening Sahim's western route",
-      "get_them_out": "Get five people out to the collection point before the routes come down",
+      "get_them_out": "Get nine people out to the collection point inside four minutes",
+      "most_of_them": "Get twelve of the fifteen out to the collection point inside four minutes",
+      "bring_back_the_four": "Bring the four held at the shaft head out to the collection point",
       "take_the_shaft_head": "Hold the shaft head until Sahim is out of it",
       "find_spade": "Find Nadir Sahim at the shaft head"
     },
     "objective_say": {
       "read_the_ground": "That is the crew on the west route. He keeps his diggers close to the work, which is how we found him.",
-      "get_them_out": "Five at the collection point. That is the first time this district has given anybody back.",
+      "get_them_out": "Nine at the collection point. That is the first time this district has given anybody back.",
+      "most_of_them": "Twelve at the collection point. Keep the lane open for whoever is still coming.",
+      "bring_back_the_four": "The four from the shaft head are at the collection point. All four.",
       "take_the_shaft_head": "The shaft head is yours and he is standing on the wrong side of it. Four years of digging and he is above ground."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Clock is out and there is still ground under this town that is not ours.",
-      "get_them_out": "Clock is out on the people. Nothing under this town is worth what we just did not do."
+      "get_them_out": "Clock is out on the people. Nothing under this town is worth what we just did not do.",
+      "most_of_them": "Clock is out on the twelve. Whoever is still in the streets is taken, and that number is the cost."
+    },
+    "triggers": {
+      "yard_families_shelter": "Yard families keep to the yard",
+      "souk_families_shelter": "Souk families fall back to the west alley",
+      "market_families_shelter": "Market families keep to the alley",
+      "clinic_families_shelter": "Clinic families fall back to the rubble"
+    },
+    "trigger_say": {
+      "the_streets_are_cleared": "Clock is out. Whoever is still in the streets has been moved across his line."
     },
     "wave_say": {
       "1": "Last of what the mortar line can send. After this he is spending the ones underground."
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "8ce1b9df",
+      "briefing": "2b6d54c3",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
-      "objectives.get_them_out": "132b3d66",
+      "objectives.get_them_out": "4ce3c7c6",
+      "objectives.most_of_them": "053aa740",
+      "objectives.bring_back_the_four": "235dacf1",
       "objectives.take_the_shaft_head": "a7d2e8b7",
       "objectives.find_spade": "da8ec255",
+      "triggers.yard_families_shelter": "dd03b9f1",
+      "triggers.souk_families_shelter": "6c21d359",
+      "triggers.market_families_shelter": "a5940c9f",
+      "triggers.clinic_families_shelter": "8a8ab1c5",
       "aftermath": "f882c5da",
       "hostages_place": "83b376f3",
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "3f2accd6",
-      "sections.execution": "d5a8f0e2",
+      "sections.mission": "09bb6a00",
+      "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
-      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.get_them_out": "d2fd78e3",
+      "objective_say.most_of_them": "6ec2fd04",
+      "objective_say.bring_back_the_four": "0ce0f960",
       "objective_say.take_the_shaft_head": "72ea9cfa",
       "objective_say_on_fail.bring_it_down": "68b7b2f2",
       "objective_say_on_fail.get_them_out": "232994e9",
+      "objective_say_on_fail.most_of_them": "9fa99b11",
+      "trigger_say.the_streets_are_cleared": "ca259384",
       "wave_say.1": "c220fa50"
     }
   },
@@ -439,6 +463,56 @@
       "objective_say_on_fail.keep_the_blocks": "b77daa93",
       "trigger_say.bt3_west_warns_east": "e42e3f7e",
       "trigger_say.bt3_east_warns_west": "f7b11b1c"
+    }
+  },
+  "bir_tarsha_4_clearance": {
+    "name": "Bir Tarsha IV — The Blade Line",
+    "briefing": "Between the Fence and the hamlet is a belt of works thirty tiles long: firing positions, posts, workshops and berms. If you found the east works crew I can say which are theirs, and if you did not, all of them are. Four D9s are yours for this, and the battalion goes with them. Level every work in the belt and bring the blades through to the far gate, and lose two blades and the work is over. A hamlet stands north of the belt, eight tiles from the nearest post, and it is lived in. I expect fire out of its lee as soon as anything of ours enters the belt, and it is meant to be answered into a house. Do not answer into a house. A house is six Conduct, two are twelve, and a third is the mission. A T-wall closes the road at the east end, and a D9 will cut it where wheels cannot cross it. Until it is down the far gate is out of reach, and three shafts in the belt vent behind whoever is looking at the wall. Berms are low and a blade will not take one by passing it, so each is an order. Shafts down, works level, blades through.",
+    "debrief": {
+      "victory": "The belt is level and the blades are through. Nothing stands on the Fence Road that was not put there by the people who left it.",
+      "defeat": "Not this time. Whatever was left standing on the Fence Road is still facing the gate, and the blades that did not come back are not ours to count."
+    },
+    "objectives": {
+      "blades": "Bring the four blades through to the far gate",
+      "clear_works": "Level the works along the Fence Road in six and a half minutes",
+      "drop_shafts": "Bring down the three shafts in the works",
+      "keep_the_hamlet": "Lose no more than 12 Conduct"
+    },
+    "objective_say": {
+      "blades": "Blades through the fence line. Count them on the far side.",
+      "clear_works": "The belt is level. Everything on that strip is flat except the wall.",
+      "drop_shafts": "Three shafts down. Nothing in the belt runs under the road any more."
+    },
+    "objective_say_on_fail": {
+      "blades": "That is two blades gone. With half the line left, the work cannot be finished from the near side.",
+      "keep_the_hamlet": "That is past twelve. There is a house in the count that should not be in it."
+    },
+    "triggers": {
+      "bt4_lee_opens": "Fire is coming from the hamlet's lee",
+      "bt4_vent_opens": "A shaft has opened behind the escort"
+    },
+    "trigger_say": {
+      "bt4_lee_opens": "Missile teams out of the hamlet's lee, on the lane. The houses stand behind them, and that is where they want the answer to go.",
+      "bt4_vent_opens": "A shaft vented behind you, south of the hamlet. It has been waiting for the blades to pass."
+    },
+    "src": {
+      "name": "52569982",
+      "briefing": "8cdb9e35",
+      "objectives.blades": "b251e5af",
+      "objectives.clear_works": "8c5027e7",
+      "objectives.drop_shafts": "640cbdbf",
+      "objectives.keep_the_hamlet": "d311f8ba",
+      "triggers.bt4_lee_opens": "84d673af",
+      "triggers.bt4_vent_opens": "f314e93e",
+      "debrief.victory": "ad10e460",
+      "debrief.defeat": "72d3cfe6",
+      "objective_say.blades": "8f5230c9",
+      "objective_say.clear_works": "57c8d0c4",
+      "objective_say.drop_shafts": "f6ef41d9",
+      "objective_say_on_fail.blades": "0f7334b0",
+      "objective_say_on_fail.keep_the_hamlet": "61843c4e",
+      "trigger_say.bt4_lee_opens": "60e098ea",
+      "trigger_say.bt4_vent_opens": "faedceb3"
     }
   },
   "bir_tarsha_5_subterranean": {
@@ -753,7 +827,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Dead Ground",
-    "briefing": "The farm in this hollow is the winter road's staging post, and his drone crates sit in its barn waiting for the rain to stop. The crests either side stand four levels over it, and nothing off the north downs is in sight until it tops them. Hold the hollow for five minutes and burn the barn inside the same five. The engineers' charges are clean and slow under fire; the mortar and the Namer are quick, and every round near that yard is billed. A family is in the yard between the house and the barn, two tiles from the cell inside it. There is a truck in the north saddle, and identified today it is a known gun over the causeway head, not a first shot. You have the logistics for one outpost. Dig it into the hollow and it sees nothing; put it on the crest and it sees them coming, from outside the ground you have to hold. Every wheel from the east comes through one two-tile gap in the dyke. From the north it is the saddle for wheels and the crest for feet. The barn is the order; the house and the family beside it are on the rating.",
+    "briefing": "The farm in this hollow is the winter road's staging post, and his drone crates sit in its barn waiting for the rain to stop. The crests either side stand four levels over it, and nothing off the north downs is in sight until it tops them. Hold the hollow for five minutes and burn the barn inside the same five. The engineers' charges are clean and slow under fire; the mortar and the Namer are quick, and every round near that yard is billed. A family is in the yard between the house and the barn, two tiles from the cell inside it. There is a truck in the north saddle, and identified today it is a known gun over the causeway head, not a first shot. You have the logistics for one outpost. Dig it into the hollow and it sees nothing; put it on the crest and it sees them coming, from outside the ground you have to hold. Every wheel from the east comes through one two-tile gap in the basalt ridge. From the north it is the saddle for wheels and the crest for feet. The barn is the order; the house and the family beside it are on the rating.",
     "debrief": {
       "victory": "The farm is ours and the barn is ash. Whatever comes over those crests now comes down into us, and we see it on the skyline first.",
       "defeat": "We are off the farm and they are back in the hollow. From the crest you cannot see what they are putting in it."
@@ -773,11 +847,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "Saddle truck comes down to the farm",
-      "riders_come_through_the_dyke_gap": "Riders come through the dyke gap"
+      "riders_come_through_the_dyke_gap": "Riders come through the ridge gap"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "The truck in the saddle has started down the north track for the farm. If it is going to be identified on this ground, it is now.",
-      "riders_come_through_the_dyke_gap": "Riders through the dyke gap, one at a time, because that is all it is wide. It is the only door on that side."
+      "riders_come_through_the_dyke_gap": "Riders through the ridge gap, one at a time, because that is all it is wide. It is the only door on that side."
     },
     "wave_say": {
       "1": "Two cells walking over the north crest on foot. From the farm they are not there until they are on the skyline.",
@@ -785,12 +859,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -798,7 +872,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }
@@ -2014,7 +2088,7 @@
     "objective_say": {
       "picture": "Four sites and not one of them is a position. Nobody digs in on a road he means to keep using — this is a haulage route with guns parked along it.",
       "take_ford": "Ford watch held. The column is across the wadi.",
-      "get_the_carriers_out": "Four of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not."
+      "get_the_carriers_out": "Three of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not."
     },
     "objective_say_on_fail": {
       "get_the_carriers_out": "The crossing shut with them still on it. We were eight tiles away and looking the other way."
@@ -2046,7 +2120,7 @@
       "sections.notes": "81c5a8a8",
       "objective_say.picture": "7c3c8f83",
       "objective_say.take_ford": "bf78f27c",
-      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say.get_the_carriers_out": "02bed465",
       "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
       "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
       "wave_say.0": "a8afca11",
@@ -2205,7 +2279,7 @@
     "objective_say": {
       "take_village": "Village is held. Every cell under a roof we left standing is still at its window.",
       "kill_cache_guard": "That is not a fighter, that is a book-keeper with a launcher. What he was holding names the depot east of here and says how much of it is still full.",
-      "evac_families": "Every one of them is at the refuge."
+      "evac_families": "Three of them are at the refuge."
     },
     "objective_say_on_fail": {
       "evac_families": "The road is shut and there are still families inside it. Nine did not come in at First Light. Somebody has to keep saying the number, and it is not going to be you."
@@ -2230,7 +2304,7 @@
       "sections.execution": "dbd5b6d8",
       "objective_say.take_village": "13ef3503",
       "objective_say.kill_cache_guard": "ad4d3f21",
-      "objective_say.evac_families": "a5c462ea",
+      "objective_say.evac_families": "dbb160b1",
       "objective_say_on_fail.evac_families": "36801331",
       "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
     }

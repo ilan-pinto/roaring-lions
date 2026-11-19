@@ -130,7 +130,7 @@
       "count": 3,
       "seconds": 300,
       "text": "Get three carriers off the south ford to the refuge",
-      "say": { "speaker": "shai", "text": "Four of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not." },
+      "say": { "speaker": "shai", "text": "Three of them off the ford and out of the corridor. They were on his road because somebody put them on it; tonight they are not." },
       "say_on_fail": { "speaker": "shai", "text": "The crossing shut with them still on it. We were eight tiles away and looking the other way." }
     }
   ],

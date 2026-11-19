@@ -186,7 +186,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
-import { withGarageBranch } from './branch-bridge';
+import { legacyOffers, legacyOnStore } from './garage-legacy';
 import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
@@ -1291,19 +1291,28 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades, picks: a.ownedPicks };
+      return {
+        units: garageUnits(a.boughtUnits),
+        credits: a.balance,
+        owned: a.ownedTiers,
+        earned: ledgerStore.readAccount().upgrades,
+        picks: a.ownedPicks,
+        // GH-1384: `{}` while the branch switch is closed (the shipped branched table is empty).
+        legacy: legacyOffers(ledgerStore.readAccount(), ledgerStore.readRoar()),
+      };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     // Signed-in-ness comes from the STORE (fix round 2): an account store with no flow is offline, never a guest.
-    const serverCtl = serverControls<GarageState>(garageServerMode(ledgerStore, spendFlowRef), now, {
+    const garageMode = garageServerMode(ledgerStore, spendFlowRef);
+    const serverCtl = serverControls<GarageState>(garageMode, now, {
       guest: () => ({
         buy: (ask) => {
           const roar = ledgerStore.readRoar();
           const { account, ok } = buyWithCoins(
             storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
             roar,
-            withGarageBranch(ask),
+            ask,
             Date.now()
           );
           if (ok) {
@@ -1427,8 +1436,18 @@ async function main(): Promise<void> {
       owned: ownedTiers,
       earned: ledgerStore.readAccount().upgrades,
       picks: accountState().ownedPicks,
+      legacy: now().legacy,
+      // GH-1384: the legacy owner's Switch or Return writes both stores at once (`garage-legacy.ts`); a guest's only, since a
+      // member's are server routes (the net and Worker slice). Inert while the branch switch is closed: no marker can stand.
+      onLegacy:
+        ledgerStore.available && garageMode.mode === 'guest'
+          ? (unitId, track, action) => {
+              const out = legacyOnStore(ledgerStore, unitId, track, action, Date.now());
+              return { ...now(), landed: out.ok };
+            }
+          : undefined,
       onBuyUpgrade: ledgerStore.available
-        ? (unitId, track, tier, price) => {
+        ? (unitId, track, tier, price, pick) => {
             // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
             // account and the single-player view (Review Focus 2): the button's price is checked,
             // never trusted.
@@ -1442,7 +1461,8 @@ async function main(): Promise<void> {
               unitId,
               track,
               tier,
-              price
+              price,
+              pick
             );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
@@ -1478,6 +1498,9 @@ async function main(): Promise<void> {
         // nowhere else (per-seat kit): this is the one read of the account on
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
+        // GH-1384: the branch picks, from the SAME view as the tiers; `roomClaim` sends them only beside the tiers,
+        // never into a matched create, and only while branching is open.
+        picks: () => accountState().ownedPicks,
         // GH-1102: the Store specials the account owns, by the same path and the same rule.
         specials: () => kit.ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
@@ -4373,18 +4396,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * the battlefield is gone (torn down mid-save: no menu is left to read a line, and nothing is written or navigated).
    */
   const saveAndQuit = async (): Promise<SaveOutcome> => {
+    // The save belongs to the pause it was asked from. Resume and Escape stay live while a chunk loads (the content digest's first load
+    // fetches every map's JSON), so once THAT menu is gone, or the mission is decided, the sim may have ticked: nothing is cut, written or
+    // navigated, and null leaves no line (a closed menu reads nothing; an open one just clears its busy line). A new pause is a new menu.
+    const menu = pauseHandle;
+    const stale = (): boolean => !paused || pauseHandle !== menu || runtime?.result !== 'ongoing';
     const kit = await saveKit().catch(() => null);
-    if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
+    if (disposed || stale()) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
+    const { cutMission, loadContentDigest, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
     if (!(await confirmReplaceOther(other, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name))) return { declined: true };
-    if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    if (disposed || stale()) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    // The content digest (every map's JSON) loads at the save, not with the kit, which rides every mission boot (`loadContentDigest`).
+    const contentDigest = await loadContentDigest().catch(() => null);
+    if (disposed || stale()) return null; // left, resumed or ended while the digest loaded: nothing to cut, write or leave
+    if (contentDigest === null) return saveFailureText('encode_failed');
     const cut = cutMission({
       sim,
       runtime,
+      contentDigest,
       missionId: resolvedMission.id,
       seed: SIM_SEED,
       build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
@@ -4394,7 +4427,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
     if (!cut.ok) return saveFailureText('encode_failed');
     const sealed = await sealMission(cut.cut);
-    if (disposed) return null; // left mid-gzip: no save of a mission the player left, and no navigation off where they went
+    if (disposed || stale()) return null; // left or resumed mid-gzip: no save of a mission the player left or went back to, and no navigation
     if (!sealed.ok) return saveFailureText(sealed.reason);
     const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
     if (!wrote.ok) return saveFailureText(wrote.reason);

@@ -22,6 +22,9 @@
 import { doctrines, formations, structures, units, versusModes, versusRules } from '@lions/data';
 import { maps } from '@lions/data/content';
 import { fnv1a32 } from '@lions/net';
+import { canonicalJson } from './canonical-json';
+
+export { canonicalJson };
 
 /** What the digest covers. Plain JSON values, keyed as `@lions/data` keys them. */
 export interface Content {
@@ -40,24 +43,6 @@ export interface Content {
    *  in a different order would decode the same bytes against different formations: the order is content,
    *  and an array keeps it (the digest sorts object keys, never array elements). */
   readonly formations: readonly unknown[];
-}
-
-/** Key-sorted JSON text. Throws on anything JSON content cannot hold
- *  (a non-finite number, `undefined`, a function), rather than hash it one
- *  arbitrary way. */
-export function canonicalJson(v: unknown): string {
-  if (v === null || typeof v === 'boolean' || typeof v === 'string') return JSON.stringify(v);
-  if (typeof v === 'number') {
-    if (!Number.isFinite(v)) throw new Error(`canonicalJson: ${v} is not a JSON number`);
-    return JSON.stringify(v);
-  }
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
-  if (typeof v === 'object') {
-    const o = v as Record<string, unknown>;
-    const keys = Object.keys(o).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(',')}}`;
-  }
-  throw new Error(`canonicalJson: a ${typeof v} is not JSON content`);
 }
 
 /** The digest of `content`: pure, and the same in every engine. */

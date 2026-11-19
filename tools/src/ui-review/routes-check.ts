@@ -91,6 +91,18 @@ const PORT = await claimPort(TAG, 'UI_ROUTES_PORT', DEFAULT_PORT);
  */
 const ACTION_TIMEOUT_MS = 120_000;
 
+/** How long a kit leg (K4, K5) waits for the deploy BUTTON to exist, matching
+ *  the 60 s `dismissDeployGate` already allows for the gate to clear. Each kit
+ *  leg opens a fresh context and cold-boots a mission, K4 under a seeded
+ *  account, so the button can take longer than the helper's 20 s default:
+ *  PR 1595's visual job (135221198826) ran every leg 1.4-1.5x slower than the
+ *  run before (leg A 12.7 -> 18.2 s, the whole step 15.7 -> 23 min) and
+ *  K4 timed out at `waitForSelector('.rl-loading__deploy')` after 20000 ms,
+ *  where the run before had cleared the same gate in ~29 s. A hang guard, not
+ *  a threshold: it changes how long the walk waits for a booting page, never
+ *  what passes. */
+const KIT_DEPLOY_BUTTON_WAIT_MS = 60_000;
+
 /** Two shipped missions on two different maps, so the second boot exercises a
  *  fresh terrain/mesh load rather than re-reading what the first one warmed. */
 const MISSION_A = 'beit_sahwan_1_recon';
@@ -2076,7 +2088,9 @@ try {
     kp.setDefaultTimeout(ACTION_TIMEOUT_MS);
     kp.on('pageerror', (e) => errors.push(String(e)));
     await kp.goto(`http://localhost:${PORT}${urlPath}`, { waitUntil: 'load' });
-    if (urlPath.startsWith('/mission/')) await dismissDeployGate(kp, where);
+    if (urlPath.startsWith('/mission/')) {
+      await dismissDeployGate(kp, where, { selectorTimeoutMs: KIT_DEPLOY_BUTTON_WAIT_MS });
+    }
     await kp.waitForFunction('window.__lions !== undefined', null, { timeout: 90_000 });
     return { ctx, page: kp };
   };

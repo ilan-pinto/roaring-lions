@@ -41,8 +41,17 @@ export interface Env {
    *  FEEDBACK_CLOSED` (a secret survives deploys; a dashboard var does not).
    *  The other half is the D1 `flags` row, flipped from /stats/feedback. */
   FEEDBACK_CLOSED?: string;
-  /** N0: the MatchRoom Durable Object namespace (wrangler.jsonc `durable_objects`). */
+  /** N0: the MatchRoom Durable Object namespace (wrangler.jsonc `durable_objects`). GH-1397: from the lead's cut on,
+   *  the relay Worker's (`script_name: roaring-lions-relay`); before it, the game Worker's own. Read only through
+   *  `match/routes.ts`'s `roomsOf`. */
   ROOMS?: DurableObjectNamespaceLike;
+  /** GH-1397 (D-R4): the game Worker's own MatchRoom namespace, bound by the cut PR as the rollback lever's target and
+   *  otherwise idle. Unbound before the cut. Read only through `roomsOf`. */
+  ROOMS_LEGACY?: DurableObjectNamespaceLike;
+  /** GH-1397 (D-R4): the no-deploy rollback switch. Exactly `'0'`, with `ROOMS_LEGACY` bound, makes every route use the
+   *  legacy namespace; unset or any other value uses `ROOMS`. Set by the lead as a secret (`npx wrangler secret put
+   *  ROOMS_NEW`, like FEEDBACK_CLOSED: a secret survives deploys, a dashboard var does not). */
+  ROOMS_NEW?: string;
   /** N0: room creation and joins, keyed on the connecting IP (6 a minute). */
   ROOM_LIMIT?: RateLimiter;
   /** #559 M-1: socket upgrades, keyed on the connecting IP (60 a minute):

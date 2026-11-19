@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync,
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { denseFrames, parseReplay, ReplayRefused, serializeReplay, type ReplayFile } from '../../../packages/app/src/net/replay-file';
 import { REPLAY_SPEEDS } from '../../../packages/app/src/net/replay-transport';
 import { runArena, type RefereeDigest } from './arena';
@@ -34,21 +34,28 @@ const outDir = (): string => { const d = mkdtempSync(join(tmpdir(), 'arena-repla
 const quiet = { log: () => {}, print: () => {} };
 /** One seed, two games, short enough to replay five times over, long enough for rush to give orders. */
 const ARGV = ['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '900'];
-const BUILD = buildId();
+/**
+ * This checkout's build, read when it is ASKED for, never at module load. The build carries `git rev-parse HEAD`, and
+ * HEAD can move between this file's import and a run (a commit or a checkout in a tree other sessions share): a build
+ * read at load then disagrees with the one `runArena` records, and every gate that compares the two goes red for a
+ * reason that is not the replay's. Each run's gates compare against the value read beside that run.
+ */
+const currentBuild = (): string => buildId();
 
 const framesFiles = (out: string): string[] => readdirSync(out).filter((f) => f.endsWith('.frames.jsonl')).sort();
-const read = (out: string, f: string): ReplayFile => parseReplay(readFileSync(join(out, f), 'utf8'), { build: BUILD });
+const read = (out: string, f: string, build: string): ReplayFile => parseReplay(readFileSync(join(out, f), 'utf8'), { build });
 
-/** Plays the short run once and shares it: every gate below reads the same two games. */
-interface Played { out: string; referees: Map<number, RefereeDigest>; files: string[] }
+/** Plays the short run once and shares it: every gate below reads the same two games, and the build they were played on. */
+interface Played { out: string; referees: Map<number, RefereeDigest>; files: string[]; build: string }
 let played: Played | null = null;
 async function play(): Promise<Played> {
   if (played !== null) return played;
   const out = mkdtempSync(join(tmpdir(), 'arena-replay-shared-'));
   const referees = new Map<number, RefereeDigest>();
+  const build = currentBuild();
   const r = await runArena([...ARGV, '--out', out], { ...quiet, onGameEnd: (e) => { referees.set(e.n, e.referee); } });
   expect(r.code).toBe(0);
-  played = { out, referees, files: framesFiles(out) };
+  played = { out, referees, files: framesFiles(out), build };
   return played;
 }
 
@@ -58,10 +65,10 @@ describe('a game is recorded', () => {
     expect(p.files).toHaveLength(2);
     expect(p.files.every((f) => FRAMES_NAME.test(f) && /-game[12]\.frames\.jsonl$/.test(f))).toBe(true);
     for (const [i, f] of p.files.entries()) {
-      const file = read(p.out, f);
+      const file = read(p.out, f, p.build);
       const referee = p.referees.get(i + 1);
       expect(referee).toBeDefined();
-      expect(file.header.build).toBe(BUILD);
+      expect(file.header.build).toBe(p.build);
       expect(file.header.config.map).toBe('tel_marum');
       expect(file.header.game).toMatchObject({ n: i + 1, of: 2, seed: 56433, capTicks: 900, pace: 40 });
       // Not vacuous: a real game (the cap), with orders in it, and the end line is the referee's own numbers.
@@ -78,7 +85,7 @@ describe('gate: replay equals referee', () => {
     const p = await play();
     for (const [i, f] of p.files.entries()) {
       const referee = p.referees.get(i + 1);
-      const end = replayToEnd(read(p.out, f));
+      const end = replayToEnd(read(p.out, f, p.build));
       expect(end.tick).toBe(referee?.tick);
       expect(end.hash).toBe(referee?.hash);
     }
@@ -86,7 +93,7 @@ describe('gate: replay equals referee', () => {
 
   it('is not vacuous: a file with one command dropped ends somewhere else', async () => {
     const p = await play();
-    const file = read(p.out, p.files[0]);
+    const file = read(p.out, p.files[0], p.build);
     const dropped: ReplayFile = { ...file, frames: file.frames.slice(1) };
     expect(file.frames.length).toBeGreaterThanOrEqual(1);
     expect(replayToEnd(dropped).hash).not.toBe(file.end.referee.hash);
@@ -98,11 +105,12 @@ describe('other kinds of game replay to the referee\'s state too', () => {
     const out = outDir();
     const ends = new Map<number, RefereeDigest>();
     // Beit Sahwan outskirts, seed 3: rush annihilates passive at tick 2980 (seat 0) and 2820 (seat 1), under a cap of 9,000.
+    const build = currentBuild();
     const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '3', '--map', 'beit_sahwan_outskirts', '--pace', '100', '--tick-ms', '1', '--cap-ticks', '9000', '--out', out], { ...quiet, onGameEnd: (e) => { ends.set(e.n, e.referee); } });
     expect(r.code).toBe(0);
     expect(r.games.map((g) => g.by)).toEqual(['annihilation', 'annihilation']);
     for (const [i, f] of framesFiles(out).entries()) {
-      const file = read(out, f);
+      const file = read(out, f, build);
       expect(file.end.by).toBe('annihilation');
       expect(file.end.ticks).toBeLessThan(9000);
       expect(file.end.ticks).toBe(r.games[i].ticks);
@@ -114,12 +122,13 @@ describe('other kinds of game replay to the referee\'s state too', () => {
 
   it('a KDF against Sarim game (the economy runtime, two factions): the replay ends in the referee\'s state', async () => {
     const out = outDir();
+    const build = currentBuild();
     const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--matchup', 'kdf', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '700', '--out', out], quiet);
     expect(r.code).toBe(0);
     const files = framesFiles(out);
     expect(files).toHaveLength(2);
     for (const f of files) {
-      const file = read(out, f);
+      const file = read(out, f, build);
       expect(file.header.game.matchup).toBe('kdf');
       expect(new Set(file.header.config.seats.map((s) => s.faction))).toEqual(new Set(['kdf', 'sarim']));
       expect(file.end.ticks).toBe(700);
@@ -133,7 +142,7 @@ describe('other kinds of game replay to the referee\'s state too', () => {
 describe('gate: speed does not change the outcome', () => {
   it('every speed from 0.5x to 8x, at several frame lengths, ends in one state: the referee\'s', async () => {
     const p = await play();
-    const file = read(p.out, p.files[0]);
+    const file = read(p.out, p.files[0], p.build);
     const runs: { speed: number; frameMs: number; perFrame: number; frames: number }[] = [];
     for (const speed of REPLAY_SPEEDS) {
       for (const [frameMs, perFrame] of [[16, 4], [7, 2], [33, 40]] as const) {
@@ -158,21 +167,21 @@ describe('gate: a build mismatch is refused', () => {
     try {
       parseReplay(text, { build: '0.0.1+deadbeef' });
     } catch (e) {
-      expect(e).toMatchObject({ code: 'build_mismatch', detail: { fileBuild: BUILD } });
+      expect(e).toMatchObject({ code: 'build_mismatch', detail: { fileBuild: p.build } });
     }
     // The same text with its header's build changed is refused by the build the server runs.
     const lines = text.split('\n');
     const header = JSON.parse(lines[0]) as { build: string };
     lines[0] = JSON.stringify({ ...header, build: '0.0.1+deadbeef' });
-    expect(() => parseReplay(lines.join('\n'), { build: BUILD })).toThrow(/recorded on build "0\.0\.1\+deadbeef"/);
+    expect(() => parseReplay(lines.join('\n'), { build: p.build })).toThrow(/recorded on build "0\.0\.1\+deadbeef"/);
   }, 120_000);
 
   it('the replay route answers 409 with both builds, and reads the file when they agree', async () => {
     const p = await play();
     const other = resultsRoutes({ dir: p.out, build: () => '0.0.1+deadbeef' }).replay;
     const refused = await other.handle({ url: `/arena/api/replay?game=${p.files[0]}` } as never, {});
-    expect(refused).toEqual({ status: 409, body: { error: 'build_mismatch', fileBuild: BUILD, build: '0.0.1+deadbeef' } });
-    const same = resultsRoutes({ dir: p.out, build: () => BUILD }).replay;
+    expect(refused).toEqual({ status: 409, body: { error: 'build_mismatch', fileBuild: p.build, build: '0.0.1+deadbeef' } });
+    const same = resultsRoutes({ dir: p.out, build: () => p.build }).replay;
     const ok = await same.handle({ url: `/arena/api/replay?game=${p.files[0]}` } as never, {});
     expect(ok.status).toBe(200);
     expect((ok.body as { replay: ReplayFile }).replay.end.ticks).toBe(900);
@@ -180,7 +189,7 @@ describe('gate: a build mismatch is refused', () => {
 
   it('the results list says which files were recorded on this build', async () => {
     const p = await play();
-    const list = listResults({ dir: p.out, build: () => BUILD });
+    const list = listResults({ dir: p.out, build: () => p.build });
     expect(list.runs[0].games.map((g) => g.buildMatches)).toEqual([true, true]);
     const other = listResults({ dir: p.out, build: () => '0.0.1+deadbeef' });
     expect(other.runs[0].games.map((g) => g.buildMatches)).toEqual([false, false]);
@@ -217,7 +226,7 @@ describe('gate: path traversal is refused', () => {
     const p = await play();
     const outside = join(outDir(), 'secret.frames.jsonl');
     writeFileSync(outside, 'TOPSECRET-OUTSIDE');
-    const s = await startArenaServe({ app: false, token: 'a-long-random-run-token', log: () => {}, finishedGraceMs: 0, resultsDir: p.out, build: () => BUILD });
+    const s = await startArenaServe({ app: false, token: 'a-long-random-run-token', log: () => {}, finishedGraceMs: 0, resultsDir: p.out, build: () => p.build });
     serves.push(s);
     const get = (path: string, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> => new Promise((resolve, reject) => {
       const req = request({ host: '127.0.0.1', port: s.port, method: 'GET', path, headers: { host: `127.0.0.1:${s.port}`, 'x-arena-token': 'a-long-random-run-token', ...headers } }, (res) => {
@@ -242,7 +251,7 @@ describe('gate: path traversal is refused', () => {
     expect((await get(q(p.files[0]), { origin: 'https://evil.example' })).status).toBe(403);
     const ok = await get(q(p.files[0]));
     expect(ok.status).toBe(200);
-    expect(JSON.parse(ok.text)).toMatchObject({ build: BUILD, file: p.files[0] });
+    expect(JSON.parse(ok.text)).toMatchObject({ build: p.build, file: p.files[0] });
   }, 120_000);
 });
 
@@ -281,6 +290,7 @@ describe('gate: no token and no template in any results or frames file', () => {
   it('a cmd: template, as a player\'s name, is in no file: the config, the labels and the results list say Player A / an external player', async () => {
     const out = outDir();
     const TEMPLATE = 'cmd:node /private/wrapper --secret-flag-xyz {mcp} < {prompt}';
+    const build = currentBuild();
     const r = await runArena(['--a', TEMPLATE, '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '300', '--out', out], {
       ...quiet, resolvePlayer: (spec) => inProcess(spec, spec === 'passive' ? passive : rush),
     });
@@ -290,21 +300,22 @@ describe('gate: no token and no template in any results or frames file', () => {
     for (const f of frames) {
       const text = readFileSync(join(out, f), 'utf8');
       for (const needle of ['secret-flag-xyz', '/private/wrapper', 'cmd:', '{mcp}', '{prompt}']) expect(text.includes(needle), `${f} has ${needle}`).toBe(false);
-      const file = read(out, f);
+      const file = read(out, f, build);
       // By PLAYER, not by seat: the cmd player is Player A in both games, wherever it sat.
       expect(file.header.labels).toEqual(file.header.game.n === 1 ? ['Player A', 'passive'] : ['passive', 'Player A']);
       expect(file.header.config.seats.map((s) => s.callsign)).toEqual(file.header.labels);
     }
     // The results list, which is built from the (unredacted, pre-existing) .jsonl, shows no template either.
-    const body = JSON.stringify(listResults({ dir: out, build: () => BUILD }));
+    const body = JSON.stringify(listResults({ dir: out, build: () => build }));
     for (const needle of ['secret-flag-xyz', '/private/wrapper', 'cmd:']) expect(body.includes(needle), `the list has ${needle}`).toBe(false);
-    expect(listResults({ dir: out, build: () => BUILD }).runs[0].games[0].players).toEqual([null, 'passive']);
+    expect(listResults({ dir: out, build: () => build }).runs[0].games[0].players).toEqual([null, 'passive']);
   }, 120_000);
 
   it('a cmd: spec whose FIRST 40 characters name a word and a key is in no file NAME, no file, the list or the replay body', async () => {
     // fileSafe used to turn this into `cmd_zebraword_--key_sk-ant-abc123_` and cut it at 40: inside the cut.
     const SPEC = 'cmd:zebraword --key sk-ant-abc123 {mcp} < {prompt}';
     const out = outDir();
+    const build = currentBuild();
     const r = await runArena(['--a', SPEC, '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '300', '--judge', 'cmd:judgebin --k sk-ant-judge9 < {prompt}', '--out', out], {
       ...quiet, resolvePlayer: (spec) => inProcess(spec, spec === 'passive' ? passive : rush),
       runJudge: () => Promise.resolve({ status: 'failed', reason: 'stub', tokens: null }),
@@ -319,12 +330,12 @@ describe('gate: no token and no template in any results or frames file', () => {
       for (const needle of [...needles.filter((x) => x !== 'cmd'), 'sk-ant-judge9']) expect(readFileSync(join(out, n), 'utf8').includes(needle), `${n} has ${needle}`).toBe(false);
     }
     for (const g of r.games) expect(g.players.some((p) => p.includes('zebraword'))).toBe(false);
-    const list = listResults({ dir: out, build: () => BUILD });
+    const list = listResults({ dir: out, build: () => build });
     expect(list.runs).toHaveLength(1);
     expect(list.runs[0].id).toMatch(/^\d{4}-\d{2}-\d{2}-1$/);
     const file = list.runs[0].games[0].file as string;
     expect(JSON.stringify(list)).not.toMatch(/zebraword|sk-ant|--key|cmd:/);
-    const body = await resultsRoutes({ dir: out, build: () => BUILD }).replay.handle({ url: `/arena/api/replay?game=${file}` } as never, {});
+    const body = await resultsRoutes({ dir: out, build: () => build }).replay.handle({ url: `/arena/api/replay?game=${file}` } as never, {});
     expect(body.status).toBe(200);
     expect(JSON.stringify(body.body)).not.toMatch(/zebraword|sk-ant|--key/);
     // The same names, by player, in the list: Player A is the cmd player in both games, wherever it sat.
@@ -335,7 +346,7 @@ describe('gate: no token and no template in any results or frames file', () => {
     const out = outDir();
     const record = { seed: 1, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'passive'], factions: ['kdf', 'kdf'], outcome: 'draw', by: 'cap', ticks: 10, score: [], reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: null, timeouts: 0, errors: [] }] };
     for (const base of ['2026-01-01-cmd_curl_-H_x-api-key_sk-ant-abc123_http-vs-passive', '2026-01-01-rush-vs-passive', '2026-01-02-rush-vs-passive']) writeFileSync(join(out, `${base}.jsonl`), `${JSON.stringify(record)}\n`);
-    const list = listResults({ dir: out, build: () => BUILD });
+    const list = listResults({ dir: out, build: currentBuild });
     expect(list.runs.map((r) => r.id).sort()).toEqual(['2026-01-01-1', '2026-01-01-2', '2026-01-02-1']);
     expect(JSON.stringify(list)).not.toMatch(/sk-ant|curl/);
   });
@@ -345,7 +356,7 @@ describe('gate: no token and no template in any results or frames file', () => {
     const rec = (judge: unknown): string => JSON.stringify({ seed: 1, map: 'tel_marum', matchup: 'mirror', players: ['rush', 'passive'], factions: ['kdf', 'kdf'], outcome: 'draw', by: 'cap', ticks: 10, score: [], reports: [{ tokens: null, timeouts: 0, errors: [] }, { tokens: null, timeouts: 0, errors: [] }], judge });
     const s = (n: number): unknown => ({ criteria: { fewer_deaths: { score: n, reason: 'x' } }, overall: { score: n, reason: 'x' } });
     writeFileSync(join(out, '2026-01-01-rush-vs-passive.jsonl'), `${rec({ status: 'scored', scores: { seat0: s(7), seat1: s(3) }, tokens: null })}\n${rec({ status: 'scored', scores: {}, tokens: null })}\n`);
-    const g = listResults({ dir: out, build: () => BUILD }).runs[0].games;
+    const g = listResults({ dir: out, build: currentBuild }).runs[0].games;
     expect(g[0].judge).toEqual({ status: 'scored', scores: { overall: [7, 3], criteria: { fewer_deaths: [7, 3] } } });
     expect(g[1].judge).toEqual({ status: 'scored' });
   });
@@ -355,7 +366,7 @@ describe('gate: no token and no template in any results or frames file', () => {
     const elsewhere = join(outDir(), 'real.jsonl');
     writeFileSync(elsewhere, `${JSON.stringify({ seed: 1, map: 'm', matchup: 'mirror', players: ['a', 'b'], outcome: 'draw', by: 'cap', ticks: 1, reports: [] })}\n`);
     symlinkSync(elsewhere, join(out, '2026-01-01-a-vs-b.jsonl'));
-    expect(listResults({ dir: out, build: () => BUILD }).runs).toEqual([]);
+    expect(listResults({ dir: out, build: currentBuild }).runs).toEqual([]);
   });
 
   it('displayName: scripted names and ids pass, a preset id becomes its label, anything template-shaped is null', () => {
@@ -370,9 +381,9 @@ describe('gate: no token and no template in any results or frames file', () => {
 describe('recordGame refuses a file that could not replay', () => {
   it('frames that are not the referee\'s ticks are not written', async () => {
     const p = await play();
-    const file = read(p.out, p.files[0]);
+    const file = read(p.out, p.files[0], p.build);
     const frames = denseFrames(file);
-    const input = { build: BUILD, game: file.header.game, names: ['rush', 'passive'] as [string, string], frames: { config: file.header.config, frames }, referee: file.end.referee, outcome: file.end.outcome, by: file.end.by };
+    const input = { build: p.build, game: file.header.game, names: ['rush', 'passive'] as [string, string], frames: { config: file.header.config, frames }, referee: file.end.referee, outcome: file.end.outcome, by: file.end.by };
     expect(recordGame(input).agrees).toBe(true);
     expect(() => recordGame({ ...input, frames: { config: file.header.config, frames: frames.slice(1) } })).toThrow(/not the referee's/);
     // A wrong referee hash is recorded as a disagreement, not hidden.
@@ -383,14 +394,14 @@ describe('recordGame refuses a file that could not replay', () => {
     const p = await play();
     const text = readFileSync(join(p.out, p.files[0]), 'utf8');
     const lines = text.trimEnd().split('\n');
-    const code = (t: string): string | undefined => { try { parseReplay(t, { build: BUILD }); return undefined; } catch (e) { return e instanceof ReplayRefused ? e.code : 'other'; } };
+    const code = (t: string): string | undefined => { try { parseReplay(t, { build: p.build }); return undefined; } catch (e) { return e instanceof ReplayRefused ? e.code : 'other'; } };
     expect(code(text)).toBeUndefined();
     expect(code(lines.slice(0, -1).join('\n'))).toBe('incomplete');          // no end line
     expect(code([lines[0], lines[2], lines[1], lines[lines.length - 1]].join('\n'))).toBe('bad_file');   // ticks must ascend
     expect(code([lines[0], '{"t":1,"c":[]}', lines[lines.length - 1]].join('\n'))).toBe('bad_file');
     expect(code('')).toBe('bad_file');
     expect(code('not json')).toBe('bad_file');
-    expect(code(serializeReplay(read(p.out, p.files[0])))).toBeUndefined();
+    expect(code(serializeReplay(read(p.out, p.files[0], p.build)))).toBeUndefined();
   }, 120_000);
 });
 
@@ -401,13 +412,14 @@ describe('the results list', () => {
     const spent = { inputTokens: 100, outputTokens: 20, cacheCreationInputTokens: 3000, cacheReadInputTokens: 45000, costUsd: 0.25 };
     const wrap = (p: ArenaPlayer): ArenaPlayer => ({ name: p.name, start: async (s) => { const r = await p.start(s); return { ...r, done: r.done.then((rep) => ({ ...rep, tokens: 120, usage: spent })) }; } });
     const judged: JudgeRecord = { status: 'scored', scores: { seat0: playerScore(8), seat1: playerScore(3) }, tokens: 5, usage: { ...spent, costUsd: 0.1 } };
+    const build = currentBuild();
     const r = await runArena(['--a', 'preset:opus-x', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '300', '--judge', 'cmd:judge-cli < {prompt}', '--out', out], {
       ...quiet, presets, runJudge: () => Promise.resolve(judged),
       resolvePlayer: (spec) => (spec.startsWith('preset:') ? wrap(inProcess(spec, rush)) : inProcess(spec, passive)),
     });
     expect(r.code).toBe(0);
-    const body = listResults({ dir: out, build: () => BUILD, labelOf: (id) => presets.byId.get(id)?.label ?? null });
-    expect(body.build).toBe(BUILD);
+    const body = listResults({ dir: out, build: () => build, labelOf: (id) => presets.byId.get(id)?.label ?? null });
+    expect(body.build).toBe(build);
     expect(body.criteria.map((c) => c.id)).toEqual(['fewer_deaths', 'wounded_care', 'force_preservation', 'tempo_initiative', 'adaptation']);
     expect(body.runs).toHaveLength(1);
     const run = body.runs[0];
@@ -446,7 +458,7 @@ describe('the results list', () => {
     writeFileSync(join(out, f), `${lines.join('\n')}\n`);
     const base = f.replace(/-game\d\.frames\.jsonl$/, '');
     writeFileSync(join(out, `${base}.jsonl`), readFileSync(join(p.out, `${base}.jsonl`), 'utf8'));
-    const body = listResults({ dir: out, build: () => BUILD });
+    const body = listResults({ dir: out, build: () => p.build });
     expect(body.runs[0].games[0].digest?.agree).toBe(false);
     expect(body.runs[0].games[1].file).toBeNull();
     expect(body.runs[0].games[1].digest).toBeNull();
@@ -454,10 +466,28 @@ describe('the results list', () => {
 
   it('an empty or missing directory lists no runs, and a half-written line is skipped', () => {
     const out = outDir();
-    expect(listResults({ dir: join(out, 'nope'), build: () => BUILD }).runs).toEqual([]);
+    expect(listResults({ dir: join(out, 'nope'), build: currentBuild }).runs).toEqual([]);
     mkdirSync(join(out, 'x'));
-    expect(listResults({ dir: out, build: () => BUILD }).runs).toEqual([]);
+    expect(listResults({ dir: out, build: currentBuild }).runs).toEqual([]);
     writeFileSync(join(out, '2026-01-01-a-vs-b.jsonl'), '{"players":["a","b"],"outcome"');
-    expect(listResults({ dir: out, build: () => BUILD }).runs).toEqual([]);
+    expect(listResults({ dir: out, build: currentBuild }).runs).toEqual([]);
   });
+});
+
+describe('the build is read when it is asked for, not when this file was imported', () => {
+  it('a HEAD that moved after the import (stood in for by the CI commit variable) is the build a run records and its gates compare with', async () => {
+    const out = outDir();
+    vi.stubEnv('WORKERS_CI_COMMIT_SHA', 'c0ffee0123456');
+    try {
+      const build = currentBuild();
+      expect(build).toMatch(/\+c0ffee0123456$/);
+      const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '300', '--out', out], quiet);
+      expect(r.code).toBe(0);
+      const files = framesFiles(out);
+      expect(files).toHaveLength(2);
+      for (const f of files) expect(read(out, f, build).header.build).toBe(build);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 120_000);
 });
