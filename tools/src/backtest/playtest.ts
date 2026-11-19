@@ -50,6 +50,7 @@ import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHal
 import { firstLightPlan } from './plans/beit_sahwan';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { QASR_LIWAN_PLANS } from './plans/qasr_liwan';
+import { BIR_TARSHA_PLANS } from './plans/bir_tarsha';
 import { playOrderOf } from './play-order';
 import { telMarum3Plan } from './plans/tel_marum';
 import { uz2Plan } from './plans/umm_zeitoun';
@@ -558,6 +559,31 @@ const qlLed4 = { ...qlLed3, ...ql4 };
 run('qasr_liwan_5_subterranean', QASR_LIWAN_PLANS.qasr_liwan_5_subterranean, qlLed4, 'victory', 'qasr_liwan_5_subterranean');
 passiveAcrossSeeds('qasr_liwan_5_subterranean', 'qasr_liwan_5_subterranean (no orders)', 'defeat', qlLed4);
 
+// --- Marj: Bir Tarsha, The Long Ground town 2 (GH-1438) -----------------------------------------------------------
+//
+// Five missions here, one ledger, run on the app's persistent merge like Qasr Liwan. Plans:
+// `plans/bir_tarsha*.ts`, one file per mission. The town starts on a bare `{}`.
+//
+// - I: a failable primary (`six_out`, 300 s). The passive control loses on that clock (`objective:six_out`), not on the 720 s limit.
+// - II: `seven_in` (300 s) is the failable one; the plan buys a D9 first and digs the terminal's garrison out with it (see the plan).
+// - III: `bring_three_out` (360 s) and a ceiling of 15.
+// - V: the five routes (`all_five`) and a ceiling; three stars.
+const bt1 = run('bir_tarsha_1_recon', BIR_TARSHA_PLANS.bir_tarsha_1_recon, {}, 'victory', 'bir_tarsha_1_recon', 3);
+passiveAcrossSeeds('bir_tarsha_1_recon', 'bir_tarsha_1_recon (no orders)', 'defeat');
+const btLed1 = { ...bt1 };
+const bt2 = run('bir_tarsha_2_foothold', BIR_TARSHA_PLANS.bir_tarsha_2_foothold, btLed1, 'victory', 'bir_tarsha_2_foothold');
+passiveAcrossSeeds('bir_tarsha_2_foothold', 'bir_tarsha_2_foothold (no orders)', 'defeat', btLed1);
+const btLed2 = { ...btLed1, ...bt2 };
+const bt3 = run('bir_tarsha_3_clearance', BIR_TARSHA_PLANS.bir_tarsha_3_clearance, btLed2, 'victory', 'bir_tarsha_3_clearance');
+// The taken walk out on their own with no orders (bring_three_out is nearly free), so the control loses on the 720 s limit (withdrawn), not on an objective clock. Was 'defeat': 0 of 30 seeds.
+passiveAcrossSeeds('bir_tarsha_3_clearance', 'bir_tarsha_3_clearance (no orders)', 'withdrawn', btLed2);
+const btLed3 = { ...btLed2, ...bt3 };
+const bt4 = run('bir_tarsha_4_clearance', BIR_TARSHA_PLANS.bir_tarsha_4_clearance, btLed3, 'victory', 'bir_tarsha_4_clearance');
+passiveAcrossSeeds('bir_tarsha_4_clearance', 'bir_tarsha_4_clearance (no orders)', 'defeat', btLed3);
+const btLed4 = { ...btLed3, ...bt4 };
+run('bir_tarsha_5_subterranean', BIR_TARSHA_PLANS.bir_tarsha_5_subterranean, btLed4, 'victory', 'bir_tarsha_5_subterranean', 3);
+passiveAcrossSeeds('bir_tarsha_5_subterranean', 'bir_tarsha_5_subterranean (no orders)', 'defeat', btLed4);
+
 // --- Beit Sahwan IV: Subterranean --------------------------------------------
 
 // IV — Subterranean: tour the district with both charge teams, and let the
@@ -714,9 +740,46 @@ const bs4Plan: Plan = (sim, rt, ids, at) => {
   // east, and an infantry squad on its own in that fight dies (seed 1).
   at(28, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 27) }));
 
-  // The Namer peels off at once to the collection point, banking the two southern civilians inside
-  // twenty seconds and staying out of every ambush for the rest of the mission.
-  at(1, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(29, 33) }));
+  // Nobody is banked for free any more (GH-1438, the civilian drama). The nine residents stand at four
+  // musters from t = 2 s (the `withdraw_to` triggers), every one 4.5 tiles or more from the start line,
+  // and only a ground soldier within 4 tiles walks them out. Four shepherds, one per quarter:
+  //   - clinic (2, muster (36, 35)): the Namer peels off at once to the open ground east of the yard,
+  //     (32.5, 35.5), three and a half tiles from them. They board it and it carries them the four tiles
+  //     back to the collection point, where it stays, out of every ambush, for the rest of the mission;
+  //   - yard (2, muster (12, 39)): the medic team, below;
+  //   - souk (3, muster (10, 21)): the westmost rifle squad, below;
+  //   - market (2, muster (24, 20)): nobody is sent. The two Yahalom teams and the infantry gather at
+  //     the crossroads (28, 22) for the pit at about 60 s, which is within 4 tiles of them.
+  // The pair on the quarry floor and the four beside Sahim are shepherded by the pit assault as before.
+  at(1, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(32.5, 35.5) }));
+  at(16, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(29, 33) }));
+
+  // The medic team is the yard's shepherd: south-west, away from every garrison, to (14.5, 39.5), three
+  // tiles from the two people at (12, 39.5). They walk themselves back to the collection point.
+  const medics = ids('inf_medic_squad');
+  at(3, () => sim.queueCommand({ kind: 'move', ids: medics, ...M(14.5, 39.5) }));
+  at(35, () => sim.queueCommand({ kind: 'move', ids: medics, ...M(26, 36) }));
+
+  // The westmost rifle squad shepherds the souk, but only once the lane head is quiet (the charge squad
+  // and the rocket team sit on it): it goes along the main road to (12.5, 22.5) and is pulled back to the
+  // crossroads the moment it is within 3 tiles of the families' centre (10.5, 21.5), when the whole
+  // column of three stands within 4 of it. The house garrison is 8 tiles off there. Measured: the
+  // south-west way round, past the house, shoots the squad to a rout before it has moved, and standing
+  // at (15, 23.5) cost it 330 of its 386 hp.
+  const souk = inf.slice(2);
+  at(30, () => sim.queueCommand({ kind: 'move', ids: souk, ...M(12.5, 22.5) }));
+  let soukDone = false;
+  for (let sec = 31; sec <= 100; sec++)
+    at(sec, () => {
+      if (soukDone) return;
+      const lead = souk.find((i) => sim.state.alive[i] === 1);
+      if (lead === undefined) return;
+      const dx = fx.toNumber(sim.state.posX[lead]) - 10.5;
+      const dy = fx.toNumber(sim.state.posY[lead]) - 21.5;
+      if (dx * dx + dy * dy > 3 * 3) return;
+      soukDone = true;
+      sim.queueCommand({ kind: 'move', ids: souk, ...M(28, 22) });
+    });
 
   // The drone scouts toward the pit from a stand-off outside any occupant's weapon range.
   at(2, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 20) }));
@@ -4031,7 +4094,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // stale, because the branch's merge of main had dropped main's four S3b plan fixes from this file (Deir Amun I's second look, Umm Zeitoun I's sweep, Umm
 // Zeitoun IV's yard, Wadi Halam III's Peten point (34, 14)); they are restored and 6923 + 1170 is what the full run prints.
 // The assembly layout also sped up three Qasr Liwan wins, so their `min_win_seconds` floors (floor(fastest win / 4), `--min-win`) fall by 1 s each: II 74 -> 73, IV 57 -> 56, V 83 -> 82. Was 74, 57, 83.
-const LADDER_CREDITS = 8093;
+// 2026-11-17, GH-1438 (Bir Tarsha, The Long Ground town 2; I, II, III and V, IV follows): 8093 -> 8927, +834, read off the printed per-mission credits of a playtest on the branch
+// (I 225, II 169, III 195, V 245 on seed 424242). Was 8093.
+// Bir Tarsha IV (GH-1438, part 3): 8927 -> 9242, +315 (IV 305 on seed 424242, 2 stars; V 245 -> 255 now that IV precedes it in the ledger; the others unchanged). Was 8927.
+const LADDER_CREDITS = 9242;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -4046,7 +4112,9 @@ if (ladderCredits !== LADDER_CREDITS) {
 let ladderStars = 0;
 for (const missionId of missionOrder) ladderStars += missionStars.get(missionId) ?? 0;
 // 2026-11-15, GH-1438 (Qasr Liwan): 68 -> 80, +12. Was 68. Qasr Liwan I and III reach three stars (their carrying secondaries), II, IV and V two.
-const LADDER_STARS = 80;
+// Bir Tarsha I, II, III and V (GH-1438) add 10 stars (3, 2, 2, 3): 80 -> 90. Was 80.
+// Bir Tarsha IV (GH-1438, part 3) adds 2 stars: 90 -> 92. Was 90.
+const LADDER_STARS = 92;
 console.log(`star ladder: ${ladderStars} over ${missionOrder.length} missions`);
 if (ladderStars !== LADDER_STARS) {
   console.error(`star ladder: FAILED — expected ${LADDER_STARS}, got ${ladderStars}`);
@@ -4305,7 +4373,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // in winning runs too, and each earns its sweep. The one short plan is still `beit_sahwan_2_foothold`, so "44 of 45".
 // 2026-11-15, GH-1438 (Qasr Liwan, The Long Ground town 1): 44 -> 49. Was 44. Five more winning runs, one per mission, and each earns a sweep (Qasr Liwan I
 // 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
-const INTEL_WINNERS_ONE_SWEEP = 49;
+// Bir Tarsha's four winning plans each earn a sweep (GH-1438): 49 -> 53 of 54 winning plans. Was 49.
+// Bir Tarsha IV's plan earns one too (240 intel on seed 424242): 53 -> 54 of 55. Was 53.
+const INTEL_WINNERS_ONE_SWEEP = 54;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend

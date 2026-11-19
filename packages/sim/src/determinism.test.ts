@@ -51,6 +51,7 @@ import {
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
 import { internals } from './snapshot';
 import { FWD_TICKS, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
+import { GATE_WORLD_TICKS, gateWorld, runGateWorld } from './gate-world.test-helper';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -1254,6 +1255,50 @@ describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
 
   it('the pinned hash', () => {
     expect(woundedWorld(WW_SEED).hash).toBe(WOUNDED_WORLD_PIN);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GATE_WORLD_PIN (GH-1438 E1): a NEW pin, not a moved one. No other replay in this file raises a
+// structure with a `gate` block, so the deferred `gateLive` block (the three gate columns) is outside
+// all of them; this is the replay that sees it. The world is `gate-world.test-helper.ts`'s, 1400 ticks:
+// two families press a shut gate, a KDF squad walks up and it swings open, the families walk through,
+// the squad walks off and it shuts behind them; a third family presses it, and the squad comes back
+// and lets it through. The test asserts the two openings and two closings on their ticks, so a change
+// that quietly stops a swing fails here and not only on the number.
+
+function gateWorldRun(swingS = 2): { hash: number; events: string[] } {
+  const w = gateWorld(swingS);
+  const events: string[] = [];
+  for (let t = 0; t < GATE_WORLD_TICKS; t++) {
+    w.drive(t);
+    for (const e of w.sim.tick()) if (e.kind === 'gateOpened' || e.kind === 'gateClosed') events.push(`${e.kind}@${e.tick}`);
+  }
+  return { hash: w.sim.hash(), events };
+}
+
+// GATE_WORLD_PIN: born 2026-11-18 (GH-1438 E1), read from the first run. It moves when a gate rule
+// or a gate column's fold changes; say why in the commit that moves it. With `swing_s` 3 in the
+// fixture (the falsification) the run reads a different number and the swings land elsewhere.
+const GATE_WORLD_PIN = 3233682323;
+
+describe('determinism of a gate world (1400-tick replay, GH-1438 E1)', () => {
+  it('two runs from the seed agree, and the gate opens and shuts twice on its ticks', () => {
+    const a = gateWorldRun();
+    const b = gateWorldRun();
+    expect(b.hash).toBe(a.hash);
+    expect(b.events).toEqual(a.events);
+    expect(a.events).toEqual(['gateOpened@201', 'gateClosed@405', 'gateOpened@1067', 'gateClosed@1201']);
+  });
+
+  it('the pinned hash', () => {
+    expect(gateWorldRun().hash).toBe(GATE_WORLD_PIN);
+  });
+
+  it('a gate world is the only one in this file whose gate block is live', () => {
+    const w = gateWorld();
+    runGateWorld(w, 1);
+    expect(internals(w.sim).gateLive).toBe(true);
   });
 });
 

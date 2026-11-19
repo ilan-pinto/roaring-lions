@@ -15,9 +15,13 @@
  *
  * A constant and a number: no column, no hash, no tuning. The golden hashes do not move.
  */
-// The fingerprint was 1875494945. Versus field works (the lead's ruling, 18 Nov 2026) ADDED a pin (`VERSUS_WORKS_WORLD_PIN`, a new
-// works-only world) and moved none: every world a save can be made in plays byte for byte as before, so the epoch stays 1 and only
-// the fingerprint follows the pin list. A moved pin would bump the epoch as well.
-export const SIM_EPOCH_RECORD = { epoch: 1, fingerprint: 462779276 } as const;
+// History. Epoch 1, fingerprint 1875494945. Epoch 2, fingerprint 3342987182: the compound gate (GH-1438 E1, PR 1609) ADDED
+// `GATE_WORLD_PIN` and appended four sim snapshot rows, so the snapshot schema digest already refused every older save and the
+// epoch moved with it. Epoch 2, fingerprint 773375667: versus field works (the lead's ruling, 18 Nov 2026, PR 1587) ADDED a pin
+// (`VERSUS_WORKS_WORLD_PIN`, a new works-only world) on top of epoch 2 and moved none (every pin above it reads as on dev), and
+// its four side-1 runtime rows are `when: 'worksOnly'`, so no other runtime's digest moves: every world a save can be made in
+// plays byte for byte as before, so the epoch stays 2 and only the fingerprint follows the pin list. A moved pin would bump the
+// epoch as well.
+export const SIM_EPOCH_RECORD = { epoch: 2, fingerprint: 773375667 } as const;
 
 export const SIM_EPOCH: number = SIM_EPOCH_RECORD.epoch;

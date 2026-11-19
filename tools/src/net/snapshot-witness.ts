@@ -64,6 +64,7 @@ import { runtimeRowsOf } from '../../../packages/sim/src/runtime-snapshot-schema
 import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from '../../../packages/sim/src/runtime-forward-world.test-helper';
 import { VW_TICKS, versusWorksAdvance, versusWorksDrive, versusWorksWorld } from '../../../packages/sim/src/runtime-versus-works-world.test-helper';
 import { WORKS_ORDER, padFor } from '../backtest/versus-works';
+import { GATE_WORLD_TICKS, gateWorld as simGateWorld } from '../../../packages/sim/src/gate-world.test-helper';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -398,6 +399,17 @@ export function spreadWorld(): SnapWorld {
   });
 }
 /**
+ * The compound-gate world (GH-1438 E1): two families press a shut gate, a KDF squad walks up and it swings open, they
+ * walk through, the squad walks off and it swings shut behind them; a third family presses it and the squad comes back.
+ * The only world in which a gate is raised, and so the one in which `stGateState`, `stGateTimer`, `stGateHold` and
+ * `gateLive` move (no shipped map or mission has a gate yet). The world is the sim package's own
+ * (`gate-world.test-helper.ts`, which `GATE_WORLD_PIN` and `gate.test.ts` also run).
+ */
+export function gateWorld(): SnapWorld {
+  const w = simGateWorld();
+  return simWorld(w.sim, w.drive);
+}
+/**
  * The forward-camp world (GH-277 follow-on): an engineer raises a production work beside the authored camp, it completes at
  * tick 136 and opens a second production line at the tail of side 0's lines, and both lines take builds (one refused: a tank
  * is off the forward line's menu), a rally and a cancel. The only world in which a field work is staked, completed and
@@ -615,6 +627,19 @@ export function worldSpecs(): WorldSpec[] {
       if (!it.spreadGoal.some((f) => f === 1)) return 'the group-spread world stopped flagging units: no spreadGoal is set at its end';
       const held = Array.from(a.sim.state.garrisonedIn).filter((g, i) => i < a.sim.entityCount && g >= 0).length;
       return held === 6 ? null : `the group-spread world stopped spreading: ${held} of 6 squads are inside a house at its end`;
+    },
+  });
+  out.push({
+    id: `compound gate (${GATE_WORLD_TICKS})`,
+    // Cuts through every phase of both swings: shut with the families pressing (120), mid-opening (180), open with the
+    // families in the gate (300), mid-closing (380), shut again (450, 900), the second opening (1040) and the open gate
+    // behind the third family (1100). The horizon is 150 so the last cut ends inside the run.
+    plan: { Ts: [0, 120, 180, 300, 380, 450, 900, 1040, 1100], horizon: 150, tailFrom: 100, end: GATE_WORLD_TICKS },
+    build: gateWorld,
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { gateLive: boolean };
+      if (!it.gateLive) return 'the gate world stopped raising a gate: gateLive is false at its end';
+      return null;
     },
   });
   out.push({ id: `golden economy (${ECONOMY_TICKS})`, plan: goldenPlan(ECONOMY_TICKS), build: goldenEconomy });
@@ -929,6 +954,12 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'the set-up latch (GH-976): set once, by `beginSetup` before tick 0, so it holds its build value at every cut and in every world that has a set-up. ' +
       'Its RESTORE is proved by the poisoned fork like every state row. (setupUntil and readyMask DO move, in the golden set-up world: Ready arms the early bell.) ' +
       'Covered by a world that begins its set-up mid-build, which `beginSetup` forbids'
+  ),
+  ...rows(
+    'gateLive',
+    'the compound gate (GH-1438 E1): set once, by addStructure, when a structure of a gate type is raised, so it holds its build value at every cut ' +
+      '(the gate world raises its gate before tick 0; stGateState, stGateTimer and stGateHold DO move there). Its RESTORE is proved by the poisoned fork like ' +
+      'every state row. Covered by a world that raises its first gate mid-match'
   ),
   ...rows(
     'apsStockLive',

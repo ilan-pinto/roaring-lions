@@ -217,15 +217,16 @@ No D1 migration is involved. No new KV. No new rate limiter. `compatibility_date
 | Where the problem shows | Rollback |
 |---|---|
 | P1, the relay is bad | Nothing points at it. Redeploy or delete it; no player is affected |
-| After the cut (P2), the relay misbehaves or the smoke fails | Set `ROOMS_NEW=0` **without a deploy** (a Worker variable or secret, set by the lead like `FEEDBACK_CLOSED`). `roomsOf` then returns the `ROOMS_LEGACY` namespace for every route, so new rooms are made in the old class again. **Rooms open in the relay at that moment end**, the same acceptance as the cut, since a code is looked up in one namespace only. Then revert the cut PR at leisure |
+| After the cut (P2), the relay misbehaves or the smoke fails | Set `ROOMS_NEW=0` **without a deploy** (a Worker variable or secret, set by the lead like `FEEDBACK_CLOSED`). `roomsOf` then returns the `ROOMS_LEGACY` namespace for every route, so new rooms are made in the old class again. **A room open in the relay at that moment does not end**: it plays on with its connected seats, and only its reconnects, joins and watches (now looked up in the legacy namespace, one namespace per request) find no such room, so it ends by its own rules (`FORFEIT_MS`, `ROOM_TTL_MS`); see `docs/agent-notes/relay-split.md`, "What the flip does to a live relay room". Then revert the cut PR at leisure |
 | The switch is set and the legacy class is gone | It is not gone: this design keeps the export, the `net-v1` migration and the `ROOMS_LEGACY` binding for exactly this. Retiring them is a later, deliberate PR (§13) |
 | The cut PR is reverted | `ROOMS` has no `script_name` again and the old class is the only namespace. Rooms made in the relay are unreachable and end on their seats' forfeits (`FORFEIT_MS`); say so in the revert PR |
 
 The relay can also be rolled back by Workers versions (`wrangler rollback -c wrangler.relay.jsonc`), unless a migration shipped in that
 version.
 
-What the switch does **not** do is move a room between namespaces: there is no lookup that finds a room in the other one. A flip, like the cut, is a
-deliberate drop of what is open.
+What the switch does **not** do is move a room between namespaces: there is no lookup that finds a room in the other one. A flip changes only where
+NEW requests go. It does not end a room: a room still open in the namespace it leaves keeps its connected seats and plays on, while its reconnects,
+joins and watches find no such room, so it ends by its own rules. Run-book: `docs/agent-notes/relay-split.md`, "What the flip does to a live relay room".
 
 ## 8. Testing it headlessly, and the one thing that is not headless
 

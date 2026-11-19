@@ -34,6 +34,19 @@
  *      seeing more soft than armour, an infantry-role menu unit until it has as many as the soft units seen at once; otherwise, and once that parity
  *      is met, the furthest-below-start-mix rule of slice 1. A counter nothing in the menu can supply falls through to that rule.
  *
+ * SLICE 3 (GH-1391) adds RETREAT, OFF unless `CommanderOptions.retreat` is set, from the same view:
+ *   0b. RETREAT (after the scout, before task 1). The engaged group is every able unit away from home (beyond `RUSH_HOME_TILES` of the camp) with a contact
+ *      within `RUSH_HOME_TILES` of it. Each side is valued as the sum of `cost x hp` (the unit data's cost; hp is the view's percent; a contact is valued at the
+ *      hp it shows), the foe being the contacts within that radius of any engaged unit. When the foe is worth strictly more, the whole engaged group is
+ *      sent home with a `move` (not an attack-move: it stops fighting and walks) and is kept out of every other task, but only if it could win once joined by
+ *      every other able unit and what the camps are building (own + those > foe): a group with nothing to join fights on. (First version, measured: no such
+ *      test, 8787 retreats in 992 games, wins 665 to 598; GH-1391.) Home, it is REGROUPED, and released to
+ *      the other tasks (so the march sends it out again: the re-engage) when what stands at home is worth at least the foe that beat it, or when nothing
+ *      is queued or building that could add to it (a room with no economy); at once, all of it, when a contact comes within `DEFEND_TILES` of the camp
+ *      (it defends). A member that cannot walk (disabled, routed, carried, garrisoned, underground), that stopped idle short of home or that has not moved a
+ *      tile since the last decision is let go, so one cripple never holds the rest. All
+ *      whole-number comparisons; no new tuned number.
+ *
  * `CommanderOptions` switch tasks 1 to 3 off one at a time. They exist for the scenarios of the tests ("removing it changes the result"), and the
  * default is all on.
  */
@@ -67,6 +80,8 @@ export interface CommanderOptions { defend?: boolean; zones?: boolean; produce?:
   scout?: boolean;
   /** Slice 2, OFF unless asked for (it did not pay in the probe, GH-1391): build against what the seat has seen. */
   counter?: boolean;
+  /** Slice 3, OFF unless asked for: pull a losing group back to the camp, regroup, and let the march send it out again. */
+  retreat?: boolean;
 }
 
 const MAX_IDS_PER_COMMAND = 256;
@@ -149,6 +164,12 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
   const takeOn = o.takeZones !== false;
   const scoutOn = o.scout === true;
   const counterOn = o.counter === true;
+  const retreatOn = o.retreat === true;
+  /** Units ordered home and not yet released (slice 3), and the foe's value that beat them (`cost x hp`). */
+  const retreating = new Set<number>();
+  /** Where each retreating unit stood at the last decision: one that has not moved a tile since is stuck. */
+  const lastTile = new Map<number, [number, number]>();
+  let beatenBy = 0;
   /** The scout's unit id once chosen (null before, and kept after it dies: it is never replaced). */
   let scoutId: number | null = null;
   /** The scout is chosen at one decision only, whether or not anyone qualified. */
@@ -212,6 +233,56 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
           commands.push({ kind: 'move', ids: [s.id], x: tileCentre(to[0]), y: tileCentre(to[1]) });
           lastSentFrom = [s.tile[0], s.tile[1]];
         }
+      }
+    }
+
+    // 0b. RETREAT: a group worth less than the foe in its face walks home, regroups there, and is let go again.
+    if (retreatOn) {
+      const worth = (type: string, hp: number): number => costOf(type) * hp;
+      /** Cannot walk home whatever it is told: disabled, routed, carried, garrisoned or underground. Never engaged, and let go if it was. */
+      const cannotWalk = (u: SideView['units'][number]): boolean => !able(u.flags) || u.held === 'routed' || u.held === 'immobilised' || u.held === 'carried' || u.held === 'garrisoned' || u.held === 'tunnel';
+      // Those already walking home: forget the dead and the disabled; give back to the march one that stopped short of home (idle, away) and one that has
+      // not moved a tile since the last decision (stuck, so it cannot hold the rest for ever).
+      const byId = new Map(view.units.map((u) => [u.id, u]));
+      for (const id of retreating) {
+        const u = byId.get(id);
+        const last = lastTile.get(id);
+        if (u === undefined || cannotWalk(u) || (!home(u) && (u.flags.includes('idle') || (last !== undefined && last[0] === u.tile[0] && last[1] === u.tile[1])))) { retreating.delete(id); lastTile.delete(id); }
+        else lastTile.set(id, [u.tile[0], u.tile[1]]);
+      }
+      // A contact at the camp ends the retreat: whoever is home defends it.
+      if (view.contacts.some((c) => dist(c.tile, view.camp) <= DEFEND_TILES)) { retreating.clear(); lastTile.clear(); }
+      const field = view.units.filter((u) => !cannotWalk(u) && u.id !== scoutId && !retreating.has(u.id) && !home(u));
+      const engaged = field.filter((u) => view.contacts.some((c) => dist(c.tile, u.tile) <= RUSH_HOME_TILES));
+      if (engaged.length > 0) {
+        const own = engaged.reduce((a, u) => a + worth(u.type, u.hp), 0);
+        const foe = view.contacts.filter((c) => engaged.some((u) => dist(c.tile, u.tile) <= RUSH_HOME_TILES)).reduce((a, c) => a + worth(c.type, c.hp), 0);
+        // Worth walking home only to a fight that can be won once together: what the group is joined by (every other able unit, and what the camps
+        // are building) must tip the balance. A group with nothing to join would only walk away from its shots and come back.
+        const engagedIds = new Set(engaged.map((u) => u.id));
+        let joins = view.units.filter((u) => able(u.flags) && !engagedIds.has(u.id)).reduce((acc, u) => acc + worth(u.type, u.hp), 0);
+        for (const l of view.economy?.lines ?? []) {
+          if (l.building !== null) joins += worth(l.building, 100);
+          for (const q of l.queued) joins += worth(q, 100);
+        }
+        if (foe > own && own + joins > foe) {
+          const ids = engaged.map((u) => u.id);
+          for (let i = 0; i < ids.length; i += MAX_IDS_PER_COMMAND) {
+            commands.push({ kind: 'move', ids: ids.slice(i, i + MAX_IDS_PER_COMMAND), x: tileCentre(view.camp[0]), y: tileCentre(view.camp[1]) });
+          }
+          for (const u of engaged) { retreating.add(u.id); lastTile.set(u.id, [u.tile[0], u.tile[1]]); }
+          beatenBy = foe;
+        }
+      }
+      if (retreating.size > 0) {
+        const mine = view.units.filter((u) => retreating.has(u.id));
+        const arrived = mine.every((u) => home(u) && !u.flags.includes('moving'));
+        if (arrived) {
+          const atHome = view.units.filter((u) => able(u.flags) && home(u)).reduce((a, u) => a + worth(u.type, u.hp), 0);
+          const adding = view.economy !== undefined && view.economy.lines.some((l) => l.building !== null || l.queued.length > 0);
+          if (atHome >= beatenBy || !adding) { retreating.clear(); lastTile.clear(); }
+        }
+        for (const id of retreating) keep.add(id);
       }
     }
 

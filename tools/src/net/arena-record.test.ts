@@ -17,7 +17,8 @@ const dirs: string[] = [];
 afterEach(() => { while (dirs.length > 0) rmSync(dirs.pop() ?? '', { recursive: true, force: true }); });
 const outDir = (): string => { const d = mkdtempSync(join(tmpdir(), 'arena-record-')); dirs.push(d); return d; };
 const quiet = { log: () => {}, print: () => {} };
-const BUILD = buildId();
+/** Read beside each run, never at module load: HEAD (in the build) can move between this file's import and a run. */
+const currentBuild = (): string => buildId();
 const FIELDS = ['build', 'pace', 'roundWallMs', 'capTicks', 'promptDigest'] as const;
 const ARGV = ['--seeds', '1', '--first-seed', '7', '--map', 'tel_marum', '--pace', '40', '--round-wall-ms', '2500', '--tick-ms', '1', '--cap-ticks', '300'];
 const stubs = (spec: string) => inProcess(spec, spec === 'passive' ? passive : rush);
@@ -77,13 +78,14 @@ describe('promptDigest', () => {
 describe('a new record carries all five fields', () => {
   it('both games of a run: the room\'s build id, the run\'s pace, round wall time and cap, and this checkout\'s digest', async () => {
     const out = outDir();
+    const build = currentBuild();
     const r = await runArena(['--a', 'rush', '--b', 'passive', ...ARGV, '--out', out], { ...quiet, resolvePlayer: stubs });
     expect(r.code).toBe(0);
     const records = recordsIn(out);
     expect(records).toHaveLength(2);
     for (const g of [...records, ...r.games]) {
       for (const f of FIELDS) expect(g, f).toHaveProperty(f);
-      expect(g.build).toBe(BUILD);
+      expect(g.build).toBe(build);
       expect(g.pace).toBe(40);
       expect(g.roundWallMs).toBe(2500);
       expect(g.capTicks).toBe(300);
@@ -143,7 +145,7 @@ describe('the results list reads an older record', () => {
     const fresh = { ...base, build: '0.129.30+4d1b71344', pace: 40, roundWallMs: 1500, capTicks: 6000, promptDigest: 'cd'.repeat(32) };
     writeFileSync(join(out, '2026-11-01-rush-vs-passive.jsonl'), `${JSON.stringify(base)}\n${JSON.stringify({ ...base, build: 'sk-ant-leak9', pace: 40 })}\n`);
     writeFileSync(join(out, '2026-11-02-rush-vs-passive.jsonl'), `${JSON.stringify(fresh)}\n`);
-    const list = listResults({ dir: out, build: () => BUILD });
+    const list = listResults({ dir: out, build: currentBuild });
     const byId = new Map(list.runs.map((r) => [r.id, r]));
     expect(byId.get('2026-11-01-1')?.games.map((g) => g.terms)).toEqual([null, null]);
     expect(byId.get('2026-11-02-1')?.games[0].terms).toEqual({ build: '0.129.30+4d1b71344', pace: 40, roundWallMs: 1500, capTicks: 6000, promptDigest: 'cd'.repeat(32) });

@@ -10,6 +10,7 @@
     "./content-lazy": "./src/content-lazy.ts",
     "./telemetry": "./src/telemetry.ts",
     "./avatar": "./src/avatar.ts",
-    "./chat-filters": "./src/chat-filters.ts"
+    "./chat-filters": "./src/chat-filters.ts",
+    "./branches-open": "./src/branches-open.ts"
   }
 }

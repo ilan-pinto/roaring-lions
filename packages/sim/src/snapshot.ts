@@ -801,6 +801,11 @@ function restoreInner(sim: Sim, bytes: Uint8Array, runtime: MissionRuntime | und
   for (let s = 0; s < stAlive.length; s++) {
     if (stAlive[s] !== 0 && stTypeIdx[s] >= structureTypes) throw new SnapshotRefused(`structure ${s}: type ${stTypeIdx[s]} is not registered`);
   }
+  // GH-1438 E1: a gate state outside the four the sim writes would be read as CLOSING by stepGates.
+  const gateState = self.stGateState as Uint8Array;
+  for (let s = 0; s < gateState.length; s++) {
+    if (gateState[s] > 3) throw new SnapshotRefused(`structure ${s}: gate state ${gateState[s]} is not one of 0..3`);
+  }
 
   // ---- the tail: bounded by a fixed cap and by what is left of the input.
   const tailLen = r.u32();

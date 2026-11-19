@@ -37,12 +37,12 @@ const campaign = ids.filter((id) => id !== TUTORIAL);
 const fielded = campaign.filter((id) => LEFT_OUT[id] === undefined);
 
 describe('the medic team in every campaign mission', () => {
-  it('covers all 34 campaign missions: 34 field the team, 0 are listed as measured and left out', () => {
-    expect(ids).toHaveLength(35);
-    expect(campaign).toHaveLength(34);
+  it('covers all 39 campaign missions: 39 field the team, 0 are listed as measured and left out', () => {
+    expect(ids).toHaveLength(40); // Was 35: Bir Tarsha I to V
+    expect(campaign).toHaveLength(39);
     expect(ids).toContain(TUTORIAL);
     expect(Object.keys(LEFT_OUT).every((id) => campaign.includes(id))).toBe(true);
-    expect(fielded).toHaveLength(34);
+    expect(fielded).toHaveLength(39);
     expect(Object.keys(LEFT_OUT)).toHaveLength(0);
   });
 

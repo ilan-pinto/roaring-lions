@@ -28,7 +28,8 @@
  * Then the line is cut into words (letters and digits; an emoji is a word of its own; everything else separates), and:
  *  6. a run of single letters is one word ("f u c k", "f.u.c.k"); and when the run starts or ends with letters that are words on their
  *     own (`LONE_WORDS`: "a", "I"), the run without up to `MAX_LONE_EDGE` of them at each end is tried too, so "you are a f u c k",
- *     "u a f u c k" and "f u c k I" are still caught;
+ *     "u a f u c k" and "f u c k I" are still caught; and a text-speak reading splits a contraction's one-letter tail ("it's a",
+ *     "I'm a") off the head for free, and "u r" / "r u" as one lone word ("u r a ..."), so the everyday shapes are caught too;
  *  7. a word matches an entry when equal, or when it is LONGER and equal once repeated letters collapse ("fuuuck"; "as" never
  *     matches "ass", because it is not longer);
  *  8. a phrase matches a run of words;
@@ -172,24 +173,44 @@ function foldText(text: string): Folded[] {
 /** Length in code points, not UTF-16 units. */
 const cpLength = (s: string): number => [...s].length;
 
-type RawWord = Token & { solo: boolean };
+/** `clitic`: a contraction's one-letter tail, step 6's text-speak reading (`CLITICS`). */
+type RawWord = Token & { solo: boolean; clitic: boolean };
+
+/** Apostrophes, folded: the ASCII one, the typographic right quote and the modifier letter. */
+const APOSTROPHES: ReadonlySet<string> = new Set(["'", '\u2019', '\u02bc']);
+
+/**
+ * English contraction tails of one letter ("it's", "I'm", "he'd", "don't"). Cut at the apostrophe, the tail is a single letter
+ * that is no word on its own, so it glues to the front of a spelled-out word after it ("it's a d y k e" reads "sadyke"); in the
+ * text-speak reading (step 6) a tail standing straight after "<word>'" at the head of a run is split off without counting.
+ */
+const CLITICS: ReadonlySet<string> = new Set(['s', 'm', 'd', 't']);
 
 /** `text` cut into words, folded, before step 6 joins the runs. */
 function rawWordsOf(text: string): RawWord[] {
   const raw: RawWord[] = [];
-  let cur: Token | null = null;
-  for (const f of foldText(text)) {
+  let cur: (Token & { afterApostrophe: boolean }) | null = null;
+  const folded = foldText(text);
+  const close = (c: Token & { afterApostrophe: boolean }): void => {
+    raw.push({ norm: c.norm, start: c.start, end: c.end, solo: false, clitic: c.afterApostrophe && CLITICS.has(c.norm) });
+  };
+  for (let i = 0; i < folded.length; i++) {
+    const f = folded[i];
     if (f.kind === 'word') {
-      if (cur === null) cur = { norm: '', start: f.start, end: f.end };
+      if (cur === null) {
+        // "<word>'<letter>": the letter is a contraction's tail when nothing but the apostrophe stands between it and a word.
+        const afterApostrophe = i >= 2 && APOSTROPHES.has(folded[i - 1].ch) && folded[i - 2].kind === 'word';
+        cur = { norm: '', start: f.start, end: f.end, afterApostrophe };
+      }
       cur.norm += f.ch;
       cur.end = f.end;
       continue;
     }
-    if (cur !== null) raw.push({ ...cur, solo: false });
+    if (cur !== null) close(cur);
     cur = null;
-    if (f.kind === 'solo') raw.push({ norm: f.ch, start: f.start, end: f.end, solo: true });
+    if (f.kind === 'solo') raw.push({ norm: f.ch, start: f.start, end: f.end, solo: true, clitic: false });
   }
-  if (cur !== null) raw.push({ ...cur, solo: false });
+  if (cur !== null) close(cur);
   return raw;
 }
 
@@ -204,9 +225,18 @@ const LONE_WORDS: ReadonlySet<string> = new Set(['a', 'b', 'c', 'e', 'i', 'k', '
 /** At most this many `LONE_WORDS` letters are split off each edge of a run (GH-1527: two, for "u a ...", "y a ...", "и я ..."). */
 const MAX_LONE_EDGE = 2;
 
+/**
+ * Text-speak pairs of single letters that are ONE phrase: "u r" ("you are"), "r u" ("are you"). In the text-speak reading a pair at
+ * the head of a run is split off as one lone word, so "u r a d y k e" is two splits ("u r", "a"), inside `MAX_LONE_EDGE`. "r" is
+ * not in `LONE_WORDS`: alone it is no word, and the pair is the only shape it is read as one in.
+ */
+const LONE_PAIRS: ReadonlySet<string> = new Set(['ur', 'ru']);
+
 /** Step 6 over `raw`: each run of two or more single letters becomes one word, less up to `head` leading and `tail` trailing letters
- *  that are `LONE_WORDS`, while at least two letters are left; a letter split off stays a word of its own. */
-function joinRuns(raw: readonly RawWord[], head: number, tail: number): Token[] {
+ *  that are `LONE_WORDS`, while at least two letters are left; a letter split off stays a word of its own. With `speak` (the
+ *  text-speak reading, GH-1417 follow-up), the head also splits a `LONE_PAIRS` pair as one of its `head`, and a contraction tail
+ *  (`CLITICS`) for free. */
+function joinRuns(raw: readonly RawWord[], head: number, tail: number, speak = false): Token[] {
   const out: Token[] = [];
   const one = (r: RawWord): void => {
     out.push({ norm: r.norm, start: r.start, end: r.end });
@@ -218,7 +248,19 @@ function joinRuns(raw: readonly RawWord[], head: number, tail: number): Token[] 
     if (j - i >= 2) {
       let a = i;
       let b = j;
-      for (let n = 0; n < head && b - a >= 3 && LONE_WORDS.has(raw[a].norm); n++) a++;
+      if (speak) {
+        let n = 0;
+        while (b - a >= 3) {
+          let step = 0;
+          if (raw[a].clitic) step = 1;
+          else if (n < head && b - a >= 4 && LONE_PAIRS.has(raw[a].norm + raw[a + 1].norm)) step = 2;
+          else if (n < head && LONE_WORDS.has(raw[a].norm)) step = 1;
+          if (step === 0) break;
+          if (!raw[a].clitic) n++;
+          a += step;
+        }
+      }
+      for (let n = 0; !speak && n < head && b - a >= 3 && LONE_WORDS.has(raw[a].norm); n++) a++;
       for (let n = 0; n < tail && b - a >= 3 && LONE_WORDS.has(raw[b - 1].norm); n++) b--;
       for (let k = i; k < a; k++) one(raw[k]);
       out.push({ norm: raw.slice(a, b).map((r) => r.norm).join(''), start: raw[a].start, end: raw[b - 1].end });
@@ -239,18 +281,24 @@ export function wordsOf(text: string): Token[] {
 
 /**
  * The readings of a received line that step 6 allows: the plain one (`wordsOf`) first, then, only where some run has a `LONE_WORDS`
- * letter at an edge, the readings with up to `MAX_LONE_EDGE` such letters split off the start, the end, or both. At most nine, each one
- * pass over the line, so the cost stays linear in its length; within one reading every run is trimmed the same way.
+ * letter at an edge, the readings with up to `MAX_LONE_EDGE` such letters split off the start, the end, or both; and, only where the
+ * line holds a contraction tail or a `LONE_PAIRS` pair, the same again in the text-speak reading. At most eighteen, each one pass over
+ * the line, so the cost stays linear in its length; within one reading every run is trimmed the same way. Every reading is tried, so
+ * a new one can only add a hit, never lose one.
  */
 function readingsOf(text: string): Token[][] {
   const raw = rawWordsOf(text);
   const plain = joinRuns(raw, 0, 0);
   const out: Token[][] = [plain];
-  for (let head = 0; head <= MAX_LONE_EDGE; head++) {
-    for (let tail = 0; tail <= MAX_LONE_EDGE; tail++) {
-      if (head === 0 && tail === 0) continue;
-      const r = joinRuns(raw, head, tail);
-      if (r.length !== plain.length) out.push(r);
+  // The text-speak readings (GH-1417 follow-up) only where a contraction tail or a text-speak pair could start a run.
+  const speak = raw.some((r, k) => r.clitic || (k + 1 < raw.length && LONE_PAIRS.has(r.norm + raw[k + 1].norm)));
+  for (const s of speak ? [false, true] : [false]) {
+    for (let head = 0; head <= MAX_LONE_EDGE; head++) {
+      for (let tail = 0; tail <= MAX_LONE_EDGE; tail++) {
+        if (head === 0 && tail === 0 && !s) continue;
+        const r = joinRuns(raw, head, tail, s);
+        if (r.length !== plain.length) out.push(r);
+      }
     }
   }
   return out;
