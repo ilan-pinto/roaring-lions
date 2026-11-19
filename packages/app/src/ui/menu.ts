@@ -30,6 +30,7 @@ import { markConfirm } from './confirm-cue';
 import { paintMapTerrain } from './map-preview';
 import { terrainTonesFor } from '../terrain-themes';
 import type { ResumeBlock } from './resume-row';
+import { browserWhatsNewDeps, mountWhatsNew, type WhatsNewDeps } from './whats-new';
 
 /** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
@@ -106,6 +107,9 @@ export interface MenuOptions {
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
+  /** GH-1622: the "What's new" panel's version, notes loader, store and auto-open gate. Absent, the browser's own
+   *  (`browserWhatsNewDeps`: this build's `__APP_BUILD__`); null, no button and no panel. */
+  whatsNew?: WhatsNewDeps | null;
 }
 
 export interface CampaignOptions {
@@ -133,6 +137,9 @@ export interface CampaignOptions {
   /** GH-1394 slice 2 (ruling D10): builds the campaign posture chip under the theatre line. Absent, no chip. Its code rides in
    *  the lazy `ui/posture-ui.ts` chunk, so the board hands in a builder, as for `resume`. */
   posture?: () => { el: HTMLElement; dispose(): void };
+  /** GH-1395 slice 2: the challenge mark beside a town's stars, on both boards. Built by the lazy `challenge-board.ts` and
+   *  handed in, so the board itself imports no challenge code; absent, no mark. */
+  townMark?: (townId: string) => HTMLElement | null;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -309,6 +316,21 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
       privacyLink?.remove();
     });
   }
+  // GH-1622: this build's release notes. A button, like Feedback: it opens a modal rather than leaving the page. The
+  // panel can also open by itself, once per new version (`whats-new.ts` says when); its disposer is this screen's.
+  const whatsNewDeps = opts.whatsNew === undefined ? browserWhatsNewDeps() : opts.whatsNew;
+  let disposeWhatsNew: Disposer | undefined;
+  if (whatsNewDeps !== null) {
+    const whatsNewBtn = document.createElement('button');
+    whatsNewBtn.type = 'button';
+    whatsNewBtn.className = 'rl-btn rl-menu__item';
+    whatsNewBtn.dataset.kind = 'aside';
+    whatsNewBtn.dataset.act = 'whats-new';
+    whatsNewBtn.textContent = t('menu.aside.whatsNew');
+    aside.appendChild(whatsNewBtn);
+    // The dialog mounts on the stage, as a confirm does; the notes load lazily, so an auto-open lands after the column.
+    disposeWhatsNew = mountWhatsNew(stage, whatsNewBtn, whatsNewDeps);
+  }
   // Last, deliberately: people, libraries, fonts and the licence split are
   // the least urgent thing on this screen, not the most.
   addAside(t('menu.aside.credits'), routes.credits());
@@ -319,6 +341,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   stage.appendChild(wrap);
   const disposeBackdrop = opts.backdrop?.(stage, wrap);
   return () => {
+    disposeWhatsNew?.();
     disposeBackdrop?.();
     wrap.remove();
   };
@@ -391,6 +414,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
       missionOf: opts.missionOf,
       portraitUrl: opts.portraitUrl,
       statusHost: nav,
+      townMark: opts.townMark,
     });
   // A world with no GLB in the catalogue has no diorama to draw, and
   // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
@@ -422,6 +446,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
           statusHost: nav,
+          townMark: opts.townMark,
           navigate: opts.navigate,
           signal: opts.signal,
         }).el;
@@ -546,6 +571,20 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   const sideBlurb = document.createElement('p');
   sideBlurb.className = 'rl-sandbox__side-blurb';
   sides.appendChild(sideBlurb);
+  // What Free play has without being asked (`SANDBOX_FLAGS[].freePlayDefault`: field works, the lead's
+  // ask of 18 Nov 2026): stated under the side pick, in the table's own sentence, rather than offered
+  // as a box that could only ever be ticked. A KDF-only one is not said while Sarim is picked, since a
+  // Sarim Free play does not have it (`freePlayDefaults`).
+  const defaults: { el: HTMLElement; kdfOnly: boolean }[] = [];
+  for (const f of SANDBOX_FLAGS) {
+    if (f.freePlayDefault !== true) continue;
+    const line = document.createElement('p');
+    line.className = 'rl-sandbox__default';
+    line.dataset.defaultFlag = f.name;
+    line.textContent = t(f.labelKey);
+    sides.appendChild(line);
+    defaults.push({ el: line, kdfOnly: f.kdfOnly === true });
+  }
   wrap.appendChild(sides);
 
   // --- the options --------------------------------------------------------
@@ -569,6 +608,8 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   flagBox.appendChild(devHint);
   const boxes: { name: SandboxFlagName; input: HTMLInputElement; kdfOnly: boolean }[] = [];
   for (const f of SANDBOX_FLAGS) {
+    // On whatever a box says, so not a box (stated under the side pick above).
+    if (f.freePlayDefault === true) continue;
     const label = document.createElement('label');
     label.className = 'rl-sandbox__flag';
     // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
@@ -645,6 +686,7 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
     // switch is still ticked when the KDF comes back.
     const sarim = side === 'sarim';
     kdfOnlyNote.hidden = !sarim;
+    for (const d of defaults) d.el.hidden = sarim && d.kdfOnly;
     for (const b of boxes) {
       if (!b.kdfOnly) continue;
       b.input.disabled = sarim;

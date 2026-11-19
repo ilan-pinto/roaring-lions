@@ -285,6 +285,10 @@ art/meshy/demo-squad-body-20261112-01a1d14f/model.*
 art/meshy/demo-squad-body-20261112-01a1d14f/texture_*
 art/meshy/demo-squad-body-20261112-01a1d151/model.*
 art/meshy/demo-squad-body-20261112-01a1d151/texture_*
+
+# GH-1418 desktop spike (tools/desktop/build-local.mjs): the unsigned local Electron bundle, its staging dir and the Electron zip cache.
+/dist-desktop/
+
 # GH-826 infantry upgrade unit "Yahalom" (15 Nov): the unit's own two posed previews, both failed the pose gate (the
 # systematic stop at 40 of 140 credits; the team ships on the Combat Engineers' body). Their clay GLBs are kept on disk
 # and in ~/dev/roaring-lions-art-backup/meshy/, never committed; task.json and the thumbnails are tracked.

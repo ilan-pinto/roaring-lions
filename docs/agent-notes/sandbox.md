@@ -82,3 +82,29 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   (`tunnel`, `sur`, `kit`, `works`) are dropped on the Sarim side (`sideFlags`) and greyed in the picker. No `side`
   in a link is the KDF, so every existing link and every free-play baseline is unchanged. The opposition stands and
   fights where it spawns, as the Sarim opposition of a KDF Free play does: there is no computer seat in Free play.
+
+<!-- The lead's ask of 18 Nov 2026, "bring outposts to free play / versus": the free-play half -->
+- **Field works are on in every KDF Free play (18 Nov 2026).** What `&works` used to opt into is now the default:
+  the dock, the five KDF works the outpost ask names plus the aid post (every buildable `kdf_` type, twice each),
+  `SANDBOX_WORKS_LOGISTICS` to pay for them and the `demo_squad` that raises them (`sandbox-works.ts`,
+  unchanged). The table says so (`SANDBOX_FLAGS[].freePlayDefault` on `works`), and `freePlayDefaults` applies it,
+  called by `bootFlags` LAST and for a Free play boot only (no mission, no room), so neither `sideFlags` nor
+  `roomFlags` warns about a default the URL never asked for. **`&works` is an accepted alias**: still parsed and
+  still a known parameter, so an old link is not reported as a typo, and it changes nothing on the KDF side. The
+  Sarim side is unchanged: no field works, and a `&works` it is handed is dropped with the GH-1381 warning. A
+  mission never takes the default, and a versus room drops works as before (`roomFlags`, and `main.ts`'s own
+  `!mission && versusWorld === null && !inRoom` guard; `raiseWorks` stays dropped in `ownership.ts`). The picker
+  offers no box for it: it states it under the side pick, in its `labelKey` sentence (`freePlay.works.on`), and
+  hides the line while Sarim is picked. No sim change and no tuning: the logistics are what `&works` gave. A
+  free-play boot now draws the production dock and one more unit (the demolition squad at the friendly anchor
+  +3,+2), so every sandbox capture that frames either moves unless it boots with `&works=0` (every gated capture
+  does: next entry).
+- **`&works=0` opts a boot out (the lead's ruling of 18 Nov 2026).** `works=0`, `=off` or `=false` (`FLAG_OFF_VALUES`,
+  `envlight`'s grammar) turns the free-play field works OFF for that boot, read by `readFlags` and `freePlayDefaults`
+  for a `freePlayDefault` flag only, so `&sur=0` is still ON as it always was. Plain `&works` and no flag stay ON:
+  players get works by default. Every free-play boot the visual gate photographs passes it
+  (`CAPTURE_FREE_PLAY_OPT_OUT` in `tools/src/golden-diff/capture-protocol.ts`: every sandbox scenario's URL, so
+  `golden-baseline`, `visual-backends` and `visual-parity` alike, and the menu-scene-host register's sandbox,
+  `gotoMenuHostMission`), so no gated frame gained the dock or the demolition squad and no baseline moved.
+  `tools/src/golden-diff/free-play-opt-out.test.ts` pins it from the scenario table through the app's own
+  `legacyRedirect` and `bootFlags`. `ui:routes` and `ui:shots` keep the default ON: they walk the player's path.

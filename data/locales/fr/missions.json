@@ -183,11 +183,11 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Souterrain",
-    "briefing": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Quatre minutes pour les personnes et cinq pour les itinéraires ; le second délai n'attend pas le premier. Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez. Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre.",
+    "briefing": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin. Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, les quatre qui sont avec Sahim si vous les atteignez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier. Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez. Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre.",
     "sections": {
       "situation": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin.",
-      "mission": "Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Quatre minutes pour les personnes et cinq pour les itinéraires ; le second délai n'attend pas le premier.",
-      "execution": "Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez.",
+      "mission": "Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, les quatre qui sont avec Sahim si vous les atteignez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier.",
+      "execution": "Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez.",
       "notes": "Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre."
     },
     "aftermath": "Quatre itinéraires sous Beit Sahwan, et l'homme qui les a creusés est remonté du dernier les mains vides. La brigade a pris le dossier et n'a rien dit de plus. Le périmètre est à nous. L'enclave non.",
@@ -199,28 +199,42 @@
     "objectives": {
       "bring_it_down": "Faire s'effondrer tous les itinéraires sous le secteur",
       "read_the_ground": "Trouver l'équipe qui rouvre l'itinéraire ouest de Sahim",
-      "get_them_out": "Sortir cinq personnes au point de collecte avant l'effondrement des itinéraires",
+      "get_them_out": "Sortir neuf personnes au point de collecte en moins de quatre minutes",
       "take_the_shaft_head": "Tenir la tête du puits jusqu'à ce que Sahim en soit sorti",
-      "find_spade": "Trouver Nadir Sahim à la tête du puits"
+      "find_spade": "Trouver Nadir Sahim à la tête du puits",
+      "most_of_them": "Sortir douze des quinze au point de collecte en moins de quatre minutes",
+      "bring_back_the_four": "Sortir les quatre personnes retenues à la tête du puits jusqu'au point de collecte"
     },
     "objective_say": {
       "read_the_ground": "Voilà l'équipe de l'itinéraire ouest. Il garde ses terrassiers près du travail, c'est comme ça que nous l'avons trouvé.",
-      "get_them_out": "Cinq au point de collecte. C'est la première fois que ce secteur rend quelqu'un.",
-      "take_the_shaft_head": "La tête du puits est à vous et il se tient du mauvais côté. Quatre ans à creuser et le voilà en surface."
+      "get_them_out": "Neuf au point de collecte. C'est la première fois que ce secteur rend quelqu'un.",
+      "take_the_shaft_head": "La tête du puits est à vous et il se tient du mauvais côté. Quatre ans à creuser et le voilà en surface.",
+      "most_of_them": "Douze au point de collecte. Gardez la ruelle ouverte pour ceux qui arrivent encore.",
+      "bring_back_the_four": "Les quatre de la tête du puits sont au point de collecte. Tous les quatre."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Le temps est écoulé et il reste sous cette ville un terrain qui n'est pas à nous.",
-      "get_them_out": "Temps écoulé pour les gens. Rien sous cette ville ne vaut ce que nous venons de ne pas faire."
+      "get_them_out": "Temps écoulé pour les gens. Rien sous cette ville ne vaut ce que nous venons de ne pas faire.",
+      "most_of_them": "Temps écoulé pour les douze. Quiconque est encore dans les rues est emmené, et ce nombre est le prix."
+    },
+    "triggers": {
+      "yard_families_shelter": "Les familles de la cour restent sur place",
+      "souk_families_shelter": "Les familles du souk reculent vers l'ouest",
+      "market_families_shelter": "Les familles du marché restent dans la ruelle",
+      "clinic_families_shelter": "Les familles de la clinique se replient"
+    },
+    "trigger_say": {
+      "the_streets_are_cleared": "Temps écoulé. Quiconque est encore dans les rues a été emmené de l'autre côté de sa ligne."
     },
     "wave_say": {
       "1": "Dernier envoi de la ligne de mortiers. Après cela, il dépense ceux du souterrain."
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "8ce1b9df",
+      "briefing": "2b6d54c3",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
-      "objectives.get_them_out": "132b3d66",
+      "objectives.get_them_out": "4ce3c7c6",
       "objectives.take_the_shaft_head": "a7d2e8b7",
       "objectives.find_spade": "da8ec255",
       "aftermath": "f882c5da",
@@ -228,15 +242,25 @@
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "3f2accd6",
-      "sections.execution": "d5a8f0e2",
+      "sections.mission": "09bb6a00",
+      "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
-      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.get_them_out": "d2fd78e3",
       "objective_say.take_the_shaft_head": "72ea9cfa",
       "objective_say_on_fail.bring_it_down": "68b7b2f2",
       "objective_say_on_fail.get_them_out": "232994e9",
-      "wave_say.1": "c220fa50"
+      "wave_say.1": "c220fa50",
+      "objectives.most_of_them": "053aa740",
+      "objective_say.most_of_them": "6ec2fd04",
+      "objective_say_on_fail.most_of_them": "9fa99b11",
+      "trigger_say.the_streets_are_cleared": "ca259384",
+      "triggers.yard_families_shelter": "dd03b9f1",
+      "triggers.souk_families_shelter": "6c21d359",
+      "triggers.market_families_shelter": "a5940c9f",
+      "triggers.clinic_families_shelter": "8a8ab1c5",
+      "objectives.bring_back_the_four": "235dacf1",
+      "objective_say.bring_back_the_four": "0ce0f960"
     }
   },
   "beit_sahwan_breach": {
@@ -277,7 +301,7 @@
     },
     "wave_say": {
       "0": "Toutes les approches à la fois. Il n'y a pas d'effort principal là-dedans — il n'en a pas besoin.",
-      "2": "Un groupe kamikaze marche sur la face nord-ouest. Ce qui est dehors est dehors, maintenant.",
+      "2": "Un groupe de charge marche sur la face nord-ouest. Ce qui est dehors est dehors, maintenant.",
       "4": "Sud-est maintenant. Même face, autre coin — il lit lequel vous avez renforcé."
     },
     "src": {
@@ -305,6 +329,244 @@
       "wave_say.0": "c22390a2",
       "wave_say.2": "1a1f05a7",
       "wave_say.4": "6a792482"
+    }
+  },
+  "bir_tarsha_1_recon": {
+    "name": "Bir Tarsha I — La route de la porte",
+    "briefing": "Bir Tarsha n'a qu'une route, et elle s'arrête à une porte dans la Clôture. D'ici, je lis la garnison de cette porte, mais pas qui occupe les ouvrages qui courent vers l'est le long de la route de la clôture. Identifiez la garnison de la porte. Faites ensuite sortir six des huit habitants du quartier ouest jusqu'au refuge au nord-ouest. Ils se mettent en marche dès que l'une de nos unités est à moins de quatre cases d'eux, ou dès qu'un tir tombe près d'eux, et la seconde manière est celle que je ne choisirais pas. Les ouvrages de l'est sont l'autre voie, et l'équipe qui les tient, je ne peux pas la voir. Escortez d'abord, regardez à l'est ensuite. Cinq minutes pour les habitants, six pour le tableau. Au sud de la porte se trouve la Clôture, et au-delà, les Badlands. Leur lisière est une ligne balisée, et un tir qui tombe de l'autre côté est le plus coûteux que vous puissiez tirer ce matin. Six dehors et la porte identifiée. Une équipe que vous n'avez pas trouvée est une équipe que le prochain combat trouvera pour vous.",
+    "dispatch": "Les brigades sont rentrées au printemps et revenues à l'automne. Le dernier bastion du Marj se dresse à son extrémité sud, contre une clôture au-delà de laquelle personne ne tire.",
+    "debrief": {
+      "victory": "La porte a un nom et six personnes sont sorties du quartier ouest. Les ouvrages de la route de la clôture ne sont encore qu'à moitié un tableau, et cette moitié, c'est vous qui me l'avez donnée.",
+      "defeat": "Pas ce matin. La porte est en alerte maintenant, et le quartier ouest est resté là où on l'a laissé."
+    },
+    "objectives": {
+      "identify_the_gate": "Identifier la garnison de la porte",
+      "six_out": "Faire sortir six habitants jusqu'au refuge",
+      "find_the_crew": "Identifier l'équipe des ouvrages de l'est"
+    },
+    "objective_say": {
+      "identify_the_gate": "Voilà la garnison de la route : une cellule de fusiliers, une équipe de missiles et une équipe de roquettes. Les blocs derrière en cachent davantage, et je ne peux pas lire quoi.",
+      "six_out": "Six dehors. Le quartier ouest est calme, et il a une raison de moins d'être une cible.",
+      "find_the_crew": "Marqué. Voilà l'équipe des ouvrages de l'est, et la prochaine fois que nous descendrons cette route, je pourrai vous dire quels postes sont les siens."
+    },
+    "objective_say_on_fail": {
+      "six_out": "Le quartier nous est fermé à présent. Il n'y a pas de second matin pour une marche pareille, et ceux qui y vivent le savent."
+    },
+    "triggers": {
+      "bt1_works_stir": "Les ouvrages de l'est s'agitent"
+    },
+    "trigger_say": {
+      "bt1_works_stir": "Mouvement sur les ouvrages de l'est. Ceux qui les tiennent ont entendu la porte, et désormais ils regardent vers l'ouest."
+    },
+    "src": {
+      "name": "f3fdcde5",
+      "briefing": "88ddedf2",
+      "objectives.identify_the_gate": "d9707246",
+      "objectives.six_out": "3a8da360",
+      "objectives.find_the_crew": "c41423af",
+      "triggers.bt1_works_stir": "ef9652d0",
+      "dispatch": "a2eb4b3b",
+      "debrief.victory": "7c6194ed",
+      "debrief.defeat": "eb6cc2f8",
+      "objective_say.identify_the_gate": "6ebe588c",
+      "objective_say.six_out": "987a4a0b",
+      "objective_say.find_the_crew": "29cab91e",
+      "objective_say_on_fail.six_out": "4faec83a",
+      "trigger_say.bt1_works_stir": "284a5f99"
+    }
+  },
+  "bir_tarsha_2_foothold": {
+    "name": "Bir Tarsha II — La porte",
+    "briefing": "La porte est une brèche de deux cases dans la Clôture entre deux blocs de béton, et elle est à vous si vous pouvez la tenir quatre minutes. J'attends deux poussées, toutes deux depuis l'extrémité est de la route de la clôture, la seconde plus dure que la première. Tenez la porte pendant quatre minutes. Le camp achète de l'infanterie et un Lavi, et vous aurez besoin des deux. Dix habitants se trouvent sur la route transversale au nord du quartier sûr, le seul quartier de la ville qui n'appartient à personne. Ils entrent dès que l'une de nos unités est à moins de quatre cases d'eux. Sept dedans en moins de cinq minutes, sinon le quartier est un mur et non un quartier. Ne placez pas d'obus de mortier près de lui pour acheter la porte. Leur mortier est sur la position de tir est et il est pointé sur la route transversale. La lisière des Badlands est derrière vous, et un tir qui tombe de l'autre côté de la Clôture coûte plus cher que tout ce que vous pouvez dépenser ici. Le toit du terminal vaut quinze secondes si vous pouvez épargner les fusiliers. La porte passe d'abord.",
+    "debrief": {
+      "victory": "La porte est à nous, et le quartier sûr est encore un quartier. Le camp reste, et la prochaine fois que cette route sera ouverte, elle le sera de notre côté.",
+      "defeat": "La porte est de nouveau à eux, et le quartier avec elle. Ce n'est pas le camp qui compte ; c'est le terrain."
+    },
+    "objectives": {
+      "hold_the_gate": "Tenir la porte pendant quatre minutes",
+      "seven_in": "Faire entrer sept habitants dans le quartier sûr",
+      "take_the_roof": "Tenir le toit du terminal pendant quinze secondes"
+    },
+    "objective_say": {
+      "take_the_roof": "Le toit est à nous. Toutes les fenêtres de la route de la clôture nous regardent désormais de notre propre côté."
+    },
+    "objective_say_on_fail": {
+      "seven_in": "Le quartier n'est pas ouvert. Une porte sans personne derrière est un mur, et il ne reste rien dans cette ville pour quoi la tenir."
+    },
+    "wave_say": {
+      "0": "Première poussée, depuis l'extrémité est de la route de la clôture. C'est la plus légère des deux, et elle est faite pour nous montrer où se porte le poids.",
+      "1": "Seconde poussée. Un groupe de charge l'accompagne, et il marche sur le terminal, pas sur vous."
+    },
+    "src": {
+      "name": "047d92cc",
+      "briefing": "3c9585ab",
+      "objectives.hold_the_gate": "3b702112",
+      "objectives.seven_in": "b9262fb4",
+      "objectives.take_the_roof": "aa6994ea",
+      "debrief.victory": "c75f8043",
+      "debrief.defeat": "44dc7ef9",
+      "objective_say.take_the_roof": "775a2764",
+      "objective_say_on_fail.seven_in": "f50a9a3b",
+      "wave_say.0": "538f84ae",
+      "wave_say.1": "cf14548d"
+    }
+  },
+  "bir_tarsha_3_clearance": {
+    "name": "Bir Tarsha III — Deux maisons",
+    "briefing": "Deux immeubles se dressent à dix cases l'un de l'autre dans le quartier du camp, avec deux des personnes enlevées à First Light dans chacun. Je situe les deux portes et la garde de chacune, mais rien à l'intérieur. Neutralisez la garde de chaque porte, et amenez trois des quatre au point d'extraction sur le bord nord en moins de six minutes. Moins de trois, c'est une défaite. Quiconque est au sol autour de l'un des blocs prévient l'autre en moins de vingt secondes, et leurs positions de tir couvrent la ruelle entre les deux. Une équipe de missiles sur chaque toit surveille toute cour que vous traversez. Alors divisez-vous et entrez ensemble, ou prenez-en un et battez-vous pour le second. Le second est plus lent, plus bruyant et plus cher. Les deux blocs sont habités, et celui qui abrite les personnes enlevées abrite aussi les voisins. Un obus de canon dans l'un ou l'autre coûte quatorze points de Conduite. Quinze est la limite. Un coup sur un bloc fait quatorze, et un second coup met fin à la mission.",
+    "aftermath": "Trois sont revenus du quartier du camp, ou quatre, et le Marj a compté chacun d'eux.",
+    "hostages_place": "le nord du quartier du camp",
+    "debrief": {
+      "victory": "Trois ou quatre sont revenus par la ruelle. Deux maisons n'étaient pas faites pour être prises en même temps, et le quartier du camp a de quoi s'en souvenir.",
+      "defeat": "Pas aujourd'hui. Les blocs sont prévenus et la ruelle est couverte, et ceux qui s'y trouvent sont exactement où ils étaient."
+    },
+    "objectives": {
+      "bring_three_out": "Amener trois des quatre personnes enlevées à l'extraction",
+      "guard_west": "Neutraliser la garde du bloc ouest",
+      "guard_east": "Neutraliser la garde du bloc est",
+      "keep_the_blocks": "Ne pas perdre plus de 15 points de Conduite"
+    },
+    "objective_say": {
+      "bring_three_out": "Trois sur le bord nord. Je les recompterai quand vous serez sortis de la ruelle.",
+      "guard_west": "La porte ouest est ouverte. Ne vous arrêtez pas dans la cour.",
+      "guard_east": "La porte est est ouverte. La ruelle est la moitié dangereuse."
+    },
+    "objective_say_on_fail": {
+      "bring_three_out": "Il n'y en a plus trois à ramener. Quoi que ce fût, ce n'était pas un décompte où nous pouvions nous permettre de nous tromper.",
+      "keep_the_blocks": "C'est plus de quinze. Un bloc avec un obus de canon dedans n'est pas ce que nous étions venus sortir."
+    },
+    "triggers": {
+      "bt3_west_warns_east": "Le bloc est a été prévenu",
+      "bt3_east_warns_west": "Le bloc ouest a été prévenu"
+    },
+    "trigger_say": {
+      "bt3_west_warns_east": "Des tirs sur le bloc ouest. Le bloc est les a entendus et déplace une équipe vers sa cour.",
+      "bt3_east_warns_west": "Le bloc ouest a entendu. Vingt secondes, c'est ce que la ruelle leur laisse pour la traverser."
+    },
+    "src": {
+      "name": "e20dc6fb",
+      "briefing": "534c5b2d",
+      "objectives.bring_three_out": "623156a6",
+      "objectives.guard_west": "854ed4cf",
+      "objectives.guard_east": "13239920",
+      "objectives.keep_the_blocks": "bd39ccda",
+      "triggers.bt3_west_warns_east": "4e4a551f",
+      "triggers.bt3_east_warns_west": "a9b2dcf9",
+      "aftermath": "cadca5b2",
+      "hostages_place": "dd8b8617",
+      "debrief.victory": "4dfe491e",
+      "debrief.defeat": "acfe79bc",
+      "objective_say.bring_three_out": "fd15eecc",
+      "objective_say.guard_west": "d086a22c",
+      "objective_say.guard_east": "9f97b1be",
+      "objective_say_on_fail.bring_three_out": "2b77ddd6",
+      "objective_say_on_fail.keep_the_blocks": "b77daa93",
+      "trigger_say.bt3_west_warns_east": "e42e3f7e",
+      "trigger_say.bt3_east_warns_west": "f7b11b1c"
+    }
+  },
+  "bir_tarsha_4_clearance": {
+    "name": "Bir Tarsha IV — La ligne des lames",
+    "briefing": "Entre la Clôture et le hameau s'étend une ceinture d'ouvrages longue de trente cases : positions de tir, postes, ateliers et merlons. Si vous avez trouvé l'équipe des ouvrages de l'est, je peux dire lesquels sont à elle ; sinon, tous le sont. Quatre D9 sont à vous pour cela, et le bataillon les accompagne. Rasez chaque ouvrage de la ceinture et amenez les lames jusqu'à la porte lointaine ; perdez deux lames et la tâche est terminée. Un hameau se dresse au nord de la ceinture, à huit cases du poste le plus proche, et il est habité. J'attends des tirs sortant de son abri dès que quoi que ce soit de nous entre dans la ceinture, et ils sont faits pour qu'on réponde dans une maison. Ne répondez pas dans une maison. Une maison vaut six points de Conduite, deux font douze, et une troisième, c'est la mission. Un mur en T ferme la route à l'extrémité est, et un D9 le coupera là où les roues ne peuvent pas passer. Tant qu'il n'est pas tombé, la porte lointaine est hors d'atteinte, et trois puits de la ceinture débouchent derrière quiconque regarde le mur. Les merlons sont bas et une lame n'en emporte pas un en passant devant, donc chacun demande un ordre. Puits abattus, ouvrages rasés, lames passées.",
+    "debrief": {
+      "victory": "La ceinture est rasée et les lames sont passées. Rien ne se dresse sur la route de la clôture qui n'y ait été mis par ceux qui sont partis.",
+      "defeat": "Pas cette fois. Ce qui est resté debout sur la route de la clôture fait toujours face à la porte, et les lames qui ne sont pas revenues, ce n'est pas à nous de les compter."
+    },
+    "objectives": {
+      "blades": "Amener les quatre lames jusqu'à la porte lointaine",
+      "clear_works": "Raser les ouvrages de la route de la clôture en six minutes et demie",
+      "drop_shafts": "Faire s'effondrer les trois puits des ouvrages",
+      "keep_the_hamlet": "Ne pas perdre plus de 12 points de Conduite"
+    },
+    "objective_say": {
+      "blades": "Les lames ont passé la ligne de la clôture. Comptez-les de l'autre côté.",
+      "clear_works": "La ceinture est rasée. Tout ce qui est sur cette bande est à plat, sauf le mur.",
+      "drop_shafts": "Trois puits abattus. Plus rien dans la ceinture ne passe sous la route."
+    },
+    "objective_say_on_fail": {
+      "blades": "Deux lames perdues. Avec la moitié de la ligne restante, la tâche ne peut pas être achevée depuis le côté proche.",
+      "keep_the_hamlet": "C'est plus de douze. Il y a dans le compte une maison qui ne devrait pas y être."
+    },
+    "triggers": {
+      "bt4_lee_opens": "Des tirs partent de l'abri du hameau",
+      "bt4_vent_opens": "Un puits s'est ouvert derrière l'escorte"
+    },
+    "trigger_say": {
+      "bt4_lee_opens": "Équipes de missiles sorties de l'abri du hameau, sur la ruelle. Les maisons sont derrière elles, et c'est là qu'elles veulent que la riposte aille.",
+      "bt4_vent_opens": "Un puits a débouché derrière vous, au sud du hameau. Il attendait que les lames passent."
+    },
+    "src": {
+      "name": "52569982",
+      "briefing": "8cdb9e35",
+      "objectives.blades": "b251e5af",
+      "objectives.clear_works": "8c5027e7",
+      "objectives.drop_shafts": "640cbdbf",
+      "objectives.keep_the_hamlet": "d311f8ba",
+      "triggers.bt4_lee_opens": "84d673af",
+      "triggers.bt4_vent_opens": "f314e93e",
+      "debrief.victory": "ad10e460",
+      "debrief.defeat": "72d3cfe6",
+      "objective_say.blades": "8f5230c9",
+      "objective_say.clear_works": "57c8d0c4",
+      "objective_say.drop_shafts": "f6ef41d9",
+      "objective_say_on_fail.blades": "0f7334b0",
+      "objective_say_on_fail.keep_the_hamlet": "61843c4e",
+      "trigger_say.bt4_lee_opens": "60e098ea",
+      "trigger_say.bt4_vent_opens": "faedceb3"
+    }
+  },
+  "bir_tarsha_5_subterranean": {
+    "name": "Bir Tarsha V — Sous la Clôture",
+    "briefing": "Cinq itinéraires courent sous la route de la clôture vers la frontière. L'un a été creusé assez large pour un camion, c'est celui qui compte, et il est aussi loin à l'est qu'ils ont pu le pousser. Faites tomber les cinq en moins de six minutes et demie. Les sapeurs prennent les charges, et le reste d'entre vous les garde en vie jusqu'à ce qu'elles soient posées. Le relevé des sapeurs a trouvé une chambre en béton en tête de l'itinéraire est, avec une personne à l'intérieur, seule. Elle est en surface et n'est pas sur le chronomètre. Faites sortir cette personne avant que la dernière charge ne parte, car la mission se termine dès que les itinéraires sont tombés. Les charges sont l'ordre ; la personne, c'est à vous d'en décider. Un commandant de bloc tient le poste à l'est de la crête. Quand un tiers des cellules de cette bande sont tombées, il remonte vers le nord, et ce qui reste des cellules du Marj marche avec lui. La lumière baisse dans dix minutes et les maisons de la surface sont habitées. Plus de dix points de Conduite perdus y met fin.",
+    "aftermath": "La route de la clôture est calme, et la frontière qu'elle longeait n'est plus qu'une clôture. Le Marj n'en a pas fini, mais il est derrière la brigade, et la brigade a un autre endroit où aller.",
+    "hostages_place": "la route de la clôture",
+    "debrief": {
+      "victory": "Les itinéraires sous la route de la clôture sont tombés. Ce qui restait du Marj est monté au nord, et la brigade ne l'a pas suivi.",
+      "defeat": "Pas ce soir. Les itinéraires sont toujours ouverts sous la Clôture, et le crépuscule est à eux maintenant."
+    },
+    "objectives": {
+      "all_five": "Faire tomber les cinq itinéraires sous la route de la clôture en six minutes et demie",
+      "keep_the_surface": "Ne pas perdre plus de 10 points de Conduite",
+      "walk_the_person_out": "Faire sortir jusqu'au refuge la personne de la chambre",
+      "take_the_commander": "Prendre le commandant de bloc"
+    },
+    "objective_say": {
+      "all_five": "Les cinq sont tombés. La route de la clôture ne passe plus sur rien.",
+      "walk_the_person_out": "Une dehors et en marche. C'est celle qui compte, et elle n'est sur aucun chronomètre.",
+      "take_the_commander": "Le poste est à nous. Les itinéraires dessous peuvent être pris dans n'importe quel ordre à présent."
+    },
+    "objective_say_on_fail": {
+      "all_five": "Le temps est écoulé. Ce qui reste ouvert sous la Clôture est ouvert à n'importe qui.",
+      "keep_the_surface": "C'est plus de dix. Les maisons au-dessus des itinéraires sont le décompte, maintenant."
+    },
+    "triggers": {
+      "bt5_commander_moves": "Le commandant de bloc remonte vers le nord",
+      "bt5_chamber_reached": "La chambre est à portée"
+    },
+    "trigger_say": {
+      "bt5_commander_moves": "Le poste à l'est de la crête se vide vers le nord. Celui qui l'a quitté emmène le reste avec lui, et il ne reviendra pas.",
+      "bt5_chamber_reached": "Vous êtes à la chambre. Faites sortir cette personne avant de toucher au dernier itinéraire."
+    },
+    "src": {
+      "name": "28e9fa4c",
+      "briefing": "ceaf14ff",
+      "objectives.all_five": "4b291f6a",
+      "objectives.keep_the_surface": "a2e99ae1",
+      "objectives.walk_the_person_out": "206e8e8f",
+      "objectives.take_the_commander": "d0bcd665",
+      "triggers.bt5_commander_moves": "1ee8d313",
+      "triggers.bt5_chamber_reached": "8682e9e0",
+      "aftermath": "73b6922f",
+      "hostages_place": "11fbe44a",
+      "debrief.victory": "4f00f68d",
+      "debrief.defeat": "d6031d9e",
+      "objective_say.all_five": "e8d4a327",
+      "objective_say.walk_the_person_out": "72f26f2b",
+      "objective_say.take_the_commander": "6c1de051",
+      "objective_say_on_fail.all_five": "131d4246",
+      "objective_say_on_fail.keep_the_surface": "6f65eace",
+      "trigger_say.bt5_commander_moves": "50c5f458",
+      "trigger_say.bt5_chamber_reached": "453d8c4e"
     }
   },
   "deir_amun_1_recon": {
@@ -406,12 +668,12 @@
     "triggers": {
       "the_village_comes_down_to_the_yard": "Le village descend vers la cour",
       "the_yard_party_falls_back_up_the_lane": "Le détachement de la cour remonte la ruelle",
-      "a_charge_squad_comes_down_the_lane": "Un groupe kamikaze descend la ruelle"
+      "a_charge_squad_comes_down_the_lane": "Un groupe de charge descend la ruelle"
     },
     "trigger_say": {
       "the_village_comes_down_to_the_yard": "Le village descend la ruelle vers la cour. Il y a neuf maisons là-haut et pas une personne dedans ; chaque corps dans cette rue est un combattant.",
       "the_yard_party_falls_back_up_the_lane": "Le détachement de la cour a quitté la pompe et remonte la ruelle vers le nord.",
-      "a_charge_squad_comes_down_the_lane": "Groupe kamikaze dans la ruelle. Sortez les sapeurs de l'orifice ou mettez quelque chose entre lui et eux."
+      "a_charge_squad_comes_down_the_lane": "Groupe de charge dans la ruelle. Sortez les sapeurs de l'orifice ou mettez quelque chose entre lui et eux."
     },
     "wave_say": {
       "2": "Deux sections traversent le gué central. Elles ne vont pas à la cour — elles vont au camp sur la berge, et le camp est à quatre cases de ce gué."
@@ -451,7 +713,7 @@
       "execution": "Un contact se perd environ seize secondes après que le dernier observateur l'a quitté, et le drone désigne plus qu'il n'éclaire : aveugle derrière un bâtiment, exactement comme un fusilier. Traitez-les dans un ordre et tenez-vous-y. Faire s'effondrer un tunnel tue ceux qui y sont stockés ; ce que vous abattez en premier décide donc lequel des autres débouchera dans votre dos. L'un d'eux débouche sur votre propre route à l'est. Tout ce que vous laissez debout là se trouve sous vos blindés. Le village est au bord de l'escarpement sous le plateau et vous l'abordez par deux ravins ; le chef est donc, pour une fois, derrière : sur le champ de déblais au sud du village, un niveau au-dessus du terrain alentour, sur un sol que ses propres équipes ont élevé. Il ne descend pas sous terre et il ne le quittera pas. Le canon du Lavi et le mortier sont facturés par tranche de dix secondes dans ce village et rien n'y vaut le prix. Les fusils et la 50 de l'Eitan sont gratuits.",
       "notes": "Faites tomber les quatre en moins de cinq minutes et sortez le chef de ce champ de déblais."
     },
-    "aftermath": "Six tunnels sous le carrefour, et au matin aucun ne menait plus nulle part. La brigade a mis une troisième étoile sur le bordereau sans rien ajouter. Le Marj est calme. Sur, non.",
+    "aftermath": "Six itinéraires sous le carrefour, et au matin aucun ne menait plus nulle part. Les brigades sont rentrées au printemps, et un bataillon est resté sur la Coupure. Le Marj a été calme jusqu'à l'automne.",
     "debrief": {
       "victory": "Les quatre, et le dossier de ce district se ferme ce soir. Prendre l'homme n'a jamais rien arrêté — il était le terrain, et il n'en reste plus rien ici.",
       "defeat": "Le village repose sur quatre tunnels ouverts et nous rentrons. Ce district fonctionnera demain exactement comme hier."
@@ -473,12 +735,12 @@
     "triggers": {
       "the_village_comes_out_of_its_houses": "Le village se vide dans les ruelles",
       "he_falls_back_onto_his_own_spoil": "Le chef se replie sur les déblais",
-      "a_charge_squad_comes_for_the_engineers": "Un groupe kamikaze vise les sapeurs"
+      "a_charge_squad_comes_for_the_engineers": "Un groupe de charge vise les sapeurs"
     },
     "trigger_say": {
       "the_village_comes_out_of_its_houses": "Ils sortent des maisons et gagnent les ruelles entre les entrées.",
       "he_falls_back_onto_his_own_spoil": "Il est retourné sur le champ de déblais. C'est le seul terrain surélevé sous l'escarpement, et ses équipes l'ont bâti avec les tunnels que vous êtes venus faire tomber.",
-      "a_charge_squad_comes_for_the_engineers": "Groupe kamikaze dans les ruelles, et vos sapeurs sont la seule chose sur cette carte qui doit rester immobile. Couvrez-les ou déplacez-les."
+      "a_charge_squad_comes_for_the_engineers": "Groupe de charge dans les ruelles, et vos sapeurs sont la seule chose sur cette carte qui doit rester immobile. Couvrez-les ou déplacez-les."
     },
     "wave_say": {
       "1": "Une équipe de roquettes et un technical sur la route du flanc ouest. C'est tout ce que les flancs peuvent envoyer ; après cela, il dépense ce qu'il a sous terre."
@@ -493,7 +755,7 @@
       "triggers.the_village_comes_out_of_its_houses": "637cad50",
       "triggers.he_falls_back_onto_his_own_spoil": "b152e511",
       "triggers.a_charge_squad_comes_for_the_engineers": "7f82a4bd",
-      "aftermath": "4a2a183a",
+      "aftermath": "d729db81",
       "debrief.victory": "5324aabc",
       "debrief.defeat": "59eda46d",
       "sections.situation": "848ff873",
@@ -565,7 +827,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Angle mort",
-    "briefing": "La ferme de ce creux est le relais d'étape de la route d'hiver, et ses caisses de drones sont dans sa grange à attendre que la pluie cesse. Les crêtes de chaque côté la dominent de quatre niveaux, et rien venu des collines du nord n'est en vue avant d'en atteindre le sommet. Tenez le creux cinq minutes et brûlez la grange dans les mêmes cinq. Les charges des sapeurs sont propres et lentes sous le feu ; le mortier et le Namer sont rapides, et chaque coup près de cette cour est facturé. Une famille est dans la cour entre la maison et la grange, à deux cases de la cellule qui s'y trouve. Un camion est dans le col nord ; identifié aujourd'hui, c'est un canon connu au-dessus de la tête de chaussée, et non un premier tir. Vous avez la logistique pour un avant-poste. Enterrez-le dans le creux et il ne voit rien ; placez-le sur la crête et il les voit venir, depuis l'extérieur du terrain que vous devez tenir. Toute roue venant de l'est passe par une seule brèche de deux cases dans la digue. Du nord, c'est le col pour les roues et la crête pour les pieds. La grange est l'ordre reçu ; la maison et la famille à côté pèsent sur l'évaluation.",
+    "briefing": "La ferme de ce creux est le relais d'étape de la route d'hiver, et ses caisses de drones sont dans sa grange à attendre que la pluie cesse. Les crêtes de chaque côté la dominent de quatre niveaux, et rien venu des collines du nord n'est en vue avant d'en atteindre le sommet. Tenez le creux cinq minutes et brûlez la grange dans les mêmes cinq. Les charges des sapeurs sont propres et lentes sous le feu ; le mortier et le Namer sont rapides, et chaque coup près de cette cour est facturé. Une famille est dans la cour entre la maison et la grange, à deux cases de la cellule qui s'y trouve. Un camion est dans le col nord ; identifié aujourd'hui, c'est un canon connu au-dessus de la tête de chaussée, et non un premier tir. Vous avez la logistique pour un avant-poste. Enterrez-le dans le creux et il ne voit rien ; placez-le sur la crête et il les voit venir, depuis l'extérieur du terrain que vous devez tenir. Toute roue venant de l'est passe par une seule brèche de deux cases dans l'arête de basalte. Du nord, c'est le col pour les roues et la crête pour les pieds. La grange est l'ordre reçu ; la maison et la famille à côté pèsent sur l'évaluation.",
     "debrief": {
       "victory": "La ferme est à nous et la grange en cendres. Ce qui franchira désormais ces crêtes descendra sur nous, et nous le verrons d'abord sur la ligne de crête.",
       "defeat": "Nous avons quitté la ferme et ils sont de retour dans le creux. Depuis la crête, on ne voit pas ce qu'ils y mettent."
@@ -585,11 +847,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "Le camion du col descend vers la ferme",
-      "riders_come_through_the_dyke_gap": "Des motards passent par la brèche de la digue"
+      "riders_come_through_the_dyke_gap": "Des motards passent par la brèche de l'arête"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "Le camion du col a commencé à descendre la piste nord vers la ferme. S'il doit être identifié sur ce terrain, c'est maintenant.",
-      "riders_come_through_the_dyke_gap": "Des motards par la brèche de la digue, un par un, car elle n'est pas plus large. C'est la seule porte de ce côté."
+      "riders_come_through_the_dyke_gap": "Des motards par la brèche de l'arête, un par un, car elle n'est pas plus large. C'est la seule porte de ce côté."
     },
     "wave_say": {
       "1": "Deux cellules franchissent la crête nord à pied. Depuis la ferme, elles n'existent pas avant d'être sur la ligne de crête.",
@@ -597,12 +859,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -610,7 +872,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }
@@ -778,12 +1040,12 @@
     "triggers": {
       "they_walk_into_the_ward": "L'ennemi s'avance dans le quartier",
       "the_block_pulls_back_into_the_souk": "Le pâté de maisons se replie dans le souk",
-      "a_charge_squad_comes_for_the_gate": "Un groupe kamikaze vise la porte"
+      "a_charge_squad_comes_for_the_gate": "Un groupe de charge vise la porte"
     },
     "trigger_say": {
       "they_walk_into_the_ward": "Ils entrent dans le quartier. Ni autour, ni vers les portes : dedans, car c'est le seul terrain de cette carte où vos armes sont celles qui vous coûtent.",
       "the_block_pulls_back_into_the_souk": "Le groupe en avant de l'enceinte est retourné dans le souk. Ils n'ont pas fini ; ils raccourcissent leur front.",
-      "a_charge_squad_comes_for_the_gate": "Un groupe kamikaze, sorti du souk, vient vers la porte. C'est la seule chose sur cette carte qui peut tuer une famille dans le mur, et peu lui importe de quel côté du mur il meurt."
+      "a_charge_squad_comes_for_the_gate": "Un groupe de charge, sorti du souk, vient vers la porte. C'est la seule chose sur cette carte qui peut tuer une famille dans le mur, et peu lui importe de quel côté du mur il meurt."
     },
     "wave_say": {
       "0": "Deux sections descendent la route nord vers la porte. Toutes les deux minutes, à l'heure, qu'il y ait ou non quelque chose à combattre à la porte.",
@@ -1091,6 +1353,300 @@
       "trigger_say.they_come_out_of_the_square": "a57281af",
       "trigger_say.the_town_falls_back_onto_the_hill": "38a15d84",
       "wave_say.2": "aca7ed1c"
+    }
+  },
+  "qasr_liwan_1_recon": {
+    "name": "Qasr Liwan I — Une maison",
+    "briefing": "Une maison sur la lisière nord de Qasr Liwan, close de murs, avec une seule porte sur la ruelle, et l'une des personnes enlevées à First Light s'y trouve. C'est tout ce que j'ai, et je l'ai depuis six heures. Trouvez le garde de cette porte, puis faites sortir cette personne par là et traverser la route nord jusqu'au point d'extraction, à huit cases de la cour. Vous avez cinq minutes. La rue à douze cases à l'ouest de la maison dort, et tout ce qui est à nous au-dessus de cette cour la réveille, le drone compris. Elle se réveille de toute façon d'elle-même au bout de trois minutes. La maison s'observe donc depuis la ruelle, jamais d'en haut. Gardez le drone pour le reste de la lisière. Un mortier sur la lisière est pointé sur cette cour et ne peut pas atteindre le point d'extraction : la sortie est donc la moitié dangereuse. Il y a des postes sur les deux approches que je ne sais pas situer, et chacun que vous trouvez est un poste de moins pour le prochain combat. Les maisons autour de cette porte sont habitées. Rien de ce que vous avez amené n'est assez lourd pour vous coûter là-bas ; un tir d'appui appelé, si. Et plus de dix points de Conduite perdus cette nuit, c'est la fin. Une personne par une porte ; la rue n'est pas l'objectif, n'en faites pas un.",
+    "dispatch": "Beit Sahwan est tenue, et l'homme qui l'avait creusée a été pris à la tête de son puits. Plus haut sur la route côtière se trouve la ville du Marj, Qasr Liwan, préparée depuis des années à être défendue de l'intérieur.",
+    "hostages_place": "une maison de la lisière nord",
+    "debrief": {
+      "victory": "Une personne sortie de Qasr Liwan. Personne n'était jamais ressorti de cette ville avant cette nuit, et personne ne nous a fait cadeau de celle-ci.",
+      "defeat": "Pas cette nuit. La lisière nord sait maintenant ce que nous venions chercher, et elle ne dormira pas la prochaine fois."
+    },
+    "objectives": {
+      "find_the_gate_guard": "Identifier le garde de la porte de la cour",
+      "walk_one_out": "Faire sortir une personne jusqu'à la route nord",
+      "keep_the_street": "Ne pas perdre plus de 10 points de Conduite",
+      "find_the_seam_post": "Identifier le poste de sacs de sable au carrefour de la côte"
+    },
+    "objective_say": {
+      "find_the_gate_guard": "Voilà le garde, dans la ruelle devant l'unique porte. Un seul homme sur une seule porte : ils ne pensent pas que quelqu'un connaisse cette maison.",
+      "walk_one_out": "Une personne dehors et sur la route. Éloignez-vous de la lisière avant qu'elle ait fini de se réveiller.",
+      "find_the_seam_post": "Poste de sacs de sable là où la route nord rejoint la côte, tourné vers l'endroit par où nous contournerions. Il entre au dossier, et il sera encore là quand nous reviendrons pour ce coin."
+    },
+    "objective_say_on_fail": {
+      "walk_one_out": "La maison nous échappe. Une telle occasion ne se présente qu'une fois, et je ne peux pas la payer deux fois.",
+      "keep_the_street": "Nous voilà au-delà de dix dans cette rue, et au-delà de dix, c'est la fin de la nuit."
+    },
+    "triggers": {
+      "the_street_heard_the_courtyard": "La rue a entendu la cour",
+      "the_street_wakes": "La rue à l'ouest de la maison se réveille"
+    },
+    "trigger_say": {
+      "the_street_heard_the_courtyard": "La rue à l'ouest de vous est debout et converge sur la maison. Le mortier de la lisière est pointé sur cette cour, et chaque seconde qui y passe est une seconde sous ce tube.",
+      "the_street_wakes": "Trois minutes. La rue à l'ouest est debout et marche vers la maison."
+    },
+    "wave_say": {
+      "0": "Deux cavaliers vers l'est sur la route nord, en direction du point d'extraction. La lisière est réveillée."
+    },
+    "src": {
+      "name": "f070a78d",
+      "briefing": "d6af3c3a",
+      "objectives.find_the_gate_guard": "04e8baef",
+      "objectives.walk_one_out": "015c4c2a",
+      "objectives.keep_the_street": "a2e99ae1",
+      "objectives.find_the_seam_post": "9cdd8259",
+      "triggers.the_street_heard_the_courtyard": "9cd45485",
+      "triggers.the_street_wakes": "308e6efc",
+      "dispatch": "d7d3c95f",
+      "hostages_place": "78700b90",
+      "debrief.victory": "bc90300d",
+      "debrief.defeat": "c863a393",
+      "objective_say.find_the_gate_guard": "439496cf",
+      "objective_say.walk_one_out": "d7860fce",
+      "objective_say.find_the_seam_post": "720731fe",
+      "objective_say_on_fail.walk_one_out": "8b31ce10",
+      "objective_say_on_fail.keep_the_street": "0b37e733",
+      "trigger_say.the_street_heard_the_courtyard": "533df3d1",
+      "trigger_say.the_street_wakes": "5a765ad0",
+      "wave_say.0": "65e0135a"
+    }
+  },
+  "qasr_liwan_2_foothold": {
+    "name": "Qasr Liwan II — L'Anneau",
+    "briefing": "L'anneau autour de Qasr Liwan se ferme en deux endroits. Au nord, c'est la jonction, où la route nord rejoint la côte, et ce que le raid sur la maison y a vu figure déjà sur votre carte. Au sud, c'est la Coupure, le point de contrôle au pied de la ville, et les deux se tiennent quatre minutes. Quarante cases les séparent et vous ne pouvez pas être sur les deux : le camp est donc là pour acheter la seconde force. Les deux sont minés par en dessous. Des équipes surgissent à l'intérieur de la jonction et à côté de la route côtière, et toute tenue où l'une d'elles se trouve cesse de compter. Les ennuis de la jonction arrivent sur roues par la route côtière : il lui faut l'équipe AT et une jeep ; la Coupure n'est que ruelles d'une case, il lui faut des fusiliers. Achetez en conséquence. Neuf habitants sont dans les ruelles du quartier sud. Ils se mettent en marche dès qu'une de nos unités est à quatre cases d'eux, et leur chemin vers le refuge passe par la ruelle du point de contrôle. Six d'entre eux passés en moins de cinq minutes, sinon le point de contrôle est un mur. Le mortier, le missile AT et le canon du Namer sont facturés près de ces maisons, les fusils non.",
+    "dispatch": "La brigade ferme un anneau autour de Qasr Liwan. Au sud de la ville, elle ouvre une route à travers l'enclave, et la route a un nom avant d'avoir un point de contrôle : la Coupure. Elle divisera le Marj jusqu'à la fin de la guerre.",
+    "debrief": {
+      "victory": "L'anneau est fermé et la Coupure est ouverte, et les premiers à franchir le point de contrôle ont été ceux qui vivent derrière. Tout ce qui suit passera par cette route.",
+      "defeat": "Qasr Liwan n'est pas encerclée cette nuit. Ses deux extrémités ont un jour de plus, et tous ceux qui sont encore dans ces ruelles aussi."
+    },
+    "objectives": {
+      "hold_the_seam": "Tenir la jonction pendant quatre minutes",
+      "hold_the_cut": "Tenir le point de contrôle de la Coupure pendant quatre minutes",
+      "residents_through": "Faire passer six habitants au sud de la Coupure",
+      "take_the_coast_road": "Prendre la route côtière là où elle rejoint la Coupure"
+    },
+    "objective_say": {
+      "hold_the_seam": "La jonction est fermée. Laissez-y assez de monde pour qu'elle le reste.",
+      "hold_the_cut": "La Coupure est à nous. Désormais, on ne la rend plus.",
+      "residents_through": "Six passés par le point de contrôle, au sud de la Coupure. Le reste du quartier a vu que c'était possible.",
+      "take_the_coast_road": "Carrefour de la route côtière tenu. Le ravitaillement circule le long de la Coupure."
+    },
+    "objective_say_on_fail": {
+      "residents_through": "Cinq minutes, et ils sont encore dans les ruelles. Un point de contrôle que personne ne peut franchir est un mur."
+    },
+    "triggers": {
+      "the_seam_reserve_comes_up": "La réserve de la jonction sort des maisons",
+      "the_lanes_move_on_the_checkpoint": "Les ruelles convergent sur le point de contrôle",
+      "the_seam_reserve_falls_back": "La réserve de la jonction se replie"
+    },
+    "trigger_say": {
+      "the_seam_reserve_comes_up": "Trois de plus sortent des maisons derrière la jonction. Ils attendaient que quelqu'un s'y poste.",
+      "the_lanes_move_on_the_checkpoint": "Deux remontent vers le sud, hors des ruelles, sur le point de contrôle."
+    },
+    "wave_say": {
+      "2": "Un technical descend la route côtière depuis le nord, passe la jonction et file vers la Coupure."
+    },
+    "src": {
+      "name": "0bae5035",
+      "briefing": "184948b2",
+      "objectives.hold_the_seam": "7fab9047",
+      "objectives.hold_the_cut": "4835989f",
+      "objectives.residents_through": "f23feaef",
+      "objectives.take_the_coast_road": "5df8d6d9",
+      "triggers.the_seam_reserve_comes_up": "88c7a671",
+      "triggers.the_lanes_move_on_the_checkpoint": "b759003b",
+      "triggers.the_seam_reserve_falls_back": "400e02f0",
+      "dispatch": "7043ccc4",
+      "debrief.victory": "8e0e8e74",
+      "debrief.defeat": "286b6314",
+      "objective_say.hold_the_seam": "fc38a046",
+      "objective_say.hold_the_cut": "72d1da6c",
+      "objective_say.residents_through": "55f25489",
+      "objective_say.take_the_coast_road": "d953da99",
+      "objective_say_on_fail.residents_through": "9f7db2e7",
+      "trigger_say.the_seam_reserve_comes_up": "805c0427",
+      "trigger_say.the_lanes_move_on_the_checkpoint": "0f074cb5",
+      "wave_say.2": "0dc61826"
+    }
+  },
+  "qasr_liwan_3_buildup": {
+    "name": "Qasr Liwan III — La Trêve",
+    "briefing": "La trêve tient quatre minutes à partir de votre départ. Leurs lignes sont en retrait, juste au-delà de ce que nous voyons, et elles y restent tant qu'aucun des leurs ne meurt et que rien de nous ne franchit la rue sud. Quatre des personnes enlevées sont conduites vers le terrain découvert à l'ouest du point de contrôle. À quatre-vingt-dix secondes, l'escorte qui les accompagne s'écarte ; allez les chercher alors et pas avant, et ramenez les quatre au sud de la Coupure. Depuis le sud de cette rue, je vois dans la cour de la clinique, et de nulle part plus près. La traverser pour regarder, avec un groupe ou avec le drone, met fin à la trêve pour tout le monde sur ce terrain. Mettez le mortier et l'équipe AT en embuscade avant que quoi que ce soit identifie quoi que ce soit, car un tube laissé à son jugement, c'est ainsi qu'une trêve se termine. Le terrain de la remise est signalé, et la Conduite n'a que cinq points à donner aujourd'hui. Quand elle prend fin, c'est sur le terrain avancé au nord du point de contrôle, par trois côtés, avec des roues une minute plus tard. Le point d'eau à l'ouest rapporte quatre-vingts par minute à qui le tient. Employez le calme à ce qui tient ce terrain à quatre minutes : de l'AT pour les roues, des fusiliers pour le reste. Les quatre d'abord, car on ne les rachète pas sous le feu.",
+    "dispatch": "Une trêve a été convenue à minuit. Tant qu'elle tient, personne ne tire de l'autre côté de la Coupure, et au matin quatre des personnes enlevées à First Light doivent être conduites jusqu'au terrain découvert voisin et rendues.",
+    "aftermath": "Quatre personnes ramenées de l'autre côté de la Coupure. C'est tout ce que la trêve a obtenu, et la brigade ne lui en demandait pas plus.",
+    "hostages_place": "la Coupure",
+    "debrief": {
+      "victory": "Quatre ramenées de l'autre côté de la Coupure. Ce que nous avons bâti dans le calme a tenu le terrain avancé quand le calme a pris fin.",
+      "defeat": "La trêve est finie, et nous en sortons plus mal qu'en entrant."
+    },
+    "objectives": {
+      "bring_four_across": "Ramener les quatre personnes enlevées au sud de la Coupure",
+      "hold_the_forward_ground": "Tenir le terrain avancé pendant six minutes",
+      "keep_the_pause": "Ne pas perdre plus de 5 points de Conduite",
+      "take_the_water_point": "Prendre le point d'eau à l'ouest du point de contrôle",
+      "find_the_yard_watch": "Identifier le guetteur de la cour de la clinique"
+    },
+    "objective_say": {
+      "bring_four_across": "Quatre de l'autre côté. Quoi qu'il arrive maintenant sur le terrain avancé, cette partie est faite.",
+      "hold_the_forward_ground": "Terrain avancé tenu. Le point de contrôle a de nouveau une ligne devant lui.",
+      "take_the_water_point": "Point d'eau tenu. Il paiera le prochain combat d'ici.",
+      "find_the_yard_watch": "Équipe de roquettes postée dans la cour de la clinique, à découvert. Il entre au dossier, et il n'aura pas le premier tir quand nous y entrerons."
+    },
+    "objective_say_on_fail": {
+      "bring_four_across": "Les quatre ne sont pas tous passés, et ce terrain ne sera plus calme. Il n'y a pas de seconde remise.",
+      "keep_the_pause": "C'est plus de cinq points de Conduite, et cinq était tout ce que la trêve pouvait donner."
+    },
+    "triggers": {
+      "the_handover_party_steps_back": "L'escorte de la remise s'écarte",
+      "the_pause_ends": "La trêve est finie",
+      "ours_over_the_south_street": "Nos unités ont franchi la rue sud",
+      "the_first_of_theirs_down": "Un des leurs est tombé et leurs lignes bougent"
+    },
+    "trigger_say": {
+      "the_handover_party_steps_back": "L'escorte qui les accompagnait s'est repliée vers la ville. Plus personne ne se tient au-dessus des quatre.",
+      "the_pause_ends": "Quatre minutes. Tout ce qu'ils gardaient hors de vue marche sur le terrain avancé.",
+      "ours_over_the_south_street": "Quelque chose de nous a franchi la rue sud, et leurs lignes le voient. Ce qu'il restait de calme a disparu."
+    },
+    "wave_say": {
+      "2": "Des roues depuis l'extrémité est de la ville, un technical et deux motos, vers le terrain avancé."
+    },
+    "src": {
+      "name": "7c1ded11",
+      "briefing": "ea146146",
+      "objectives.bring_four_across": "9ce50f61",
+      "objectives.hold_the_forward_ground": "418606f9",
+      "objectives.keep_the_pause": "e6e20cd5",
+      "objectives.take_the_water_point": "f67be0f5",
+      "objectives.find_the_yard_watch": "ca7e0f4b",
+      "triggers.the_handover_party_steps_back": "5787aea6",
+      "triggers.the_pause_ends": "f2588dad",
+      "triggers.ours_over_the_south_street": "f9cbe8bb",
+      "triggers.the_first_of_theirs_down": "07d201a9",
+      "dispatch": "ff395ba2",
+      "aftermath": "7f38afd4",
+      "hostages_place": "dbaf39e5",
+      "debrief.victory": "348b6657",
+      "debrief.defeat": "521f0f4b",
+      "objective_say.bring_four_across": "ee29c0af",
+      "objective_say.hold_the_forward_ground": "0b8dc45a",
+      "objective_say.take_the_water_point": "0e4d97ab",
+      "objective_say.find_the_yard_watch": "683d543c",
+      "objective_say_on_fail.bring_four_across": "796ba272",
+      "objective_say_on_fail.keep_the_pause": "1444a233",
+      "trigger_say.the_handover_party_steps_back": "1aadb0be",
+      "trigger_say.the_pause_ends": "a35dfc46",
+      "trigger_say.ours_over_the_south_street": "9fea390c",
+      "wave_say.2": "108616c7"
+    }
+  },
+  "qasr_liwan_4_clearance": {
+    "name": "Qasr Liwan IV — La cour de la clinique",
+    "briefing": "L'entrée du puits est dans la cour de la clinique, le terrain découvert à l'intérieur du mur ouest du complexe. C'est ce que j'ai, et c'est tout ce que j'ai. Prenez la cour et tenez-la quinze secondes sans rien des leurs dedans, puis placez les sapeurs près du tracé et faites-le s'effondrer. Six minutes pour le puits. Six personnes sont sur le parvis au sud de la clinique, et elles sortent par la porte sud dès qu'une de nos unités est à quatre cases. Un poste de tir couvre cette porte depuis le sud-ouest. Conduisez-en cinq au refuge près du point de contrôle en moins de cinq minutes. Les gens d'abord ou la cour d'abord, à vous de choisir ; la cour d'abord empêche les équipes de surgir sous vos pieds. Leur position est à trois cases du mur de la clinique. Tout tir lourd qui la manque tombe à côté de la clinique et est facturé. Les fusils et la coaxiale du Lavi sont gratuits près de ce mur ; son canon, celui du Namer et le missile AT ne le sont pas. Perdez la clinique et vous aurez dépensé plus de dix points de Conduite d'un coup, ce qui est la mission.",
+    "debrief": {
+      "victory": "Le puits est tombé et la clinique est debout, et la sortie du parvis était la partie qui comptait. La cour avait un trou, et maintenant c'est une cour.",
+      "defeat": "Nous avons quitté ce complexe sans avoir fait le travail. La cour est de nouveau à quelqu'un d'autre, et ce qu'il y a dessous aussi."
+    },
+    "objectives": {
+      "take_the_yard": "Prendre et tenir la cour de la clinique",
+      "walk_the_forecourt_out": "Faire sortir cinq personnes du parvis de la clinique",
+      "bring_the_shaft_down": "Faire s'effondrer le puits dans la cour de la clinique",
+      "keep_the_clinic": "Ne pas perdre plus de 10 points de Conduite",
+      "the_yard_commander": "Tuer le chef à la porte nord de la cour"
+    },
+    "objective_say": {
+      "take_the_yard": "La cour est à vous. Les sapeurs ne peuvent charger l'entrée que si quelqu'un la surveille.",
+      "walk_the_forecourt_out": "Cinq sortis du parvis et au refuge. Ce qui reste dans ce complexe, c'est le combat.",
+      "bring_the_shaft_down": "Le puits est tombé et la clinique est debout. C'est le travail, les deux moitiés.",
+      "the_yard_commander": "Le chef de la cour est tombé à la porte nord. Il dirigeait cette ligne de tir depuis l'extérieur de sa propre cour."
+    },
+    "objective_say_on_fail": {
+      "walk_the_forecourt_out": "Le temps est écoulé pour le parvis. Quiconque s'y trouve encore est encore à côté du combat.",
+      "bring_the_shaft_down": "Six minutes, et la cour est toujours ouverte par en dessous. Ce qui en sortira ensuite sortira à côté de cette clinique.",
+      "keep_the_clinic": "Nous voilà au-delà de dix à côté d'une clinique. Rien dans cette cour ne valait cela."
+    },
+    "triggers": {
+      "the_shore_lane_moves_on_the_yard": "La ruelle du rivage converge sur la cour",
+      "the_firing_line_leaves": "Leur ligne de tir quitte le complexe"
+    },
+    "trigger_say": {
+      "the_shore_lane_moves_on_the_yard": "Deux de la ruelle du quartier du rivage convergent sur la cour par la porte ouest.",
+      "the_firing_line_leaves": "Les postes de tir autour du complexe se vident vers le nord. Ce qui reste du combat est dans la cour."
+    },
+    "wave_say": {
+      "1": "Un technical et une équipe de roquettes contournent vers la porte sud, celle par où passe la sortie."
+    },
+    "src": {
+      "name": "c9305840",
+      "briefing": "a8dac19e",
+      "objectives.take_the_yard": "0a5a79eb",
+      "objectives.walk_the_forecourt_out": "d4e32713",
+      "objectives.bring_the_shaft_down": "75dfd8a9",
+      "objectives.keep_the_clinic": "a2e99ae1",
+      "objectives.the_yard_commander": "b7da0c41",
+      "triggers.the_shore_lane_moves_on_the_yard": "27222e35",
+      "triggers.the_firing_line_leaves": "3ca90eca",
+      "debrief.victory": "45e092ba",
+      "debrief.defeat": "e46fee8f",
+      "objective_say.take_the_yard": "709f33ce",
+      "objective_say.walk_the_forecourt_out": "1ecb09ed",
+      "objective_say.bring_the_shaft_down": "9f935331",
+      "objective_say.the_yard_commander": "24a79db5",
+      "objective_say_on_fail.walk_the_forecourt_out": "93bb1f11",
+      "objective_say_on_fail.bring_the_shaft_down": "7e229299",
+      "objective_say_on_fail.keep_the_clinic": "3790b334",
+      "trigger_say.the_shore_lane_moves_on_the_yard": "b6baced1",
+      "trigger_say.the_firing_line_leaves": "c7638e7f",
+      "wave_say.1": "29d761e6"
+    }
+  },
+  "qasr_liwan_5_subterranean": {
+    "name": "Qasr Liwan V — Les pompes",
+    "briefing": "Ce terrain est cartographié avant que quiconque y entre. Trois itinéraires profonds courent sous le quartier du rivage, et un itinéraire ne compte que tant que quelque chose de nous le surveille : détournez les yeux et il refroidit. Tenez la cour des pompes sur la lisière ouest pendant trois minutes et l'eau passe dans l'étage peu profond. Alors ces équipes surgissent aux deux bouts de la cour, sur quiconque s'y tient. L'eau n'atteint pas l'étage profond. Ces trois-là sont trouvés et chargés à la main en moins de six minutes, et l'un d'eux est encore creusé en direction de la Coupure. Deux groupes de sapeurs, trois itinéraires et la cour des pompes réclament tous la même minute : choisissez l'ordre avant de commencer. Un troisième groupe de sapeurs figure sur la liste du camp si la Conduite de la brigade l'a mérité. Un itinéraire profond débouche dans la cour fermée du dépôt de secours. Le dépôt n'est pas la cible, et cet itinéraire peut être lu et chargé depuis l'extérieur de son mur. Le dépôt est signalé, et l'abattre fait perdre la mission ; de même pour toute maison de ce rivage. Les fusils répondent à ce qui surgit à côté, et rien de plus lourd. Cartographier d'abord, charger ensuite : un sapeur à côté d'un itinéraire que personne ne surveille, c'est un homme à découvert pour rien.",
+    "aftermath": "Les pompes ont tourné un jour et les itinéraires peu profonds sous le rivage se sont remplis. Les profonds, non : la brigade les a fait tomber à la main, un sapeur et un itinéraire surveillé à la fois.",
+    "debrief": {
+      "victory": "La ville est encerclée et coupée du sud, et ce qu'il y a sous son rivage est à nous. Qasr Liwan est toujours debout, et tous ceux que nous en avons fait sortir aussi.",
+      "defeat": "Nous avons quitté le rivage avec le réseau toujours à la ville. Un anneau sur la carte ne vaut que par ce qu'il y a dessous."
+    },
+    "objectives": {
+      "run_the_pumps": "Tenir la cour des pompes pendant trois minutes",
+      "the_deep_routes": "Faire s'effondrer les itinéraires profonds sous le rivage",
+      "keep_the_depot": "Ne pas perdre plus de 10 points de Conduite",
+      "the_grid_chief": "Tuer le chef du réseau à la tête du puits profond",
+      "find_the_deep_crew": "Trouver l'équipe qui creuse vers la Coupure"
+    },
+    "objective_say": {
+      "the_deep_routes": "Les itinéraires profonds sont tombés. Le rivage est à nous, dessus comme dessous, pour autant que nous puissions voir.",
+      "the_grid_chief": "Le chef du réseau est tombé à la tête de son propre puits. Il conduisait ce réseau selon un plan tracé avant la guerre.",
+      "find_the_deep_crew": "Voilà l'équipe qui creuse vers la Coupure, sur la lisière sud du rivage. Il n'est sur aucun plan que j'ai ; il en fait un."
+    },
+    "objective_say_on_fail": {
+      "the_deep_routes": "Six minutes, et il reste un itinéraire profond ouvert sous le rivage. L'eau ne l'a jamais atteint, et nous non plus.",
+      "keep_the_depot": "Nous voilà au-delà de dix points de Conduite sur un rivage vide. Rien de ce qui en est sorti ne valait cela."
+    },
+    "wave_say": {
+      "0": "L'eau est entrée. Des équipes surgissent aux deux bouts de la cour des pompes, au nord et au sud.",
+      "2": "Un technical descend la route côtière depuis la lisière nord, vers la cour des pompes."
+    },
+    "src": {
+      "name": "d9cdd102",
+      "briefing": "92e00367",
+      "objectives.run_the_pumps": "f2b60443",
+      "objectives.the_deep_routes": "97903f1b",
+      "objectives.keep_the_depot": "a2e99ae1",
+      "objectives.the_grid_chief": "906629a5",
+      "objectives.find_the_deep_crew": "6b231746",
+      "aftermath": "931eeb5d",
+      "debrief.victory": "2d5b8fad",
+      "debrief.defeat": "50768a57",
+      "objective_say.the_deep_routes": "b3d241ac",
+      "objective_say.the_grid_chief": "97a1cd4c",
+      "objective_say.find_the_deep_crew": "2a4f563a",
+      "objective_say_on_fail.the_deep_routes": "a1bce6da",
+      "objective_say_on_fail.keep_the_depot": "1b92363a",
+      "wave_say.0": "9d6c9af3",
+      "wave_say.2": "2f17eee4"
     }
   },
   "tel_marum_1_recon": {
@@ -1532,7 +2088,7 @@
     "objective_say": {
       "picture": "Quatre sites et aucun n'est une position. Personne ne s'enterre sur une route qu'il compte réutiliser — c'est un itinéraire de transport avec des armes garées le long.",
       "take_ford": "Surveillance des gués tenue. La colonne a traversé l'oued.",
-      "get_the_carriers_out": "Quatre hors du gué et hors du couloir. Ils étaient sur sa route parce que quelqu'un les y avait mis ; cette nuit, non."
+      "get_the_carriers_out": "Trois hors du gué et hors du couloir. Ils étaient sur sa route parce que quelqu'un les y avait mis ; cette nuit, non."
     },
     "objective_say_on_fail": {
       "get_the_carriers_out": "Le passage s'est fermé avec eux encore dessus. Nous étions à huit cases et nous regardions ailleurs."
@@ -1564,7 +2120,7 @@
       "sections.notes": "81c5a8a8",
       "objective_say.picture": "7c3c8f83",
       "objective_say.take_ford": "bf78f27c",
-      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say.get_the_carriers_out": "02bed465",
       "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
       "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
       "wave_say.0": "a8afca11",
@@ -1655,7 +2211,7 @@
     },
     "debrief": {
       "victory": "Un chef, une planque et une piste pleine de monde. On nous en demandait deux sur trois.",
-      "defeat": "Il est à l'est avec sa cellule et les levées de terre sont de nouveau à eux. Nous y avons consacré l'unique semaine calme de la guerre."
+      "defeat": "Il est à l'est avec sa cellule et les levées de terre sont de nouveau à eux. Nous y avons consacré l'unique semaine calme que Naharin nous ait donnée."
     },
     "objectives": {
       "kill_amir": "Tuer ou capturer le chef local de Hallaq",
@@ -1690,7 +2246,7 @@
       "objectives.get_the_herders_out": "127df4db",
       "triggers.the_commander_runs_for_the_east_track": "3bdd8c22",
       "debrief.victory": "516cae53",
-      "debrief.defeat": "af79344b",
+      "debrief.defeat": "d1da1f1e",
       "sections.situation": "66ab1a30",
       "sections.mission": "e7d902bf",
       "sections.notes": "d0be643a",
@@ -1723,7 +2279,7 @@
     "objective_say": {
       "take_village": "Village tenu. Chaque cellule sous un toit que nous avons laissé debout est encore à sa fenêtre.",
       "kill_cache_guard": "Ce n'est pas un combattant, c'est un comptable avec un lance-roquettes. Ce qu'il gardait désigne le dépôt à l'est d'ici et dit combien il en reste de plein.",
-      "evac_families": "Elles sont toutes au refuge."
+      "evac_families": "Trois d'entre elles sont au refuge."
     },
     "objective_say_on_fail": {
       "evac_families": "La route est fermée et il reste des familles à l'intérieur. Neuf ne sont pas rentrées à First Light. Quelqu'un doit continuer à dire ce chiffre, et ce ne sera pas vous."
@@ -1748,7 +2304,7 @@
       "sections.execution": "dbd5b6d8",
       "objective_say.take_village": "13ef3503",
       "objective_say.kill_cache_guard": "ad4d3f21",
-      "objective_say.evac_families": "a5c462ea",
+      "objective_say.evac_families": "dbb160b1",
       "objective_say_on_fail.evac_families": "36801331",
       "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
     }

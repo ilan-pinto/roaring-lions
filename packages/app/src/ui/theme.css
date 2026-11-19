@@ -1971,6 +1971,47 @@ body[data-outcome-beat] .rl-aar {
   overflow: auto;
 }
 
+/* The menu's "What's new" panel (GH-1622, ui/whats-new.ts): a .rl-confirm-family modal. The notes scroll inside the
+   panel; the Close row stays under them. Headings wear the label register, the lines the body's. */
+.rl-whats-new__panel {
+  width: min(34rem, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.rl-whats-new__panel > .rl-panel__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.rl-whats-new__content {
+  overflow: auto;
+  min-height: 0;
+}
+.rl-whats-new__section + .rl-whats-new__section {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-whats-new__heading {
+  margin: 0 0 var(--s2);
+  font: 600 var(--t-band) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-whats-new__list {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+.rl-whats-new__list > li + li {
+  margin-top: var(--s1);
+}
+.rl-whats-new__empty {
+  margin: 0;
+}
+
 /* The debrief's rating prompt, in the report's foot above the nav. */
 .rl-rate {
   display: flex;
@@ -4905,7 +4946,9 @@ fieldset.rl-sandbox__sides {
   max-width: var(--menu-col);
   margin: var(--s3) auto 0;
 }
-.rl-sandbox__side-blurb {
+/* The side blurb, and what Free play has without being asked (field works on the KDF side) under it. */
+.rl-sandbox__side-blurb,
+.rl-sandbox__default {
   flex-basis: 100%;
   margin: 0;
   font-size: var(--t-s);
@@ -7896,6 +7939,109 @@ fieldset.rl-sandbox__sides {
   text-transform: uppercase;
   color: var(--ink-dim);
 }
+/* GH-1384: the fork on a branched rung (`garage-fork.ts`). Two cards side by side, each in the kit's
+   steel; giving a branch up is not an error, so "Gives up" and "Given up" are muted ink, never --bad.
+   Drawn only while the branch switch is open. */
+.rl-garage__fork {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--s2);
+}
+.rl-garage__fork-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  border: 1px solid color-mix(in srgb, var(--kit) 60%, var(--kit-edge)); /* px-ok */
+}
+.rl-garage__fork-card:hover,
+.rl-garage__fork-card:focus-within {
+  border-color: var(--accent);
+}
+.rl-garage__fork-name {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__fork-choose {
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--kit);
+}
+.rl-garage__fork-gives,
+.rl-garage__fork-given,
+.rl-garage__fork-run,
+.rl-garage__fork-final {
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-garage__fork-gives-head {
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-garage__fork-legacy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  border-inline-start: 2px solid var(--kit); /* px-ok */
+}
+.rl-garage__fork-legacy-title {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__fork-legacy-body {
+  margin: 0;
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-garage__fork-legacy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-garage__branch-notice {
+  margin: 0 var(--s3) var(--s2);
+  padding: var(--s1) var(--s2);
+  border-inline-start: 2px solid var(--kit); /* px-ok */
+  background: color-mix(in srgb, var(--kit) 12%, transparent);
+  color: var(--ink);
+  font-size: var(--t-body);
+}
+.rl-garage__branch-notice-title {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+}
+.rl-garage__branch-notice-list {
+  margin: var(--s1) 0;
+  padding-inline-start: var(--s3);
+}
+.rl-garage__branch-notice-hint {
+  color: var(--ink-mute);
+}
+.rl-stores__branches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-stores__branch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-stores__branch-name {
+  color: var(--ink);
+}
+.rl-stores__branch-final {
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
 /* F7: the account itself is empty, not any one track -- prepended above the
    board's tracks, in the same recessed well a stat panel sits in, so it
    reads as the screen speaking rather than as a rung's own line. */
@@ -8562,6 +8708,12 @@ fieldset.rl-versus__maps {
   display: contents;
 }
 .rl-versus__win[hidden] {
+  display: none;
+}
+/* Versus field works: the host's switch row and the room's line are toggled with `hidden`, and their base classes
+   (.rl-versus__kit, .rl-versus__room-kit) set display: flex, which an author rule wins over the user agent's [hidden]. */
+.rl-versus__works[hidden],
+.rl-versus__room-works[hidden] {
   display: none;
 }
 .rl-versus__side-reason[hidden],
@@ -11199,4 +11351,104 @@ fieldset.rl-versus__maps {
   margin: var(--s2) 0 0;
   font: var(--t-m) / 1.4 var(--font-body);
   color: var(--ink);
+}
+
+/* GH-1395 slice 2: "Amendments to the orders", under the deploy screen's orders. A disclosure (open while any amendment is
+   on), the three toggles, the challenge it names, and what beating it pays. The challenge's coin mark is the coin colour
+   (`--roar`), because what it pays is coins (design §5.3); no new colour. */
+.rl-amend {
+  margin: var(--s2) 0 0;
+  font: var(--t-s) / var(--lh-body) var(--font-body);
+  color: var(--ink);
+}
+.rl-amend__summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+.rl-amend__head {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-amend__count { color: var(--ink-mute); }
+.rl-amend__rows {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.rl-amend__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s1) var(--s2);
+  text-align: start;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-amend__row[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-amend__row:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-amend__name { font-weight: 600; }
+.rl-amend__need { color: var(--roar); font-size: var(--t-s); }
+.rl-amend__blurb { grid-column: 1 / -1; color: var(--ink-mute); }
+.rl-amend__challenge { margin-top: var(--s2); }
+.rl-amend__challenge p { margin: var(--s1) 0 0; }
+.rl-amend__challenge-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-weight: 600;
+}
+.rl-amend__challenge-blurb,
+.rl-amend__challenge-state { color: var(--ink-mute); }
+.rl-amend__challenge[data-armed='true'] .rl-amend__challenge-state { color: var(--ink); }
+.rl-amend__pays,
+.rl-amend__when {
+  margin: var(--s1) 0 0;
+  color: var(--ink-mute);
+}
+/* The coin mark, one drawing for the panel, the after-action rung and the board: a terracotta disc with a darker edge. */
+.rl-amend__mark,
+.rl-aar__rung-coin,
+.rl-world__challenge::before {
+  display: inline-block;
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: var(--roar);
+  box-shadow: inset 0 0 0 1px var(--roar-deep);
+}
+.rl-amend__challenge[data-armed='false'] .rl-amend__mark { background: transparent; box-shadow: inset 0 0 0 1px var(--roar); }
+/* The after-action's challenge rung: its own row under the three stars (D2: it is not a fourth star). */
+.rl-aar__rung--challenge {
+  grid-column: 1 / -1;
+  align-items: center;
+  border-top: 1px solid var(--panel-rule);
+  border-inline-end: 0;
+}
+.rl-aar__rung--challenge.rl-aar__rung--missed .rl-aar__rung-coin { background: transparent; box-shadow: inset 0 0 0 1px var(--roar); }
+/* The campaign board: "challenge done", beside a town's stars. */
+.rl-world__challenge {
+  color: var(--roar);
+  font-family: var(--font-mono);
+}
+.rl-world__challenge::before {
+  content: '';
+  margin-inline: var(--s1) 2px;
+  vertical-align: -0.05em;
 }

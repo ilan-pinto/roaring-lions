@@ -9,7 +9,7 @@ import worldJson from '../../../data/campaign/world.json';
 import { viewOf } from './account/replay';
 import type { OutboxOp } from './account/outbox';
 import { parseWorld } from './campaign';
-import { amended, amendedMission, challengeMarkFor, challengeMarksOf, runRowOf, victoryMark, withChallengeMark, type ChallengeRunInput } from './challenge';
+import { amended, amendedMission, challengeMarkFor, challengeMarksOf, runRowOf, victoryMark, victoryRung, withChallengeMark, type ChallengeRunInput } from './challenge';
 import { memoryLedgerStore, newCampaign, type CampaignLedger } from './ledger-store';
 import { campaignMission } from './posture';
 import { settleVictory } from './victory-settle';
@@ -26,7 +26,7 @@ const opened: LedgerData = {
     beit_sahwan_1_recon: { stars: 2, roe: 90, ticks: 8000, lost: 0 },
   },
 };
-const beaten = { roe: 95, ticks: 8000, lost: 0, carriesAll: true };
+const beaten = { roe: 95, ticks: 8000, lost: 0, carriesAll: true, objectivesDone: [] };
 const input = (o: Partial<ChallengeRunInput> = {}): ChallengeRunInput => ({
   missionId: BS2,
   result: 'victory',
@@ -165,6 +165,49 @@ describe('the lazy entry points main.ts calls through ./posture', () => {
     expect(runRowOf(rt({ a: 2, b: 1 }), 50, 7).lost).toBe(3);
     expect(runRowOf(rt({}, 'active'), 50, 7).carriesAll).toBe(false);
     expect(runRowOf(rt({}), 50, 7).carriesAll).toBe(true);
+  });
+  it('runRowOf: objectivesDone is the id of every complete objective, primary or not, and no other', () => {
+    const list = [
+      { id: 'picture', primary: true, carries: false, status: 'complete' },
+      { id: 'hvt_seen', primary: false, carries: true, status: 'complete' },
+      { id: 'find_the_column', primary: false, carries: true, status: 'active' },
+    ];
+    expect(runRowOf({ lostByType: () => ({}), objectiveList: list as never }, 90, 5000).objectivesDone).toEqual(['picture', 'hvt_seen']);
+    expect(runRowOf({ lostByType: () => ({}), objectiveList: [] }, 90, 5000).objectivesDone).toEqual([]);
+  });
+  // The lead's ruling on PR 1568: Whole Picture is beaten by the ATGM pair alone, the track left open or not.
+  describe('Whole Picture (Beit Sahwan I): No drone, and the ATGM pair identified', () => {
+    const recon = missions.beit_sahwan_1_recon as unknown as MissionJson;
+    const objectives = (hvt: string, column: string) => ({
+      lostByType: () => ({}),
+      objectiveList: [
+        { id: 'picture', text: 'Identify six garrison positions', primary: true, carries: false, status: 'complete' },
+        { id: 'hvt_seen', text: 'Identify the ATGM pair overlooking the east road', primary: false, carries: true, status: hvt },
+        { id: 'find_the_column', text: 'Identify the track north of the road', primary: false, carries: true, status: column },
+      ] as never,
+    });
+    const end = { result: 'victory' as const, roeRating: 92, tick: 5000 };
+    it('the pair found and the track left open: beaten', () => {
+      expect(victoryMark(recon, opened, ['recon_no_drone'], objectives('complete', 'active'), end)).toEqual({ id: 'whole_picture', roe: 92, ticks: 5000, lost: 0 });
+    });
+    it('the track found and the pair left open: missed', () => {
+      expect(victoryMark(recon, opened, ['recon_no_drone'], objectives('active', 'complete'), end)).toBeNull();
+    });
+    it('the pair found with the drone on hand: not armed, no mark', () => {
+      expect(victoryMark(recon, opened, [], objectives('complete', 'complete'), end)).toBeNull();
+      expect(victoryMark(recon, opened, ['light_order'], objectives('complete', 'complete'), end)).toBeNull();
+    });
+    it('a defeat with the pair found is never a mark (the term only adds to a win)', () => {
+      expect(victoryMark(recon, opened, ['recon_no_drone'], objectives('complete', 'complete'), { ...end, result: 'defeat' })).toBeNull();
+    });
+    it('the rung names the objective as played, done or left open', () => {
+      const yes = objectives('complete', 'active');
+      const beaten = victoryRung(recon, ['recon_no_drone'], victoryMark(recon, opened, ['recon_no_drone'], yes, end), yes, end);
+      expect(beaten).toEqual({ met: true, text: 'Whole Picture: beaten · Identify the ATGM pair overlooking the east road: done' });
+      const no = objectives('active', 'complete');
+      const missed = victoryRung(recon, ['recon_no_drone'], null, no, end);
+      expect(missed).toEqual({ met: false, text: 'Whole Picture: missed · Identify the ATGM pair overlooking the east road: left open' });
+    });
   });
   it('amended on top of the posture equals the one call, and none on is the mission itself', () => {
     const easier = { [DIFFICULTY_LEDGER_KEY]: 'easier' };

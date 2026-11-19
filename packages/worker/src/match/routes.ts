@@ -8,22 +8,22 @@
  *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade
  *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). The snapshot has its own too, SNAP_LIMIT,
  *  at 12 a minute (snapshot S3, Ruling 12). */
-import type { Env, RateLimiter } from '../d1';
+import type { DurableObjectNamespaceLike, Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { botModelField, ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
+import { botModelField, ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, fieldWorksRequest, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
 import { seatMemberOf } from '../account/seat-member';
-import { callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField } from './room-fields';
+import { callsignField, kitField, mapField, paceField, picksOpen, seatKindField, seatPicksField, seatSpecialsField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
-// largest legitimate body measured 2358 bytes (full brigade claim plus every Store special, with the nine's tracks, GH-1077; was 1944 before them, GH-1102; was 1737 after demo_tzav, GH-274, and 1698 after heli_yanshuf, GH-698); cap ≈ 1.5× (the cap is unchanged)
-export const MATCH_BODY_MAX_BYTES = 3584;
+// largest legitimate body measured 2724 bytes (full brigade claim, a branch pick on every branched track, GH-1384, and every Store special; was 2358 before the picks, with the nine's tracks, GH-1077; was 1944 before them, GH-1102; was 1737 after demo_tzav, GH-274, and 1698 after heli_yanshuf, GH-698); cap ≈ 1.5× (raised from 3584 for the picks, GH-1384: 2724 is over 3584 / 1.5)
+export const MATCH_BODY_MAX_BYTES = 4096;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; specials?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown; botModel?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; picks?: unknown; specials?: unknown; winMode?: unknown; fieldWorks?: unknown; ticket?: unknown; scope?: unknown; botModel?: unknown }
 
 /** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
  *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
@@ -69,10 +69,26 @@ function sameOriginSnapshotGet(req: Request): boolean {
     && /^\/api\/match\/[^/]+\/snapshot$/.test(new URL(req.url).pathname);
 }
 
+/**
+ * GH-1397 (design §4, D-R4): the ONE reader of `env.ROOMS` and `env.ROOMS_LEGACY`, and so the one place a room's
+ * namespace is chosen. `ROOMS_NEW === '0'` with `ROOMS_LEGACY` bound returns the legacy namespace (the game
+ * Worker's own class: the no-deploy rollback after the cut); anything else returns `ROOMS`, which is the relay's
+ * from the cut on and the game Worker's own before it. The switch never yields `undefined` while `ROOMS` is bound:
+ * `'0'` with the lever unbound is `ROOMS`. A code is looked up in this one namespace only; there is no probe of
+ * the other, so a flip moves only NEW requests: a room still open in the namespace it leaves plays on with its
+ * connected seats, and its reconnects, joins and watches now find no such room (docs/agent-notes/relay-split.md,
+ * "What the flip does to a live relay room").
+ * `rooms-of.test.ts` pins it (F5 to F7) and holds today's routes to the byte with the lever unbound.
+ */
+export function roomsOf(env: Env): DurableObjectNamespaceLike | undefined {
+  if (env.ROOMS_NEW === '0' && env.ROOMS_LEGACY !== undefined) return env.ROOMS_LEGACY;
+  return env.ROOMS;
+}
+
 export async function handleMatch(req: Request, env: Env, now: number): Promise<Response> {
   if (!originAllowed(req, env) && !sameOriginSnapshotGet(req)) return new Response('origin', { status: 403 });
   const secret = env.TICKET_SECRET;
-  const rooms = env.ROOMS;
+  const rooms = roomsOf(env);
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
   const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot|watch))?$/);
   if (!m) return new Response('not found', { status: 404 });
@@ -102,6 +118,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // GH-976 P2: a win mode other than annihilation, only one read fair on this map, in the mirror (the room asks again).
     const winMode = winModeRequest(body.winMode, { mode, map, matchup });
     if (winMode.refused !== undefined) return new Response(winMode.refused, { status: 400 });
+    // Versus field works (the lead, 18 Nov 2026): only an annihilation KDF-v-KDF room may carry it (the room asks again).
+    const fieldWorks = fieldWorksRequest(body.fieldWorks, { mode, matchup, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) });
+    if (fieldWorks.refused !== undefined) return new Response(fieldWorks.refused, { status: 400 });
     const callsign = callsignField(body.callsign);
     // N4a: the host's seat kind and the pace, cleaned and clamped (D5) here and again by the room.
     const kind = seatKindField(body.kind);
@@ -110,6 +129,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // claim, cleaned against the shipped tracks here and again by the room (decision 22).
     const kit = mode === 'versus' ? kitField(body.kit) : 'matched';
     const tiers = seatTiersField(body.tiers);
+    // GH-1384: the host's branch picks, cleaned against the branched tracks and its own cleaned tiers, here and again by the
+    // room; forwarded only while branching is open, so a closed build's body to the room is dev's.
+    const picks = picksOpen() ? { picks: seatPicksField(body.picks, tiers) } : {};
     // GH-1102: the host's Store specials, cleaned against the shipped table here and again by the room.
     const specials = seatSpecialsField(body.specials);
     // GH-1075 A3: the declared bot model is refused before any room is reached; the seat's member comes from the cookie only.
@@ -121,7 +143,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, specials, member, ...(botModel === null ? {} : { botModel }), ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, ...picks, specials, member, ...(botModel === null ? {} : { botModel }), ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }), ...(fieldWorks.on === true ? { fieldWorks: true } : {}) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });
@@ -149,7 +171,10 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     const member = seated?.member ?? null;
     const kind = seatKindField(body.kind);
     const botModel = kind === 'bot' && member === null && declared.model !== null ? declared.model : null;
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind, member, ...(botModel === null ? {} : { botModel }), tiers: seatTiersField(body.tiers), specials: seatSpecialsField(body.specials), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
+    const tiers = seatTiersField(body.tiers);
+    // GH-1384: the guest's picks, as the host's are at /create (open only).
+    const picks = picksOpen() ? { picks: seatPicksField(body.picks, tiers) } : {};
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind, member, ...(botModel === null ? {} : { botModel }), tiers, ...picks, specials: seatSpecialsField(body.specials), ...(textField(body.build, '') === '' ? {} : { build: textField(body.build, '') }) }) }));
     // 412: the joiner named a build the room does not run; the room's answer names its own (see /join in match-room).
     if (res.status === 412) return new Response(await res.text(), { status: 412, headers: { 'content-type': 'application/json' } });
     if (res.status !== 200) return new Response('', { status: res.status });
@@ -194,7 +219,7 @@ async function advisorTicket(req: Request, env: Env, secret: string, code: strin
  * to a spectator, and a room whose second seat has not joined yet reads as human. The room is asked, and
  * nothing is written. Only a seat ticket for this code is accepted, so a watch (or advisor) ticket mints nothing.
  */
-async function watchTicket(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+async function watchTicket(req: Request, env: Env, secret: string, rooms: DurableObjectNamespaceLike, code: string, now: number): Promise<Response> {
   if (env.ARENA_WATCH !== '1') return new Response('not found', { status: 404 });
   if (req.method !== 'POST') return new Response('method', { status: 405 });
   if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
@@ -221,7 +246,7 @@ async function watchTicket(req: Request, env: Env, secret: string, rooms: NonNul
  * wrong or absent length is not the only bound. The room is sent the bytes read here, not the
  * original stream, and checks the ticket, the tick and the body again itself.
  */
-async function snapshot(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+async function snapshot(req: Request, env: Env, secret: string, rooms: DurableObjectNamespaceLike, code: string, now: number): Promise<Response> {
   if (req.method !== 'POST' && req.method !== 'GET') return new Response('method', { status: 405 });
   if (await limited(req, env.SNAP_LIMIT)) return new Response('slow down', { status: 429 });
   const auth = req.headers.get('authorization');

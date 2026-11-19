@@ -836,6 +836,20 @@ function baseUrl(port = 5173): string {
   return `http://localhost:${port}`;
 }
 
+/** The lead's ruling of 18 Nov 2026 (PR 1586): field works are ON by default in every KDF Free play, which draws
+ *  the production dock over the canvas and spawns a demolition squad at the friendly anchor. A capture is not a
+ *  player: every free-play boot the visual gate photographs opts out with this, so its frame stays the frame it
+ *  was before that default (`packages/app/src/sandbox-help.ts`, `freePlayDefault`). A mission ignores it, so only
+ *  a sandbox scenario carries it. `free-play-opt-out.test.ts` pins every scenario URL and the URL the
+ *  menu-host register's vote opens (`screens-check.ts`'s `gotoMenuHostMission`) against the app's own boot pipeline. */
+export const CAPTURE_FREE_PLAY_OPT_OUT = 'works=0';
+
+/** A free-play path a gated capture boots, opted out of the free-play defaults (`CAPTURE_FREE_PLAY_OPT_OUT`):
+ *  the menu-scene-host register's sandbox (`screens-check.ts`). Relative, no leading slash. */
+export function captureFreePlayPath(mapId: string): string {
+  return `free-play/${mapId}?${CAPTURE_FREE_PLAY_OPT_OUT}`;
+}
+
 function sceneParam(scenario: Scenario): string {
   if (scenario.sandboxMap !== undefined && scenario.mission !== undefined) {
     throw new Error(`scenario "${scenario.id}" sets both sandboxMap and mission -- exactly one is allowed`);
@@ -846,7 +860,7 @@ function sceneParam(scenario: Scenario): string {
   // `decals=`, so this is the simpler spelling with nothing lost.
   const flags = (scenario.sandboxFlags ?? []).map((f) => `&${f}`).join('');
   if (scenario.mission !== undefined) return `mission=${scenario.mission}${flags}`;
-  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}${flags}`;
+  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}${flags}&${CAPTURE_FREE_PLAY_OPT_OUT}`;
   throw new Error(`scenario "${scenario.id}" sets neither sandboxMap nor mission`);
 }
 

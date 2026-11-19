@@ -1,0 +1,368 @@
+{
+  "aa_remetz": {
+    "name": "Portador láser Remetz",
+    "blurb": "Un láser que quema drones pequeños en el aire y se apaga tras el humo o un muro.",
+    "src": {
+      "name": "14385624",
+      "blurb": "8bccd3e2"
+    }
+  },
+  "air_medevac_heli": {
+    "name": "Nachlieli Medevac",
+    "blurb": "Evacúa a cuatro heridos del combate. Sin armas, y debe aterrizar para cargar.",
+    "src": {
+      "name": "5dc86bf3",
+      "blurb": "e90d03b4"
+    }
+  },
+  "apc_eitan": {
+    "name": "VTT Eitan",
+    "blurb": "Un blindado que sigue el ritmo de los carros, con dos plazas y un arma que responde a las aeronaves.",
+    "src": {
+      "name": "8f478c3b",
+      "blurb": "741b7de8"
+    }
+  },
+  "apc_kipod": {
+    "name": "Portador de pantalla Kipod",
+    "blurb": "Seis plazas tras blindaje reactivo y un arma que clava a la gente al suelo sin destruir un camión.",
+    "src": {
+      "name": "ee7f351d",
+      "blurb": "1faaa340"
+    }
+  },
+  "at_nlos_team": {
+    "name": "Equipo de misiles Zaron",
+    "blurb": "Destruye lo que su bando ha avistado, sin línea de visión y con pocos daños colaterales. Inútil de cerca.",
+    "src": {
+      "name": "b8bd2c9b",
+      "blurb": "da3cf3c1"
+    }
+  },
+  "at_team": {
+    "name": "Equipo antitanque Spike",
+    "blurb": "Destruye blindados que los fusiles no tocan, un misil cada vez. Colóquelo antes de necesitarlo.",
+    "src": {
+      "name": "c9cf172c",
+      "blurb": "6724e20f"
+    }
+  },
+  "atgm_cell": {
+    "name": "Célula ATGM",
+    "src": {
+      "name": "afd1cfa3"
+    }
+  },
+  "attack_drone": {
+    "name": "Munición merodeadora",
+    "blurb": "Se lanza sola contra lo más cercano que su bando haya identificado, y no vuelve.",
+    "src": {
+      "name": "c234ef11",
+      "blurb": "8fbef1fa"
+    }
+  },
+  "breach_team": {
+    "name": "Equipo de brecha Tzinah",
+    "blurb": "Vacía una casa guarnecida en lugar de arrasarla. Sin fuego sostenido, cuesta menos Conducta.",
+    "src": {
+      "name": "98483f1a",
+      "blurb": "89e5ac33"
+    }
+  },
+  "charge_squad": {
+    "name": "Escuadra de cargas",
+    "src": {
+      "name": "26a92c0f"
+    }
+  },
+  "civilians": {
+    "name": "Civiles",
+    "src": {
+      "name": "49a0f9eb"
+    }
+  },
+  "demo_squad": {
+    "name": "Zapadores",
+    "blurb": "Derriba un edificio a pie de muro, sin machacar la calle para llegar.",
+    "src": {
+      "name": "73a9ecc9",
+      "blurb": "038160ca"
+    }
+  },
+  "demo_tzav": {
+    "name": "Portador de demolición Shiryonan",
+    "blurb": "Coloca una carga con espoleta contra un muro y se retira. Lo que quede demasiado cerca se va con la casa.",
+    "src": {
+      "name": "c7ab284e",
+      "blurb": "05ab3a80"
+    }
+  },
+  "digger_crew": {
+    "name": "Cuadrilla de excavadores",
+    "src": {
+      "name": "50ef4460"
+    }
+  },
+  "dozer_d9": {
+    "name": "D9 Dov",
+    "blurb": "Derriba un edificio con la hoja en lugar de con un proyectil. Sin armas, y no admite prisas.",
+    "src": {
+      "name": "bf713c0d",
+      "blurb": "3b484a74"
+    }
+  },
+  "drone_swarm": {
+    "name": "Enjambre de drones",
+    "src": {
+      "name": "fb0a09d6"
+    }
+  },
+  "gun_truck": {
+    "name": "Camión antiaéreo",
+    "src": {
+      "name": "0d35f21f"
+    }
+  },
+  "heli_peten": {
+    "name": "AH-64 Peten",
+    "blurb": "Cruza el mapa en segundos y destruye blindados a distancia de seguridad. El cañón es la mitad cara.",
+    "src": {
+      "name": "69734df1",
+      "blurb": "fdc00113"
+    }
+  },
+  "heli_peten_gunship": {
+    "name": "Peten Gunship",
+    "blurb": "Un Peten con casco para una pasada más: el cañón para campo abierto, Hellfire contra blindados.",
+    "src": {
+      "name": "c1c014c8",
+      "blurb": "29298346"
+    }
+  },
+  "heli_yanshuf": {
+    "name": "UH-60 Yanshuf",
+    "blurb": "Seis escuadras a cualquier punto del mapa en un minuto. Si lo pierde en el aire, las pierde a todas.",
+    "src": {
+      "name": "774f5766",
+      "blurb": "574794e7"
+    }
+  },
+  "ifv_namer": {
+    "name": "VCI Namer",
+    "blurb": "Lleva cinco bajo blindaje, pero es su 30mm lo que activa la penalización de zona protegida.",
+    "src": {
+      "name": "8e606e7f",
+      "blurb": "16bc3b20"
+    }
+  },
+  "inf_grenadier": {
+    "name": "Escuadra de granaderos Chomet",
+    "blurb": "Las granadas alcanzan a hombres tras un muro, nunca dentro de una casa. En una calle señalizada cuestan Conducta.",
+    "src": {
+      "name": "8b42fce5",
+      "blurb": "41ea56be"
+    }
+  },
+  "inf_medic_squad": {
+    "name": "Equipo sanitario Nemala",
+    "blurb": "Atiende a heridos bajo fuego y los saca en camilla. Apenas combate, y la carga lo frena.",
+    "src": {
+      "name": "65b31ff0",
+      "blurb": "3abf8155"
+    }
+  },
+  "inf_squad": {
+    "name": "Escuadra de fusileros",
+    "blurb": "Mantiene el terreno y guarnece edificios. Sus fusiles son lo más seguro que se puede disparar en una calle.",
+    "src": {
+      "name": "1687e8ef",
+      "blurb": "1a2093b2"
+    }
+  },
+  "jeep_shoded": {
+    "name": "Jeep Shoded",
+    "blurb": "Rápido y poco protegido. Dos plazas, una ametralladora y nada que detenga un cohete.",
+    "src": {
+      "name": "3fbeefb9",
+      "blurb": "d39ff050"
+    }
+  },
+  "loiter_drone": {
+    "name": "Munición merodeadora",
+    "src": {
+      "name": "c234ef11"
+    }
+  },
+  "manpad_team": {
+    "name": "Equipo MANPAD",
+    "src": {
+      "name": "603e28d5"
+    }
+  },
+  "mbt_lavi": {
+    "name": "Carro Lavi",
+    "blurb": "Gana cualquier duelo que vea hasta doce casillas. Su 120mm es el proyectil más caro en reglas de enfrentamiento.",
+    "src": {
+      "name": "c1d606dc",
+      "blurb": "c67d3900"
+    }
+  },
+  "mbt_lavi_camo": {
+    "name": "Carro de emboscada Lavi",
+    "blurb": "Espera bajo una red y se ve tarde. La red perturba su protección activa, y un disparo lo delata.",
+    "src": {
+      "name": "3e72d1a0",
+      "blurb": "9afd41e6"
+    }
+  },
+  "militia_cell": {
+    "name": "Célula de milicianos",
+    "src": {
+      "name": "dfe80979"
+    }
+  },
+  "mortar_crew": {
+    "name": "Dotación de mortero",
+    "src": {
+      "name": "2404c175"
+    }
+  },
+  "mortar_team": {
+    "name": "Equipo de mortero de 60mm",
+    "blurb": "Dispara más allá de su propia vista, así que otro debe observar. Se le factura donde cae.",
+    "src": {
+      "name": "c84e5cec",
+      "blurb": "0c86f6af"
+    }
+  },
+  "moto_rpg": {
+    "name": "Moto armada",
+    "src": {
+      "name": "9be4961e"
+    }
+  },
+  "paramotor": {
+    "name": "Paramotor",
+    "src": {
+      "name": "a332f812"
+    }
+  },
+  "recoilless_team": {
+    "name": "Equipo de cañón sin retroceso",
+    "src": {
+      "name": "05ecac3e"
+    }
+  },
+  "recon_drone": {
+    "name": "Dron de reconocimiento",
+    "blurb": "Ve dieciséis casillas, más lejos que nada más, y marca lo que encuentra. No lleva armas.",
+    "src": {
+      "name": "e5ab72dd",
+      "blurb": "62c5678b"
+    }
+  },
+  "recon_zikit": {
+    "name": "Equipo de reconocimiento profundo Shmamit",
+    "blurb": "Mantiene un túnel a la vista desde rocas o una casa, sin ser visto. Una vez descubierto, pierde el combate.",
+    "src": {
+      "name": "94e2cfcb",
+      "blurb": "247ada9b"
+    }
+  },
+  "rocket_battery": {
+    "name": "Batería de cohetes",
+    "src": {
+      "name": "9036e444"
+    }
+  },
+  "rpg_team": {
+    "name": "Equipo RPG",
+    "src": {
+      "name": "aba4a396"
+    }
+  },
+  "sarim_rifles": {
+    "name": "Fusileros sarim",
+    "src": {
+      "name": "0c2ef42a"
+    }
+  },
+  "scout_shachaf": {
+    "name": "Vehículo de exploración Shachaf",
+    "blurb": "Un ojo en tierra que ve dieciséis casillas desde su mástil. Una ametralladora de cúpula alcanza seis casillas.",
+    "src": {
+      "name": "ac25b766",
+      "blurb": "63b4b286"
+    }
+  },
+  "sniper_team": {
+    "name": "Equipo de francotiradores",
+    "blurb": "Abate a un hombre cada vez, al menor coste que puede llevar un disparo. Disparar delata el puesto.",
+    "src": {
+      "name": "ac9b6882",
+      "blurb": "296e10bc"
+    }
+  },
+  "spg_cluster": {
+    "name": "Obús de racimo Te'o",
+    "blurb": "Las submuniciones destrozan hombres y camiones al descubierto, no blindados ni casas. La Conducta paga cada proyectil.",
+    "src": {
+      "name": "b6e46f31",
+      "blurb": "bd7bd112"
+    }
+  },
+  "spg_long_range": {
+    "name": "Obús Te'o",
+    "blurb": "Llega más lejos que cualquier otro cañón y no ve nada de ello. Cada proyectil se factura donde cae.",
+    "src": {
+      "name": "a4b7c010",
+      "blurb": "f2222dda"
+    }
+  },
+  "technical": {
+    "name": "Pick-up armada",
+    "src": {
+      "name": "f54c23bc"
+    }
+  },
+  "ugv_recon_dog": {
+    "name": "Robot de reconocimiento Chadaf",
+    "blurb": "Camina por rocas y callejones donde no pasa ninguna rueda, y encuentra rutas de túnel. Sin armas, y barato de perder.",
+    "src": {
+      "name": "95107cb2",
+      "blurb": "b7a5cb34"
+    }
+  },
+  "veh_ambulance": {
+    "name": "Ambulancia blindada Pered",
+    "blurb": "Lleva cuatro heridos bajo blindaje, y ninguno se desangra a su lado. Ningún arma.",
+    "src": {
+      "name": "5b56b811",
+      "blurb": "de815afa"
+    }
+  },
+  "wounded_kdf": {
+    "name": "Soldado herido",
+    "blurb": "Un hombre caído. Se desangra salvo que un sanitario llegue a él, y nadie le dispara.",
+    "src": {
+      "name": "4e42a2a5",
+      "blurb": "48bcc321"
+    }
+  },
+  "wounded_sarim": {
+    "name": "Combatiente herido",
+    "blurb": "Un hombre caído. Se desangra salvo que un sanitario llegue a él, y nadie le dispara.",
+    "src": {
+      "name": "5ac2754c",
+      "blurb": "48bcc321"
+    }
+  },
+  "yahalom_squad": {
+    "name": "Zapadores Yahalom",
+    "blurb": "El único equipo que puede derrumbar un túnel.",
+    "src": {
+      "name": "506e0184",
+      "blurb": "8deb05cd"
+    }
+  }
+}

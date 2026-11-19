@@ -36,6 +36,16 @@ export interface SandboxFlag {
    *  Sarim units to the OPPOSITION (`&sur`). Meaningful only when the player commands the KDF, so a Sarim
    *  Free play drops it (`sideFlags`) and the picker greys it out. */
   kdfOnly?: true;
+  /** On in every Free play without being asked (the lead's ask of 18 Nov 2026: field works in free play), on the
+   *  sides it is legal for: a `kdfOnly` one on the KDF side alone. The picker offers no box for it and states it
+   *  under the side pick instead, in its `labelKey` sentence; the URL token stays a known, accepted alias that
+   *  changes nothing on the KDF side, so an old link is not reported as a typo. Applied by `freePlayDefaults`,
+   *  which `bootFlags` calls for a Free play boot only: a mission and a room never take it.
+   *
+   *  `&<name>=0` (or `=off`, `=false`: `FLAG_OFF_VALUES`, `envlight`'s grammar) turns it OFF for that boot -- the
+   *  lead's ruling of 18 Nov 2026, so the visual captures keep today's frame (`tools/src/golden-diff/
+   *  capture-protocol.ts` passes it). Only a default flag reads a value: every other flag stays presence-only. */
+  freePlayDefault?: true;
 }
 
 /** The opt-in sandbox extras. Each adds only what it names, so a check for
@@ -85,11 +95,14 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     kdfOnly: true,
   },
   {
+    // On by default in a KDF Free play since the lead's ask of 18 Nov 2026 (`freePlayDefault`): `&works` is an
+    // accepted alias for old links and changes nothing there. Still off on the Sarim side, in a mission and in a room.
     name: 'works',
     blurb:
-      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them',
-    labelKey: 'freePlay.option.works',
+      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them -- ON in every KDF Free play (&works is an accepted alias; &works=0, =off or =false turns them off for this boot; off on the Sarim side)',
+    labelKey: 'freePlay.works.on',
     kdfOnly: true,
+    freePlayDefault: true,
   },
   {
     name: 'soft',
@@ -252,8 +265,19 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
  *  typed by hand, and `has` is the only test that matches how it is typed. */
 export function readFlags(params: URLSearchParams): Record<SandboxFlagName, boolean> {
   const out = {} as Record<SandboxFlagName, boolean>;
-  for (const f of SANDBOX_FLAGS) out[f.name] = params.has(f.name);
+  for (const f of SANDBOX_FLAGS) out[f.name] = params.has(f.name) && !optedOut(params, f);
   return out;
+}
+
+/** The values that turn a `freePlayDefault` flag OFF (`&works=0`): `envlight`'s own grammar. */
+export const FLAG_OFF_VALUES: readonly string[] = ['0', 'off', 'false'];
+
+/** Whether the URL opts this boot out of a Free play default. A flag with no default never reads a value:
+ *  `&sur=0` is still ON, as it always was (see `sandboxUrl`). */
+function optedOut(params: URLSearchParams, f: SandboxFlag): boolean {
+  if (f.freePlayDefault !== true) return false;
+  const raw = params.get(f.name);
+  return raw !== null && FLAG_OFF_VALUES.includes(raw);
 }
 
 /** GH-1381: the side the player commands in Free play. */
@@ -297,6 +321,25 @@ export function sideFlags<K extends SandboxFlagName>(
   return out;
 }
 
+/** The extras a Free play takes without being asked (`freePlayDefault`): each such flag on, on the sides it is
+ *  legal for (a `kdfOnly` one on the KDF alone), unless the URL opts out (`&works=0`, `FLAG_OFF_VALUES`). Silent:
+ *  nothing the URL asked for is dropped. The caller decides that this boot IS a Free play (`bootFlags`); a mission
+ *  or a room never calls it. */
+export function freePlayDefaults<K extends SandboxFlagName>(
+  flags: Readonly<Record<K, boolean>>,
+  side: SandboxSide,
+  params: URLSearchParams,
+): Record<K, boolean> {
+  const out = { ...flags } as Record<K, boolean>;
+  for (const f of SANDBOX_FLAGS) {
+    if (f.freePlayDefault !== true || !Object.hasOwn(out, f.name)) continue;
+    if (f.kdfOnly === true && side !== 'kdf') continue;
+    if (optedOut(params, f)) continue;
+    out[f.name as K] = true;
+  }
+  return out;
+}
+
 /** The LEGACY launch URL for one sandbox pick: a map, plus whichever extras
  *  are on.
  *
@@ -313,8 +356,11 @@ export function sideFlags<K extends SandboxFlagName>(
  *  the new path spelling and the old query spelling cannot drift apart in
  *  which flags they emit or in what order.
  *
- *  The inverse of `readFlags`, and built by iterating the same table, so it
- *  cannot spell a flag in a form the parser does not accept. Flags are appended
+ *  The inverse of `readFlags` for every flag but a `freePlayDefault` one, and
+ *  built by iterating the same table, so it cannot spell a flag in a form the
+ *  parser does not accept. It cannot spell field works OFF: an absent `works`
+ *  is ON in a KDF Free play (`freePlayDefaults`), and only `&works=0` turns it
+ *  off, which this never writes. It has no production caller. Flags are appended
  *  BARE (`&sur`, not `&sur=1`) because that is how they are typed by hand and
  *  what `sandboxHelp` prints — one spelling everywhere, and `unknownParams`
  *  stays silent on anything this produces.

@@ -229,6 +229,13 @@ describe('N1b messages', () => {
     expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 'rally' }))).toBeNull();
     expect(parseServerMsg(JSON.stringify({ ...lobby, winMode: 3 }))).toBeNull();
   });
+  it('a lobby carries field works when the host opened the room with them, and refuses anything but true (versus field works)', () => {
+    const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'] };
+    expect(parseServerMsg(JSON.stringify({ ...lobby, fieldWorks: true }))).toEqual({ ...lobby, fieldWorks: true });
+    expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);   // absent stays absent
+    expect(parseServerMsg(JSON.stringify({ ...lobby, fieldWorks: false }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ ...lobby, fieldWorks: 'yes' }))).toBeNull();
+  });
   it('a lobby carries the room\'s kit rule when it is brigade, and refuses a rule that is neither (per-seat kit)', () => {
     const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'brigade' };
     expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);

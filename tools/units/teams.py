@@ -337,7 +337,7 @@ def atgm_cell(clip, frame):
 
 
 def charge_squad(clip, frame):
-    """Suicide Squad, crew 2. Two figures at a full sprint, single file.
+    """Charge Squad, crew 2. Two figures at a full sprint, single file.
 
     The collision risk is `militia_cell` -- also two standing dust figures -- so
     posture and spacing carry the separation. Nothing else in the set runs, and

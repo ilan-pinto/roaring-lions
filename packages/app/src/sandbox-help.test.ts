@@ -10,6 +10,7 @@ import {
   KNOWN_PARAMS,
   SANDBOX_FLAGS,
   SANDBOX_SIDES,
+  freePlayDefaults,
   readFlags,
   sandboxHelp,
   sandboxSideOf,
@@ -369,5 +370,56 @@ describe('GH-1381: sideFlags', () => {
     const warned: string[] = [];
     sideFlags(readFlags(new URLSearchParams('civ&roe')), 'sarim', (k) => warned.push(k));
     expect(warned).toEqual([]);
+  });
+});
+
+describe('field works in Free play (the lead, 18 Nov 2026): freePlayDefaults', () => {
+  const q = (s: string): URLSearchParams => new URLSearchParams(s);
+  const none = (): ReturnType<typeof readFlags> => readFlags(q(''));
+  const onOf = (f: Record<string, boolean>): string[] => Object.entries(f).filter(([, v]) => v).map(([k]) => k);
+
+  it('marks field works, and only field works, as on in every Free play (literals)', () => {
+    expect(SANDBOX_FLAGS.filter((f) => f.freePlayDefault === true).map((f) => f.name)).toEqual(['works']);
+  });
+
+  it('turns field works on for the KDF and leaves everything else as the URL said', () => {
+    expect(onOf(freePlayDefaults(none(), 'kdf', q('')))).toEqual(['works']);
+    expect(onOf(freePlayDefaults(readFlags(q('civ&roe')), 'kdf', q('civ&roe')))).toEqual(['roe', 'civ', 'works']);
+  });
+
+  it('&works is an alias on the KDF side: the same flags with it and without it', () => {
+    expect(freePlayDefaults(readFlags(q('works&civ')), 'kdf', q('works&civ'))).toEqual(
+      freePlayDefaults(readFlags(q('civ')), 'kdf', q('civ')),
+    );
+  });
+
+  it('gives the Sarim side no field works: a KDF-only default stays off there', () => {
+    expect(onOf(freePlayDefaults(none(), 'sarim', q('')))).toEqual([]);
+    expect(onOf(freePlayDefaults(readFlags(q('civ')), 'sarim', q('civ')))).toEqual(['civ']);
+  });
+
+  it('&works=0, =off and =false opt this boot out (the lead, 18 Nov: the captures pass it); bare &works and =1 do not', () => {
+    for (const v of ['0', 'off', 'false']) {
+      const p = q(`works=${v}&civ`);
+      expect(onOf(freePlayDefaults(readFlags(p), 'kdf', p)), v).toEqual(['civ']);
+      expect(unknownParams(p), v).toEqual([]);
+    }
+    for (const s of ['works', 'works=1', 'works=on', '']) {
+      const p = q(s);
+      expect(onOf(freePlayDefaults(readFlags(p), 'kdf', p)), s).toEqual(['works']);
+    }
+  });
+
+  it('reads a value only on a default flag: &sur=0 is still ON, as it always was', () => {
+    expect(readFlags(q('sur=0')).sur).toBe(true);
+    expect(readFlags(q('works=0')).works).toBe(false);
+  });
+
+  it('documents the opt-out in the banner (and so in __lions.help())', () => {
+    expect(sandboxHelp({ mapId: 'tel_marum', mapIds: [], on: [] })).toContain('&works=0, =off or =false');
+  });
+
+  it('still parses &works, so an old link is not reported as a typo', () => {
+    expect(unknownParams(new URLSearchParams('?sandbox=tel_marum&works'))).toEqual([]);
   });
 });

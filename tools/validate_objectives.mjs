@@ -1,5 +1,6 @@
 // GH-2 and GH-4: the authoring-time cross-checks for the `escort` and `no_collateral_above` objective types, and for the fields that
-// belong to them alone (`zone`, `threshold`, and since GH-1439 an escort's `fail_after_losses` and `until`).
+// belong to them alone (`zone`, `threshold`, and since GH-1439 an escort's `fail_after_losses` and `until`); since E3 (GH-1438) also
+// an evacuate_before's civilian `group`.
 //
 // The runtime (`MissionRuntime`'s constructor and `start()`) throws on the same faults at load; this is the same refusal
 // before a mission ships, and it names the mission file. Its own module, like `validate_income.mjs`, because
@@ -96,6 +97,24 @@ export function objectiveFailures(o, mi, map, file) {
       }
     }
   }
+  // E3 (GH-1438): an evacuation scoped to civilian groups. The shape (a non-empty name or a non-empty list of distinct
+  // names) is the schema's; this is what it cannot see: the names must be groups a civilians.groups placement (or a
+  // passenger of one) declares, or the objective counts nobody and can never complete. The runtime's start() refuses
+  // the same.
+  if (o.group !== undefined) {
+    if (o.type !== 'evacuate_before') {
+      out.push(`${file}: objective "${o.id}" is a ${o.type}, which takes no group (only evacuate_before does)`);
+    } else {
+      const civGroups = new Set();
+      for (const p of mi.civilians?.groups ?? []) {
+        if (p.group) civGroups.add(p.group);
+        for (const q of p.passengers ?? []) if (q.group) civGroups.add(q.group);
+      }
+      for (const name of typeof o.group === 'string' ? [o.group] : Array.isArray(o.group) ? o.group : []) {
+        if (!civGroups.has(name)) out.push(`${file}: evacuate_before "${o.id}" names group "${name}", which no civilian placement declares`);
+      }
+    }
+  }
   // GH-4: a hard ceiling on the ROE score.
   if (o.type === 'no_collateral_above') {
     if (!Number.isInteger(o.threshold) || o.threshold < 0 || o.threshold > 100) {
@@ -110,5 +129,91 @@ export function objectiveFailures(o, mi, map, file) {
   } else if (o.threshold !== undefined) {
     out.push(`${file}: objective "${o.id}" is a ${o.type}, which takes no threshold (only no_collateral_above does)`);
   }
+  // GH-1438: `by_order` belongs to raze alone (the schema refuses it elsewhere; this is the same refusal naming the file).
+  if (o.by_order !== undefined && o.type !== 'raze') {
+    out.push(`${file}: objective "${o.id}" is a ${o.type}, which takes no by_order (only raze does)`);
+  }
+  return out;
+}
+
+/**
+ * A `raze` objective's zone (the checks that used to sit inline in `validate_data.mjs`, moved here so a test can import them).
+ *
+ * `stepDemolition` consults `roePenalty` and `lowProfile` only when a demolisher picks a target on its own initiative; `per_tile`
+ * appears nowhere in the sim. So a low-profile or per-tile work in a raze zone is not unrazeable, it is razed only by an explicit
+ * `demolish` order, one per structure (one per TILE for a per-tile type). The default is to refuse it, because on almost every
+ * mission that is a trap the author did not mean to set.
+ *
+ * `by_order: true` (GH-1438, Bir Tarsha IV: the fence works are 13 berm and sandbag tiles) is the author saying they meant it. It
+ * lifts the `low_profile` and `per_tile` refusals ONLY. A protected work (roe_penalty at or past `protectedRoe`) is refused with
+ * or without it: levelling one is a Conduct loss, never an objective. The flag is read here and nowhere else; the sim never sees it.
+ *
+ * @param {Record<string, any>} o   the raze objective
+ * @param {Record<string, any>} mi  the parsed mission
+ * @param {Record<string, any>} map the parsed map JSON
+ * @param {{ types: Record<string, any> }} catalogue  data/structures.json
+ * @param {Map<string, string>} symbols  map symbol -> structure type id
+ * @param {number} protectedRoe  mirrors PROTECTED_ROE in packages/sim/src/structures.ts
+ * @param {string} file             for messages
+ * @returns {string[]}
+ */
+export function razeZoneFailures(o, mi, map, catalogue, symbols, protectedRoe, file) {
+  const out = [];
+  const rect = map.zones?.[o.target];
+  if (!rect) {
+    out.push(`${file}: raze "${o.id}" names zone "${o.target}", which map "${mi.map?.file}" does not declare`);
+    return out;
+  }
+  const [zx, zy, zw, zh] = rect;
+  // Keyed by "typeId:reason" so a type that trips more than one reason (today only `wall`, which is both low_profile and
+  // per_tile) gets a message for each reason instead of the first reason found silently winning.
+  const bad = new Map();
+  // One check for both sources of a structure inside the zone. `via` names where the structure came from, because the fix
+  // differs: a map symbol is edited in the map, a placed body in the mission.
+  const flag = (typeId, x, y, via) => {
+    const spec = catalogue.types[typeId];
+    if (spec.low_profile && o.by_order !== true && !bad.has(`${typeId}:low_profile`)) {
+      bad.set(
+        `${typeId}:low_profile`,
+        `${file}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile at (${x},${y})${via}. ` +
+          `A demolisher will not level it unattended (set "by_order": true if one demolish order each is meant).`
+      );
+    }
+    if ((spec.roe_penalty ?? 0) >= protectedRoe && !bad.has(`${typeId}:protected`)) {
+      bad.set(
+        `${typeId}:protected`,
+        `${file}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected (roe_penalty ${spec.roe_penalty}) at ` +
+          `(${x},${y})${via}. A demolisher will not level it unattended.`
+      );
+    }
+    if (spec.per_tile && o.by_order !== true && !bad.has(`${typeId}:per_tile`)) {
+      bad.set(
+        `${typeId}:per_tile`,
+        `${file}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile at (${x},${y})${via}: every tile is its ` +
+          `own structure, so this raze zone is N separate demolish orders, not one (set "by_order": true if that is meant).`
+      );
+    }
+  };
+  for (let y = zy; y < zy + zh; y++) {
+    for (let x = zx; x < zx + zw; x++) {
+      const typeId = symbols.get(map.rows?.[y]?.[x]);
+      if (!typeId) continue;
+      flag(typeId, x, y, '');
+    }
+  }
+  // Mission-placed bodies too (2026-09-07, Qarn Hadid design G1): the runtime raises `structures[]` BEFORE the objective snapshot
+  // (`MissionRuntime.raiseMissionStructures`), so a wall or fence a mission drops inside its own raze zone is exactly as unrazeable
+  // as one drawn in the map rows. `at` is the top-left tile, `size` the footprint (default 1x1).
+  for (const placed of mi.structures ?? []) {
+    if (!placed?.type || !Array.isArray(placed.at)) continue;
+    const [px, py] = placed.at;
+    const [pw, ph] = placed.size ?? [1, 1];
+    const ox = Math.max(px, zx);
+    const oy = Math.max(py, zy);
+    if (ox >= Math.min(px + pw, zx + zw) || oy >= Math.min(py + ph, zy + zh)) continue;
+    if (!catalogue.types[placed.type]) continue; // the schema check reports that
+    flag(placed.type, ox, oy, ', placed by the mission\'s "structures"');
+  }
+  for (const msg of bad.values()) out.push(msg);
   return out;
 }

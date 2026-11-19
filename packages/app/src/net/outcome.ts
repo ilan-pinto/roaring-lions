@@ -242,6 +242,9 @@ export interface ProductionWorld {
   readonly factions: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'];
   /** GH-976: a win-mode room's runtime is goals-only and has no production to ask about. */
   readonly winMode?: WinMode | null;
+  /** Versus field works: a field-works room's runtime is works-only. It is an annihilation room all the same: a side with
+   *  no armed unit standing has lost, whatever its purse, for it has nothing to build an army from. */
+  readonly fieldWorks?: boolean;
 }
 
 /** A unit id the shipped data knows to carry a weapon and not to be a rescue unit (`armedStanding`'s own test). */
@@ -257,7 +260,7 @@ function armedType(id: string): boolean {
  *  covers the cheapest ARMED unit on its menu). Undefined with no runtime. */
 export function productionOf(w: ProductionWorld): OutcomeProduction | undefined {
   const runtime = w.runtime;
-  if (runtime === null || (w.winMode ?? null) !== null) return undefined;
+  if (runtime === null || (w.winMode ?? null) !== null || w.fieldWorks === true) return undefined;
   return productionFor(runtime, [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu]);
 }
 

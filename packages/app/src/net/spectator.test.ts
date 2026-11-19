@@ -78,6 +78,11 @@ describe('stripText', () => {
     expect(s.score).toBe('Destroyed 2 : 5');
     expect(s.force).toBe('Force left 650 : 800');
   });
+  it('versus field works: the spectator sees the room\'s option, and nothing when it is off', () => {
+    expect(stripText({ ...BASE, fieldWorks: true }).rules).toBe('Field works on');
+    expect(stripText({ ...BASE }).rules).toBeNull();
+    expect(stripText({ ...BASE, fieldWorks: false }).rules).toBeNull();
+  });
   it('says "Round N: waiting on the players" only while playing and waiting', () => {
     expect(stripText({ ...BASE, waiting: true }).status).toBe('Round 15: waiting on the players');
     expect(stripText({ ...BASE, phase: 'finished', waiting: true }).status).toBeNull();

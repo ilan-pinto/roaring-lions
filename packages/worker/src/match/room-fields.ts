@@ -1,6 +1,9 @@
+// GH-1384 x GH-1397: the switch's own module, never `@lions/data`'s index: this file is in the relay Worker's closure
+// (`relay-config.test.ts`, F8), and the index would pull every data module and content JSON in with it.
+import { BRANCHES_OPEN } from '@lions/data/branches-open';
 import { callsignOrDefault, type Pace, type SeatConfig } from '@lions/net';
 import { isShippedMap } from './map-ids';
-import { KIT_TRACKS } from './kit-tracks';
+import { KIT_BRANCHES, KIT_TRACKS } from './kit-tracks';
 import { STORE_SPECIALS } from './store-specials';
 
 /** What `/api/match` and the room's `/create` both read from a create body:
@@ -90,6 +93,44 @@ export function seatTiersField(v: unknown): SeatTiers {
       if (tier === 0) continue;
       kept ??= Object.create(null) as Record<string, number>;
       kept[track] = tier;
+    }
+    if (kept !== null) out[id] = kept;
+  }
+  return out;
+}
+
+export type SeatPicks = NonNullable<SeatConfig['picks']>;
+/**
+ * GH-1384: whether a room path carries branch picks, the one Worker read of `BRANCHES_OPEN`. While it is false
+ * (as shipped) the routes forward no `picks` to a room, a room stores none in its meta and mints no `picks` key,
+ * so every body, stored byte and config is dev's. A function, not a copy of the value, so a test that flips the
+ * switch (`vi.mock` of `@lions/data`'s `branches-open`) flips every reader at once.
+ */
+export function picksOpen(): boolean {
+  return BRANCHES_OPEN;
+}
+/**
+ * A seat's branch picks (GH-1384), cleaned against the shipped branched tracks (`KIT_BRANCHES`) AND the seat's
+ * own CLEANED tiers (`seatTiersField`): structural checks only, as the tiers' (decision 22). It walks the TABLE,
+ * not the body, reads own data properties only, and builds on `Object.create(null)`, as `seatTiersField` does.
+ * A leaf is kept only when it is exactly 1 or 2, and only where `tiers` holds that track at its LAST tier (the
+ * branched one, `KIT_TRACKS`), so a pick never rides a tier the seat does not field, and two claims that field
+ * the same kit clean to the same object. Keyed by (unit, track): one track's pick never stands in for another's.
+ */
+export function seatPicksField(v: unknown, tiers: SeatTiers): SeatPicks {
+  const out = Object.create(null) as SeatPicks;
+  if (!isObject(v)) return out;
+  for (const id of Object.keys(KIT_BRANCHES)) {
+    const claimed = ownValue(v, id);
+    if (!isObject(claimed)) continue;
+    const held = ownValue(tiers, id);
+    let kept: Record<string, 1 | 2> | null = null;
+    for (const track of KIT_BRANCHES[id]) {
+      const p = ownValue(claimed, track);
+      if (p !== 1 && p !== 2) continue;
+      if (!isObject(held) || ownValue(held, track) !== KIT_TRACKS[id]?.[track]) continue;
+      kept ??= Object.create(null) as Record<string, 1 | 2>;
+      kept[track] = p;
     }
     if (kept !== null) out[id] = kept;
   }

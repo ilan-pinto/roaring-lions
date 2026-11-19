@@ -1,0 +1,330 @@
+{
+  "id": "bir_tarsha_5_subterranean",
+  "name": "Bir Tarsha V — Under the Fence",
+  "hostages_place": "the Fence Road",
+  "town": "bir_tarsha",
+  "phase": "subterranean",
+  "target_minutes": 7,
+  "time_limit_s": 840,
+  "start_layout": "assembly",
+  "start_front": "E",
+  "map": {
+    "file": "bir_tarsha_5",
+    "time_of_day": "dusk",
+    "player_start": [
+      6,
+      16
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units",
+      "intel.marked_positions"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions",
+      "civ.hostages_recovered"
+    ]
+  },
+  "briefing": "Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface, and on a shorter clock: five and a half minutes. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.",
+  "aftermath": "The Fence Road is quiet, and the border it ran beside is only a fence again. The Marj is not finished with, but it is behind the brigade, and the brigade has somewhere else to go.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "The routes under the Fence Road are down. What was left of the Marj went north, and the brigade did not follow."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "Not tonight. The routes are still open under the Fence, and the dusk is theirs now."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "yahalom_squad",
+      "count": 2,
+      "at": [
+        4.5,
+        15.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        7.5,
+        14.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "recon_zikit",
+      "count": 1,
+      "at": [
+        4.5,
+        18.5
+      ]
+    },
+    {
+      "unit": "ugv_recon_dog",
+      "count": 1,
+      "at": [
+        8.5,
+        18.5
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        10.5,
+        16.5
+      ]
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        6.5,
+        19.5
+      ]
+    },
+    {
+      "unit": "mbt_lavi",
+      "count": 1,
+      "at": [
+        10.5,
+        20.5
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "all_five",
+      "type": "collapse",
+      "primary": true,
+      "target": "fence_road",
+      "seconds": 390,
+      "text": "Bring down the five routes under the Fence Road in six and a half minutes",
+      "say": {
+        "speaker": "idit",
+        "text": "All five down. The Fence Road runs over nothing."
+      },
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "The clock is out. Whatever is still open under the Fence is open to anyone."
+      }
+    },
+    {
+      "id": "keep_the_surface",
+      "type": "no_collateral_above",
+      "primary": true,
+      "threshold": 10,
+      "text": "Lose no more than 10 Conduct",
+      "say_on_fail": {
+        "speaker": "shai",
+        "text": "That is past ten. The houses above the routes are the count now."
+      }
+    },
+    {
+      "id": "walk_the_person_out",
+      "type": "evacuate_before",
+      "primary": false,
+      "target": "rescue_refuge",
+      "count": 1,
+      "seconds": 330,
+      "hostages": true,
+      "carries": true,
+      "text": "Walk the person in the chamber out to the refuge",
+      "say": {
+        "speaker": "idit",
+        "text": "One out and walking, with time still on the clock. That is the one that counts."
+      }
+    },
+    {
+      "id": "take_the_commander",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "target": "bt5_block_commander",
+      "text": "Take the block commander",
+      "say": {
+        "speaker": "shai",
+        "text": "The post is ours. The routes under it can be taken in any order now."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "hamlet"
+    ],
+    "flagged_structure_penalty": 3,
+    "fail_below": 55
+  },
+  "civilians": {
+    "refuge": "rescue_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 1,
+        "at": [
+          44.5,
+          24.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          38.5,
+          18.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            38,
+            16
+          ]
+        },
+        "tag": "bt5_block_commander",
+        "group": "post"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          39.5,
+          18.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            38,
+            16
+          ]
+        },
+        "group": "post"
+      },
+      {
+        "unit": "charge_squad",
+        "count": 1,
+        "at": [
+          19.5,
+          23.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 5
+        },
+        "group": "mouths"
+      },
+      {
+        "unit": "charge_squad",
+        "count": 1,
+        "at": [
+          29.5,
+          24.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 5
+        },
+        "group": "mouths"
+      },
+      {
+        "unit": "digger_crew",
+        "count": 1,
+        "at": [
+          33.5,
+          22.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "group": "mouths"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          8.5,
+          14.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "in_tunnel": "bt5_a",
+        "group": "shafts"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          19.5,
+          16.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "in_tunnel": "bt5_b",
+        "group": "shafts"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          30.5,
+          18.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "in_tunnel": "bt5_c",
+        "group": "shafts"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "bt5_commander_moves",
+      "label": "The block commander is pulling north",
+      "on": {
+        "kind": "casualties_pct",
+        "value": 33
+      },
+      "do": {
+        "kind": "withdraw_to",
+        "group": "post",
+        "to": "north_exit"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "The post east of the ridge is emptying north. Whoever left it carries the remnant with him, and he is not coming back."
+      }
+    },
+    {
+      "id": "bt5_chamber_reached",
+      "label": "The chamber is in reach",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "chamber_reach"
+      },
+      "do": {
+        "kind": "spawn"
+      },
+      "say": {
+        "speaker": "shai",
+        "text": "You are at the chamber. Walk that one person out before you touch the last route."
+      }
+    }
+  ]
+}

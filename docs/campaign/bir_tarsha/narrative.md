@@ -428,21 +428,21 @@ None. V is the act's last mission and carries an `aftermath` instead.
 |---|---|---|---|
 | 1 | **Idit** | Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. | 168 |
 | 2 | **Shai** | Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. | 138 |
-| 3 | **Idit** | The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. | 157 |
+| 3 | **Idit** | The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface, and on a shorter clock: five and a half minutes. | 179 |
 | 4 | **Shai** | Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. | 164 |
 | 5 | **Idit** | A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. | 173 |
 | 6 | **Shai** | The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it. | 109 |
 
 - Beat 1 is G-13: the wide route is told and nothing in the sim changes. It says *as far east as they could take it* so the line is true wherever `bt5_wide`'s mouth ends up, and it gives no map reference.
 - Beat 2 is the primary (`collapse fence_road`, 390 s) and `yahalom_squad` as *the engineers*, per L-10 (no new line uses the unit's real display name).
-- Beat 3 is the third-star secondary, described as the design does: a surface structure (the G-5 stand-in), one person, alone. The person is never characterised (L-16 applies). It does not say whose the chamber is.
+- Beat 3 is the third-star secondary, described as the design does: a surface structure (the G-5 stand-in), one person, alone. The person is never characterised (L-16 applies). It does not say whose the chamber is. It names the secondary's clock (330 s, said as *five and a half minutes*) because the objective text does not: the lead's ruling of 18 Nov 2026 on PR 1569 kept the deadline and had the copy stop calling the rescue *not on the clock*.
 - Beat 4 states the ordering rule the mission is built on: the mission ends when the primaries do, so the person has to come out first. It is a cost, not a verdict.
 - Beat 5 is the hinge the outline keeps (`bt5_block_commander`): he withdraws north on `casualties_pct` 33, which is 3 of the strip's 9 starting bodies **anywhere on the map**, not only at his post, so the line says *a third of the cells on this strip* and not *if he is pressed*. *The remnant of the Marj* is the fiction's hinge for Sur; no real death is described (L-4, dossier D-1).
 - Beat 6 is the ceiling (10) and the light, as consequence only.
 
-**The JSON string, to be pasted whole (914 characters, splits into 6 beats by a port of `briefingBeats`):**
+**The JSON string, to be pasted whole (936 characters, splits into 6 beats by a port of `briefingBeats`):**
 
-> Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.
+> Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface, and on a shorter clock: five and a half minutes. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.
 
 ### 5.4 Objectives
 
@@ -485,7 +485,7 @@ Closes the town and Act I: the Marj is behind the brigade, which is what the out
 | `zone_entered(chamber_reach)` → `bt5_chamber_reached` | `toast` | system | `The chamber is in reach` | trigger `label` | live |
 | same trigger | `radio` | **Shai** | "You are at the chamber. Walk that one person out before you touch the last route." | `triggers[].say` | live |
 | `evacuated` (the person reaches the refuge) | `toast` | system | `clear (1)` | `notice.evacuated` | live |
-| `objective(walk_the_person_out, complete)` | `radio` | **Idit** | "One out and walking. That is the one that counts, and it is not on any clock." | `objectives[].say` | live |
+| `objective(walk_the_person_out, complete)` | `radio` | **Idit** | "One out and walking, with time still on the clock. That is the one that counts." | `objectives[].say` | live |
 | `objective(take_the_commander, complete)` | `radio` | **Shai** | "The post is ours. The routes under it can be taken in any order now." | `objectives[].say` | live |
 | `objective(all_five, complete)` | `radio` | **Idit** | "All five down. The Fence Road runs over nothing." | `objectives[].say` | live |
 | `objective(all_five, failed)` | `radio` | **Shai** | "The clock is out. Whatever is still open under the Fence is open to anyone." | `objectives[].say_on_fail` | live |
@@ -567,7 +567,7 @@ The Qasr Liwan sheet (§9) flagged this line and left it to this town: it promot
 
 ## 11. Verification
 
-- **Every beat** is at most two sentences and 240 characters, and each briefing splits into exactly the beats written, checked with a port of `briefingBeats` (`packages/app/src/ui/loading.ts`) in a script, not by eye. Briefing lengths: 893, 904, 849, 1034, 914 characters, all inside the shipped 385 to 1,225.
+- **Every beat** is at most two sentences and 240 characters, and each briefing splits into exactly the beats written, checked with a port of `briefingBeats` (`packages/app/src/ui/loading.ts`) in a script, not by eye. Briefing lengths: 893, 904, 849, 1034, 936 characters, all inside the shipped 385 to 1,225.
 - **Every trigger `label`** is at most 48 characters with no full stop (script).
 - **Every `say`, `dispatch`, `aftermath` and `debrief` line** is at most 240 characters (script).
 - **Status counts:** 61 `live` rows, 9 `engine` rows (the 5 trigger-table ones and the 4 in §6), 0 `schema`.

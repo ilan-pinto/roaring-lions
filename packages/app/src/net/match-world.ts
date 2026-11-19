@@ -1,6 +1,6 @@
-import { applyTerrain, doctrines, flagBlockOf, formations, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap, type SetupKitPiece } from '@lions/data';
+import { applyTerrain, BRANCHES_OPEN, branchedTracks, doctrines, flagBlockOf, formations, parseMap, structures, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type BranchPick, type MapJson, type ParsedMap, type SetupKitPiece, type UpgradableUnit } from '@lions/data';
 import { maps } from '@lions/data/content';
-import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
+import { FIELD_WORKS_LOGISTICS, economyRoom, endOfSeat, fieldWorksRoom, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -58,6 +58,10 @@ export interface MatchWorld {
    *  `runtime` is a GOALS-ONLY one (objectives with a side, no economy), mirror included, and
    *  `outcome.ts` reads it through `goalsOf`. */
   winMode: WinMode | null;
+  /** Versus field works (the lead's ruling, 18 Nov 2026, `fieldWorksRoom(config)`): the room's runtime is WORKS-ONLY -- each
+   *  side raises `versusFieldWorks()` from its own `FIELD_WORKS_LOGISTICS`, no income, no production, no goals. False in every
+   *  other room. An annihilation room still: `outcome.ts` asks the runtime nothing (`productionOf`, `goalsOf`). */
+  fieldWorks: boolean;
   /** GH-976: the camp mode's `wipe` rule (`modes.camp.wipe`), `'ends'` for every room that is not a camp room. Read by
    *  `goalsOf`; static setup data, out of `hash()`. */
   campWipe: 'ends' | 'after_camp';
@@ -136,9 +140,13 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const specialsBySide = [seatSpecials(seats[0]), seatSpecials(seats[1])] as const;
   const appended = appendedSpecials(roster, specialsBySide);
   const walked: readonly RosterUnit[] = appended.length === 0 ? roster : [...roster, ...appended];
+  const tiersBySide = [seatKitTiers(seats[0], walked), seatKitTiers(seats[1], walked)] as const;
+  // GH-1384: each side's branch picks, from the config alone (`seatKitPicksOf`); the closed build's are slice 1's
+  // stand-in, a function of the tiers, so they never split a type the tiers do not.
+  const picksBySide = [seatKitPicksOf(seats[0], tiersBySide[0], walked), seatKitPicksOf(seats[1], tiersBySide[1], walked)] as const;
   const kitBySide = [
-    upgradePrepass(walked, seatKitTiers(seats[0], walked)),
-    upgradePrepass(walked, seatKitTiers(seats[1], walked)),
+    upgradePrepass(walked, tiersBySide[0], picksBySide[0]),
+    upgradePrepass(walked, tiersBySide[1], picksBySide[1]),
   ] as const;
   const typeOf = new Map<string, number>();
   for (let k = 0; k < roster.length; k++) typeOf.set(roster[k].id, sim.addUnitType(localizedUnit(kitBySide[0].registered[k])));
@@ -151,7 +159,11 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     // The ONE "same kit" predicate, shared with the renderer's `templateKey`
     // so it never draws one kit on an id whose two sim types differ, nor loads
     // a second template for an id whose two sim types are one.
-    if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
+    // GH-1384: and the same picks. Two seats on the same tiers but different branches run two sim types; the
+    // renderer still draws them from ONE template there (`templateKey` keys on tiers), which is right, because
+    // both branches draw the tier's one set of kit parts (the lead's Q6). The same predicate serves: a pick table
+    // is a track -> positive number table, and an absent pick reads as none on both sides.
+    if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id]) && sameTrackTiers(picksBySide[0][u.id], picksBySide[1][u.id])) return;
     typeOf1.set(u.id, sim.addUnitType(localizedUnit(kitBySide[1].registered[k])));
   };
   for (let k = 0; k < roster.length; k++) copyForSide1(k);
@@ -168,7 +180,9 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   for (const f of formations) sim.addFormationType(f);
 
   const anchors = versusAnchors(mapJson);
-  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
+  // GH-1389: a computer level's stated force handicap is the seat's own `withhold`, read here and nowhere else: the sim
+  // only ever sees the units that were spawned. No seat carries one outside an offline match against a level.
+  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide, [seats[0]?.withhold, seats[1]?.withhold]);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
   // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.
@@ -178,9 +192,13 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // context, and every byte of it, is what it was.
   const fieldsSpecials = specialsBySide[0].length > 0 || specialsBySide[1].length > 0;
   const popExempt = new Set<number>();
+  // Versus field works: a works-only runtime, built where the others are (after both forces), standing nothing and spawning
+  // nobody, so every entity id and structure is what the same room without it has.
+  const works = fieldWorksRoom(config);
   const built = economy
     ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes, fieldsSpecials ? popExempt : undefined)
-    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide, flagSetupRoom(config)) : null;
+    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide, flagSetupRoom(config))
+    : works ? worksRuntime(sim, config.map, map, typeOf) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
   // GH-1102: each side's Store specials, last of all, so every entity id a room without them
@@ -194,7 +212,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // GH-976 v2: the set-up, after the forces, the runtime and the specials and before any tick. A restored world is built through this same path, so
   // the region and the kit's type indices (config, not state) are what the source had. A v1 flag room takes none of it.
   const setup = flagSetupRoom(config) ? beginMatchSetup(sim, config.map, map, anchors, endOfSide, structTypes) : null;
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes, setup };
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, fieldWorks: works, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes, setup };
 }
 
 /**
@@ -350,6 +368,53 @@ function economyRuntime(
   return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
 }
 
+/** The field works a field-works room offers (the lead's ruling, 18 Nov 2026), in catalogue order: every buildable shipped
+ *  structure that opens no production line, each with the count its price lets one purse buy (`FIELD_WORKS_LOGISTICS` over the
+ *  cost, floored), so the purse is always what binds and never the count. The forward camp is held out: its line would build
+ *  nothing, for a works room runs no production (HOLD FOR LEAD). */
+export function versusFieldWorks(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, t] of Object.entries(structures as Record<string, { buildable?: { cost: { logistics: number } }; production?: unknown }>)) {
+    if (t.buildable === undefined || t.production !== undefined) continue;
+    const cost = t.buildable.cost.logistics;
+    const n = cost > 0 ? (FIELD_WORKS_LOGISTICS - (FIELD_WORKS_LOGISTICS % cost)) / cost : 0;
+    if (n > 0) out[id] = n;
+  }
+  return out;
+}
+
+/**
+ * The runtime a field-works room plays (the lead's ruling, 18 Nov 2026): WORKS ONLY (`ctx.worksOnly`). Each side's purse
+ * starts at `FIELD_WORKS_LOGISTICS` with no income; the offer is `versusFieldWorks()`; nothing else of the economy room
+ * (no camp, menu, line, zone, cap or goal). Its works' types are what the mesh plan must load.
+ */
+function worksRuntime(sim: Sim, mapId: string, map: ParsedMap, typeOf: ReadonlyMap<string, number>): { runtime: MissionRuntime; structureTypes: string[] } {
+  const fieldWorks = versusFieldWorks();
+  const mission = {
+    id: `versus_field_works_${mapId}`,
+    map: { file: mapId },
+    ledger: { requires: [], produces: [] },
+    objectives: [],
+    field_works: fieldWorks,
+  };
+  const ctx: MissionContext = {
+    typeIdOf: (id) => {
+      const t = typeOf.get(id);
+      if (t === undefined) throw new Error(`versus works runtime references unknown unit ${id}`);
+      return t;
+    },
+    markers: map.markers,
+    zones: map.zones,
+    // C-R4: every runtime is handed the map's roads (a works-only one never routes a convoy, so it reads none).
+    roadMask: roadMaskOf(map),
+    economy: { logisticsStart: [FIELD_WORKS_LOGISTICS, FIELD_WORKS_LOGISTICS], logisticsRatePerMin: [0, 0] },
+    worksOnly: true,
+  };
+  const runtime = new MissionRuntime(sim, mission as unknown as MissionJson, ctx);
+  runtime.start();
+  return { runtime, structureTypes: Object.keys(fieldWorks) };
+}
+
 /**
  * The runtime a win-mode room plays (GH-976): the map's mode file (`data/versus/modes/<map>.json`) turned into
  * one primary objective per side, GOALS ONLY (`ctx.goalsOnly`): no camp menu, no purse, no income, no
@@ -462,6 +527,66 @@ export function seatKitTiers(seat: SeatConfig | undefined, roster: readonly Rost
   }
   return out;
 }
+
+/**
+ * GH-1384 slice 1's stand-in, which the CLOSED build keeps: branch 1 on each branched track the seat's CLEANED
+ * tiers hold at the branched tier (the migration's legacy default, the lead's Q8), derived from the config alone,
+ * so both machines compute the same table and a matched seat (`{}` tiers) fields none. While branching is closed
+ * `applyUpgrades` reads a branched tier as its envelope whatever the pick, so this table changes no stat; it is
+ * kept so the closed prepass is dev's to the argument. Since slice 2 the Garage's fork can buy branch 2, so an
+ * OPEN build must not use this table (it would field a branch-2 owner's tier 3 as branch 1): it reads the seat's
+ * own `picks` instead (`seatKitPicksOf`).
+ */
+export function seatKitPicks(tiers: Readonly<Record<string, Readonly<Record<string, number>>>>, roster: readonly RosterUnit[]): Record<string, Record<string, BranchPick>> {
+  const out: Record<string, Record<string, BranchPick>> = {};
+  for (const u of roster) {
+    const owned = tiers[u.id];
+    if (owned === undefined) continue;
+    const unit = u as unknown as UpgradableUnit;
+    for (const track of branchedTracks(unit)) {
+      const len = unit.upgrades?.[track]?.tiers.length ?? 0;
+      if (len > 0 && (owned[track] ?? 0) >= len) (out[u.id] ??= {})[track] = 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * GH-1384: a seat's branch picks as the world reads them. CLOSED (`open` false, which is `BRANCHES_OPEN` unless a
+ * test says otherwise): slice 1's stand-in (`seatKitPicks`), and the config's `picks` are never read. OPEN: the
+ * seat's own `picks`, under the SAME rule as its tiers (`seatKitTiers`): `{}` unless the seat is a KDF seat on
+ * `kit: 'brigade'` (the lead's Q10: a matched room carries neither), otherwise walked through the roster's
+ * branched tracks rather than through the claim's keys, own data properties only, each leaf exactly 1 or 2, and
+ * kept only where the seat's cleaned `tiers` hold that track at its LAST (branched) tier. A branched tier with no
+ * pick is not applied (`applyUpgrades`), so it fields the tier below, as a config from before the picks does.
+ */
+export function seatKitPicksOf(
+  seat: SeatConfig | undefined,
+  tiers: Readonly<Record<string, Readonly<Record<string, number>>>>,
+  roster: readonly RosterUnit[],
+  open: boolean = BRANCHES_OPEN
+): Record<string, Record<string, BranchPick>> {
+  if (!open) return seatKitPicks(tiers, roster);
+  const out = Object.create(null) as Record<string, Record<string, BranchPick>>;
+  if (seat === undefined || seat.kit !== 'brigade' || seat.faction !== 'kdf') return out;
+  const claim: unknown = seat.picks;
+  for (const u of roster) {
+    const owned = tiers[u.id];
+    if (u.faction !== 'kdf' || owned === undefined) continue;
+    const perType = ownValue(claim, u.id);
+    if (perType === undefined) continue;
+    const unit = u as unknown as UpgradableUnit;
+    for (const track of branchedTracks(unit)) {
+      const len = unit.upgrades?.[track]?.tiers.length ?? 0;
+      const p = ownValue(perType, track);
+      if ((p !== 1 && p !== 2) || len === 0 || owned[track] !== len) continue;
+      (out[u.id] ??= Object.create(null) as Record<string, BranchPick>)[track] = p;
+    }
+  }
+  return out;
+}
+
+
 
 /** `o[key]` when `o` is a plain object holding `key` as an OWN DATA property;
  *  never an inherited name, never a getter. */

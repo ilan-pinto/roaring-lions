@@ -309,6 +309,9 @@ describe('the three campaign keys have one door', () => {
       // WP-T1: telemetry initializes the player identity from localStorage via safeStorage guard.
       'telemetry/index.ts',
       'ui/saves.ts',
+      // GH-1622: the last "What's new" version this browser was shown, a device
+      // fact with one reader and writer, on `safeStorage`'s guarded access.
+      'whats-new-store.ts',
     ]);
   });
 });

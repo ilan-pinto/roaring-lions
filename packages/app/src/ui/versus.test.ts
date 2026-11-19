@@ -563,7 +563,8 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     expect(describedBy(sw)).toBe('Friends only: each player brings the upgrades and the Store special units they own. A bot fields the standard force');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('false');
-    expect(stage.querySelectorAll('.rl-versus__kit-toggle')).toHaveLength(1);
+    // The one brigade switch (the field-works row, a second switch on the form, is its own: `.rl-versus__works`).
+    expect(stage.querySelectorAll('.rl-versus__kit:not(.rl-versus__works) .rl-versus__kit-toggle')).toHaveLength(1);
     // The fine-print paragraph is gone: the hint is the whole of it.
     expect(stage.querySelector('.rl-versus__kit-note')).toBeNull();
     expect(missingKeys()).toEqual([]);
@@ -1689,24 +1690,54 @@ describe('the computer seat in the lobby', () => {
     expect(d.open).not.toHaveBeenCalled();
   });
 
-  it('an economy pairing hides the computer seat (it builds nothing, so the match could never end), and the mirror brings it back', async () => {
+  const pickSide = (stage: ParentNode, m: 'mirror' | 'kdf' | 'sarim'): void => {
+    const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
+    r.click();
+    r.dispatchEvent(new Event('change'));
+  };
+  const pickMap = (stage: ParentNode, id: string): void => {
+    const r = stage.querySelector<HTMLInputElement>(`.rl-versus__map-radio[value="${id}"]`)!;
+    r.click();
+    r.dispatchEvent(new Event('change'));
+  };
+
+  it('GH-1390: an economy pairing keeps the computer seat where the coverage probe read the cell clean, hides it where it is closed, and the mirror brings it back', async () => {
     const playComputer = vi.fn().mockResolvedValue('OFFLINE');
     const stage = mountPick(deps({ playComputer }));
     const section = stage.querySelector<HTMLElement>('.rl-versus__cpu')!;
     expect(section.hidden).toBe(false);
-    for (const m of ['kdf', 'sarim'] as const) {
-      const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
-      r.click();
-      r.dispatchEvent(new Event('change'));
-      expect(section.hidden, m).toBe(true);
+    // An economy pairing in annihilation is closed on every ground (the probe read the seat as stopped there); the camp race on Wadi Tarfan is open.
+    pickSide(stage, 'kdf');
+    for (const id of ['tel_marum', 'wadi_tarfan']) {
+      pickMap(stage, id);
+      expect(section.hidden, `${id} kdf annihilation`).toBe(true);
       cpuButton(stage)!.click();
       await flush();
-      expect(playComputer, m).not.toHaveBeenCalled();
+      expect(playComputer, `${id} kdf annihilation`).not.toHaveBeenCalled();
     }
-    const back = stage.querySelector<HTMLInputElement>('.rl-versus__side-radio[value="mirror"]')!;
-    back.click();
-    back.dispatchEvent(new Event('change'));
+    const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
+    camp.click();
+    camp.dispatchEvent(new Event('change'));
+    expect(section.hidden, 'wadi_tarfan kdf camp').toBe(false);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' });
+    pickSide(stage, 'mirror');
     expect(section.hidden).toBe(false);
+  });
+
+  it('GH-1390: a win mode rides to the arming call (the mirror camp race on Wadi Tarfan), and the seat stays on offer there', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const stage = mountPick(deps({ playComputer }));
+    pickMap(stage, 'wadi_tarfan');
+    const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
+    camp.click();
+    camp.dispatchEvent(new Event('change'));
+    expect(stage.querySelector<HTMLElement>('.rl-versus__cpu')!.hidden).toBe(false);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'mirror', winMode: 'camp' });
   });
 
   it('a failure to arm says so on its own line, re-enables the button, and navigates nowhere', async () => {
@@ -1742,5 +1773,77 @@ describe('the computer seat in the lobby', () => {
     b.click();
     expect(playComputer).toHaveBeenCalledTimes(1);
     expect(b.disabled).toBe(true);
+  });
+});
+
+// Versus field works (the lead's ruling, 18 Nov 2026): the host's switch, offered for an annihilation KDF-v-KDF room only.
+describe('field works: the host\'s switch and the room\'s line', () => {
+  const worksRow = (stage: ParentNode) => stage.querySelector<HTMLElement>('.rl-versus__works')!;
+  const worksSwitch = (stage: ParentNode) => worksRow(stage).querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const winRadios = (stage: ParentNode) => [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__win input.rl-versus__side-radio')];
+  const created = async (stage: HTMLElement, open: ReturnType<typeof vi.fn>): Promise<RoomRequest> => {
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    room(document.createElement('div'), 'ABCDEF', deps());
+    return (open.mock.calls[0] as [RoomRequest])[0];
+  };
+  const mount = () => {
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    return { open, stage: mountPick(deps({ open })) };
+  };
+
+  it('off by default, shown for the mirror in annihilation, and a create with it on asks for it', async () => {
+    const { open, stage } = mount();
+    expect(worksRow(stage).hidden).toBe(false);
+    expect(worksSwitch(stage).getAttribute('aria-checked')).toBe('false');
+    expect(worksSwitch(stage).textContent).toBe('Field works');
+    worksSwitch(stage).click();
+    expect(worksSwitch(stage).getAttribute('aria-checked')).toBe('true');
+    expect(describedBy(worksSwitch(stage))).toContain('1000 logistics');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', matchup: 'mirror', fieldWorks: true });
+  });
+
+  it('hidden, and switched off, for KDF against Sarim or a win mode; a create from there says nothing of it', async () => {
+    const { open, stage } = mount();
+    worksSwitch(stage).click();
+    pick(sideRadio(stage, 'kdf'));
+    expect(worksRow(stage).hidden).toBe(true);
+    pick(sideRadio(stage, 'mirror'));
+    expect(worksRow(stage).hidden).toBe(false);
+    expect(worksSwitch(stage).getAttribute('aria-checked')).toBe('false');
+    worksSwitch(stage).click();
+    const points = winRadios(stage).find((r) => r.value === 'points');
+    if (points !== undefined) {
+      pick(points);
+      expect(worksRow(stage).hidden).toBe(true);
+    }
+    pick(sideRadio(stage, 'kdf'));
+    expect('fieldWorks' in (await created(stage, open))).toBe(false);
+  });
+
+  it('the room screen names it to both seats when on, and says nothing when off', async () => {
+    for (const on of [true, false]) {
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'matched', ...(on ? { fieldWorks: true as const } : {}) } }));
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', deps({ open }));
+      stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      const line = stage.querySelector<HTMLElement>('.rl-versus__room-works');
+      expect(line?.hidden, String(on)).toBe(!on);
+      if (on) expect(line?.querySelector('.rl-versus__kit-name')?.textContent).toBe('On: 1000 logistics each, no income');
+    }
+  });
+
+  it('?pseudo=1: the switch, its hint and the room line are bracketed', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps());
+      for (const text of [worksSwitch(stage).textContent!, worksRow(stage).querySelector('.rl-versus__kit-hint')!.textContent!]) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+      expect(missingKeys()).toEqual([]);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 });
