@@ -1001,7 +1001,7 @@ const garrisonableSymbols = new Set(
       }
       // Same silent-no-op family: these three act on a group, and a group no
       // placement declares filters to an empty id list at runtime.
-      // GH-1438 E8: an abduct's captives, escort side, `to`-in-zone and route length are tools/validate_abduct.mjs
+      // GH-1438 E8: an abduct's captives, escort side, `to`-in-zone, start gap and reachability are tools/validate_abduct.mjs
       // (called below, once per mission).
       if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount' && kind !== 'abduct') continue;
       if (!t.do.group) {
@@ -1030,9 +1030,9 @@ const garrisonableSymbols = new Set(
     // GH-1438 E5: `do.zone` only where the runtime reads it, and only naming a zone the map has.
     failures.push(...triggerZoneFailures(mi, map, rel(file)));
     // GH-1438 E8: an abduct's captives are civilians, its escort is an enemy group, its `to` is inside its zone and
-    // its route is short enough for the captives to keep up; a route across an evacuation zone is a warning.
+    // reachable, and its captives start inside the release; a route across an evacuation zone is a warning.
     {
-      const report = abductFailures(mi, map, unitsById, new Set(structureSymbols.keys()), rel(file));
+      const report = abductFailures(mi, map, new Set(structureSymbols.keys()), rel(file));
       failures.push(...report.failures);
       warnings.push(...report.warnings);
     }

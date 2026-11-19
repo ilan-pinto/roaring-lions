@@ -412,6 +412,9 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'externallyCompleted', cls: 'state', kind: array(str()) },
   { name: 'resultValue', cls: 'state', kind: str(RESULTS) },
   { name: 'withdrawnValue', cls: 'state', kind: BOOL },
+  // GH-1438 E8 pacing: one word per trigger (the length `start()` builds, as `firedTriggers`), an abduct's escort state:
+  // walking, off, or a halt or a walk-on with its tick. Written by `stepAbductPace` and `abductOrdered`, read next tick.
+  { name: 'abductPace', cls: 'state', kind: array(SCALAR) },
 ];
 
 // --- the objects a runtime owns -------------------------------------------------------------

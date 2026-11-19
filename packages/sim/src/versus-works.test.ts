@@ -173,6 +173,8 @@ describe('versus field works: the snapshot carries side 1 only for a works-only 
 
   it('the digest of every other runtime is the table\'s before the rows existed (pinned), and a works-only one differs', () => {
     // Pinned from the table at 93448908f (before the side-1 rows): a mission save or a snapshot an earlier build wrote restores.
+    // Re-pinned for GH-1438 E8 pacing (`abductPace`, a row EVERY runtime carries, so it moves this digest on purpose and
+    // refuses every older save, as the E1 and E6 sim rows do); the side-1 rows still do not enter it.
     expect(runtimeSchemaDigest()).toBe(RUNTIME_DIGEST_BEFORE_ROWS);
     expect(runtimeSchemaDigest(true)).not.toBe(runtimeSchemaDigest());
   });
@@ -195,5 +197,7 @@ describe('versus field works: the snapshot carries side 1 only for a works-only 
   });
 });
 
-/** `runtimeSchemaDigest()` with the table as it stood at 93448908f (measured by restoring that file and reading it). */
-const RUNTIME_DIGEST_BEFORE_ROWS = 65675699;
+/** `runtimeSchemaDigest()` with the table as it stood at 93448908f (measured by restoring that file and reading it): 65675699.
+ *  Then 170229527 from GH-1438 E8 pacing, which appends `abductPace` (measured: the table at 697a04fcf reads 65675699, with
+ *  the one row appended 170229527). */
+const RUNTIME_DIGEST_BEFORE_ROWS = 170229527;

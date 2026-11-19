@@ -119,6 +119,7 @@ export const FIXED_COUNT_PATHS: ReadonlySet<string> = new Set([
   'MissionRuntime.worksOfferList1',
   'MissionRuntime.lines[]',
   'MissionRuntime.enemyLast',
+  'MissionRuntime.abductPace',
 ]);
 
 // ---- digest --------------------------------------------------------------------------------

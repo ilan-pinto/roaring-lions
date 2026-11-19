@@ -273,8 +273,9 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
       ].sort()
     );
     // 95 + ObjectiveState.completeTick (GH-976 P2) + MissionRuntime.appendedAnchors (GH-277 forward camp) + the four side-1 works
-    // rows of a works-only runtime (versus field works: worksOfferList1, worksPending1, worksSites1, appendedAnchors1).
-    expect(seen.size, 'state rows poisoned').toBe(101);
+    // rows of a works-only runtime (versus field works: worksOfferList1, worksPending1, worksSites1, appendedAnchors1) + E8's
+    // MissionRuntime.abductPace (GH-1438, the escort's pacing word per trigger).
+    expect(seen.size, 'state rows poisoned').toBe(102);
   }, 60_000);
 
   it('a mid-run runtime changes at every top-level state row that has a value, in some cut of some world', () => {
