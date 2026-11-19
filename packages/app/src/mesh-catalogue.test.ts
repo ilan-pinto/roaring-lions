@@ -64,6 +64,8 @@ import {
   hasUnitMesh,
   meshPlanFor,
   meshManifestFor,
+  riggedUnitFiles,
+  CHILD_FIGURE_FILES,
   meshUrl,
 } from './mesh-catalogue';
 
@@ -587,6 +589,30 @@ describe('mesh catalogue: what has a mesh at all', () => {
 describe('meshPlanFor', () => {
   const map = parseMap(maps.beit_sahwan_outskirts);
 
+  // GH-1438 E14 (D18, Option A): `civilians.figures: "adults"` leaves the child figure out of the civilians' variants.
+  describe('civilians.figures (GH-1438 E14)', () => {
+    const urlsOf = (figures: 'all' | 'adults' | undefined): readonly string[] =>
+      meshManifestFor(meshPlanFor(map, new Set(['civilians']), [], figures)).rigged.find((r) => r.id === 'civilians')?.urls ?? [];
+    it('adults: the three adult figures, in catalogue order, and never the child', () => {
+      // Literals, not the catalogue: the oracle must not import the list it checks.
+      expect(urlsOf('adults').map((u) => u.replace(/^.*\/civilians\//, ''))).toEqual(['civilian_woman.glb', 'office_worker.glb', 'farm_worker.glb']);
+    });
+    it('all, or absent: all four, the child last (the variant order of n % 4 is unchanged)', () => {
+      const four = ['civilian_woman.glb', 'office_worker.glb', 'farm_worker.glb', 'civilian_child.glb'];
+      expect(urlsOf('all').map((u) => u.replace(/^.*\/civilians\//, ''))).toEqual(four);
+      expect(urlsOf(undefined).map((u) => u.replace(/^.*\/civilians\//, ''))).toEqual(four);
+    });
+    it('the late-load path reads the same list (riggedUnitFiles), and another type is untouched by adults', () => {
+      expect(riggedUnitFiles('civilians', 'adults')).toEqual(['civilians/civilian_woman.glb', 'civilians/office_worker.glb', 'civilians/farm_worker.glb']);
+      expect(riggedUnitFiles('inf_squad', 'adults')).toEqual(RIGGED_UNIT_MESHES.inf_squad.files);
+    });
+    it('every child figure named is a real variant file, so adults cannot be a silent no-op after a rename', () => {
+      const all = new Set(Object.values(RIGGED_UNIT_MESHES).flatMap((e) => e.files));
+      expect(CHILD_FIGURE_FILES.size).toBeGreaterThan(0);
+      for (const f of CHILD_FIGURE_FILES) expect(all.has(f), f).toBe(true);
+    });
+  });
+
   it('splits a roster by mesh kind and drops a type with no mesh', () => {
     const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'billboard_only']));
     expect([...plan.rigged]).toEqual(['inf_squad']);
@@ -617,6 +643,7 @@ describe('meshManifestFor', () => {
   it('resolves every planned id to served URLs, variants in catalogue order', () => {
     const m = meshManifestFor({
       rigged: new Set(['civilians']),
+      civilianFigures: 'all',
       vehicles: new Set(['mbt_lavi']),
       buildings: new Set(['house']),
       decor: new Set(['rock'] as const),

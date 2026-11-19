@@ -695,6 +695,9 @@ export function hasUnitMesh(typeId: string): boolean {
  */
 export interface MeshPlan {
   readonly rigged: ReadonlySet<string>;
+  /** GH-1438 E14: the mission's `civilians.figures`. `adults` leaves `CHILD_FIGURE_FILES` out of every rigged type's
+   *  variant list (today the `civilians` type's child), so the rotation `pickMeshVariant` draws runs over adults alone. */
+  readonly civilianFigures: CivilianFigures;
   readonly vehicles: ReadonlySet<string>;
   readonly buildings: ReadonlySet<string>;
   readonly decor: ReadonlySet<DecorFamilyName>;
@@ -706,12 +709,14 @@ export interface MeshPlan {
 export function meshPlanFor(
   map: ParsedMap,
   roster: ReadonlySet<string>,
-  extraStructures: readonly string[] = []
+  extraStructures: readonly string[] = [],
+  civilianFigures: CivilianFigures = 'all'
 ): MeshPlan {
   const structureTypes = new Set(map.structures.map((b) => b.type));
   for (const id of extraStructures) structureTypes.add(id);
   return {
     rigged: new Set([...roster].filter((id) => id in RIGGED_UNIT_MESHES)),
+    civilianFigures,
     vehicles: new Set([...roster].filter((id) => id in VEHICLE_UNIT_MESHES)),
     buildings: new Set([...structureTypes].filter((id) => id in BUILDING_MESHES)),
     decor: decorFamiliesFor(map),
@@ -742,11 +747,27 @@ export interface MeshManifest {
   readonly backdrop: string | null;
 }
 
+/** GH-1438 E14: which civilian figures a mission draws (`civilians.figures` in mission.schema.json). */
+export type CivilianFigures = 'all' | 'adults';
+
+/** GH-1438 E14 (D18, Option A: "no child figure among people under aimed fire"; N8 extends it to the taken): the child
+ *  figures. A file here that is in no rigged entry would make `adults` a silent no-op, which `mesh-catalogue.test.ts`
+ *  refuses. */
+export const CHILD_FIGURE_FILES: ReadonlySet<string> = new Set(['civilians/civilian_child.glb']);
+
+/** A rigged type's GLB files, in variant order, under a mission's `civilians.figures`: every file, or with
+ *  `adults` every file but the child figures. The ONE place the filter is applied, so the boot load and a late load
+ *  (`main.ts`'s `ensureUnitMesh`) cannot disagree on which figures a civilian draws. */
+export function riggedUnitFiles(id: string, figures: CivilianFigures): readonly string[] {
+  const files = RIGGED_UNIT_MESHES[id].files;
+  return figures === 'adults' ? files.filter((f) => !CHILD_FIGURE_FILES.has(f)) : files;
+}
+
 export function meshManifestFor(plan: MeshPlan): MeshManifest {
   return {
     rigged: [...plan.rigged].map((id) => ({
       id,
-      urls: RIGGED_UNIT_MESHES[id].files.map(meshUrl),
+      urls: riggedUnitFiles(id, plan.civilianFigures).map(meshUrl),
       faction: RIGGED_UNIT_MESHES[id].faction,
     })),
     vehicles: [...plan.vehicles].map((id) => ({ id, url: meshUrl(VEHICLE_UNIT_MESHES[id]) })),
