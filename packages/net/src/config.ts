@@ -15,6 +15,13 @@ export interface SeatConfig {
    *  room. Structural checks only (`isTiers`); the room cannot check a claim
    *  against an account. */
   tiers: Record<string, Record<string, number>>;
+  /** GH-1384: the branch this seat fields on each branched track its `tiers` hold at that track's branched (last)
+   *  tier: unit type id -> track -> 1 or 2, keyed by (unit, track) as `tiers` is. Minted only by a build with
+   *  branched tiers open (the branch switch in `@lions/data`, which this package cannot read: the Worker mints the key, and
+   *  only while open), and then always, `{}` for a matched room and a Sarim seat. OPTIONAL on read, absent reading as
+   *  `{}`, so a config stored or replayed from before it still parses. Structural checks only (`isPicks`, bounded as
+   *  `tiers` is); the world cleans it again against the data and the seat's own tiers. */
+  picks?: Record<string, Record<string, 1 | 2>>;
   /** GH-1102: the Store specials this seat brings into a brigade room (`specials.ts`), as the
    *  room minted them: its cleaned claim minus `VERSUS_REFUSED_SPECIALS`, for a human KDF seat
    *  in a `brigade` room only. `[]` everywhere else, as it was in every room before. At most
@@ -489,6 +496,15 @@ function isTiers(v: unknown): v is Record<string, Record<string, number>> {
     Object.entries(t).every(([track, n]) => !RESERVED_KEYS.has(track) && isInt(n) && n >= 0 && n <= TIERS_MAX_TIER));
 }
 
+/** `picks` is `{ typeId: { track: 1 | 2 } }`, under the same bounds and the same reserved-key rule as `isTiers`: at
+ *  most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks an id, every leaf exactly 1 or 2 (a branch, never a tier). */
+function isPicks(v: unknown): v is Record<string, Record<string, 1 | 2>> {
+  if (!isRecord(v) || Object.keys(v).length > TIERS_MAX_TYPES) return false;
+  return Object.entries(v).every(([id, t]) => !RESERVED_KEYS.has(id) && isRecord(t) &&
+    Object.keys(t).length <= TIERS_MAX_TRACKS &&
+    Object.entries(t).every(([track, p]) => !RESERVED_KEYS.has(track) && (p === 1 || p === 2)));
+}
+
 /** Bounds on a seat's `withhold` (GH-1389): at most `WITHHOLD_MAX_TYPES` type ids, each a positive count of at most
  *  `WITHHOLD_MAX_COUNT`. The placed force is 15 units of 10 types, so neither bound refuses a real level. */
 export const WITHHOLD_MAX_TYPES = 16;
@@ -502,7 +518,7 @@ function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
-    (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
+    (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) && (s.picks === undefined || isPicks(s.picks)) &&
     Array.isArray(s.unlocks) && s.unlocks.length <= SPECIALS_MAX && s.unlocks.every(isStr) &&
     isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot') &&
     // GH-1389: a force handicap is a computer level's, so only a bot seat carries one.

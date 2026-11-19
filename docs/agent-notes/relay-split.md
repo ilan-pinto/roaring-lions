@@ -65,7 +65,7 @@ A second Workers Builds project on the same repository, for `roaring-lions-relay
   `packages/worker/src/account/seat-member.ts`, `packages/worker/src/account/session.ts`,
   `packages/worker/src/auth.ts`, `packages/worker/src/origin.ts`, `packages/worker/src/rate-day.ts`,
   `packages/worker/src/read-capped.ts`, `packages/worker/src/retention.ts`, `packages/net/src/*`,
-  `packages/sim/src/*`, `wrangler.relay.jsonc`, `pnpm-lock.yaml`
+  `packages/sim/src/*`, `packages/data/src/branches-open.ts`, `wrangler.relay.jsonc`, `pnpm-lock.yaml`
 - **Build watch paths, exclude:** `*.test.ts`
 
 Two differences from the design's list (§6.1), both found by deriving it from the bundle:
@@ -78,6 +78,11 @@ Two differences from the design's list (§6.1), both found by deriving it from t
 2. **`d1.ts` and `do-types.ts` are not in it.** They are type-only: a change to them cannot change the bundle,
    and a deploy of unchanged code still restarts the objects (§12 fact 3). The account and `auth.ts` modules are
    in it because `seat-member.ts` reaches them.
+
+Since GH-1384's net slice, **`packages/data/src/branches-open.ts` is in it too**: `match/room-fields.ts`'s
+`picksOpen` reads the branch switch, so opening it changes what a room mints. It is imported through its own
+subpath, `@lions/data/branches-open`, never through `@lions/data`'s index, which would pull every data module and
+content JSON into the relay's closure.
 
 Workers Builds' wildcard semantics (`*` across `/`) and the exclude field are a platform fact to confirm (§12 fact 5).
 

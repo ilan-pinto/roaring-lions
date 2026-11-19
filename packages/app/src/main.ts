@@ -1498,6 +1498,9 @@ async function main(): Promise<void> {
         // nowhere else (per-seat kit): this is the one read of the account on
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
+        // GH-1384: the branch picks, from the SAME view as the tiers; `roomClaim` sends them only beside the tiers,
+        // never into a matched create, and only while branching is open.
+        picks: () => accountState().ownedPicks,
         // GH-1102: the Store specials the account owns, by the same path and the same rule.
         specials: () => kit.ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
