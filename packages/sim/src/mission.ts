@@ -403,8 +403,9 @@ export interface MissionJson {
      *  the sim never reads it; `describeMissionEvent` (packages/app) looks it
      *  up off the same `MissionJson` by the trigger's id. */
     label?: string;
-    /** on.kind: 'first_contact' | 'casualties_pct' | 'timer_s' | 'zone_entered' | 'group_in_zone'. `zone` names a map
-     *  zone for the last two; `group` the placement group, of any side, `group_in_zone` watches (GH-912). */
+    /** on.kind: 'first_contact' | 'casualties_pct' | 'timer_s' | 'zone_entered' | 'group_in_zone' | 'group_fired'. `zone`
+     *  names a map zone for `zone_entered` and `group_in_zone`; `group` the placement group, of any side, `group_in_zone`
+     *  watches (GH-912), or whose first shot `group_fired` waits for (GH-1438 E7). */
     on: { kind: string; value?: number; zone?: string; group?: string };
     /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' | 'dismount' |
      *  'remove' — string-typed so parsed JSON assigns structurally; the schema
@@ -3193,7 +3194,7 @@ export class MissionRuntime {
     this.stepWorks(simEvents, tick, out);
     this.stepCivilians();
     this.stepPatrols();
-    this.stepTriggers(tick, out);
+    this.stepTriggers(tick, out, simEvents);
     this.stepWaves(tick, out);
     this.stepHighGround(tick, out);
     // Guarded: `splice(0)` allocates an array every call, and this runs every tick.
@@ -4679,7 +4680,20 @@ export class MissionRuntime {
     return e.side <= 1 && targetSide <= 1 && targetSide !== e.side;
   }
 
-  private stepTriggers(tick: number, out: MissionEvent[]): void {
+  /** GH-1438 E7: did a member of `group` fire a weapon in THIS step's sim events? No latch of its own: the
+   *  trigger's own `firedTriggers` entry is the latch (folded in `digest()`), because `stepTriggers` reads this the same
+   *  step the shot lands, every step, so "this step" for the first step it is true is "first". A group with no member
+   *  spawned yet (a wave's) has not fired. */
+  private groupFired(group: string | undefined, simEvents: readonly SimEvent[]): boolean {
+    const members = this.groups.get(group ?? '');
+    if (members === undefined || members.length === 0) return false;
+    for (const e of simEvents) {
+      if (e.kind === 'fire' && members.includes(e.shooter)) return true;
+    }
+    return false;
+  }
+
+  private stepTriggers(tick: number, out: MissionEvent[], simEvents: readonly SimEvent[]): void {
     const triggers = this.mission.triggers ?? [];
     for (let i = 0; i < triggers.length; i++) {
       if (this.firedTriggers[i]) continue;
@@ -4713,6 +4727,10 @@ export class MissionRuntime {
         // there yet, so the trigger waits for it rather than being consumed on an empty group.
         const z = this.zone(t.on.zone);
         fire = z !== undefined && this.groupIn(t.on.group, z);
+      } else if (t.on.kind === 'group_fired') {
+        // GH-1438 E7: a cue line, once, the first time anyone in the group shoots at anything (a KDF man, a wall, a
+        // civilian under E6). Any `fire` event counts, whatever its target: the cue is that the group opened up.
+        fire = this.groupFired(t.on.group, simEvents);
       }
       if (!fire) continue;
       this.firedTriggers[i] = true;

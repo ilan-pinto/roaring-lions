@@ -1350,6 +1350,67 @@ describe('group_in_zone', () => {
   });
 });
 
+// GH-1438 E7: `group_fired`, a cue line the first time any member of a group fires a weapon. Two enemy cells, one in
+// reach of the player's squad and one far out of it: the near cell's first `fire` event fires the trigger watching it,
+// once, on that tick, and the far cell's trigger stays quiet through the same firefight.
+describe('group_fired', () => {
+  const fired = (mission: MissionEvent[], id: string): number =>
+    mission.filter((e) => e.kind === 'trigger' && e.id === id).length;
+  function fight(watch: string): World {
+    return makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5], group: 'ours' }],
+        enemy: {
+          garrison: [
+            { unit: 'm_squad', count: 1, at: [7, 5], group: 'near_cell' },
+            { unit: 'm_squad', count: 1, at: [26, 11], group: 'far_cell' },
+          ],
+        },
+        triggers: [{ id: 'cue', label: 'They open fire', on: { kind: 'group_fired', group: watch }, do: { kind: 'dismount', group: watch } }],
+      })
+    );
+  }
+  /** Runs 20 s; returns the step of each trigger event and of each `fire` by each entity (same clock for both). */
+  function run(w: World): { triggerTicks: number[]; fireTicks: Map<number, number[]> } {
+    const triggerTicks: number[] = [];
+    const fireTicks = new Map<number, number[]>();
+    for (let t = 0; t < 20 * TICKS_PER_SECOND; t++) {
+      const out = w.step(1);
+      for (const e of out.sim) {
+        if (e.kind === 'fire') fireTicks.set(e.shooter, [...(fireTicks.get(e.shooter) ?? []), t]);
+      }
+      if (fired(out.mission, 'cue') > 0) triggerTicks.push(t);
+    }
+    return { triggerTicks, fireTicks };
+  }
+
+  it("fires once, on the tick of the group's first shot, though the group goes on shooting", () => {
+    const { triggerTicks, fireTicks } = run(fight('near_cell'));
+    const near = fireTicks.get(1) ?? []; // entity 1: the near cell's squad
+    expect(near.length).toBeGreaterThan(1); // the fight is real: it fired more than once
+    expect(triggerTicks).toEqual([near[0]]);
+  });
+
+  it("another group's shots do not fire it: the far cell never shoots, and its trigger never fires", () => {
+    const { triggerTicks, fireTicks } = run(fight('far_cell'));
+    // The control half: in the same 20 s both near sides shot, and the far cell (entity 2) did not.
+    expect((fireTicks.get(0) ?? []).length).toBeGreaterThan(0);
+    expect((fireTicks.get(1) ?? []).length).toBeGreaterThan(0);
+    expect(fireTicks.get(2)).toBeUndefined();
+    expect(triggerTicks).toEqual([]);
+  });
+
+  it("any side's group: the player's own squad's first shot fires a trigger watching it", () => {
+    const { triggerTicks, fireTicks } = run(fight('ours'));
+    expect(triggerTicks).toEqual([(fireTicks.get(0) ?? [-1])[0]]);
+  });
+
+  it('a group no placement declares never fires', () => {
+    expect(run(fight('nobody')).triggerTicks).toEqual([]);
+  });
+});
+
 describe('reinforce', () => {
   it('spawns on the player side when a zone is entered', () => {
     const w = makeWorld(
