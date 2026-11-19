@@ -1,6 +1,26 @@
 {
   "version": "next",
   "units": [],
-  "rules": [],
-  "fixes": []
+  "rules": [
+    "Qasr Liwan, a new town in the Marj: five missions on five new maps, from One House to The Pumps.",
+    "Bir Tarsha, a new town after Deir Amun III: five missions, from The Gate Road to Under the Fence. Sur now opens after Bir Tarsha V.",
+    "Campaign difficulty: pick Easier, Standard or Harder on the campaign board or before you start a mission. Easier caps you at two stars per mission.",
+    "Optional mission challenges, such as Whole Picture, Quiet Souk and Blind Build, are marked on the board and in the after-action report.",
+    "Free play now lets you play the Sarim: choose your side on the Free play screen.",
+    "Field works are now on by default when you play the KDF in Free play.",
+    "Versus: play the computer in 25 of the 31 map, side and win-mode combinations; a Sarim side is open only on the two Wadi Tarfan maps.",
+    "Versus: field works are now a room option in KDF v KDF annihilation.",
+    "The computer opponent now builds units, defends its ground and holds income zones.",
+    "Versus chat now hides slurs and masks strong language.",
+    "Beit Sahwan IV: fifteen civilians to save, and a new secondary to bring back the four hostages.",
+    "Civilians reaching safety, or being taken, now show as one climbing line instead of a flood of messages.",
+    "Holding ground now pays logistics in Beit Sahwan II, Deir Amun III and Wadi Halam III.",
+    "Missions and maps load on demand, so the game starts faster and uses less memory.",
+    "A browser without graphics acceleration now gets a one-time offer to switch to the Low graphics preset.",
+    "Clearer names and descriptions across units and maps, including the Charge Squad, satchel charges, one-way drones and the Shachaf scout."
+  ],
+  "fixes": [
+    "Leaving a mission while it was still loading its save no longer leaves the old battlefield running.",
+    "Save and quit no longer writes a save, or brings back a dropped one, if you leave mid-save."
+  ]
 }
