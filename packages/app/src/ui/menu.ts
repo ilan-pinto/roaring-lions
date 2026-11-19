@@ -30,6 +30,7 @@ import { markConfirm } from './confirm-cue';
 import { paintMapTerrain } from './map-preview';
 import { terrainTonesFor } from '../terrain-themes';
 import type { ResumeBlock } from './resume-row';
+import { browserWhatsNewDeps, mountWhatsNew, type WhatsNewDeps } from './whats-new';
 
 /** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
  *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
@@ -106,6 +107,9 @@ export interface MenuOptions {
   /** A claimed device with no cache whose `GET state` timed out (GH-1075 A2, §0.11): the campaign cannot be read, so its
    *  entries (Continue, the tutorial, Campaign, Brigade) are off, and the column says `account.unreachable`. */
   unreachable?: boolean;
+  /** GH-1622: the "What's new" panel's version, notes loader, store and auto-open gate. Absent, the browser's own
+   *  (`browserWhatsNewDeps`: this build's `__APP_BUILD__`); null, no button and no panel. */
+  whatsNew?: WhatsNewDeps | null;
 }
 
 export interface CampaignOptions {
@@ -312,6 +316,21 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
       privacyLink?.remove();
     });
   }
+  // GH-1622: this build's release notes. A button, like Feedback: it opens a modal rather than leaving the page. The
+  // panel can also open by itself, once per new version (`whats-new.ts` says when); its disposer is this screen's.
+  const whatsNewDeps = opts.whatsNew === undefined ? browserWhatsNewDeps() : opts.whatsNew;
+  let disposeWhatsNew: Disposer | undefined;
+  if (whatsNewDeps !== null) {
+    const whatsNewBtn = document.createElement('button');
+    whatsNewBtn.type = 'button';
+    whatsNewBtn.className = 'rl-btn rl-menu__item';
+    whatsNewBtn.dataset.kind = 'aside';
+    whatsNewBtn.dataset.act = 'whats-new';
+    whatsNewBtn.textContent = t('menu.aside.whatsNew');
+    aside.appendChild(whatsNewBtn);
+    // The dialog mounts on the stage, as a confirm does; the notes load lazily, so an auto-open lands after the column.
+    disposeWhatsNew = mountWhatsNew(stage, whatsNewBtn, whatsNewDeps);
+  }
   // Last, deliberately: people, libraries, fonts and the licence split are
   // the least urgent thing on this screen, not the most.
   addAside(t('menu.aside.credits'), routes.credits());
@@ -322,6 +341,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   stage.appendChild(wrap);
   const disposeBackdrop = opts.backdrop?.(stage, wrap);
   return () => {
+    disposeWhatsNew?.();
     disposeBackdrop?.();
     wrap.remove();
   };

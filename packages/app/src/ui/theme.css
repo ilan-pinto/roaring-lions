@@ -1971,6 +1971,47 @@ body[data-outcome-beat] .rl-aar {
   overflow: auto;
 }
 
+/* The menu's "What's new" panel (GH-1622, ui/whats-new.ts): a .rl-confirm-family modal. The notes scroll inside the
+   panel; the Close row stays under them. Headings wear the label register, the lines the body's. */
+.rl-whats-new__panel {
+  width: min(34rem, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.rl-whats-new__panel > .rl-panel__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.rl-whats-new__content {
+  overflow: auto;
+  min-height: 0;
+}
+.rl-whats-new__section + .rl-whats-new__section {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-whats-new__heading {
+  margin: 0 0 var(--s2);
+  font: 600 var(--t-band) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-whats-new__list {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+.rl-whats-new__list > li + li {
+  margin-top: var(--s1);
+}
+.rl-whats-new__empty {
+  margin: 0;
+}
+
 /* The debrief's rating prompt, in the report's foot above the nav. */
 .rl-rate {
   display: flex;
