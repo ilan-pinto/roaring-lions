@@ -175,7 +175,7 @@ jobs:
           exit 1
       - run: pnpm audio:mix
       - run: python tools/validate_balance.py --units data/units
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --also docs/campaign/special_units/gh1382
       # Brigade economy Task 5: the same cost-curve check, run again against every
       # KDF unit patched to its own maximum tiers (tools/validate_balance.py's
       # `--max-tier`), cost bumped by `--upgrade-cost-factor K` * that unit's own
@@ -188,8 +188,8 @@ jobs:
       # branch vector (`--branch=1`, `--branch=2`); without one the pass refuses (exit 2).
       - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=1
       - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=2
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=1
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=2
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --also docs/campaign/special_units/gh1382 --max-tier --upgrade-cost-factor 0.02 --branch=1
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --also docs/campaign/special_units/gh1382 --max-tier --upgrade-cost-factor 0.02 --branch=2
       - run: pnpm balance
       # Headless mission playtests (tools/src/backtest/playtest.ts): each Beit Sahwan/
       # Wadi Halam mission must be winnable by a sensible scripted plan inside its time

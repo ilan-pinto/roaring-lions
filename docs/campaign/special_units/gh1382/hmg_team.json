@@ -1,0 +1,35 @@
+{
+  "id": "hmg_team",
+  "name": "Heavy MG Team",
+  "blurb": "A tripod gun that pins men and light trucks at nine tiles and fires from a window. Slow to move.",
+  "faction": "sarim",
+  "role": "support",
+  "formation_class": "support_weapon",
+  "cost": { "logistics": 290, "build_time_s": 16, "population": 1 },
+  "hull": {
+    "hp": 330,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 3,
+    "suppression_resistance": 0.55,
+    "figures": 2,
+    "wounds": { "wound_chance": 0.6, "bleed_s": 60, "type": "wounded_sarim" }
+  },
+  "mobility": { "speed_tiles_s": 0.6, "wheeled": false },
+  "sensors": { "optics": 1.0, "sight_tiles": 9, "signature": 0.55, "firing_signature_mult": 4.0 },
+  "abilities": ["garrison"],
+  "weapons": [
+    {
+      "id": "dshk_tripod",
+      "type": "hmg",
+      "range_tiles": 9,
+      "effective_range_tiles": 7.2,
+      "accuracy": 0.62,
+      "penetration": 25,
+      "damage": 40,
+      "suppression": 65,
+      "rof_per_min": 300,
+      "can_target": ["ground", "air"],
+      "collateral_risk": 0.25
+    }
+  ]
+}
