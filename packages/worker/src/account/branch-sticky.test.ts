@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../../data/src/branches-open', () => ({ BRANCHES_OPEN: true }));
 
 const { BRANCHES_OPEN } = await import('@lions/data/branches-open');
-const { body, member, put, revision, setup, stored, victory } = await import('./branch-sticky-kit');
+const { body, member, offerNow, put, revision, setup, stored, victory, walletFirepower, walletHolds } = await import('./branch-sticky-kit');
 
 const view = async (r: Response) => ((await r.json()) as { campaign: { brigade: { picks?: Record<string, Record<string, number>>; legacy?: unknown } } }).campaign.brigade;
 const LAVI = (a: { picks?: Record<string, Record<string, number>> }) => a.picks?.['mbt_lavi']?.['firepower'];
@@ -45,15 +45,19 @@ describe('the campaign PUT keeps the stored pick', () => {
     expect(LAVI(await stored(h))).toBe(2);
   });
 
-  it('a stored LEGACY marker lets a body move the pick (a Switch) and clears the marker', async () => {
+  it('a stored LEGACY marker does not let a body move the pick either (Q11: the Switch is route-only), and the marker stands', async () => {
     const h = setup();
     const cookie = await member(h);
     // The first write of a pickless tier 3 is an old build's linear buy: pick 1 and a marker.
     await put(h, cookie, 0, body());
     expect([LAVI(await stored(h)), (await stored(h)).legacy]).toEqual([1, { mbt_lavi: { firepower: true } }]);
-    await put(h, cookie, 1, body({ picks: { mbt_lavi: { firepower: 2 } } }));
+    // The wallet holds no Lavi tier here (a credits-only legacy owner): still kept, and the route's Switch still offered.
+    const r = await put(h, cookie, 1, body({ picks: { mbt_lavi: { firepower: 2 } } }));
+    expect(r.status).toBe(200);
+    expect(LAVI(await view(r))).toBe(1);
     const row = await stored(h);
-    expect([LAVI(row), row.legacy]).toEqual([2, {}]);
+    expect([LAVI(row), row.legacy]).toEqual([1, { mbt_lavi: { firepower: true } }]);
+    expect(await offerNow(h)).toMatchObject({ holds: { account: true, coins: false }, canSwitch: true, canReturn: true });
   });
 
   it('the first write of a pickless tier 3 is still migrated to pick 1 with a marker', async () => {
@@ -99,5 +103,70 @@ describe('the victory\'s campaign half keeps it too', () => {
     expect(LAVI(answer.campaign.brigade)).toBe(2);
     const state = (await (await h.call('GET', '/api/account/state', { cookie })).json()) as { campaign: { digest: string } };
     expect(answer.campaign.digest).toBe(state.campaign.digest);
+  });
+});
+
+/**
+ * The review's probe (Q11): one Switch moves BOTH stores in one write, so it is the `branch/switch` route's alone. Before this rule a
+ * body could switch the credits store by itself wherever the stored row held a marker, leaving the wallet on pick 1 with ITS marker:
+ * `branch/switch` then answered 409 (a split) while `branch/return` still paid the coins. Every oracle is a literal.
+ */
+describe('a body cannot Switch one store: the member\'s Switch is route-only (Q11)', () => {
+  const MARKED = { mbt_lavi: { firepower: true } };
+  /** A legacy owner in BOTH stores: the campaign row at pick 1 with its marker, the wallet at tier 3 with no pick (settled: pick 1, marker). */
+  async function legacyInBoth(coin: object = { tier: 3, paidTiers: 0 }) {
+    const h = setup();
+    const cookie = await member(h);
+    await walletHolds(h, coin);
+    await put(h, cookie, 0, body());
+    expect([LAVI(await stored(h)), (await stored(h)).legacy]).toEqual([1, MARKED]);
+    return { h, cookie };
+  }
+
+  it('the campaign PUT swapping the credits store alone to pick 2: written, but the pick and its marker stand, the wallet is untouched, and the free Switch is still offered', async () => {
+    const { h, cookie } = await legacyInBoth();
+    const before = await walletFirepower(h);
+    expect(await offerNow(h)).toMatchObject({ legacy: { account: true, coins: true }, canSwitch: true, canReturn: true });
+    const r = await put(h, cookie, 1, body({ picks: { mbt_lavi: { firepower: 2 } } }));
+    expect(r.status).toBe(200);
+    const answered = await view(r);
+    expect([LAVI(answered), answered.legacy]).toEqual([1, MARKED]);
+    const row = await stored(h);
+    expect([LAVI(row), row.legacy, row.upgrades]).toEqual([1, MARKED, { mbt_lavi: { firepower: 3 } }]);
+    expect(await revision(h)).toBe(2);
+    expect(await walletFirepower(h)).toEqual(before);
+    expect(await offerNow(h)).toMatchObject({ legacy: { account: true, coins: true }, canSwitch: true, canReturn: true });
+  });
+
+  it('a loaded save slot holding the other pick (a slot body carries no marker) does not spend the free Switch', async () => {
+    const { h, cookie } = await legacyInBoth();
+    const r = await put(h, cookie, 1, body({ picks: { mbt_lavi: { firepower: 2 } }, legacy: {} }));
+    expect(r.status).toBe(200);
+    const row = await stored(h);
+    expect([LAVI(row), row.legacy]).toEqual([1, MARKED]);
+    expect((await offerNow(h)).canSwitch).toBe(true);
+  });
+
+  it('the victory\'s campaign half is held the same way', async () => {
+    const { h, cookie } = await legacyInBoth();
+    const r = await victory(h, cookie, 1, body({ picks: { mbt_lavi: { firepower: 2 } } }));
+    expect(r.status).toBe(200);
+    const answered = ((await r.json()) as { campaign: { brigade: { picks?: Record<string, Record<string, number>>; legacy?: unknown } } }).campaign.brigade;
+    expect([LAVI(answered), answered.legacy]).toEqual([1, MARKED]);
+    const row = await stored(h);
+    expect([LAVI(row), row.legacy]).toEqual([1, MARKED]);
+    expect(await revision(h)).toBe(2);
+    // The victory rewrites the wallet (its coins); the coin store still holds the legacy tier 3 on pick 1.
+    expect(await walletFirepower(h)).toMatchObject({ tier: 3 });
+    expect(await offerNow(h)).toMatchObject({ legacy: { account: true, coins: true }, canSwitch: true, canReturn: true });
+  });
+
+  it('a mix (the wallet bought branch 1 FRESH): a body cannot move the credits store to pick 2, so the two stores never hold both branches', async () => {
+    const { h, cookie } = await legacyInBoth({ tier: 3, paidTiers: 0, branch: 1 });
+    expect(await offerNow(h)).toMatchObject({ legacy: { account: true, coins: false }, canSwitch: false, canReturn: true });
+    await put(h, cookie, 1, body({ picks: { mbt_lavi: { firepower: 2 } } }));
+    const row = await stored(h);
+    expect([LAVI(row), row.legacy]).toEqual([1, MARKED]);
+    expect(await walletFirepower(h)).toEqual({ tier: 3, paidTiers: 0, branch: 1 });
   });
 });

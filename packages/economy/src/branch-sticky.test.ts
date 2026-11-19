@@ -42,9 +42,11 @@ describe('a pick that changes', () => {
     const stored = acct({ firepower: 3 }, { picks: { fx_tank: { firepower: 2 } } });
     expect(FP(written(stored, acct({ firepower: 3 }, { picks: { fx_tank: { firepower: 1 } } })))).toEqual([2, undefined]);
   });
-  it('is accepted where the stored row held a marker on that track (a Switch), and the marker is cleared', () => {
+  it('is refused WITH a stored marker too, and the marker stands: a body never Switches (Q11: the Switch is the route\'s, both stores in one write)', () => {
     const stored = acct({ firepower: 3 }, { picks: { fx_tank: { firepower: 1 } }, legacy: { fx_tank: { firepower: true } } });
-    expect(FP(written(stored, acct({ firepower: 3 }, { picks: { fx_tank: { firepower: 2 } } })))).toEqual([2, undefined]);
+    expect(FP(written(stored, acct({ firepower: 3 }, { picks: { fx_tank: { firepower: 2 } } })))).toEqual([1, true]);
+    // Even a body that also claims the marker is gone, or claims one: the stored marker is what stands.
+    expect(FP(written(stored, acct({ firepower: 3 }, { picks: { fx_tank: { firepower: 2 } }, legacy: { fx_tank: { firepower: true } } })))).toEqual([1, true]);
   });
 });
 
@@ -59,11 +61,11 @@ describe('every rule is per (unit, track)', () => {
     const r = written(stored, acct({ firepower: 3, armour: 3 }));
     expect([FP(r), AR(r)]).toEqual([[2, undefined], [1, true]]);
   });
-  it('a Switch on one track leaves the other track\'s pick and marker alone', () => {
-    const stored = acct({ firepower: 3, armour: 3 }, { picks: { fx_tank: { firepower: 1, armour: 1 } }, legacy: { fx_tank: { firepower: true, armour: true } } });
-    const body = acct({ firepower: 3, armour: 3 }, { picks: { fx_tank: { firepower: 2, armour: 1 } } });
+  it('a changed pick on one marked track moves neither track: each keeps its own pick and marker', () => {
+    const stored = acct({ firepower: 3, armour: 3 }, { picks: { fx_tank: { firepower: 1, armour: 1 } }, legacy: { fx_tank: { firepower: true } } });
+    const body = acct({ firepower: 3, armour: 3 }, { picks: { fx_tank: { firepower: 2, armour: 2 } } });
     const r = written(stored, body);
-    expect([FP(r), AR(r)]).toEqual([[2, undefined], [1, true]]);
+    expect([FP(r), AR(r)]).toEqual([[1, true], [1, undefined]]);
   });
 });
 

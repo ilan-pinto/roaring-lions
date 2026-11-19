@@ -5,7 +5,8 @@
  */
 import { BRANCHES_OPEN } from '@lions/data/branches-open';
 import { describe, expect, it } from 'vitest';
-import { body, member, put, revision, setup, stored, victory } from './branch-sticky-kit';
+import { canonicalCampaign } from '@lions/economy';
+import { body, member, put, revision, setup, stored, victory, walletFirepower, walletHolds } from './branch-sticky-kit';
 
 describe('the switch closed: the campaign write is dev\'s', () => {
   it('the switch is closed', () => {
@@ -23,6 +24,19 @@ describe('the switch closed: the campaign write is dev\'s', () => {
     expect((await put(h, cookie, 1, body())).status).toBe(200);
     expect(await stored(h)).not.toHaveProperty('picks');
     expect(await revision(h)).toBe(2);
+  });
+
+  it('a member whose wallet holds the coin tier 3 (the Q11 probe\'s seed): a pick-changing body is written exactly as its canonical text, and the wallet row is untouched', async () => {
+    const h = setup();
+    const cookie = await member(h);
+    await walletHolds(h, { tier: 3, paidTiers: 0 });
+    await put(h, cookie, 0, body());
+    const sent = body({ picks: { mbt_lavi: { firepower: 2 } }, legacy: {} });
+    const r = await put(h, cookie, 1, sent);
+    expect(r.status).toBe(200);
+    expect(await stored(h)).toEqual((JSON.parse(canonicalCampaign(sent)) as { brigade: unknown }).brigade);
+    expect(await stored(h)).not.toHaveProperty('picks');
+    expect(await walletFirepower(h)).toEqual({ tier: 3, paidTiers: 0 });
   });
 
   it('the victory\'s campaign half does the same', async () => {
