@@ -98,8 +98,12 @@ in step with it.
   (`first_contact casualties_pct timer_s zone_entered group_in_zone group_fired`) × six actions, waves on a
   clock or on an objective completing. `zone_entered` is a player unit in a zone; `group_in_zone`
   (GH-912) is a member of a named group (garrison, wave or spawn) in one, and waits for a wave's
-  group to exist rather than firing on nobody. `group_fired` (GH-1438 E7) fires once, the step any
-  member of a named group (any side) first fires a weapon at anything: a cue line, not a tactic.
+  group to exist rather than firing on nobody. `group_fired` (GH-1438 E7) fires once, on the step
+  of the group's first `fire` event: the first shot whose shooter is a member of the named group
+  (any side), at anything. Being shot at is not firing. A Remetz laser's `beam` and an air `strike`
+  are not `fire` events and do not count, and a carrier's embarked `passengers` are not members of
+  the carrier's group (a passenger placement that names its own `group` is a member of that one).
+  A cue line, not a tactic.
   That is the whole
   AI. Design inside it and name what falls outside as a gap.
 - **Eleven live objective types.** `locate eliminate_hvt capture hold_for

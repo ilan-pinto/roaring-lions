@@ -1409,6 +1409,57 @@ describe('group_fired', () => {
   it('a group no placement declares never fires', () => {
     expect(run(fight('nobody')).triggerTicks).toEqual([]);
   });
+
+  // The fixtures above are symmetric duels: the watched group shoots and is shot on the same ticks, so they cannot
+  // tell "the group fired" from "the group was fired at". These two can: the watched group is SHOT AT for ticks on
+  // end while it cannot shoot back.
+  it('being shot at is not firing: an unarmed group under fire never fires it', () => {
+    const w = makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5], group: 'ours' }],
+        enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [6, 5], group: 'mute' }] },
+        triggers: [{ id: 'cue', label: 'They open fire', on: { kind: 'group_fired', group: 'mute' }, do: { kind: 'dismount', group: 'mute' } }],
+      })
+    );
+    const { triggerTicks, fireTicks } = run(w);
+    // The control half: the squad (entity 0) shot, and the truck (entity 1, no weapons) never did.
+    expect((fireTicks.get(0) ?? []).length).toBeGreaterThan(1);
+    expect(fireTicks.get(1)).toBeUndefined();
+    expect(triggerTicks).toEqual([]);
+  });
+
+  it('being shot at is not firing: an outranged group under fire waits for its own first shot', () => {
+    // A tank (12-tile gun, 12-tile sight) on a tough rifle team (7-tile rifles) 10 tiles off: the tank fires, the
+    // team cannot answer. At 8 s the team is walked in to rifle range, and only its own first shot fires the trigger.
+    const w = makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+        starting_force: [{ unit: 'm_tank', count: 1, at: [2, 5], group: 'ours' }],
+        enemy: { garrison: [{ unit: 'm_holder', count: 1, at: [12, 5], group: 'outranged' }] },
+        triggers: [{ id: 'cue', label: 'They open fire', on: { kind: 'group_fired', group: 'outranged' }, do: { kind: 'dismount', group: 'outranged' } }],
+      })
+    );
+    const team = 1;
+    const shotAt: number[] = [];
+    const teamFires: number[] = [];
+    const triggerTicks: number[] = [];
+    for (let t = 0; t < 30 * TICKS_PER_SECOND; t++) {
+      if (t === 8 * TICKS_PER_SECOND) w.sim.queueCommand({ kind: 'move', ids: [team], x: fx.from(6), y: fx.from(5) });
+      const out = w.step(1);
+      for (const e of out.sim) {
+        if (e.kind !== 'fire') continue;
+        if (e.target === team) shotAt.push(t);
+        if (e.shooter === team) teamFires.push(t);
+      }
+      if (fired(out.mission, 'cue') > 0) triggerTicks.push(t);
+    }
+    expect(w.sim.state.alive[team]).toBe(1);
+    expect(teamFires.length).toBeGreaterThan(0); // it did close and answer
+    // It was under fire before it could answer: shots at it land on ticks before its first shot.
+    expect(shotAt.filter((t) => t < teamFires[0]).length).toBeGreaterThan(0);
+    expect(triggerTicks).toEqual([teamFires[0]]);
+  });
 });
 
 describe('reinforce', () => {
