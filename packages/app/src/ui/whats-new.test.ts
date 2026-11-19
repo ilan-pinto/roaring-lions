@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ParsedWorld } from '../campaign';
 import { safeStorage } from '../telemetry/identity';
 import { WHATS_NEW_SEEN_KEY, type SeenStore, markVersionSeen, readSeenVersion, resetWhatsNewMemoryForTest } from '../whats-new-store';
-import { closeOpenDialog, isDialogOpen } from './confirm';
+import { closeOpenDialog, confirmDialog, isDialogOpen } from './confirm';
 import { showMenu } from './menu';
 import { mountWhatsNew, whatsNewAutoOpenAllowed, type WhatsNewDeps } from './whats-new';
 import { RELEASE_NOTES_DIR, loadReleaseNotes, notesFileFor, parseReleaseNotes, type ReleaseNotes } from './whats-new-notes';
@@ -300,17 +300,28 @@ describe('the disposer contract (GH-1622)', () => {
     expect(isDialogOpen()).toBe(false);
   });
 
-  it('closes only its own dialog: a confirm opened by someone else is left alone', async () => {
-    const other = document.createElement('div');
-    other.className = 'rl-confirm rl-other';
-    document.body.appendChild(other);
+  it('closes only its own dialog: a real confirm opened over it is left open and still tracked', async () => {
     const dispose = mountWhatsNew(stage, button, deps({ autoOpen: false }));
     button.click();
     await flush();
     expect(panelEl()).not.toBeNull();
+    // A REAL confirm, registered with closeOpenDialog's slot (it takes the slot from the panel). A disposer that
+    // closed "whatever dialog is open" (closeOpenDialog) would shut THIS one and leave the panel up.
+    const other = confirmDialog(document.body, { title: 'Other', body: 'Someone else asked.', confirm: 'Yes' });
+    let settled = false;
+    void other.answer.then(() => {
+      settled = true;
+    });
     dispose();
+    await flush();
     expect(panelEl()).toBeNull();
-    expect(document.querySelector('.rl-other')).not.toBeNull();
+    expect(document.querySelector('.rl-confirm')).not.toBeNull();
+    expect(isDialogOpen()).toBe(true);
+    expect(settled).toBe(false);
+    // Still the tracked dialog: the router's closeOpenDialog() takes it down.
+    closeOpenDialog();
+    await expect(other.answer).resolves.toBe(false);
+    expect(isDialogOpen()).toBe(false);
   });
 });
 
