@@ -120,8 +120,8 @@ export function buildWorld(capacity: number, mapId: keyof typeof maps = MAP_ID):
   // `PERF_NO_WOUNDS=1` registers every type without `hull.wounds`/`hull.figures` (GH-707 P3): the
   // wounds-off arm of the tick-cost comparison in docs/PERFORMANCE.md. Unset, the shipped data.
   // Read through `globalThis`: this function also runs in the browser (`runBackendCurve`), where there is no `process`.
-  // A bare `process.env` here threw `ReferenceError: process is not defined` in the page from GH-707 P3 (d2c73e9c0,
-  // 22 Oct) until GH-1411, so the browser curve could not run at all in that time.
+  // A bare `process.env` here threw `ReferenceError: process is not defined` in `backend-curve-gate.ts`'s page (seen on
+  // 7a268db89; the read arrived in GH-707 P3, d2c73e9c0). The webgpu harnesses never hit it: they shim `window.process`.
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
   const noWounds = env?.PERF_NO_WOUNDS === '1';
   for (const u of Object.values(units) as UnitTypeJson[]) {
@@ -502,12 +502,13 @@ function aridTerrainTones(): TerrainTones {
   };
 }
 
-/** `quality` is passed EXPLICITLY, as `main.ts` does from the player's settings (default `high`, `settings.ts`). Before
- *  GH-1411 this passed none, which every read site maps to `high` except one: `opts.quality?.physics?.ragdolls ?? 0`
- *  reads 0 ragdolls with no preset, where `high` asks for some. A bench that leaves it out measures a frame no player draws. */
-export function buildRendererOptions(quality: BenchQuality = 'high'): RendererOptions {
+/** `quality`, when given, is passed EXPLICITLY, as `main.ts` does from the player's settings (default `high`,
+ *  `settings.ts`); `runBackendCurve` always gives one (GH-1411). With none, every read site maps to `high` except one:
+ *  `opts.quality?.physics?.ragdolls ?? 0` reads 0 ragdolls, where `high` asks for some, so a bench that leaves it out
+ *  measures a frame no player draws. Left optional so `webgpu-page.ts`'s callers keep exactly the options they had. */
+export function buildRendererOptions(quality?: BenchQuality): RendererOptions {
   return {
-    quality: QUALITY_PRESETS[quality],
+    ...(quality === undefined ? {} : { quality: QUALITY_PRESETS[quality] }),
     background: paletteColor('shadow.1'),
     teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor(CIVILIAN_COLOR_KEY)],
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],

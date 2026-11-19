@@ -176,7 +176,9 @@ function parseArgs(argv: readonly string[]): Args {
     // over `localhost`'s IPv6 answer on this platform, and the failure reads
     // as a dead server rather than as a wrong hostname.
     host: flags.get('host') ?? 'localhost',
-    outFile: flags.get('out') ?? path.join(REPO_ROOT, '.superpowers', 'perf-evidence-raw.json'),
+    // Resolved against the repo root, as `memory.ts` does: `pnpm perf:census` runs in `tools/` (`pnpm --filter`), and a
+    // cwd-relative `--out=memory-output/...` would land where CI's upload step never looks.
+    outFile: path.resolve(REPO_ROOT, flags.get('out') ?? path.join('.superpowers', 'perf-evidence-raw.json')),
     only,
     // Before GH-1411 this file hard-coded the Metal flags. It still defaults to Metal on macOS (`resolveGpuBackend`),
     // so every recorded command line means what it meant; CI passes `--gpu=swiftshader`.
