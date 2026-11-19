@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/release_notes.schema.json",
+  "title": "Release notes",
+  "description": "One release's player-facing notes (GH-1622). data/release-notes/next.json (version \"next\") is drafted on dev before each promotion and its wording is approved by the lead inside the promotion PR; the version job on main renames it to v<X.Y.Z>.json (version \"X.Y.Z\") in the release bump commit, writes a fresh empty next.json, and publishes the GitHub release from it (tools/ci/release-notes-md.mjs). Every entry is one line of plain player English. The filter gate in tools/validate_release_notes.mjs refuses internal words, PR and issue references, git hashes and snake_case ids, and holds each filename to its version. Drafting guide: docs/agent-notes/release-notes.md.",
+  "type": "object",
+  "required": ["version", "units", "rules", "fixes"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "anyOf": [
+        { "const": "next" },
+        { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" }
+      ],
+      "description": "\"next\" in next.json; the released version, without the leading v, in v<X.Y.Z>.json."
+    },
+    "units": { "$ref": "#/$defs/section", "description": "New units, shown under \"New units\"." },
+    "rules": { "$ref": "#/$defs/section", "description": "New or changed rules and features, shown under \"Rules and features\"." },
+    "fixes": { "$ref": "#/$defs/section", "description": "Fixes a player would notice, shown under \"Fixes\"." }
+  },
+  "$defs": {
+    "section": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160,
+        "pattern": "^\\S(.*\\S)?$",
+        "description": "One line, 1-160 characters, no leading or trailing whitespace, no line break."
+      }
+    }
+  }
+}
