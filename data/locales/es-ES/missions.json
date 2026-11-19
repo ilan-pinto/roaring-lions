@@ -331,6 +331,244 @@
       "wave_say.4": "6a792482"
     }
   },
+  "bir_tarsha_1_recon": {
+    "name": "Bir Tarsha I — El camino de la puerta",
+    "briefing": "Bir Tarsha tiene una sola carretera, y la carretera termina en una puerta de la Valla. Desde aquí puedo leer la guarnición de esa puerta, pero no puedo leer quién guarnece las obras que corren hacia el este por la carretera de la Valla. Identifique la guarnición de la puerta. Después lleve a seis de los ocho residentes del barrio oeste hasta el refugio del noroeste. Echan a andar cuando uno de los nuestros está a menos de cuatro casillas, o cuando cae una ronda cerca de ellos, y la segunda manera es la que yo no elegiría. Las obras del este son la otra vía, y la dotación que las ocupa no es algo que yo pueda ver. Primero guíe, después mire al este. Cinco minutos para los residentes, seis para el cuadro completo. Al sur de la puerta está la Valla, y más allá están las Tierras Baldías. Su borde es una línea señalizada, y una ronda que caiga al otro lado es la más cara que puede disparar esta mañana. Seis fuera y la puerta identificada. Una dotación que no encontró es una dotación que el próximo combate encontrará por usted.",
+    "dispatch": "Las brigadas se fueron en primavera y volvieron en otoño. El último reducto del Marj se alza en su extremo sur, contra una valla a través de la cual nadie dispara.",
+    "debrief": {
+      "victory": "La puerta tiene nombre y seis han salido del barrio oeste. Las obras de la carretera de la Valla siguen siendo medio cuadro, y la mitad es lo que usted me dio.",
+      "defeat": "Esta mañana no. La puerta está ahora alerta, y el barrio oeste sigue como se dejó."
+    },
+    "objectives": {
+      "identify_the_gate": "Identificar la guarnición de la puerta",
+      "six_out": "Llevar a seis residentes al refugio",
+      "find_the_crew": "Identificar la dotación de las obras del este"
+    },
+    "objective_say": {
+      "identify_the_gate": "Esa es la guarnición de la carretera: una célula de fusileros, un equipo de misiles y un equipo de cohetes. Las manzanas de detrás guardan más, y no puedo leer qué.",
+      "six_out": "Seis fuera. El barrio oeste está en calma, y tiene un motivo menos para ser un objetivo.",
+      "find_the_crew": "Marcada. Esa es la dotación de las obras del este, y la próxima vez que bajemos por esta carretera podré decirle qué puestos son suyos."
+    },
+    "objective_say_on_fail": {
+      "six_out": "El barrio está ahora cerrado para nosotros. No hay una segunda mañana para un paseo así, y la gente que vive en él lo sabe."
+    },
+    "triggers": {
+      "bt1_works_stir": "Las obras del este se agitan"
+    },
+    "trigger_say": {
+      "bt1_works_stir": "Movimiento en las obras del este. Quien las ocupa ha oído la puerta, y a partir de ahora mira hacia el oeste."
+    },
+    "src": {
+      "name": "f3fdcde5",
+      "briefing": "88ddedf2",
+      "objectives.identify_the_gate": "d9707246",
+      "objectives.six_out": "3a8da360",
+      "objectives.find_the_crew": "c41423af",
+      "triggers.bt1_works_stir": "ef9652d0",
+      "dispatch": "a2eb4b3b",
+      "debrief.victory": "7c6194ed",
+      "debrief.defeat": "eb6cc2f8",
+      "objective_say.identify_the_gate": "6ebe588c",
+      "objective_say.six_out": "987a4a0b",
+      "objective_say.find_the_crew": "29cab91e",
+      "objective_say_on_fail.six_out": "4faec83a",
+      "trigger_say.bt1_works_stir": "284a5f99"
+    }
+  },
+  "bir_tarsha_2_foothold": {
+    "name": "Bir Tarsha II — La puerta",
+    "briefing": "La puerta es un hueco de dos casillas en la Valla entre dos bloques de hormigón, y es suya si logra mantenerla cuatro minutos. Espero dos empujes, ambos desde el extremo este de la carretera de la Valla, y el segundo más duro que el primero. Mantenga la puerta cuatro minutos. El campamento compra infantería y un Lavi, y querrá ambos. Diez residentes están en el cruce de caminos al norte del barrio seguro, que es el único barrio del pueblo que no es de nadie. Echan a andar cuando uno de los nuestros está a menos de cuatro casillas. Siete dentro en cinco minutos, o el barrio es un muro y no un barrio. No ponga una ronda de mortero cerca de él para comprar la puerta. Su mortero está en la posición de fuego del este y está apuntado al cruce de caminos. El borde de las Tierras Baldías queda a su espalda, y una ronda que caiga al otro lado de la Valla cuesta más que cualquiera que pueda gastar aquí. El tejado de la terminal vale quince segundos si puede prescindir de los fusiles. La puerta va primero.",
+    "debrief": {
+      "victory": "La puerta es nuestra, y el barrio seguro sigue siendo un barrio. El campamento se queda, y la próxima vez que esa carretera esté abierta lo estará desde nuestro lado.",
+      "defeat": "La puerta vuelve a ser suya, y el barrio con ella. El campamento no la sostiene; la sostiene el terreno."
+    },
+    "objectives": {
+      "hold_the_gate": "Mantener la puerta cuatro minutos",
+      "seven_in": "Llevar a siete residentes al barrio seguro",
+      "take_the_roof": "Mantener el tejado de la terminal quince segundos"
+    },
+    "objective_say": {
+      "take_the_roof": "El tejado es nuestro. Cada ventana de la carretera de la Valla nos mira ahora desde nuestro propio lado."
+    },
+    "objective_say_on_fail": {
+      "seven_in": "El barrio no está abierto. Una puerta sin nadie detrás es un muro, y no queda nada en este pueblo por lo que sostenerla."
+    },
+    "wave_say": {
+      "0": "Primer empuje, desde el extremo este de la carretera de la Valla. Es el más ligero de los dos, y su fin es mostrarnos adónde va el peso.",
+      "1": "Segundo empuje. Una escuadra de cargas camina con él, y camina hacia la terminal, no hacia usted."
+    },
+    "src": {
+      "name": "047d92cc",
+      "briefing": "3c9585ab",
+      "objectives.hold_the_gate": "3b702112",
+      "objectives.seven_in": "b9262fb4",
+      "objectives.take_the_roof": "aa6994ea",
+      "debrief.victory": "c75f8043",
+      "debrief.defeat": "44dc7ef9",
+      "objective_say.take_the_roof": "775a2764",
+      "objective_say_on_fail.seven_in": "f50a9a3b",
+      "wave_say.0": "538f84ae",
+      "wave_say.1": "cf14548d"
+    }
+  },
+  "bir_tarsha_3_clearance": {
+    "name": "Bir Tarsha III — Dos casas",
+    "briefing": "Dos bloques de viviendas se alzan a diez casillas uno del otro en el barrio del campamento, con dos de las personas capturadas en First Light en cada uno. Puedo situar ambas puertas y la guardia de cada una, y nada de lo que hay dentro. Neutralice la guardia de cada puerta y lleve a tres de las cuatro al punto de recogida del borde norte en seis minutos. Menos de tres es una derrota. Cualquiera que esté en el suelo alrededor de uno de los bloques avisa al otro en veinte segundos, y sus posiciones de fuego cubren el callejón intermedio. Un equipo de misiles en cada tejado vigila cualquier patio que cruce. Así que divídanse y entren a la vez, o tome uno y combata por el segundo. El segundo es más lento, más ruidoso y más caro. Ambos bloques están habitados, y el que guarda a los capturados guarda también a los vecinos. Una ronda de cañón contra cualquiera de los dos son catorce de Conducta. Quince es el límite. Un impacto en un bloque son catorce, y un segundo impacto termina la misión.",
+    "aftermath": "Tres volvieron del barrio del campamento, o cuatro, y el Marj contó a cada uno de ellos.",
+    "hostages_place": "el norte del barrio del campamento",
+    "debrief": {
+      "victory": "Tres o cuatro volvieron por el callejón. Dos casas nunca estuvieron pensadas para tomarse a la vez, y el barrio del campamento tiene eso que recordar.",
+      "defeat": "Hoy no. Los bloques están alertados y el callejón está cubierto, y la gente que hay en ellos está exactamente donde estaba."
+    },
+    "objectives": {
+      "bring_three_out": "Llevar a tres de las cuatro personas capturadas al punto de recogida",
+      "guard_west": "Neutralizar la guardia del bloque oeste",
+      "guard_east": "Neutralizar la guardia del bloque este",
+      "keep_the_blocks": "Perder como máximo 15 de Conducta"
+    },
+    "objective_say": {
+      "bring_three_out": "Tres en el borde norte. Los volveré a contar cuando haya salido del callejón.",
+      "guard_west": "La puerta oeste está abierta. No se detenga en el patio.",
+      "guard_east": "La puerta este está abierta. El callejón es la mitad peligrosa."
+    },
+    "objective_say_on_fail": {
+      "bring_three_out": "Ya no quedan tres que sacar. Fuera lo que fuese esto, no era una cuenta en la que pudiéramos permitirnos equivocarnos.",
+      "keep_the_blocks": "Eso pasa de quince. Un bloque con una ronda de cañón dentro no es lo que vinimos a sacar."
+    },
+    "triggers": {
+      "bt3_west_warns_east": "El bloque este ha sido alertado",
+      "bt3_east_warns_west": "El bloque oeste ha sido alertado"
+    },
+    "trigger_say": {
+      "bt3_west_warns_east": "Disparos en el bloque oeste. El bloque este los oyó y está moviendo un equipo a su patio.",
+      "bt3_east_warns_west": "El bloque oeste oyó eso. Veinte segundos es lo que el callejón les da para cruzarlo."
+    },
+    "src": {
+      "name": "e20dc6fb",
+      "briefing": "534c5b2d",
+      "objectives.bring_three_out": "623156a6",
+      "objectives.guard_west": "854ed4cf",
+      "objectives.guard_east": "13239920",
+      "objectives.keep_the_blocks": "bd39ccda",
+      "triggers.bt3_west_warns_east": "4e4a551f",
+      "triggers.bt3_east_warns_west": "a9b2dcf9",
+      "aftermath": "cadca5b2",
+      "hostages_place": "dd8b8617",
+      "debrief.victory": "4dfe491e",
+      "debrief.defeat": "acfe79bc",
+      "objective_say.bring_three_out": "fd15eecc",
+      "objective_say.guard_west": "d086a22c",
+      "objective_say.guard_east": "9f97b1be",
+      "objective_say_on_fail.bring_three_out": "2b77ddd6",
+      "objective_say_on_fail.keep_the_blocks": "b77daa93",
+      "trigger_say.bt3_west_warns_east": "e42e3f7e",
+      "trigger_say.bt3_east_warns_west": "f7b11b1c"
+    }
+  },
+  "bir_tarsha_4_clearance": {
+    "name": "Bir Tarsha IV — La línea de las hojas",
+    "briefing": "Entre la Valla y la aldea hay un cinturón de obras de treinta casillas de largo: posiciones de fuego, puestos, talleres y bermas. Si encontró a la dotación de las obras del este, puedo decirle cuáles son suyas, y si no, lo son todas. Cuatro D9 son suyas para esto, y el batallón va con ellas. Nivele todas las obras del cinturón y lleve las hojas hasta la puerta lejana; si pierde dos hojas, el trabajo ha terminado. Una aldea se alza al norte del cinturón, a ocho casillas del puesto más cercano, y está habitada. Espero fuego desde su resguardo en cuanto algo nuestro entre en el cinturón, y está pensado para que se responda contra una casa. No responda contra una casa. Una casa son seis de Conducta, dos son doce, y una tercera es la misión. Un muro en T cierra la carretera en el extremo este, y una D9 lo abrirá donde las ruedas no pueden cruzarlo. Hasta que caiga, la puerta lejana está fuera de alcance, y tres pozos del cinturón ventilan a espaldas de quien mire al muro. Las bermas son bajas y una hoja no se llevará una solo con pasar junto a ella, así que cada una es una orden. Pozos abajo, obras niveladas, hojas al otro lado.",
+    "debrief": {
+      "victory": "El cinturón está nivelado y las hojas han pasado. En la carretera de la Valla no queda en pie nada que no pusieran allí quienes se fueron.",
+      "defeat": "Esta vez no. Lo que quedó en pie en la carretera de la Valla sigue mirando a la puerta, y las hojas que no volvieron no nos toca contarlas."
+    },
+    "objectives": {
+      "blades": "Llevar las cuatro hojas hasta la puerta lejana",
+      "clear_works": "Nivelar las obras de la carretera de la Valla en seis minutos y medio",
+      "drop_shafts": "Derribar los tres pozos de las obras",
+      "keep_the_hamlet": "Perder como máximo 12 de Conducta"
+    },
+    "objective_say": {
+      "blades": "Hojas al otro lado de la línea de la Valla. Cuéntelas en el lado lejano.",
+      "clear_works": "El cinturón está nivelado. Todo en esa franja está plano salvo el muro.",
+      "drop_shafts": "Tres pozos abajo. Nada del cinturón corre ya bajo la carretera."
+    },
+    "objective_say_on_fail": {
+      "blades": "Son dos hojas perdidas. Con la mitad de la línea, el trabajo no puede terminarse desde el lado cercano.",
+      "keep_the_hamlet": "Eso pasa de doce. Hay una casa en la cuenta que no debería estar en ella."
+    },
+    "triggers": {
+      "bt4_lee_opens": "Llega fuego desde el resguardo de la aldea",
+      "bt4_vent_opens": "Se ha abierto un pozo a espaldas de la escolta"
+    },
+    "trigger_say": {
+      "bt4_lee_opens": "Equipos de misiles salen del resguardo de la aldea, sobre el callejón. Las casas están detrás de ellos, y ahí es donde quieren que vaya la respuesta.",
+      "bt4_vent_opens": "Un pozo ha ventilado a sus espaldas, al sur de la aldea. Ha estado esperando a que pasaran las hojas."
+    },
+    "src": {
+      "name": "52569982",
+      "briefing": "8cdb9e35",
+      "objectives.blades": "b251e5af",
+      "objectives.clear_works": "8c5027e7",
+      "objectives.drop_shafts": "640cbdbf",
+      "objectives.keep_the_hamlet": "d311f8ba",
+      "triggers.bt4_lee_opens": "84d673af",
+      "triggers.bt4_vent_opens": "f314e93e",
+      "debrief.victory": "ad10e460",
+      "debrief.defeat": "72d3cfe6",
+      "objective_say.blades": "8f5230c9",
+      "objective_say.clear_works": "57c8d0c4",
+      "objective_say.drop_shafts": "f6ef41d9",
+      "objective_say_on_fail.blades": "0f7334b0",
+      "objective_say_on_fail.keep_the_hamlet": "61843c4e",
+      "trigger_say.bt4_lee_opens": "60e098ea",
+      "trigger_say.bt4_vent_opens": "faedceb3"
+    }
+  },
+  "bir_tarsha_5_subterranean": {
+    "name": "Bir Tarsha V — Bajo la Valla",
+    "briefing": "Cinco rutas corren bajo la carretera de la Valla hacia la frontera. Una se cavó con anchura para un camión, que es la que importa, y está tan al este como pudieron llevarla. Derribe las cinco en seis minutos y medio. Los zapadores llevan las cargas, y el resto mantiene vivos a los zapadores hasta que estén colocadas. El reconocimiento de los zapadores halló una cámara de hormigón en la cabecera de la ruta este, con una persona dentro, sola. Está en la superficie y no corre contra el reloj. Saque a esa persona antes de que estalle la última carga, porque la misión termina en el instante en que caen las rutas. Las cargas son la orden; la persona queda a su elección. Un comandante de manzana ocupa el puesto al este de la loma. Cuando un tercio de las células de esta franja haya caído, marcha hacia el norte, y lo que quede de las células del Marj marcha con él. La luz se va en diez minutos y las casas de la superficie están habitadas. Perder más de diez de Conducta lo termina todo.",
+    "aftermath": "La carretera de la Valla está en calma, y la frontera junto a la que corría vuelve a ser solo una valla. Con el Marj no se ha terminado, pero ha quedado detrás de la brigada, y la brigada tiene adónde ir.",
+    "hostages_place": "la carretera de la Valla",
+    "debrief": {
+      "victory": "Las rutas bajo la carretera de la Valla han caído. Lo que quedaba del Marj se fue al norte, y la brigada no lo siguió.",
+      "defeat": "Esta noche no. Las rutas siguen abiertas bajo la Valla, y el anochecer es ahora suyo."
+    },
+    "objectives": {
+      "all_five": "Derribar las cinco rutas bajo la carretera de la Valla en seis minutos y medio",
+      "keep_the_surface": "Perder como máximo 10 de Conducta",
+      "walk_the_person_out": "Llevar al refugio a la persona de la cámara",
+      "take_the_commander": "Capturar al comandante de manzana"
+    },
+    "objective_say": {
+      "all_five": "Las cinco han caído. La carretera de la Valla corre sobre nada.",
+      "walk_the_person_out": "Una fuera y caminando. Esa es la que cuenta, y no está en ningún reloj.",
+      "take_the_commander": "El puesto es nuestro. Las rutas que hay bajo él pueden tomarse ahora en cualquier orden."
+    },
+    "objective_say_on_fail": {
+      "all_five": "Se acabó el tiempo. Lo que siga abierto bajo la Valla está abierto para cualquiera.",
+      "keep_the_surface": "Eso pasa de diez. Las casas sobre las rutas son ahora la cuenta."
+    },
+    "triggers": {
+      "bt5_commander_moves": "El comandante de manzana se retira al norte",
+      "bt5_chamber_reached": "La cámara está al alcance"
+    },
+    "trigger_say": {
+      "bt5_commander_moves": "El puesto al este de la loma se vacía hacia el norte. Quien lo dejó lleva consigo el resto, y no va a volver.",
+      "bt5_chamber_reached": "Está en la cámara. Saque a esa persona antes de tocar la última ruta."
+    },
+    "src": {
+      "name": "28e9fa4c",
+      "briefing": "ceaf14ff",
+      "objectives.all_five": "4b291f6a",
+      "objectives.keep_the_surface": "a2e99ae1",
+      "objectives.walk_the_person_out": "206e8e8f",
+      "objectives.take_the_commander": "d0bcd665",
+      "triggers.bt5_commander_moves": "1ee8d313",
+      "triggers.bt5_chamber_reached": "8682e9e0",
+      "aftermath": "73b6922f",
+      "hostages_place": "11fbe44a",
+      "debrief.victory": "4f00f68d",
+      "debrief.defeat": "d6031d9e",
+      "objective_say.all_five": "e8d4a327",
+      "objective_say.walk_the_person_out": "72f26f2b",
+      "objective_say.take_the_commander": "6c1de051",
+      "objective_say_on_fail.all_five": "131d4246",
+      "objective_say_on_fail.keep_the_surface": "6f65eace",
+      "trigger_say.bt5_commander_moves": "50c5f458",
+      "trigger_say.bt5_chamber_reached": "453d8c4e"
+    }
+  },
   "deir_amun_1_recon": {
     "name": "Deir Amun I — Leer el terreno",
     "briefing": "Deir Amun son nueve casas y un patio de bombas al borde de un cauce seco, y ahora no vive nadie en ellas. Lo que queda es el cruce: todas las rutas de este distrito confluyen en la carretera este bajo ese pueblo. Una cuadrilla trabaja esta mañana en la ruta occidental. Encuéntrela, averigüe por dónde discurre y derríbela en cuatro minutos. Tengo sus rutas sobre papel y el papel no es identificación. Una ruta figura en el tablero solo mientras alguien con un detector la está mirando, y vuelve a ser un rumor en cuanto dejan de hacerlo. Esta se está cavando ahora, así que arroja tierra por el fondo de la vaguada, y la tierra removida es algo que cualquier soldado sabe leer. Las que terminó antes de la guerra no arrojan nada. Dos caminos al oeste y no son la misma carretera. El lecho son veintisiete casillas a pie y nada en la terraza puede ver dentro; el arcén son treinta y siete para cualquier cosa con ruedas. Los zapadores colocan una carga quietos a campo abierto, a dos casillas de la ruta, durante ocho segundos. Llévelos allí con algo que pueda disparar y derribe la ruta oeste.",
@@ -475,7 +713,7 @@
       "execution": "El contacto se pierde unos dieciséis segundos después de que el último ojo lo suelta, y el dron es un indicador, no un explorador: igual que un fusilero, queda ciego tras un edificio. Trabájelas en un orden y cúmplalo. Derrumbar una mata a quien esté dentro, así que lo que derribe primero decide cuál de las demás emerge a su espalda. Una de ellas aflora en su propia carretera hacia el este. Lo que deje en pie ahí está en pie bajo sus blindados. El pueblo se asienta en el borde bajo la meseta y usted desciende hacia él por dos barrancos, así que por una vez el jefe queda detrás: en la escombrera al sur del pueblo, un nivel por encima del terreno circundante, sobre suelo levantado por sus propias cuadrillas. No se esconde bajo tierra ni la abandonará. El cañón del Lavi y el mortero se cobran por cada diez segundos en ese pueblo y no hay nada en él que valga ese dinero. Los fusiles y la cincuenta del Eitan son gratis.",
       "notes": "Derribe las cuatro en cinco minutos y saque al jefe de esa escombrera."
     },
-    "aftermath": "Seis rutas bajo el cruce, y por la mañana ninguna llevaba a ninguna parte. La brigada puso una tercera estrella en la hoja y no dijo nada más. El Marj está en calma. Sur no.",
+    "aftermath": "Seis rutas bajo el cruce, y por la mañana ninguna llevaba a ninguna parte. Las brigadas volvieron a casa en primavera, y un batallón se quedó en el Tajo. El Marj estuvo en calma hasta el otoño.",
     "debrief": {
       "victory": "Las cuatro, y el expediente de este distrito se cierra esta noche. Capturar al hombre nunca detuvo nada de esto: el terreno era lo que él era, y ya no queda nada de él aquí abajo.",
       "defeat": "El pueblo se asienta sobre cuatro rutas abiertas y volvemos a casa. Este distrito funcionará mañana exactamente igual que ayer."
@@ -517,7 +755,7 @@
       "triggers.the_village_comes_out_of_its_houses": "637cad50",
       "triggers.he_falls_back_onto_his_own_spoil": "b152e511",
       "triggers.a_charge_squad_comes_for_the_engineers": "7f82a4bd",
-      "aftermath": "4a2a183a",
+      "aftermath": "d729db81",
       "debrief.victory": "5324aabc",
       "debrief.defeat": "59eda46d",
       "sections.situation": "848ff873",
@@ -1850,7 +2088,7 @@
     "objective_say": {
       "picture": "Cuatro emplazamientos y ninguno es una posición. Nadie se atrinchera en una carretera que piensa seguir usando: esto es una ruta de transporte con armas aparcadas a lo largo.",
       "take_ford": "Vigilancia del vado mantenida. La columna está al otro lado del wadi.",
-      "get_the_carriers_out": "Cuatro fuera del vado y del corredor. Estaban en su carretera porque alguien los puso; esta noche no."
+      "get_the_carriers_out": "Tres fuera del vado y del corredor. Estaban en su carretera porque alguien los puso; esta noche no."
     },
     "objective_say_on_fail": {
       "get_the_carriers_out": "El cruce se cerró con ellos aún en él. Estábamos a ocho casillas, mirando hacia otro lado."
@@ -1882,7 +2120,7 @@
       "sections.notes": "81c5a8a8",
       "objective_say.picture": "7c3c8f83",
       "objective_say.take_ford": "bf78f27c",
-      "objective_say.get_the_carriers_out": "04b2a5b8",
+      "objective_say.get_the_carriers_out": "02bed465",
       "objective_say_on_fail.get_the_carriers_out": "63c70fa1",
       "trigger_say.the_bank_patrol_turns_for_the_ford": "05fb1035",
       "wave_say.0": "a8afca11",
@@ -2041,7 +2279,7 @@
     "objective_say": {
       "take_village": "Pueblo mantenido. Cada célula bajo un tejado que dejamos en pie sigue en su ventana.",
       "kill_cache_guard": "No es un combatiente, es un contable con un lanzador. Lo que custodiaba nombra el depósito al este de aquí y dice cuánto sigue lleno.",
-      "evac_families": "Todos ellos están en el refugio."
+      "evac_families": "Tres de ellos están en el refugio."
     },
     "objective_say_on_fail": {
       "evac_families": "La carretera está cerrada y aún hay familias dentro. Nueve no entraron en First Light. Alguien tiene que seguir diciendo la cifra, y no será usted."
@@ -2066,7 +2304,7 @@
       "sections.execution": "dbd5b6d8",
       "objective_say.take_village": "13ef3503",
       "objective_say.kill_cache_guard": "ad4d3f21",
-      "objective_say.evac_families": "a5c462ea",
+      "objective_say.evac_families": "dbb160b1",
       "objective_say_on_fail.evac_families": "36801331",
       "trigger_say.the_technicals_at_the_south_hide_run_for_the_village": "880ce51b"
     }
