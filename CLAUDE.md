@@ -217,7 +217,8 @@ in `docs/agent-notes/`; read the one for an area before changing it:
 `maps-and-terrain-design.md`, `pose-and-plate-tools.md`, `renderer.md`,
 `terrain-rendering.md`, `visual-gate.md`, `mesh-units.md`, `webgpu-backend.md`,
 `campaign-board-and-scene-host.md`, `scaling-debts.md`, `mission-findings.md`
-(tunnels, loans, playtest limits, smoke, Tel Marum).
+(tunnels, loans, playtest limits, smoke, Tel Marum), `release-notes.md` (drafting
+`data/release-notes/next.json` before a promotion, and its filter gate, GH-1622).
 
 ### Domain skills
 

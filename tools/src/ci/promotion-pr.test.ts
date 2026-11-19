@@ -3,7 +3,7 @@
 // Every subject below is a literal copied from `git log origin/main..origin/dev` on 17 Nov 2026 or written by hand for
 // its case; nothing is computed by the module under test and then asserted back against it.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ import {
   entryOf,
   groupOf,
   neutralise,
+  notesLine,
   parseLog,
   renderBody,
   splitBody,
@@ -226,6 +227,71 @@ describe('renderBody', () => {
   });
 });
 
+// GH-1622: the release notes line. The texts are literal next.json files, as a drafter would commit them.
+describe('notesLine', () => {
+  const EMPTY = '{\n  "version": "next",\n  "units": [],\n  "rules": [],\n  "fixes": []\n}\n';
+  const DRAFTED = JSON.stringify({
+    version: 'next',
+    units: ['The Namer carrier joins the camp menu.'],
+    rules: ['Smoke now blocks sight for 30 seconds.', 'Mortars can fire from inside a house.'],
+    fixes: [],
+  });
+  it('says a missing file must be created before promoting', () => {
+    expect(notesLine(null)).toBe(
+      '**Release notes:** `data/release-notes/next.json` does not exist on `dev`: create and draft it before promoting ' +
+        '(guide: `docs/agent-notes/release-notes.md`).',
+    );
+  });
+  it('says an empty file must be drafted before promoting', () => {
+    expect(notesLine(EMPTY)).toBe(
+      '**Release notes:** `data/release-notes/next.json` is empty: draft it before promoting ' +
+        '(guide: `docs/agent-notes/release-notes.md`). A release cut from it says "No player-facing changes".',
+    );
+  });
+  it('counts the entries per section, singular and plural', () => {
+    expect(notesLine(DRAFTED)).toBe(
+      '**Release notes:** `data/release-notes/next.json` holds 1 new unit, 2 rules and features, 0 fixes. ' +
+        "The lead approves the wording in this PR's diff before merging.",
+    );
+    expect(notesLine('{"version":"next","units":[],"rules":["A."],"fixes":["B.","C."]}')).toBe(
+      '**Release notes:** `data/release-notes/next.json` holds 0 new units, 1 rule or feature, 2 fixes. ' +
+        "The lead approves the wording in this PR's diff before merging.",
+    );
+  });
+  it('says a file that does not parse must be fixed', () => {
+    expect(notesLine('{"version": "next", ')).toBe(
+      '**Release notes:** `data/release-notes/next.json` on `dev` is not valid JSON: fix it before promoting ' +
+        '(guide: `docs/agent-notes/release-notes.md`).',
+    );
+  });
+  it('flags an entry a release on main already shipped (main not merged back into dev)', () => {
+    const shipped = [
+      { version: '0.135.0', raw: '{"version":"0.135.0","units":[],"rules":["Smoke now blocks sight for 30 seconds."],"fixes":[]}' },
+      { version: '0.134.0', raw: '{"version":"0.134.0","units":["The Namer carrier joins the camp menu."],"rules":[],"fixes":[]}' },
+      { version: '0.133.0', raw: 'not json' },
+    ];
+    expect(notesLine(DRAFTED, shipped)).toBe(
+      '**Release notes:** `data/release-notes/next.json` holds 1 new unit, 2 rules and features, 0 fixes. ' +
+        "The lead approves the wording in this PR's diff before merging. **2 of them already shipped** " +
+        '(v0.134.0, v0.135.0 on `main`): merge `main` into `dev` and drop them before promoting.',
+    );
+    expect(notesLine(DRAFTED, [shipped[0]])).toContain('**1 of them already shipped** (v0.135.0 on `main`): merge `main` into `dev` and drop it');
+    expect(notesLine(EMPTY, shipped)).toContain('is empty');
+  });
+  it('sits under the CI line in the body, and the body still holds no hash and digits', () => {
+    const notes = notesLine(DRAFTED);
+    const body = renderBody({ entries: entriesOf(REAL), headSha: 'h'.repeat(12), baseSha: 'b'.repeat(12), ci: null, notes });
+    const ci = body.indexOf('**Latest dev CI:**');
+    expect(ci).toBeGreaterThan(0);
+    expect(body.indexOf(notes)).toBeGreaterThan(ci);
+    expect(body.indexOf(notes)).toBeLessThan(body.indexOf('**This PR has no `ci` run of its own.**'));
+    expect(body).not.toMatch(/#[0-9]/);
+    // Idempotence: the same inputs write the same body; a changed next.json writes a different one.
+    expect(renderBody({ entries: entriesOf(REAL), headSha: 'h'.repeat(12), baseSha: 'b'.repeat(12), ci: null, notes })).toBe(body);
+    expect(renderBody({ entries: entriesOf(REAL), headSha: 'h'.repeat(12), baseSha: 'b'.repeat(12), ci: null, notes: notesLine(EMPTY) })).not.toBe(body);
+  });
+});
+
 describe('decide', () => {
   const entries = entriesOf(REAL);
   const title = 'promote: dev to main (7 PRs)';
@@ -323,24 +389,35 @@ describe('the CLI on a real repository', () => {
     commit('a', 'init');
     git('checkout', '-q', '-b', 'dev');
     commit('b', 'app: squashed change (#10)');
+    // GH-1622: dev's notes, read from the dev ref (not the working tree), and main has no release-notes directory yet.
+    mkdirSync(path.join(dir, 'data', 'release-notes'), { recursive: true });
+    writeFileSync(path.join(dir, 'data', 'release-notes', 'next.json'), '{"version":"next","units":[],"rules":["A."],"fixes":[]}');
+    git('add', 'data/release-notes/next.json');
+    git('commit', '-q', '-m', 'data: the release notes (#12)');
     git('checkout', '-q', '-b', 'feature');
     commit('c', 'wip one');
     commit('d', 'wip two');
     git('checkout', '-q', 'dev');
     git('merge', '-q', '--no-ff', 'feature', '-m', 'Merge pull request #11 from o/feature\n\nsim: merged change');
     git('checkout', '-q', 'main');
+    // The release on main shipped "A." already (v1.0.1.json), so dev's next.json repeating it is flagged.
+    mkdirSync(path.join(dir, 'data', 'release-notes'), { recursive: true });
+    writeFileSync(path.join(dir, 'data', 'release-notes', 'v1.0.1.json'), '{"version":"1.0.1","units":[],"rules":["A."],"fixes":[]}');
+    git('add', 'data/release-notes/v1.0.1.json');
     commit('v', 'chore(release): v1.0.1 [skip ci]');
     git('checkout', '-q', 'dev');
     git('merge', '-q', '--no-ff', 'main', '-m', "Merge branch 'main' into dev");
 
     const out = path.join(dir, 'body.md');
     const printed = execFileSync('node', [SCRIPT, '--base=main', '--head=dev', `--out=${out}`], { cwd: dir, encoding: 'utf8' });
-    expect(printed).toBe('action=create\nnumber=\ntitle=promote: dev to main (2 PRs)\n');
+    expect(printed).toBe('action=create\nnumber=\ntitle=promote: dev to main (3 PRs)\n');
     const body = readFileSync(out, 'utf8');
     expect(body).toContain('- app: squashed change (PR 10)');
     expect(body).toContain('- sim: merged change (PR 11)');
     expect(body).not.toContain('wip');
     expect(body).not.toContain('Merge branch');
+    expect(body).toContain('**Release notes:** `data/release-notes/next.json` holds 0 new units, 1 rule or feature, 0 fixes.');
+    expect(body).toContain('**1 of them already shipped** (v1.0.1 on `main`)');
 
     // The same range against an open PR of ours that a bot has appended to: an update that keeps the bot's text.
     const open = path.join(dir, 'open.json');
@@ -349,7 +426,7 @@ describe('the CLI on a real repository', () => {
       cwd: dir,
       encoding: 'utf8',
     });
-    expect(again).toBe('action=update\nnumber=5\ntitle=promote: dev to main (2 PRs)\n');
+    expect(again).toBe('action=update\nnumber=5\ntitle=promote: dev to main (3 PRs)\n');
     const updated = readFileSync(out, 'utf8');
     expect(updated.startsWith(body.trimEnd())).toBe(true);
     expect(updated.endsWith(`${END}\n\nbot summary\n`)).toBe(true);

@@ -10,6 +10,9 @@ export const MARKER: string;
 export const END: string;
 export const BODY_LIMIT: number;
 export const OTHER_GROUP: string;
+export const NOTES_PATH: string;
+export const NOTES_GUIDE: string;
+export function notesLine(raw: string | null, shipped?: readonly { version: string; raw: string }[]): string;
 export function neutralise(text: string): string;
 export function groupOf(subject: string): string;
 export function entryOf(commit: Commit): Entry | null;
@@ -22,6 +25,7 @@ export function renderBody(input: {
   baseSha: string;
   ci: CiRuns | null;
   compareUrl?: string | null;
+  notes?: string | null;
   limit?: number;
 }): string;
 export function decide(input: {

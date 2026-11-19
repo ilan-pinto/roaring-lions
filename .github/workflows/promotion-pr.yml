@@ -8,7 +8,9 @@
 # The body (tools/ci/promotion-pr.mjs, tested in tools/src/ci/promotion-pr.test.ts) is a changelog of
 # `git log --first-parent main..dev`, one line per PR grouped by subject prefix, every ref written "PR NNN" (never a hash
 # and digits: the UI palette gate reads that as a colour), plus the latest dev `ci` result and a note that this PR
-# has no ci run of its own: a PR opened or edited with GITHUB_TOKEN triggers no workflow.
+# has no ci run of its own: a PR opened or edited with GITHUB_TOKEN triggers no workflow. A "Release notes" line
+# (GH-1622) states how many entries dev's data/release-notes/next.json holds per section, or that it is empty and must
+# be drafted before promoting (docs/agent-notes/release-notes.md); the lead approves the wording in the PR's diff.
 #
 # A dev -> main PR that a person opened (no marker line in its body) is left alone.
 #
