@@ -8,7 +8,7 @@
  *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade
  *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). The snapshot has its own too, SNAP_LIMIT,
  *  at 12 a minute (snapshot S3, Ruling 12). */
-import type { Env, RateLimiter } from '../d1';
+import type { DurableObjectNamespaceLike, Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
@@ -69,10 +69,26 @@ function sameOriginSnapshotGet(req: Request): boolean {
     && /^\/api\/match\/[^/]+\/snapshot$/.test(new URL(req.url).pathname);
 }
 
+/**
+ * GH-1397 (design §4, D-R4): the ONE reader of `env.ROOMS` and `env.ROOMS_LEGACY`, and so the one place a room's
+ * namespace is chosen. `ROOMS_NEW === '0'` with `ROOMS_LEGACY` bound returns the legacy namespace (the game
+ * Worker's own class: the no-deploy rollback after the cut); anything else returns `ROOMS`, which is the relay's
+ * from the cut on and the game Worker's own before it. The switch never yields `undefined` while `ROOMS` is bound:
+ * `'0'` with the lever unbound is `ROOMS`. A code is looked up in this one namespace only; there is no probe of
+ * the other, so a flip moves only NEW requests: a room still open in the namespace it leaves plays on with its
+ * connected seats, and its reconnects, joins and watches now find no such room (docs/agent-notes/relay-split.md,
+ * "What the flip does to a live relay room").
+ * `rooms-of.test.ts` pins it (F5 to F7) and holds today's routes to the byte with the lever unbound.
+ */
+export function roomsOf(env: Env): DurableObjectNamespaceLike | undefined {
+  if (env.ROOMS_NEW === '0' && env.ROOMS_LEGACY !== undefined) return env.ROOMS_LEGACY;
+  return env.ROOMS;
+}
+
 export async function handleMatch(req: Request, env: Env, now: number): Promise<Response> {
   if (!originAllowed(req, env) && !sameOriginSnapshotGet(req)) return new Response('origin', { status: 403 });
   const secret = env.TICKET_SECRET;
-  const rooms = env.ROOMS;
+  const rooms = roomsOf(env);
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
   const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot|watch))?$/);
   if (!m) return new Response('not found', { status: 404 });
@@ -200,7 +216,7 @@ async function advisorTicket(req: Request, env: Env, secret: string, code: strin
  * to a spectator, and a room whose second seat has not joined yet reads as human. The room is asked, and
  * nothing is written. Only a seat ticket for this code is accepted, so a watch (or advisor) ticket mints nothing.
  */
-async function watchTicket(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+async function watchTicket(req: Request, env: Env, secret: string, rooms: DurableObjectNamespaceLike, code: string, now: number): Promise<Response> {
   if (env.ARENA_WATCH !== '1') return new Response('not found', { status: 404 });
   if (req.method !== 'POST') return new Response('method', { status: 405 });
   if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
@@ -227,7 +243,7 @@ async function watchTicket(req: Request, env: Env, secret: string, rooms: NonNul
  * wrong or absent length is not the only bound. The room is sent the bytes read here, not the
  * original stream, and checks the ticket, the tick and the body again itself.
  */
-async function snapshot(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+async function snapshot(req: Request, env: Env, secret: string, rooms: DurableObjectNamespaceLike, code: string, now: number): Promise<Response> {
   if (req.method !== 'POST' && req.method !== 'GET') return new Response('method', { status: 405 });
   if (await limited(req, env.SNAP_LIMIT)) return new Response('slow down', { status: 429 });
   const auth = req.headers.get('authorization');

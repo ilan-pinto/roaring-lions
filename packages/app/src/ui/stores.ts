@@ -24,8 +24,12 @@
 // mounts lives inside `host`, every listener is on a node it owns, and the
 // returned disposer removes the lot. Nothing goes on `document.body` or
 // `window`.
+import type { BranchPick, UpgradableUnit } from '@lions/data';
+import { shippedBranched, type BranchedTable } from '@lions/economy';
 import { t } from '../i18n/t';
 import { EARN } from '../roar-earn';
+import type { ConfirmOptions } from './confirm';
+import { branchName } from './garage-fork';
 import type { RoarReceipt } from '../roar-wallet';
 import type { Disposer } from '../shell/router';
 import {
@@ -79,7 +83,14 @@ export interface StoresOptions extends StoreInput {
    *  run ENDS on and the run's total (`creditAsk`). The caller recomputes the ask from a
    *  fresh read (`buyTierWithCredits`); the price is checked there, never trusted. Absent:
    *  no such button. */
-  onBuyTierCredits?: (unitId: string, track: string, to: number, price: number) => void;
+  onBuyTierCredits?: (unitId: string, track: string, to: number, price: number, pick?: BranchPick) => void;
+  /** GH-1384: which (unit, track)s sell a BRANCHED tier (two named Buys, each confirmed: the choice is
+   *  final). Defaults to the economy's shipped table, EMPTY while the branch switch is closed, so a closed
+   *  build draws every tier row as it always has; a test passes its own. */
+  branched?: BranchedTable;
+  /** GH-1384: asks the player before a branch is bought (the Garage's `confirmDialog`, which the Garage
+   *  owns and takes down). Absent: a branched tier row names its two branches and offers no Buy. */
+  confirm?: (o: ConfirmOptions) => Promise<boolean>;
   /** The `data-buy`/`data-focus` key of the control to focus after a redraw. */
   focusKey?: string;
   /** Signed in (GH-1075 A2): the `data-buy` key of the coin Buy now waiting on the server. Every coin Buy is disabled
@@ -543,7 +554,16 @@ function priceLine(credits: number, coins: number, opts: StoresOptions): HTMLEle
   return line;
 }
 
-function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: string, ask: CoinAsk): HTMLButtonElement {
+function coinBuy(
+  coins: number,
+  label: string,
+  enabled: boolean,
+  ctx: Ctx,
+  key: string,
+  ask: CoinAsk,
+  /** GH-1384: a branch Buy asks first (its choice is final); absent, the click buys as it always has. */
+  first?: () => Promise<boolean>
+): HTMLButtonElement {
   const buy = document.createElement('button');
   buy.type = 'button';
   buy.className = 'rl-stores__buy';
@@ -558,7 +578,10 @@ function coinBuy(coins: number, label: string, enabled: boolean, ctx: Ctx, key: 
   if (enabled && why !== null) buy.title = why;
   buy.disabled = !open;
   const onBuy = ctx.opts.onBuy;
-  if (open && onBuy !== undefined) buy.addEventListener('click', () => onBuy(ask));
+  if (open && onBuy !== undefined) {
+    if (first === undefined) buy.addEventListener('click', () => onBuy(ask));
+    else buy.addEventListener('click', () => void first().then((yes) => yes && onBuy(ask)));
+  }
   return buy;
 }
 
@@ -606,7 +629,13 @@ export function tierCreditBuyEnabled(
   return canBuy && block === null && unitOpen && ask !== null && credits !== undefined && credits >= ask.price;
 }
 
-function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElement | null {
+function tierCreditBuy(
+  item: TierItem,
+  ask: CreditAsk,
+  ctx: Ctx,
+  /** GH-1384: the branch this Buy buys, and the confirm it asks first. */
+  branch?: { pick: BranchPick; first: () => Promise<boolean> }
+): HTMLButtonElement | null {
   const onBuy = ctx.opts.onBuyTierCredits;
   if (!tierCreditBuyEnabled(ask, ctx.opts.credits, ctx.unitOpen(item.unitId), onBuy !== undefined)) return null;
   // Signed in (GH-1142, §0.39): the SAME predicate, asked again with the block. A pending coin Buy of this track, or a
@@ -618,7 +647,7 @@ function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElem
   const buy = document.createElement('button');
   buy.type = 'button';
   buy.className = 'rl-stores__buy rl-stores__buy--credits';
-  buy.dataset.buy = `credits:${item.unitId}.${item.track}`;
+  buy.dataset.buy = branch === undefined ? `credits:${item.unitId}.${item.track}` : `credits:${item.unitId}.${item.track}:${branch.pick}`;
   if (ask.again > 0) {
     // The run label states the run: "Tier 3 · 740 credits (pays for tiers 1-2 again, on credits)".
     const one = ask.again === 1;
@@ -633,7 +662,10 @@ function tierCreditBuy(item: TierItem, ask: CreditAsk, ctx: Ctx): HTMLButtonElem
     buy.title = blockText(block);
     buy.dataset.block = block;
   }
-  if (enabled) buy.addEventListener('click', () => onBuy?.(item.unitId, item.track, ask.to, ask.price));
+  if (enabled) {
+    if (branch === undefined) buy.addEventListener('click', () => onBuy?.(item.unitId, item.track, ask.to, ask.price));
+    else buy.addEventListener('click', () => void branch.first().then((yes) => yes && onBuy?.(item.unitId, item.track, ask.to, ask.price, branch.pick)));
+  }
   return buy;
 }
 
@@ -733,6 +765,52 @@ function unitCard(item: UnitItem, ctx: Ctx): HTMLElement {
   return card;
 }
 
+/** GH-1384: a branched tier's two Buys on a Stores tier row, one per branch, each named and each
+ *  confirmed before it asks, since a choice is final (the lead, Q2). The coin ask carries `branch`
+ *  (`buyWithCoins` then buys through `buyBranchWithCoins`), the credit ask its `pick` (`buyBranch`).
+ *  With no `confirm` the row names the two branches and offers no Buy. */
+function branchBuys(item: TierItem, ask: CreditAsk | null, ctx: Ctx): HTMLElement {
+  const { opts } = ctx;
+  const next = item.next;
+  const wrap = el('div', 'rl-stores__branches');
+  const source = opts.units.find((x) => x.id === item.unitId);
+  const unit = { id: item.unitId, upgrades: source?.upgrades } as UpgradableUnit;
+  const names: Record<BranchPick, string> = { 1: branchName(unit, item.track, 1), 2: branchName(unit, item.track, 2) };
+  const confirm = opts.confirm;
+  for (const pick of [1, 2] as const) {
+    const otherName = names[pick === 1 ? 2 : 1];
+    const line = el('div', 'rl-stores__branch');
+    line.dataset.branch = String(pick);
+    line.setAttribute('role', 'group');
+    line.setAttribute('aria-label', names[pick]);
+    line.appendChild(el('span', 'rl-stores__branch-name', names[pick]));
+    if (next !== null && confirm !== undefined) {
+      const first = (): Promise<boolean> =>
+        confirm({
+          title: t('garage.branch.confirm.title', { branch: names[pick] }),
+          body: t('garage.branch.confirm.body', { branch: names[pick], other: otherName }),
+          confirm: t('garage.branch.confirm.action', { branch: names[pick] }),
+        });
+      const label = t('stores.buy.branch.aria', {
+        branch: names[pick],
+        name: item.unitName,
+        n: next.coins,
+        other: otherName,
+        note: buyNote(coinCost(item), ctx),
+      });
+      const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: next.tier, branch: pick };
+      line.appendChild(
+        coinBuy(next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${next.tier}:${pick}`, coinAsk, first)
+      );
+      const byCredits = ask === null ? null : tierCreditBuy(item, ask, ctx, { pick, first });
+      if (byCredits !== null) line.appendChild(byCredits);
+    }
+    wrap.appendChild(line);
+  }
+  wrap.appendChild(el('div', 'rl-stores__branch-final', t('garage.branch.final')));
+  return wrap;
+}
+
 /** One unit's upgrades: portrait, name, and a compact row per track. A maxed
  *  track's row is owned, and hides with the toggle. */
 function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]): HTMLElement {
@@ -777,12 +855,18 @@ function tierCard(list: readonly TierItem[], ctx: Ctx, ownedEls: HTMLElement[]):
         n: item.next.coins,
         note: buyNote(coinCost(item), ctx),
       });
-      const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
-      row.appendChild(
-        coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, coinAsk)
-      );
-      const byCredits = ask === null ? null : tierCreditBuy(item, ask, ctx);
-      if (byCredits !== null) row.appendChild(byCredits);
+      const fork = (opts.branched ?? shippedBranched())[item.unitId]?.[item.track];
+      if (fork !== undefined && item.next.tier >= fork.tier) {
+        // GH-1384: a branched tier sells as two named Buys, each confirmed (never while the switch is closed).
+        row.appendChild(branchBuys(item, ask, ctx));
+      } else {
+        const coinAsk: CoinAsk = { kind: 'tier', unitId: item.unitId, track: item.track, tier: item.next.tier };
+        row.appendChild(
+          coinBuy(item.next.coins, label, buyEnabled(item, ctx.wallet), ctx, `tier:${item.unitId}.${item.track}.${item.next.tier}`, coinAsk)
+        );
+        const byCredits = ask === null ? null : tierCreditBuy(item, ask, ctx);
+        if (byCredits !== null) row.appendChild(byCredits);
+      }
     } else {
       row.appendChild(el('span', `rl-stores__state rl-stores__state--${item.state}`, t(`stores.state.${item.state}`)));
     }

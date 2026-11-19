@@ -9,7 +9,7 @@
  */
 import { BRANCHES_OPEN, DIFFICULTY_LEDGER_KEY, postureOf, type PostureId } from '@lions/data';
 import type { CampaignLedger } from './ledger-store';
-import { digestOf, prepareResume, type JsonValue, type PreparedResume, type SuspendedMission } from './mission-save';
+import { digestOf, loadContentDigest, prepareResume, type JsonValue, type PreparedResume, type SuspendedMission } from './mission-save';
 import { readSuspended, type KeyStore } from './mission-save-store';
 import { parseShell, type ShellRecord } from './mission-shell';
 
@@ -191,8 +191,10 @@ export async function loadResume(o: {
     noteResumeProblem('moved', moved, { was: postureOf(inputs.ledger), now: postureOf(o.live.ledger) });
     return { ok: false, why: 'moved' };
   }
-  const prepared = await prepareResume(record);
-  if (!prepared.ok) {
+  // The content digest loads here, at a resume, never with the kit (`loadContentDigest`); a chunk that will not load is a failed resume.
+  const contentDigest = await loadContentDigest().catch(() => null);
+  const prepared = contentDigest === null ? null : await prepareResume(record, { contentDigest });
+  if (prepared === null || !prepared.ok) {
     noteResumeProblem('failed');
     return { ok: false, why: 'failed' };
   }

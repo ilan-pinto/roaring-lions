@@ -176,7 +176,9 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   for (const f of formations) sim.addFormationType(f);
 
   const anchors = versusAnchors(mapJson);
-  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
+  // GH-1389: a computer level's stated force handicap is the seat's own `withhold`, read here and nowhere else: the sim
+  // only ever sees the units that were spawned. No seat carries one outside an offline match against a level.
+  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide, [seats[0]?.withhold, seats[1]?.withhold]);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
   // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.
@@ -473,10 +475,12 @@ export function seatKitTiers(seat: SeatConfig | undefined, roster: readonly Rost
 
 /**
  * GH-1384 slice 1's stand-in, which the CLOSED build keeps: branch 1 on each branched track the seat's CLEANED
- * tiers hold at the branched tier, derived from the config alone, so both machines compute the same table and a
- * matched seat (`{}` tiers) fields none. While branching is closed `applyUpgrades` reads a branched tier as its
- * envelope whatever the pick, so this table changes no stat; it is kept so the closed prepass is dev's to the
- * argument. An OPEN build reads the seat's own `picks` instead (`seatKitPicksOf`).
+ * tiers hold at the branched tier (the migration's legacy default, the lead's Q8), derived from the config alone,
+ * so both machines compute the same table and a matched seat (`{}` tiers) fields none. While branching is closed
+ * `applyUpgrades` reads a branched tier as its envelope whatever the pick, so this table changes no stat; it is
+ * kept so the closed prepass is dev's to the argument. Since slice 2 the Garage's fork can buy branch 2, so an
+ * OPEN build must not use this table (it would field a branch-2 owner's tier 3 as branch 1): it reads the seat's
+ * own `picks` instead (`seatKitPicksOf`).
  */
 export function seatKitPicks(tiers: Readonly<Record<string, Readonly<Record<string, number>>>>, roster: readonly RosterUnit[]): Record<string, Record<string, BranchPick>> {
   const out: Record<string, Record<string, BranchPick>> = {};

@@ -27,6 +27,11 @@ export interface SeatConfig {
    *  in a `brigade` room only. `[]` everywhere else, as it was in every room before. At most
    *  `SPECIALS_MAX` strings; the world cleans it again against the data (`seatSpecials`). */
   unlocks: string[];
+  /** GH-1389: the units this seat's placed force leaves at home, unit type id -> how many, the STATED force handicap of
+   *  a computer level (data/computer/levels.json). Only on a `bot` seat in a versus config, and only an OFFLINE match
+   *  against the computer seat sets it (`offlineConfig`); the room never mints it. Absent is the whole force, as every
+   *  room before it. It names units to leave out and nothing else: no purse, income or vision field exists here. */
+  withhold?: Record<string, number>;
   player: string;
   callsign: string;
   kind: 'human' | 'bot';
@@ -500,13 +505,24 @@ function isPicks(v: unknown): v is Record<string, Record<string, 1 | 2>> {
     Object.entries(t).every(([track, p]) => !RESERVED_KEYS.has(track) && (p === 1 || p === 2)));
 }
 
+/** Bounds on a seat's `withhold` (GH-1389): at most `WITHHOLD_MAX_TYPES` type ids, each a positive count of at most
+ *  `WITHHOLD_MAX_COUNT`. The placed force is 15 units of 10 types, so neither bound refuses a real level. */
+export const WITHHOLD_MAX_TYPES = 16;
+export const WITHHOLD_MAX_COUNT = 64;
+function isWithhold(v: unknown): v is Record<string, number> {
+  if (!isRecord(v) || Object.keys(v).length > WITHHOLD_MAX_TYPES) return false;
+  return Object.entries(v).every(([id, n]) => !RESERVED_KEYS.has(id) && isInt(n) && n >= 1 && n <= WITHHOLD_MAX_COUNT);
+}
+
 function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
     (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) && (s.picks === undefined || isPicks(s.picks)) &&
     Array.isArray(s.unlocks) && s.unlocks.length <= SPECIALS_MAX && s.unlocks.every(isStr) &&
-    isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
+    isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot') &&
+    // GH-1389: a force handicap is a computer level's, so only a bot seat carries one.
+    (s.withhold === undefined || (s.kind === 'bot' && isWithhold(s.withhold)));
 }
 
 function isPace(v: unknown): v is Pace {
@@ -522,6 +538,8 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (!isStr(c.matchId) || !isStr(c.code) || !isInt(c.seed) || !isStr(c.map)) return null;
   if (c.mode !== 'sandbox' && c.mode !== 'versus') return null;
   if (!Array.isArray(c.seats) || c.seats.length !== 2 || !isSeatConfig(c.seats[0], 0) || !isSeatConfig(c.seats[1], 1)) return null;
+  // GH-1389: a placed force is a versus room's, so a sandbox config carries no handicap on one.
+  if (c.mode !== 'versus' && (c.seats as Record<string, unknown>[]).some((s) => s.withhold !== undefined)) return null;
   if (!isPace(c.pace) || !isInt(c.hashEveryTicks) || c.hashEveryTicks < 1 || !isInt(c.bufferTicks) || c.bufferTicks < 0) return null;
   if (!isStr(c.build) || !isInt(c.dataDigest)) return null;
   if (c.winMode !== undefined && (c.mode !== 'versus' || winModeField(c.winMode) === undefined)) return null;
