@@ -302,6 +302,7 @@ import {
   hasUnitMesh,
   meshPlanFor,
   riggedUnitFiles,
+  civilianFiguresOf,
   meshManifestFor,
   dracoDecoderPath,
 } from './mesh-catalogue';
@@ -2843,7 +2844,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   );
   // An economy room's camps (N3 Task 6) are the runtime's structures: the room has no mission.
   // GH-1438 E14: `civilians.figures: "adults"` (D18) leaves the child figure out of the civilians' variants.
-  const civilianFigures = mission?.civilians?.figures ?? 'all';
+  const civilianFigures = civilianFiguresOf(mission);
   const meshPlan = meshPlanFor(
     map,
     meshRoster,

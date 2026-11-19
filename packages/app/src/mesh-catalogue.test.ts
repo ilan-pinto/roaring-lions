@@ -21,7 +21,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -65,6 +65,7 @@ import {
   meshPlanFor,
   meshManifestFor,
   riggedUnitFiles,
+  civilianFiguresOf,
   CHILD_FIGURE_FILES,
   meshUrl,
 } from './mesh-catalogue';
@@ -610,6 +611,35 @@ describe('meshPlanFor', () => {
       const all = new Set(Object.values(RIGGED_UNIT_MESHES).flatMap((e) => e.files));
       expect(CHILD_FIGURE_FILES.size).toBeGreaterThan(0);
       for (const f of CHILD_FIGURE_FILES) expect(all.has(f), f).toBe(true);
+    });
+    it('civilianFiguresOf reads the mission: adults and all pass through, any absence is all', () => {
+      expect(civilianFiguresOf({ civilians: { figures: 'adults' } })).toBe('adults');
+      expect(civilianFiguresOf({ civilians: { figures: 'all' } })).toBe('all');
+      expect(civilianFiguresOf({ civilians: {} })).toBe('all');
+      expect(civilianFiguresOf({})).toBe('all');
+      expect(civilianFiguresOf(undefined)).toBe('all');
+    });
+    // main.ts's two call sites, read as text (no unit harness reaches `bootBattlefield`; the style of
+    // roar-earn.test.ts and net/room-pause.test.ts). Each regex names the mutation it stops.
+    describe('main.ts wires the mission\'s figures to the boot plan AND the late load', () => {
+      const main = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'main.ts'), 'utf8');
+      const calls = [...main.matchAll(/const (\w+) = civilianFiguresOf\(mission\);/g)];
+      const figuresVar = calls[0]?.[1] ?? '<none>';
+      it('reads the mission through civilianFiguresOf exactly once (not a literal, not another argument)', () => {
+        expect(calls.length).toBe(1);
+        expect(main.split('civilianFiguresOf(').length - 1).toBe(1);
+      });
+      it('hands that result to meshPlanFor as its last argument', () => {
+        const plans = [...main.matchAll(/meshPlanFor\(([^;]*?)\);/g)];
+        expect(plans.length).toBe(1);
+        const args = (plans[0]?.[1] ?? '').trim().replace(/,\s*$/, '');
+        expect(args.split(',').at(-1)?.trim()).toBe(figuresVar);
+      });
+      it('the late load calls riggedUnitFiles with the same variable, never the raw rigged file list', () => {
+        expect(main).toContain(`three.loadMeshUnit(typeId, riggedUnitFiles(typeId, ${figuresVar}).map(meshUrl)`);
+        expect(main.split('riggedUnitFiles(').length - 1).toBe(1);
+        expect(main).not.toMatch(/rigged\.files|RIGGED_UNIT_MESHES\[[^\]]*\]\.files/);
+      });
     });
   });
 

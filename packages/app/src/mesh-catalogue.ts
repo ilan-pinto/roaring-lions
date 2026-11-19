@@ -750,9 +750,17 @@ export interface MeshManifest {
 /** GH-1438 E14: which civilian figures a mission draws (`civilians.figures` in mission.schema.json). */
 export type CivilianFigures = 'all' | 'adults';
 
-/** GH-1438 E14 (D18, Option A: "no child figure among people under aimed fire"; N8 extends it to the taken): the child
- *  figures. A file here that is in no rigged entry would make `adults` a silent no-op, which `mesh-catalogue.test.ts`
- *  refuses. */
+/** GH-1438 E14: a mission's `civilians.figures`, read in ONE place (`main.ts` hands the result to `meshPlanFor` and to
+ *  the late load). Absent mission, absent block or absent field: `all`. Structural, so this module stays off `@lions/sim`. */
+export function civilianFiguresOf(
+  mission: { readonly civilians?: { readonly figures?: CivilianFigures } } | undefined
+): CivilianFigures {
+  return mission?.civilians?.figures ?? 'all';
+}
+
+/** GH-1438 E14 (D18, Option A, adopted: "no child figure among people under aimed fire"; proposal N8, not adopted,
+ *  would extend it to people led away or carried off): the child figures. A file here that is in no rigged entry
+ *  would make `adults` a silent no-op, which `mesh-catalogue.test.ts` refuses. */
 export const CHILD_FIGURE_FILES: ReadonlySet<string> = new Set(['civilians/civilian_child.glb']);
 
 /** A rigged type's GLB files, in variant order, under a mission's `civilians.figures`: every file, or with
