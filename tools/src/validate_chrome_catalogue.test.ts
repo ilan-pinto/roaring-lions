@@ -217,13 +217,42 @@ describe('extra plural categories (ru)', () => {
     const m = '{n, plural, one {a} few {b} other {c}}';
     expect(withoutExtraPlurals(m, [])).toEqual({ text: m, problems: [] });
   });
-  it('each Russian form follows the English plural of the SAME argument: one follows the English one, few and many follow other', () => {
+  it('every Russian form follows the English OTHER of the SAME argument, one included: Russian one is also 21, 31 and 101, so it must carry the count', () => {
     // the English shows the name alone for one and the name with the count for other (alert.kill)
     const en = { k: '{n, plural, one {{name}} other {{name} (#)}}' };
-    const ok = { k: '{n, plural, one {{name}} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' };
+    // right: the count-less singular is an exact =1, and one carries the count
+    const ok = { k: '{n, plural, =1 {{name}} one {{name} (#)} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' };
     expect(fails(en, ok, 'ru')).toEqual([]);
-    expect(fails(en, { k: '{n, plural, one {{name} (#)} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "one" has different placeholders/);
-    expect(fails(en, { k: '{n, plural, one {{name}} few {{name}} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "few" has different placeholders/);
+    // wrong, and it used to be required: a ru one that copies the English one drops the count at 21 ("unit lost" with no "21"), with no =1 to catch 1
+    expect(fails(en, { k: '{n, plural, one {{name}} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "one" has different placeholders/);
+    // a ru one without the count is no better when an =1 exists: 21 still lands in one
+    expect(fails(en, { k: '{n, plural, =1 {{name}} one {{name}} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "one" has different placeholders/);
+    expect(fails(en, { k: '{n, plural, one {{name}} few {{name}} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "one" has different placeholders/);
+  });
+  it('an exact =1 the English does not have is allowed for ru, with the shape of the English one; the strict languages still refuse it', () => {
+    const en = { k: '{n, plural, one {{name}} other {{name} (#)}}' };
+    // =1 must look like the English one (name alone), not like other
+    expect(fails(en, { k: '{n, plural, =1 {{name} (#)} one {{name} (#)} few {{name} (#)} many {{name} (#)} other {{name} (#)}}' }, 'ru')[0]).toMatch(/branch "=1" has different placeholders/);
+    // an English plural with no one: =1 takes the shape of other
+    const enNoOne = { a: '{more, plural, =0 {} other {+# more}}' };
+    expect(fails(enNoOne, { a: '{more, plural, =0 {} =1 {ещё #} one {ещё #} few {ещё #} many {ещё #} other {ещё #}}' }, 'ru')).toEqual([]);
+    // an =1 the English HAS is compared by the ordinary rule, not set aside
+    const enHas1 = { b: '{n, plural, =1 {a} other {# b}}' };
+    expect(fails(enHas1, { b: '{n, plural, =1 {а} one {# б} few {# б} many {# б} other {# б}}' }, 'ru')).toEqual([]);
+    expect(fails(enHas1, { b: '{n, plural, one {# б} few {# б} many {# б} other {# б}}' }, 'ru')[0]).toMatch(/"b"/); // the English =1 dropped
+    // the strict languages do not get the allowance
+    expect(fails(en, { k: '{n, plural, =1 {{name}} one {{name}} other {{name} (#)}}' }, 'de').length).toBeGreaterThan(0);
+  });
+  it('a ru plural that says only =0 and other, or whose English one shows no count, still passes with the count in one (the shipped catalogue forms)', () => {
+    const en = {
+      c: '{label}{count, plural, one {} other { ×#}} −{total}',
+      u: 'Contact lost with {n, plural, one {one unit} other {# units}}.',
+    };
+    const ok = {
+      c: '{label}{count, plural, =1 {} one { ×#} few { ×#} many { ×#} other { ×#}} −{total}',
+      u: 'Связь потеряна: {n, plural, =1 {одна единица} one {# единица} few {# единицы} many {# единиц} other {# единицы}}.',
+    };
+    expect(fails(en, ok, 'ru')).toEqual([]);
   });
   it('pairs the k-th plural of an argument with the k-th English one (two plurals on {n} in one message)', () => {
     const en = { k: '{n, plural, one {# unit} other {# units}} wait. {n, plural, one {It goes} other {They go}}' };

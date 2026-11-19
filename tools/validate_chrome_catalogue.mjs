@@ -136,10 +136,11 @@ function mapPlurals(msg, onPlural) {
  * Takes a language's own plural categories (`extras`) OUT of a message, so what is left can be compared by the ordinary shape rule.
  *
  * The English side (`enMsg` absent): the categories are only set aside. The translation (`enMsg` given): every plural argument must carry each
- * of `extras`, and each such branch must have a shape the English plural of the same argument (the k-th one of that name) has in one of its
- * own branches: `few` and `many` follow the English `other`, `one` follows the English `one` where the English has one (often it shows the
- * name alone, `other` the name and the count) and its `other` where it has none. Returns the message without the categories and the problems.
- * With no `extras` it changes nothing.
+ * of `extras`, and each such branch must have the shape of the English `other` of the same argument (the k-th one of that name): in Russian
+ * `one` is not just 1, it is also 21, 31 and 101, so it must carry the count (`#`) exactly where `other` does, never the English `one`'s
+ * count-less form. The singular that names no count is written as an exact `=1` branch, which the English may not have: it is allowed, and
+ * must have the shape of the English `one` where the English has one (else its `other`); an `=1` the English also has is compared by the
+ * ordinary rule. Returns the message without the categories (and without an extra `=1`) and the problems. With no `extras` it changes nothing.
  */
 export function withoutExtraPlurals(msg, extras, enMsg = undefined) {
   const problems = [];
@@ -155,21 +156,27 @@ export function withoutExtraPlurals(msg, extras, enMsg = undefined) {
   }
   const seen = new Map();
   const text = mapPlurals(msg, (arg, branches) => {
-    if (enMsg !== undefined) {
-      const occurrence = seen.get(arg) ?? 0;
-      seen.set(arg, occurrence + 1);
-      const ref = english.get(arg)?.[occurrence];
-      const own = Object.fromEntries(branches.map(([k, t]) => [k, branchShape(t)]));
-      for (const e of extras) {
-        if (!(e in own)) {
-          problems.push(`plural "${arg}" has no "${e}" branch`);
-          continue;
-        }
-        const allowed = ref === undefined ? [own.other] : e === 'one' ? [ref.one ?? ref.other] : [ref.other];
-        if (!allowed.includes(own[e])) problems.push(`plural "${arg}" branch "${e}" has different placeholders from the English`);
+    if (enMsg === undefined) return branches.filter(([k]) => !extras.includes(k));
+    const occurrence = seen.get(arg) ?? 0;
+    seen.set(arg, occurrence + 1);
+    const ref = english.get(arg)?.[occurrence];
+    const own = Object.fromEntries(branches.map(([k, t]) => [k, branchShape(t)]));
+    for (const e of extras) {
+      if (!(e in own)) {
+        problems.push(`plural "${arg}" has no "${e}" branch`);
+        continue;
       }
+      // `one` too follows the English `other`: Russian `one` also covers 21, 31 and 101, so it must carry the count where `other` does.
+      const allowed = ref === undefined ? own.other : ref.other;
+      if (own[e] !== allowed) problems.push(`plural "${arg}" branch "${e}" has different placeholders from the English`);
     }
-    return branches.filter(([k]) => !extras.includes(k));
+    // An exact `=1` the English does not have: the count-less singular of a language whose `one` is not only 1.
+    const extraExact = '=1' in own && !(ref !== undefined && '=1' in ref);
+    if (extraExact) {
+      const allowedExact = ref === undefined ? own.other : (ref.one ?? ref.other);
+      if (own['=1'] !== allowedExact) problems.push(`plural "${arg}" branch "=1" has different placeholders from the English`);
+    }
+    return branches.filter(([k]) => !extras.includes(k) && !(extraExact && k === '=1'));
   });
   return { text, problems };
 }
