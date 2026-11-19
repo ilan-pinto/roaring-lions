@@ -18,9 +18,16 @@
 //    placement spread), v_escort the FASTEST escort unit and v_captive the SLOWEST captive unit (both conservative).
 //    R is the escort's walking route: an octile shortest path (1 a step, sqrt 2 a diagonal, no corner cutting) over
 //    the map's foot-passable tiles (every tile but `^` and a structure symbol) from each escort body's tile to the
-//    `to` tile, the longest over the bodies. Captives that start more than six tiles off are refused outright. It is measured from the PLACEMENT: an escort that patrols, or that an
-//    earlier order moves, before the trigger fires starts somewhere else, and mission `structures[]` (gates) are
-//    read as open ground. A route with no path at all is refused too. At shipped speeds (`militia_cell` 0.95 t/s,
+//    `to` tile, the longest over the bodies. Captives that start more than six tiles off are refused outright; that
+//    gap is the largest over EVERY escort body, so a spread escort whose actual leader (the lowest id) stands beside
+//    the captives can be refused on a far member's distance (conservative, by design). It is measured from the
+//    PLACEMENT: an escort that patrols, or that an earlier order moves, before the trigger fires starts somewhere else.
+//    The measured route can be SHORTER than the one the sim walks, three ways: (i) placed gates in mission
+//    `structures[]` are read as open ground; (ii) the sim's flow field charges UPHILL_PER_LEVEL (tuning.ts) per level
+//    climbed, so on relief the leader may take a longer, flatter way than this unweighted octile path; (iii) a wheeled
+//    escort (`mobility.wheeled`) cannot cross `b`, `d` or `~`, but the route is measured on the foot mask. The
+//    ABDUCT_ROUTE_MARGIN_TILES (2) is meant to absorb small detours of these kinds, not a large one. A route with no
+//    path at all is refused too. At shipped speeds (`militia_cell` 0.95 t/s,
 //    `civilians` 0.8) the factor is 6.33 tiles of route per tile of slack: 36.0 tiles with the captives beside the
 //    escort, 29.7 with them a tile off. The sim pins the physics (packages/sim/src/mission.test.ts, "E8: abduct at the
 //    shipped speeds": taken on a 29-tile route, let go on a 45). A one-off probe on the same world (19 Nov, not

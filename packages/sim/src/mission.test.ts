@@ -8092,7 +8092,18 @@ describe('E8: abduct', () => {
           if (t === undefined) throw new Error(`unknown unit ${u}`);
           return t;
         },
-        markers: { exit: [29, 5], refuge: [1, 10], pen_post: [5, 4] },
+        // `pen` [4, 3, 4, 4] is x 4..7, y 3..6: the `pen_*` markers sit on its first and last tiles and a tile beyond.
+        markers: {
+          exit: [29, 5],
+          refuge: [1, 10],
+          pen_post: [5, 4],
+          pen_first: [4, 3],
+          pen_last: [7, 6],
+          pen_past_x: [8, 6],
+          pen_past_y: [7, 7],
+          pen_before_x: [3, 3],
+          pen_before_y: [4, 2],
+        },
         zones: { exit_zone: [26, 2, 6, 7], refuge_zone: [0, 8, 4, 4], pen: [4, 3, 4, 4] },
       }
     );
@@ -8190,6 +8201,14 @@ describe('E8: abduct', () => {
   it('refuses at load: a `to` marker outside the exit zone (the refuge rule`s twin); inside it loads', () => {
     expect(() => abWorld({ zone: 'pen' })).toThrow(/abduct "led_away" marker "exit" is outside zone "pen"/);
     expect(() => abWorld({ zone: 'pen', to: 'pen_post' })).not.toThrow();
+  });
+
+  it('refuses at load: the zone`s first and last tiles load, a tile beyond either edge does not', () => {
+    expect(() => abWorld({ zone: 'pen', to: 'pen_first' })).not.toThrow();
+    expect(() => abWorld({ zone: 'pen', to: 'pen_last' })).not.toThrow();
+    for (const to of ['pen_past_x', 'pen_past_y', 'pen_before_x', 'pen_before_y']) {
+      expect(() => abWorld({ zone: 'pen', to })).toThrow(new RegExp(`marker "${to}" is outside zone "pen"`));
+    }
   });
 
   it('only a SIDE-1 member leads: a KDF squad a reinforce drops into the escort group never holds a captive', () => {

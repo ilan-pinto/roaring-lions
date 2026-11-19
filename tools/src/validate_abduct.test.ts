@@ -137,6 +137,58 @@ describe('abductFailures', () => {
     ]);
   });
 
+  it('accepts a `to` on the zone`s first and last tiles and refuses one a tile beyond (the rectangle`s edges)', () => {
+    // exit_zone [28, 2, 3, 7] covers x 28..30, y 2..8. A short route from (5,5), well inside the bound.
+    const z = [28, 2, 3, 7];
+    const outside = 'm.json: abduct trigger "led_away" marker "exit" is outside zone "exit_zone": the escort stops there and nobody is ever taken';
+    expect(run(mission(), map({ to: [30, 8], exitZone: z })).failures).toEqual([]); // the last tile, both axes
+    expect(run(mission(), map({ to: [28, 2], exitZone: z })).failures).toEqual([]); // the first tile, both axes
+    expect(run(mission(), map({ to: [31, 8], exitZone: z })).failures).toEqual([outside]); // a tile past x
+    expect(run(mission(), map({ to: [30, 9], exitZone: z })).failures).toEqual([outside]); // a tile past y
+    expect(run(mission(), map({ to: [27, 2], exitZone: z })).failures).toEqual([outside]); // a tile before x
+    expect(run(mission(), map({ to: [28, 1], exitZone: z })).failures).toEqual([outside]); // a tile before y
+  });
+
+  it('bounds with the FASTEST escort and the SLOWEST captive: two of each, from literal unit records', () => {
+    // Literal unit records, listed slow-escort first and fast-captive first, so neither the first placement nor the
+    // wrong extreme stands in. Escorts at (5,5) and (5,6), captives at (4,5) and (4,6): the largest start gap is
+    // sqrt 2. Route: the longer body's walk, (5,6) -> (15,5), 9 + sqrt 2 = 10.41 tiles.
+    const units = new Map(
+      [
+        { id: 'esc_slow', mobility: { speed_tiles_s: 0.5 } },
+        { id: 'esc_fast', mobility: { speed_tiles_s: 1.0 } },
+        { id: 'cap_fast', mobility: { speed_tiles_s: 0.8 } },
+        { id: 'cap_slow', mobility: { speed_tiles_s: 0.4 } },
+      ].map((u) => [u.id, u]),
+    );
+    const m = mission();
+    m.enemy = {
+      garrison: [
+        { unit: 'esc_slow', count: 1, at: [5, 5], group: 'takers' },
+        { unit: 'esc_fast', count: 1, at: [5, 6], group: 'takers' },
+      ],
+    };
+    m.civilians = {
+      refuge: 'refuge',
+      groups: [
+        { unit: 'cap_fast', count: 1, at: [4, 5], group: 'taken' },
+        { unit: 'cap_slow', count: 1, at: [4, 6], group: 'taken' },
+      ],
+    };
+    // (6 - sqrt 2) x 1.0 / 0.6 - 2 = 5.64 refuses 10.41; either wrong pair, (0.5 over 0.4) or (1.0 over 0.8), gives
+    // (6 - sqrt 2) x 5 - 2 = 20.93 and would accept it.
+    const route = 9 + Math.SQRT2;
+    const gap = Math.SQRT2;
+    expect(abductRouteBound(1.0, 0.4, gap)).toBeLessThan(route);
+    expect(abductRouteBound(0.5, 0.4, gap)).toBeGreaterThan(route);
+    expect(abductRouteBound(1.0, 0.8, gap)).toBeGreaterThan(route);
+    expect(abductFailures(m, map({ to: [15, 5] }), units, BLOCKED, 'm.json').failures).toEqual([
+      'm.json: abduct trigger "led_away": escort route 10.4 tiles to "exit" is longer than the 5.6 on which its ' +
+        'captives keep up (escort 1 t/s, captives 0.4 t/s, 1.4 tiles apart at the start, released past 6): they ' +
+        'would be left behind, never taken',
+    ]);
+  });
+
   it('refuses captives no civilians.groups placement declares', () => {
     const m = mission();
     (m.triggers as { do: Record<string, unknown> }[])[0].do.captives = 'takers';
