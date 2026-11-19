@@ -79,8 +79,10 @@ export const ql1Plan: Plan = (sim, rt, ids, at) => {
 // transports MUST drive their riders to the refuge, because a civilian who boards a hull is carried where the hull goes (the
 // first build parked the Eitan beside the people and never delivered them: 28 of 32 seeds lost `residents_through`); the
 // squads stand off the Cut's two-tile lane, which civilians walk through; the Spike and the 60 mm stay home, because a
-// stray beside `south_quarter` bills 5 each (six of them took Conduct to the 70 floor). The camp buys rifle squads. 30 of 30
-// sweep seeds win (slowest 5.8 min), two stars, Conduct 100.
+// stray beside `south_quarter` bills 5 each (six of them took Conduct to the 70 floor). The camp buys rifle squads. The LAST starting
+// squad is not part of the force split above: it is the coast road's runner (the secondary `take_the_coast_road`, GH-1438), walks the
+// south edge to the zone, and once the hold is done (or by 100 s) walks home the same way to the Cut's east side (left on the coast road
+// it was lost to the 270 s wave on 10 of 30 seeds). 30 of 30 sweep seeds win (slowest 5.1 min), two stars, Conduct 100.
 export const ql2Plan: Plan = (sim, rt, ids, at) => {
   const apcs = ids('apc_eitan');
   const north = [...apcs.slice(0, 1), ...ids('ifv_namer')];
@@ -92,7 +94,16 @@ export const ql2Plan: Plan = (sim, rt, ids, at) => {
   const jeep = ids('jeep_shoded');
   at(0, () => sim.queueCommand({ kind: 'move', ids: coast, ...M(30, 45.5) }));
   at(30, () => sim.queueCommand({ kind: 'move', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(8, 45.5) }));
-  at(60, () => sim.queueCommand({ kind: 'move', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(3, 40) }));
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(3, 40) }));
+  // Home by the same south edge the moment the hold is done (the 270 s technical comes down the coast road, and a militia cell at (7,39) fires on the runner for the whole 15 s on some seeds): legs at +0, +24 and +48 s.
+  let done = -1;
+  for (let s = 60; s <= 240; s += 2)
+    at(s, () => {
+      if (done < 0 && rt.objectiveStatus('take_the_coast_road') === 'complete') done = s;
+      if (done < 0) return;
+      const leg = s - done === 0 ? [8, 45.5] : s - done === 24 ? [30, 45.5] : s - done === 48 ? [33.5, 42.5] : null;
+      if (leg !== null) sim.queueCommand({ kind: 'move', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(leg[0], leg[1]) });
+    });
   at(0, () => {
     sim.queueCommand({ kind: 'attackMove', ids: north, ...M(8, 3) });
     sim.queueCommand({ kind: 'attackMove', ids: feet.filter((i) => !apcs.includes(i)), ...M(34.5, 40.5) });
