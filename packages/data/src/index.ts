@@ -193,17 +193,32 @@ export {
 
 /** Brigade economy step 3 (spec 2026-09-15 §4.3): patches a unit's JSON
  *  with its bought upgrade tiers before @lions/sim registers the type. */
+export { BRANCHES_OPEN } from './branches-open';
 export {
   applyUpgrades,
+  branchedTable,
+  branchedTracks,
+  branchOf,
+  isBranchedTier,
   kitCounts,
   kitLevel,
+  maxPicks,
   maxTiers,
   nextTierPrice,
   readPath,
+  tierPatch,
   UPGRADE_PATHS,
+  type BranchedTable,
+  type BranchedTrack,
+  type BranchedTier,
+  type BranchPick,
+  type BranchPicks,
   type KitCounts,
   type KitLevel,
+  type OwnedPicks,
+  type PlainTier,
   type UpgradableUnit,
+  type UpgradeBranch,
   type UpgradeTier,
   type UpgradeTrack,
   type UpgradeTracks,
@@ -233,6 +248,16 @@ export {
   FAIL_BELOW_CEILING,
 } from './overlays';
 
+/** GH-1389: the versus computer seat's three levels, each a stated handicap on its force size. */
+export {
+  computerLevels,
+  computerLevelOf,
+  withholdOf,
+  COMPUTER_LEVEL_IDS,
+  type ComputerLevelId,
+  type ComputerLevelJson,
+  type ComputerLevelCatalogue,
+} from './computer-levels';
 /** GH-1395: amendments to the orders and the named challenge (slice 1, no UI): the library, the six-mission pilot,
  *  the challenge index the coin rules share, and the pure predicate. */
 export {
@@ -242,12 +267,14 @@ export {
   challengeArmed,
   challengeMet,
   challengeOf,
+  challengeTerms,
   missionChallenges,
   TICKS_PER_TARGET_MINUTE,
   type AmendmentCatalogue,
   type AmendmentJson,
   type ChallengeMark,
   type ChallengeRun,
+  type ChallengeTerm,
   type ChallengeWin,
   type MissionChallengeJson,
 } from './challenges';

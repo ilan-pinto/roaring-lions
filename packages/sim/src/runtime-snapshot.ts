@@ -1,6 +1,6 @@
 import { FlowField } from './flowfield';
 import { HASH_SEED, hashWord } from './hash';
-import { MISSION_EVENT_KINDS, type MissionRuntime } from './mission';
+import { MISSION_EVENT_KINDS, WORKS_ONLY_AUTHORED_LINES, type MissionRuntime } from './mission';
 import {
   RUNTIME_REF_RULES,
   RUNTIME_ROW_SETS,
@@ -77,6 +77,24 @@ export const IN_PLACE: ReadonlySet<RowSetName> = new Set<RowSetName>([
 
 const RULE_BY_PATH: ReadonlyMap<string, RefRule> = new Map(RUNTIME_REF_RULES.map((r) => [r.path, r]));
 
+/** Is `rt` a works-only runtime (versus field works, `MissionContext.worksOnly`)? Its `when: 'worksOnly'` rows are written,
+ *  read and folded into the schema digest; every other runtime's are not. */
+export function worksOnlyRuntime(rt: unknown): boolean {
+  return props(props(rt).ctx).worksOnly === true;
+}
+
+/** The top-level state rows a runtime's section carries: every row, less the `when` rows that are not this runtime's. */
+function topRows(rt: Props): readonly RuntimeRow[] {
+  return runtimeRowsFor(rt, 'state');
+}
+
+/** The top-level rows of class `cls` that are `rt`'s: the table's, less the `when` rows of another kind of runtime. The
+ *  witness and the census walk these, never the whole table, for a row that is not a runtime's is not its state. */
+export function runtimeRowsFor(rt: unknown, cls: RuntimeRow['cls']): RuntimeRow[] {
+  const on = worksOnlyRuntime(rt);
+  return RUNTIME_SNAPSHOT_SCHEMA.filter((r) => r.cls === cls && (r.when === undefined || on));
+}
+
 const stateRowsCache = new Map<string, readonly RuntimeRow[]>();
 function stateRows(rows: RowSetName | 'MissionRuntime'): readonly RuntimeRow[] {
   let out = stateRowsCache.get(rows);
@@ -98,6 +116,7 @@ export const FIXED_COUNT_PATHS: ReadonlySet<string> = new Set([
   'MissionRuntime.spawnedWaves',
   'MissionRuntime.worksList',
   'MissionRuntime.worksOfferList',
+  'MissionRuntime.worksOfferList1',
   'MissionRuntime.lines[]',
   'MissionRuntime.enemyLast',
 ]);
@@ -132,7 +151,7 @@ function kindString(kind: RuntimeKind): string {
   }
 }
 
-let digestCache: number | null = null;
+const digestCache: [number | null, number | null] = [null, null];
 
 /**
  * The sim's own `hashWord` folded over every row of the runtime table (name, class, kind), every owned
@@ -140,19 +159,26 @@ let digestCache: number | null = null;
  * in their order, gets another number, and `restoreSim` refuses it. Lazy and cached: `snapshot.ts` and this
  * file import each other, so nothing here may run at module load.
  */
-export function runtimeSchemaDigest(): number {
-  if (digestCache !== null) return digestCache;
+export function runtimeSchemaDigest(worksOnly = false): number {
+  const slot = worksOnly ? 1 : 0;
+  const cached = digestCache[slot];
+  if (cached !== null) return cached;
   let h = HASH_SEED;
   const fold = (s: string): void => {
     for (let i = 0; i < s.length; i++) h = hashWord(h, s.charCodeAt(i));
   };
-  for (const row of RUNTIME_SNAPSHOT_SCHEMA) fold(`MissionRuntime.${row.name}|${row.cls}|${kindString(row.kind)}\n`);
+  // A `when` row is folded only for the runtime it belongs to (with its condition), so every other runtime's digest is the
+  // one it had before the row existed: a snapshot an earlier build wrote of it still restores.
+  for (const row of RUNTIME_SNAPSHOT_SCHEMA) {
+    if (row.when !== undefined && !worksOnly) continue;
+    fold(`MissionRuntime.${row.name}|${row.cls}|${kindString(row.kind)}${row.when === undefined ? '' : `|when:${row.when}`}\n`);
+  }
   for (const name of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) {
     for (const row of RUNTIME_ROW_SETS[name]) fold(`${name}.${row.name}|${row.cls}|${kindString(row.kind)}\n`);
   }
   for (const r of RUNTIME_REF_RULES) fold(`${r.path}|${r.owner}|${r.key}|${r.into ?? ''}|${r.identity ?? ''}\n`);
-  digestCache = h >>> 0;
-  return digestCache;
+  digestCache[slot] = h >>> 0;
+  return h >>> 0;
 }
 
 // ---- the world a section is read against ------------------------------------------------------
@@ -175,16 +201,16 @@ function factsOf(rt: MissionRuntime, sim: Sim): RuntimeFacts {
 }
 
 /** The built (default) works lists: a pure function of the mission and the sim's structure types. */
-function builtWorks(f: RuntimeFacts): { list: unknown[]; offers: Props[] } {
-  return (f.rt as unknown as { buildWorks(): { list: unknown[]; offers: Props[] } }).buildWorks();
+function builtWorks(f: RuntimeFacts): { list: unknown[]; offers: Props[]; offers1: Props[] } {
+  return (f.rt as unknown as { buildWorks(): { list: unknown[]; offers: Props[]; offers1: Props[] } }).buildWorks();
 }
 
 /** What the section holds for a top-level row: the live value, but the BUILT works lists when unbuilt. */
 function rowValue(f: RuntimeFacts, name: string): unknown {
-  if (name === 'worksList' || name === 'worksOfferList') {
+  if (name === 'worksList' || name === 'worksOfferList' || name === 'worksOfferList1') {
     if (f.rt.worksList === null) {
       const b = builtWorks(f);
-      return name === 'worksList' ? b.list : b.offers;
+      return name === 'worksList' ? b.list : name === 'worksOfferList' ? b.offers : b.offers1;
     }
   }
   return f.rt[name];
@@ -280,7 +306,7 @@ function encode(v: unknown, kind: RuntimeKind, path: string, parent: Props | nul
 export function encodeRuntimeSection(rt: MissionRuntime, sim: Sim): Uint8Array {
   const f = factsOf(rt, sim);
   const section: Props = {};
-  for (const row of stateRows('MissionRuntime')) {
+  for (const row of topRows(f.rt)) {
     section[row.name] = encode(rowValue(f, row.name), row.kind, `MissionRuntime.${row.name}`, null, f);
   }
   const text = canonicalJson(section);
@@ -425,7 +451,7 @@ function scalarRange(path: string, d: Decoder): readonly [number, number] {
   if (ENTITY_PATHS.has(path)) return [0, d.f.capacity - 1];
   if (path === 'MissionRuntime.routeFoundBy.key()') return [0, (internals(d.f.sim).tnAlive as Uint8Array).length - 1];
   if (path === 'MissionRuntime.enemyLast[]') return [-1, (d.f.rt.enemyMenu as unknown[]).length - 1];
-  if (path === 'MissionRuntime.appendedAnchors[]') return [0, d.f.sim.structureCount - 1];
+  if (path === 'MissionRuntime.appendedAnchors[]' || path === 'MissionRuntime.appendedAnchors1[]') return [0, d.f.sim.structureCount - 1];
   if (path === 'WorksCharge.structType') return [0, d.f.sim.structureTypes.length - 1];
   if (NONNEG_PATHS.has(path)) return [0, I32_MAX];
   return FIXED_RANGE[path] ?? [I32_MIN, I32_MAX];
@@ -434,7 +460,7 @@ function scalarRange(path: string, d: Decoder): readonly [number, number] {
 function capFor(path: string, d: Decoder): number {
   if (path === 'MissionRuntime.rosterPool') return d.f.ledger.length;
   if (path === 'ProductionLine.queue') return MAX_LINE_QUEUE;
-  if (path === 'MissionRuntime.appendedAnchors') return MAX_PRODUCTION_LINES;
+  if (path === 'MissionRuntime.appendedAnchors' || path === 'MissionRuntime.appendedAnchors1') return MAX_PRODUCTION_LINES;
   if (path === 'MissionRuntime.corridorFields') return d.f.cells;
   if (path === 'MissionRuntime.pendingIntelEvents') return MAX_PENDING_INTEL;
   if (path === 'PatrolState.waypoints') return MAX_PATROL_WAYPOINTS;
@@ -593,32 +619,39 @@ function checkRecord(rows: RowSetName, rec: Props, path: string): void {
 /** Side 0's lines as the section describes them: the target's own, and for each appended line the target does
  *  not yet hold, a placeholder carrying the section's anchor. The plan decodes against these and writes nothing;
  *  `apply` makes the real ones (`restoreAppendedLines`) before it merges the records in place. */
-function plannedLines(f: RuntimeFacts, anchors: readonly number[]): Props[][] {
+function plannedLines(f: RuntimeFacts, anchors: readonly number[], anchors1: readonly number[] | undefined): Props[][] {
   const mine = f.rt.lines as Props[][];
-  const base = f.rt.authoredLines0 as number;
-  const side0 = mine[0].slice(0, base);
-  anchors.forEach((anchor, j) => {
-    const existing = mine[0][base + j];
-    side0.push(existing ?? { side: 0, anchor, queue: [], current: null, ticksLeft: 0, rally: null });
-  });
-  return [side0, mine[1]];
+  const side = (s: 0 | 1, base: number, tail: readonly number[]): Props[] => {
+    const out = mine[s].slice(0, base);
+    tail.forEach((anchor, j) => {
+      const existing = mine[s][base + j];
+      out.push(existing ?? { side: s, anchor, queue: [], current: null, ticksLeft: 0, rally: null });
+    });
+    return out;
+  };
+  const side0 = side(0, f.rt.authoredLines0 as number, anchors);
+  // Versus field works: side 1's appended tail too (`appendedAnchors1` is decoded only for a works-only runtime).
+  return [side0, anchors1 === undefined ? mine[1] : side(1, WORKS_ONLY_AUTHORED_LINES, anchors1)];
 }
 
 /** Every appended anchor is a COMPLETE production work of the restored sim, no two the same, and the lines they
  *  make fit the cap. The sim section is already written when the runtime is planned, so this reads the target's
  *  own structure columns. */
-function checkAppended(f: RuntimeFacts, anchors: readonly number[]): void {
-  const base = f.rt.authoredLines0 as number;
+function checkAppended(f: RuntimeFacts, anchors: readonly number[], side: 0 | 1 = 0): void {
+  const row = side === 0 ? 'MissionRuntime.appendedAnchors' : 'MissionRuntime.appendedAnchors1';
+  const base = side === 0 ? (f.rt.authoredLines0 as number) : WORKS_ONLY_AUTHORED_LINES;
   if (base + anchors.length > MAX_PRODUCTION_LINES) {
-    refuse('MissionRuntime.appendedAnchors', `${anchors.length} appended lines on ${base}, the limit is ${MAX_PRODUCTION_LINES} lines`);
+    refuse(row, `${anchors.length} appended lines on ${base}, the limit is ${MAX_PRODUCTION_LINES} lines`);
   }
   const seen = new Set<number>();
   for (const a of anchors) {
-    if (seen.has(a)) refuse('MissionRuntime.appendedAnchors', `structure ${a} twice`);
+    if (seen.has(a)) refuse(row, `structure ${a} twice`);
     seen.add(a);
-    if (f.sim.structures.progress[a] !== ONE) refuse('MissionRuntime.appendedAnchors', `structure ${a} is not complete`);
+    if (f.sim.structures.progress[a] !== ONE) refuse(row, `structure ${a} is not complete`);
+    // Versus field works: a side's appended line stands on a work that side owns.
+    if (side === 1 && f.sim.structures.owner[a] !== 1) refuse(row, `structure ${a} is not side 1's`);
     if (f.sim.structureTypes[f.sim.structures.typeIdx[a]].production === null) {
-      refuse('MissionRuntime.appendedAnchors', `structure ${a} is a ${f.sim.structureTypes[f.sim.structures.typeIdx[a]].id}, which opens no production line`);
+      refuse(row, `structure ${a} is a ${f.sim.structureTypes[f.sim.structures.typeIdx[a]].id}, which opens no production line`);
     }
   }
 }
@@ -654,7 +687,7 @@ export function parseRuntimeSection(bytes: Uint8Array): unknown {
 export function planRuntime(rt: MissionRuntime, sim: Sim, section: unknown): RuntimePlan {
   const f = factsOf(rt, sim);
   if (!isPlain(section)) throw new SnapshotRefused('runtime section is not an object');
-  const top = stateRows('MissionRuntime');
+  const top = topRows(f.rt);
   if (Object.keys(section).sort().join(',') !== top.map((r) => r.name).sort().join(',')) {
     throw new SnapshotRefused('runtime section rows differ from the table');
   }
@@ -684,19 +717,25 @@ export function planRuntime(rt: MissionRuntime, sim: Sim, section: unknown): Run
         ? built.list
         : row.name === 'worksOfferList'
           ? built.offers
-          : row.name === 'lines'
-            ? plannedLines(f, d.rows.appendedAnchors as number[])
-            : f.rt[row.name];
+          : row.name === 'worksOfferList1'
+            ? built.offers1
+            : row.name === 'lines'
+              ? plannedLines(f, d.rows.appendedAnchors as number[], d.rows.appendedAnchors1 as number[] | undefined)
+              : f.rt[row.name];
     d.rows[row.name] = decode(section[row.name], row.kind, `MissionRuntime.${row.name}`, live, d);
     if (row.name === 'appendedAnchors') checkAppended(f, d.rows.appendedAnchors as number[]);
+    if (row.name === 'appendedAnchors1') checkAppended(f, d.rows.appendedAnchors1 as number[], 1);
   }
   // The cross-row checks, once everything is decoded.
   for (const c of d.checks) c();
-  const offers = d.rows.worksOfferList as Props[];
-  for (let i = 0; i < offers.length; i++) {
-    const left = offers[i].left as number;
-    const max = built.offers[i].max as number;
-    if (left < 0 || left > max) refuse('WorksOffer.left', `${left} is outside 0..${max}`);
+  for (const [rowName, builtOffers] of [['worksOfferList', built.offers], ['worksOfferList1', built.offers1]] as const) {
+    const offers = d.rows[rowName] as Props[] | undefined;
+    if (offers === undefined) continue;
+    for (let i = 0; i < offers.length; i++) {
+      const left = offers[i].left as number;
+      const max = builtOffers[i].max as number;
+      if (left < 0 || left > max) refuse('WorksOffer.left', `${left} is outside 0..${max}`);
+    }
   }
   const objectiveIds = new Set((props(f.rt.mission).objectives as { id: string }[]).map((o) => o.id));
   for (const id of d.rows.externallyCompleted as string[]) {
@@ -791,8 +830,11 @@ function applyPlan(f: RuntimeFacts, d: Decoder): void {
   // The dock builds these lazily; the snapshot carries the built form, so build them first (the runtime's own call).
   (rt as unknown as { works(): unknown }).works();
   // The appended lines first: they are the tail of `lines[0]`, which the loop below merges in place.
-  (rt as unknown as { restoreAppendedLines(a: readonly number[]): void }).restoreAppendedLines(d.rows.appendedAnchors as number[]);
-  for (const row of stateRows('MissionRuntime')) {
+  (rt as unknown as { restoreAppendedLines(a: readonly number[], a1?: readonly number[]): void }).restoreAppendedLines(
+    d.rows.appendedAnchors as number[],
+    (d.rows.appendedAnchors1 as number[] | undefined) ?? [],
+  );
+  for (const row of topRows(rt)) {
     if (row.name === CORRIDOR_ROW) continue;
     rt[row.name] = merge(rt[row.name], row.kind, d.rows[row.name]);
   }

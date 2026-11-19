@@ -105,6 +105,21 @@ describe('/api/match', () => {
     // A sandbox room ignores the matchup altogether.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'beit_sahwan_outskirts', matchup: 'sarim' }), env, NOW)).status).toBe(201);
   });
+  it('versus field works (the lead, 18 Nov 2026): reaches the room only for an annihilation KDF-v-KDF room; anything else is a 400 before a room is made', async () => {
+    const { env, createBodies } = fakeRooms();
+    const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'tel_marum', fieldWorks: true, ...over });
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({})), env, NOW)).status).toBe(201);
+    expect(createBodies[0]?.fieldWorks).toBe(true);
+    // Anything but `true` is off: the room is told nothing.
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ fieldWorks: 'yes' })), env, NOW)).status).toBe(201);
+    expect('fieldWorks' in (createBodies[1] ?? {})).toBe(false);
+    for (const over of [{ matchup: 'kdf' }, { matchup: 'sarim' }, { winMode: 'points', map: 'wadi_tarfan' }, { mode: 'sandbox' }]) {
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, body(over)), env, NOW);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(await res.text(), JSON.stringify(over)).toBe('field works are for an annihilation room, KDF against KDF');
+    }
+    expect(createBodies).toHaveLength(2);
+  });
   it('GH-976 P2, P4: a win mode reaches the room only when it was read fair on the map in that pairing; anything else is a 400 before a room is made', async () => {
     const { env, createBodies } = fakeRooms();
     const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });

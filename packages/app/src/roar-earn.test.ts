@@ -122,7 +122,7 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
   const dearest = Math.max(...Object.values(units).map((u) => ('unlock' in u && typeof (u.unlock as { price?: number }).price === 'number' ? (u.unlock as { price: number }).price : 0)));
 
   /** Walk the ladder: every mission in `world.json`, once, in order, with the stars the
-   *  playtest ladder reaches (80 over 34 missions: the first twelve at 3, the rest at 2). */
+   *  playtest ladder reaches (92 over 39 missions: the first twelve at 3, the rest at 2). */
   function walk(): { wallet: RoarWallet; stars: number } {
     const ladderStars = pinned('LADDER_STARS');
     const per = ids.map((_, i) => (i < ladderStars - 2 * ids.length ? 3 : 2));
@@ -134,15 +134,15 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
     return { wallet, stars: ladderStars };
   }
 
-  it('the ladder is the shipped campaign: 34 missions, 80 stars', () => {
+  it('the ladder is the shipped campaign: 39 missions, 92 stars', () => {
     expect(ids).toHaveLength(LADDER_MISSIONS);
-    expect(pinned('LADDER_STARS')).toBe(80);
+    expect(pinned('LADDER_STARS')).toBe(92);
   });
 
-  it('a lifetime pays 100 + 10 a mission + 5 a star + 100 = 940, and the campaign bonus lands on the last win', () => {
+  it('a lifetime pays 100 + 10 a mission + 5 a star + 100 = 1050, and the campaign bonus lands on the last win', () => {
     const { wallet, stars } = walk();
     expect(total(wallet)).toBe(EARN.welcome + EARN.firstWin * ids.length + EARN.star * stars + EARN.campaign);
-    expect(total(wallet)).toBe(940);
+    expect(total(wallet)).toBe(1050);
     expect(wallet.earn.campaignDone).toBe(true);
     const last = wallet.receipts.filter((r) => r.kind === 'earn' && r.source === 'campaign');
     expect(last).toHaveLength(1);
@@ -150,8 +150,8 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
 
   // GH-1395 (lead ruling D1): the cap rises by 10 for each mission with a challenge. The pin reads the count from the
   // challenge INDEX, so the day a mission gains a challenge this bound moves with it rather than in the checker's
-  // favour; the literal is the six-mission pilot's, moved here deliberately from 940 (890 over 830 before Qasr Liwan).
-  it('with every challenge beaten too, a lifetime pays 940 + 10 per mission with a challenge = 1,000 for the pilot', () => {
+  // favour; the literal is the six-mission pilot's, moved here deliberately from 940 (890 over 830 before Qasr Liwan; 1050 over 39 missions with Bir Tarsha).
+  it('with every challenge beaten too, a lifetime pays 1050 + 10 per mission with a challenge = 1110 for the pilot', () => {
     const ladderStars = pinned('LADDER_STARS');
     const per = ids.map((_, i) => (i < ladderStars - 2 * ids.length ? 3 : 2));
     let wallet = emptyRoar();
@@ -163,9 +163,9 @@ describe('G-E2: one campaign\'s coins buy the dearest unit in the Stores', () =>
         wallet = payChallenge(roarEarn(wallet, win(i, per[i]), world, pass + i + 1).wallet, ids[i], pass + i + 1).wallet;
       });
     }
-    expect(total(wallet)).toBe(940 + CHALLENGE_COINS * challengeMissionIds.length);
+    expect(total(wallet)).toBe(1050 + CHALLENGE_COINS * challengeMissionIds.length);
     expect(challengeMissionIds.length).toBe(6);
-    expect(total(wallet)).toBe(1000);
+    expect(total(wallet)).toBe(1110);
     const paid = wallet.receipts.flatMap((r) => (r.kind === 'earn' && r.source === 'challenge' ? [r.missionId] : []));
     expect(paid.sort()).toEqual([...challengeMissionIds].sort());
   });

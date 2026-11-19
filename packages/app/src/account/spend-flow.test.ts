@@ -173,7 +173,7 @@ function garage(r: Rig, over: Partial<BrigadeOptions> = {}): HTMLElement {
       },
       onBuyUpgrade: (unitId, track, tier, price) => {
         const prices = (roster(accountView(r.store).boughtUnits).find((u) => u.id === unitId)?.upgrades?.[track]?.tiers ?? []).map((x) => x.price);
-        const done = buyTierWithCredits({ account: r.store.readAccount(), owned: accountView(r.store).ownedTiers }, prices, unitId, track, tier, price);
+        const done = buyTierWithCredits({ account: r.store.readAccount(), owned: accountView(r.store).ownedTiers, roar: r.store.readRoar() }, prices, unitId, track, tier, price);
         if (!done.ok) return { ...now(), landed: false };
         r.store.writeAccount(done.account);
         return { ...now(), landed: true };

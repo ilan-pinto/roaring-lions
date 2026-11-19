@@ -123,6 +123,26 @@ describe('the matcher, on a fixture list', () => {
     expect(said('go vex u')).toEqual({ kind: 'show', text: 'go ***', masked: true });
   });
 
+  it('step 6, text speak: a contraction tail ("it\'s a", "I\'m a") and "u r" / "r u" split off the head of a spaced run (GH-1417)', () => {
+    // Literal oracle: "itsavex"-style joins ("savex", "mavex", "uravex", "ravex") are no entry, so only the text-speak reading catches these.
+    for (const s of ["it's a v e x", "I'm a v e x", "that's a v e x", 'it’s a v e x', 'I’m a v e x', 'u r a v e x', 'u r v e x', 'r u a v e x']) {
+      expect(hidden(s), s).toBe(true);
+    }
+    expect(shown("it's a b l a r g")).toBe("it's a ***");
+    expect(shown('u r a b l a r g')).toBe('u r a ***');
+    // the tail is free only straight after "<word>'": a bare s, an apostrophe after a space, or a letter that is no contraction tail joins
+    for (const s of ['s a v e x', "it 's a v e x", "it'x a v e x", 'm a v e x']) expect(hidden(s), s).toBe(false);
+    // the pair counts as one lone word, and the bound still holds: "u r" plus two more lone words is three splits
+    expect(hidden('u r a a v e x')).toBe(false);
+    // a pair is split only whole: "u x" is no pair, and "r" alone is no lone word
+    for (const s of ['u x a v e x', 'r a v e x']) expect(hidden(s), s).toBe(false);
+    // the text-speak reading only ever ADDS a reading: "u r a" before a spaced entry that starts with "r" keeps the old catch
+    const r = compileFilter([{ lang: 'en', hide: ['rvex'], mask: [], allow: [] }], () => true);
+    expect(filterLine(r, 'u r v e x', { mask: true }).kind).toBe('hide');
+    // ordinary text speak with no listed word stays as typed
+    for (const s of ["it's a trap", "I'm a medic", 'u r a legend', 'r u ok', "it's a t r a p", 'u r a l e g e n d']) expect(shown(s)).toBe(s);
+  });
+
   it('step 7, repeated letters: a LONGER stretched spelling matches, a shorter word never does', () => {
     expect(hidden('zorrrgoooon')).toBe(true);
     expect(shown('blaaaarg')).toBe(MASK);
@@ -276,6 +296,48 @@ describe('the shipped lists', () => {
       }
     }
     expect(n).toBe(5 * short.length);
+  });
+
+  it('GH-1417 text speak: every short English hide entry spelled out after "u r a", "it\'s a", "I\'m a" and their kin hides', () => {
+    // Literal oracle: a ruled in-house entry, four letters (0 of 25 entries hid behind "u r a", "it's a" or "I'm a" before this rule).
+    for (const s of ['u r a d y k e', "it's a d y k e", "I'm a d y k e", 'u r d y k e']) expect(filterLine(shipped, s, { mask: false }), s).toEqual({ kind: 'hide' });
+    // The corpus: the review's 25 short single-word hide entries (count pinned, so the sweep cannot pass over nothing or drift
+    // silently), behind every everyday shape; the four already caught before this rule ("ur a", "you're a", "u're a", "it is a") stay.
+    const short = en.hide.filter((e) => !e.includes(' ') && [...e].length < SUBSTRING_MIN);
+    expect(short.length).toBe(25);
+    const shapes = [
+      'u r a', 'u r', 'r u a', "it's a", "I'm a", "that's a", "he's a", "she's a", 'it’s a', 'I’m a', 'lol u r a',
+      'ur a', "you're a", "u're a", 'it is a',
+    ];
+    let n = 0;
+    for (const p of shapes) {
+      for (const e of short) {
+        expect(filterLine(shipped, `${p} ${[...e].join(' ')}`, { mask: false }).kind, `${p} + ${e.length} letters`).toBe('hide');
+        n++;
+      }
+    }
+    expect(n).toBe(shapes.length * 25);
+  });
+
+  it('GH-1417 text speak: ordinary text-speak chat shows as typed, plainly and spelled out (0 false positives)', () => {
+    // Literal oracle: ordinary lines in the shapes the text-speak reading works on.
+    const lines = [
+      "it's a trap", "I'm a medic", 'u r a legend', 'ur a hero', "you're a star", "that's a wrap", "he's a goner", "she's a sniper",
+      'u r so good', 'r u ok', 'r u there', 'u r gg', 'u r a b c', "it's a t r a p", "I'm a m e d i c", 'u r a l e g e n d',
+      "that's a w r a p", "it's a s t a r", "I'm a b o t", "don't d o it", "can't s e e", "it's ok", "I'm in", "it's a go", "I'm a a a",
+      'u r a a b c', 'r u a b o t', "what's u p", 'it’s a trap', 'I’m a medic', "it's a b", "he'd s e e", "it's a d d",
+      "it's a s s e m b l y", "I'm a s s i g n e d", 'u r a s s i g n e d', "it's a s s e t", 'Uranus', 'u r on uranus',
+    ];
+    // The one ambiguity found: a planet spelled out letter by letter, "u r a n u s", now reads "u r" plus a MASK entry and masks. It
+    // is the old joke, not chat anyone types for the planet, and it is a mask (Settings can turn it off), never a hide.
+    expect(filterLine(shipped, 'u r a n u s', { mask: false })).toEqual({ kind: 'show', text: 'u r a n u s', masked: false });
+    for (const s of lines) expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+    // every entry the review dropped as an ordinary RTS word, behind each text-speak shape
+    for (const e of en.dropped) {
+      for (const s of [`u r a ${e}`, `it's a ${e}`, `I'm a ${e}`]) {
+        expect(filterLine(shipped, s, { mask: true }), s).toEqual({ kind: 'show', text: s, masked: false });
+      }
+    }
   });
 
   it('a run of three trims to a two-letter entry: "you are a s m" masks s&m (CR3, the 3-letter boundary)', () => {

@@ -106,6 +106,11 @@ import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
 import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
 import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
 import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
+import birTarsha1Recon from '../../../data/missions/bir_tarsha_1_recon.json';
+import birTarsha2Foothold from '../../../data/missions/bir_tarsha_2_foothold.json';
+import birTarsha3Clearance from '../../../data/missions/bir_tarsha_3_clearance.json';
+import birTarsha4Clearance from '../../../data/missions/bir_tarsha_4_clearance.json';
+import birTarsha5Subterranean from '../../../data/missions/bir_tarsha_5_subterranean.json';
 import qasrLiwan1Recon from '../../../data/missions/qasr_liwan_1_recon.json';
 import qasrLiwan2Foothold from '../../../data/missions/qasr_liwan_2_foothold.json';
 import qasrLiwan3Buildup from '../../../data/missions/qasr_liwan_3_buildup.json';
@@ -207,6 +212,11 @@ export const missions = {
   umm_zeitoun_2_buildup: ummZeitoun2Buildup,
   umm_zeitoun_3_clearance: ummZeitoun3Clearance,
   umm_zeitoun_4_clearance: ummZeitoun4Clearance,
+  bir_tarsha_1_recon: birTarsha1Recon,
+  bir_tarsha_2_foothold: birTarsha2Foothold,
+  bir_tarsha_3_clearance: birTarsha3Clearance,
+  bir_tarsha_4_clearance: birTarsha4Clearance,
+  bir_tarsha_5_subterranean: birTarsha5Subterranean,
   qasr_liwan_1_recon: qasrLiwan1Recon,
   qasr_liwan_2_foothold: qasrLiwan2Foothold,
   qasr_liwan_3_buildup: qasrLiwan3Buildup,

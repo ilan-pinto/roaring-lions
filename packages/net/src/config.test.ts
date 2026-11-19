@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
+import { FIELD_WORKS_LOGISTICS, fieldWorksRequest, fieldWorksRoom, FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -31,6 +31,20 @@ describe('validateConfig', () => {
     expect(validateConfig(withUnlocks(Array.from({ length: 32 }, (_, i) => `u${i}`)))).not.toBeNull();
     expect(validateConfig(withUnlocks(Array.from({ length: 33 }, (_, i) => `u${i}`)))).toBeNull();
     expect(validateConfig(withUnlocks(['demo_tzav', 7]))).toBeNull();
+  });
+  it('GH-1389: a force handicap (`withhold`) rides a BOT seat of a versus config only, as positive bounded counts', () => {
+    const versus = (seat1: Record<string, unknown>, mode = 'versus') => ({ ...CONFIG, mode, map: 'tel_marum', seats: [CONFIG.seats[0], { ...CONFIG.seats[1], ...seat1 }] });
+    const bot = { kind: 'bot', withhold: { mbt_lavi: 2 } };
+    expect(validateConfig(JSON.parse(JSON.stringify(versus(bot))))).toEqual(versus(bot));
+    // Only a computer level sets it, so a human seat carrying one is refused, and so is a sandbox room.
+    expect(validateConfig(versus({ kind: 'human', withhold: { mbt_lavi: 2 } }))).toBeNull();
+    expect(validateConfig(versus(bot, 'sandbox'))).toBeNull();
+    // Counts are integers from 1 to 64 (literal bounds), and no reserved key names a type.
+    for (const n of [0, -1, 1.5, 65, '2']) expect(validateConfig(versus({ kind: 'bot', withhold: { mbt_lavi: n } })), String(n)).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: { mbt_lavi: 64 } }))).not.toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: JSON.parse('{"__proto__": 1}') }))).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: [2] }))).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`u${i}`, 1])) }))).toBeNull();
   });
 });
 
@@ -81,6 +95,43 @@ describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type sha
     expect(parsed('{"mbt_lavi": {"constructors": 1}}')).not.toBeNull();
     // An own "__proto__" really is an own key here (not a prototype set).
     expect(Object.keys(JSON.parse('{"__proto__": {"armour": 1}}'))).toEqual(['__proto__']);
+  });
+});
+
+describe('validateConfig: SeatConfig.picks (GH-1384), optional, bounded as tiers is', () => {
+  const withPicks = (picks: unknown) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], kit: 'brigade', tiers: { mbt_lavi: { firepower: 3 } }, picks }, CONFIG.seats[1]] });
+  it('absent reads as before (a config from before it still parses), and a nested branch map round-trips', () => {
+    expect(validateConfig(JSON.parse(JSON.stringify(CONFIG)))).toEqual(CONFIG);
+    expect(Object.keys(CONFIG.seats[0])).not.toContain('picks');
+    expect(validateConfig(withPicks({ mbt_lavi: { firepower: 2 } }))?.seats[0].picks).toEqual({ mbt_lavi: { firepower: 2 } });
+    expect(validateConfig(withPicks({ mbt_lavi: { firepower: 1 }, apc_kipod: { armour: 2 } }))).not.toBeNull();
+    expect(validateConfig(withPicks({}))).not.toBeNull();
+  });
+  it('every leaf is exactly 1 or 2: a branch, never a tier', () => {
+    for (const leaf of [0, 3, 1.5, -1, '1', null, true, NaN]) expect(validateConfig(withPicks({ mbt_lavi: { firepower: leaf } })), String(leaf)).toBeNull();
+  });
+  it('refuses the flat shape, arrays and null', () => {
+    expect(validateConfig(withPicks({ mbt_lavi: 2 }))).toBeNull();
+    expect(validateConfig(withPicks([]))).toBeNull();
+    expect(validateConfig(withPicks({ mbt_lavi: [2] }))).toBeNull();
+    expect(validateConfig(withPicks(null))).toBeNull();
+  });
+  it('is bounded: at most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks an id (64 and 8, literal)', () => {
+    expect([TIERS_MAX_TYPES, TIERS_MAX_TRACKS]).toEqual([64, 8]);
+    const ids = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`u${i}`, { armour: 1 }]));
+    const tracks = (n: number) => ({ mbt_lavi: Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, 2])) });
+    expect(validateConfig(withPicks(ids(64)))).not.toBeNull();
+    expect(validateConfig(withPicks(ids(65)))).toBeNull();
+    expect(validateConfig(withPicks(tracks(8)))).not.toBeNull();
+    expect(validateConfig(withPicks(tracks(9)))).toBeNull();
+  });
+  it('refuses __proto__, constructor and prototype as a key at either level', () => {
+    const parsed = (text: string) => validateConfig(withPicks(JSON.parse(text)));
+    for (const key of ['__proto__', 'constructor', 'prototype']) {
+      expect(parsed(`{"${key}": {"firepower": 1}}`), `type ${key}`).toBeNull();
+      expect(parsed(`{"mbt_lavi": {"${key}": 1}}`), `track ${key}`).toBeNull();
+    }
+    expect(parsed('{"proto": {"firepower": 1}}')).not.toBeNull();
   });
 });
 
@@ -377,5 +428,36 @@ describe('capture the flag v2: flagSetup, FLAG_SETUP_MAPS and the cap twin (GH-9
     expect(validateConfig(flagRoom({ flagSetup: true, winMode: 'points' }))).toBeNull();
     expect(validateConfig({ ...CONFIG, flagSetup: true, winMode: 'flag' })).toBeNull();
     for (const bad of [1, 'true', false, null, {}, [true]]) expect(validateConfig(flagRoom({ flagSetup: bad })), String(bad)).toBeNull();
+  });
+});
+
+describe('versus field works: the room option (the lead, 18 Nov 2026: annihilation, KDF vs KDF only)', () => {
+  const mirror = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...CONFIG, mode: 'versus', map: 'tel_marum',
+    seats: [{ ...CONFIG.seats[0], side: 0 }, { ...CONFIG.seats[1], side: 1 }],
+    ...extra,
+  });
+  it('an annihilation KDF-v-KDF room carries it, strictly true, and absent is off', () => {
+    const on = mirror({ fieldWorks: true });
+    expect(validateConfig(JSON.parse(JSON.stringify(on)))).toEqual(on);
+    expect(fieldWorksRoom(validateConfig(on) as MatchConfig)).toBe(true);
+    expect(fieldWorksRoom(validateConfig(mirror()) as MatchConfig)).toBe(false);
+    expect(FIELD_WORKS_LOGISTICS).toBe(1000);
+  });
+  it('refused anywhere else: a win mode, a Sarim seat, a sandbox room, and any value but true', () => {
+    expect(validateConfig(mirror({ fieldWorks: true, winMode: 'points' }))).toBeNull();
+    expect(validateConfig(mirror({ fieldWorks: true, seats: [{ ...CONFIG.seats[0], side: 0 }, { ...CONFIG.seats[1], side: 1, faction: 'sarim' }] }))).toBeNull();
+    expect(validateConfig(mirror({ fieldWorks: true, seats: [{ ...CONFIG.seats[0], side: 1, faction: 'sarim' }, { ...CONFIG.seats[1], side: 0 }] }))).toBeNull();
+    expect(validateConfig({ ...CONFIG, fieldWorks: true })).toBeNull();
+    for (const v of [false, 1, 'true', null]) expect(validateConfig(mirror({ fieldWorks: v })), String(v)).toBeNull();
+  });
+  it('fieldWorksRequest: off unless asked for with true; asked for where it is not allowed, refused (never dropped)', () => {
+    expect(fieldWorksRequest(undefined, { mode: 'versus', matchup: 'mirror' })).toEqual({ on: false });
+    expect(fieldWorksRequest('yes', { mode: 'versus', matchup: 'mirror' })).toEqual({ on: false });
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'mirror' })).toEqual({ on: true });
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'kdf' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'sarim' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'mirror', winMode: 'flag' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'sandbox', matchup: 'mirror' }).refused).toBeDefined();
   });
 });

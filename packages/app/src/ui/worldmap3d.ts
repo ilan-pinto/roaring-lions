@@ -133,6 +133,8 @@ export interface World3dOptions {
    *  board's `WorldMapOptions.portraitUrl` -- both boards get it from
    *  `main.ts`, never build a `portraits/...` path themselves. */
   portraitUrl?: (file: string) => string | undefined;
+  /** GH-1395 slice 2: the flat board's `WorldMapOptions.townMark`, the same hook on the diorama's pins. */
+  townMark?: (townId: string) => HTMLElement | null;
   /** `mount` defaults to the real dynamic import and `webgl` to a live
    *  context probe -- both are test seams. `navigate` is not: the shell
    *  passes the router's own soft navigation through `CampaignOptions`, and
@@ -393,6 +395,8 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       if (stars.possible > 0) {
         marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
+      const extra = opts.townMark?.(town.id);
+      if (extra) marker.appendChild(extra);
 
       // --- hover/focus preview: what THIS pin's own link would say -----
       // Never `point()`, never `navigate()` -- the `opening` outcome

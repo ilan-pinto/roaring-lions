@@ -10,6 +10,9 @@
 //     key: the tutorial pays nothing and has no challenge);
 //   - its three offers are library ids or its own (D8's mission-specific amendment: the same restricting operations,
 //     an id the library does not use, and offered), and the challenge's amendments are among them;
+//   - a challenge's `objective_done` names an objective of ITS mission, and a secondary one, never the primary (the
+//     lead's ruling on PR 1568, Whole Picture: a primary is complete on every win, so naming one would be a term that
+//     reads as a restriction and restricts nothing);
 //   - challenge ids are unique across the pilot;
 //   - every label and blurb is non-empty English text that never says "withdrawn" (PA-01); it is data text, as a
 //     mission's name is, so the copy rides the lazily loaded challenge chunk and not the entry chunk's en.json;
@@ -117,6 +120,12 @@ export function challengeFailures({ library, files, missions }) {
     const c = doc.challenge ?? {};
     for (const id of c.amendments ?? []) {
       if (!(doc.offers ?? []).includes(id)) out.push(`${file}: challenge "${c.id}" needs "${id}", which the mission does not offer`);
+    }
+    const want = c.win?.objective_done;
+    if (want !== undefined) {
+      const o = (m.objectives ?? []).find((x) => x.id === want);
+      if (o === undefined) out.push(`${file}: challenge "${c.id}" needs objective "${want}", which ${doc.mission} does not have`);
+      else if (o.primary !== false) out.push(`${file}: challenge "${c.id}" needs objective "${want}", a primary of ${doc.mission}: objective_done names a secondary`);
     }
     if (challengeIds.has(c.id)) out.push(`${file}: challenge id "${c.id}" is also ${challengeIds.get(c.id)}'s`);
     challengeIds.set(c.id, file);

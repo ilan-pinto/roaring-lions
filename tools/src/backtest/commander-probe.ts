@@ -26,7 +26,7 @@
 //   pnpm --filter @lions/tools exec tsx src/backtest/commander-probe.ts -- --seeds=8 --jobs=4 --out=/tmp/cmd-probe
 //   ... --maps=tel_marum,wadi_tarfan --modes=annihilation,points --baselines=passive --seeds=2
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from '@lions/sim';
@@ -62,7 +62,7 @@ export interface Cell {
 }
 
 /** Every open cell, from the tables the lobby and the Worker read. */
-export function cellsOf(o: { maps?: readonly string[]; modes?: readonly (WinMode | 'annihilation')[]; baselines?: readonly Baseline[] } = {}): Cell[] {
+export function cellsOf(o: { maps?: readonly string[]; modes?: readonly (WinMode | 'annihilation')[]; baselines?: readonly Baseline[]; seats?: readonly Seat[] } = {}): Cell[] {
   const out: Cell[] = [];
   for (const map of VERSUS_FAIR_MAPS) {
     if (o.maps && !o.maps.includes(map)) continue;
@@ -72,6 +72,7 @@ export function cellsOf(o: { maps?: readonly string[]; modes?: readonly (WinMode
       for (const winMode of modes) {
         if (o.modes && !o.modes.includes(winMode ?? 'annihilation')) continue;
         for (const commanderSeat of [0, 1] as const) {
+          if (o.seats && !o.seats.includes(commanderSeat)) continue;
           for (const baseline of BASELINES) {
             if (o.baselines && !o.baselines.includes(baseline)) continue;
             out.push({ map, matchup, winMode, commanderSeat, baseline });
@@ -182,7 +183,7 @@ export interface GameRecord {
 }
 
 /** Plays one game of a cell on one seed. Never throws for a cell: a refusal or an error is a record. */
-export type CommanderKind = 'rush' | 'silent' | 'slice1' | 'slice2';
+export type CommanderKind = 'rush' | 'silent' | 'slice1' | 'slice2' | 'slice3';
 export function playGame(cell: Cell, seed: number, o: { capTicks?: number; commander?: CommanderKind; options?: CommanderOptions } = {}): GameRecord {
   const t0 = Date.now();
   const base: GameRecord = {
@@ -247,7 +248,7 @@ export function playGame(cell: Cell, seed: number, o: { capTicks?: number; comma
     // `silent` is the probe's own self-check: a commander that never orders must read as a stall in every game, or the detector detects nothing.
     const commander: SeatLike = o.commander === 'silent'
       ? new PassiveSeat()
-      : new ComputerSeat({ seat: cell.commanderSeat, side: commanderSide, ...(o.commander === 'slice1' || o.commander === 'slice2' ? { commander: watching(o.commander === 'slice1' ? createCommander({ scout: false, counter: false, ...o.options }) : createCommander({ scout: true, counter: true, ...o.options })) } : {}) });
+      : new ComputerSeat({ seat: cell.commanderSeat, side: commanderSide, ...(o.commander === 'slice1' || o.commander === 'slice2' || o.commander === 'slice3' ? { commander: watching(o.commander === 'slice1' ? createCommander({ scout: false, counter: false, ...o.options }) : o.commander === 'slice2' ? createCommander({ scout: true, counter: true, ...o.options }) : createCommander({ scout: false, counter: false, retreat: true, ...o.options })) } : {}) });
     const other: SeatLike = cell.baseline === 'passive'
       ? new PassiveSeat()
       : new ComputerSeat({ seat: (1 - cell.commanderSeat) as Seat, side: config.seats[1 - cell.commanderSeat].side });
@@ -427,6 +428,65 @@ export function compositionTableOf(rows: readonly CompositionRow[]): string {
   return [head, sep, ...lines].join('\n');
 }
 
+// ---- which cells the lobby may seat the computer in (GH-1390) -------------------------------------------------------------------
+
+/** One lobby cell: a ground, the HUMAN's pairing (the computer plays the other faction at seat 1) and a win mode. */
+export interface OpenCellRow {
+  map: string;
+  matchup: Matchup;
+  winMode: WinMode | null;
+  games: number;
+  /** Games with the idle-unit stall (60 s with no order while an able, idle unit stood by), the literal stall, and games not played or with no order at all. */
+  idleStalls: number;
+  literalStalls: number;
+  broken: number;
+  /** How the games ended: `by` -> count. */
+  decidedBy: Record<string, number>;
+  open: boolean;
+  /** Why it is closed (empty when open). */
+  why: string;
+}
+
+/**
+ * The lobby seats the computer at SEAT 1 (the human is the host end), so only the commander-at-seat-1 games say whether a cell is playable. A cell is OPEN
+ * when it has games and none of them stopped playing: every game was played, the seat gave an order, and no game had the idle-unit stall. The literal
+ * stall ("no order for 60 s") is counted and reported but does not close a cell: it fires in a firefight in 85% of games, so it cannot tell a seat in a fight
+ * from a seat that gave up (docs/net/commander-coverage.md section 0). A cell with no games has no row here, and the lobby's table (`open-cells.ts`) treats a cell it does not list as closed.
+ */
+export function openCellsOf(records: readonly GameRecord[]): OpenCellRow[] {
+  const by = new Map<string, OpenCellRow>();
+  for (const r of records) {
+    if (r.cell.commanderSeat !== 1) continue;
+    const key = `${r.cell.map}|${r.cell.matchup}|${r.cell.winMode ?? ''}`;
+    let row = by.get(key);
+    if (row === undefined) {
+      row = { map: r.cell.map, matchup: r.cell.matchup, winMode: r.cell.winMode, games: 0, idleStalls: 0, literalStalls: 0, broken: 0, decidedBy: {}, open: false, why: '' };
+      by.set(key, row);
+    }
+    row.games++;
+    if (r.stallIdle) row.idleStalls++;
+    if (r.stallLiteral) row.literalStalls++;
+    if (r.status !== 'played' || r.firstOrderTick === null) row.broken++;
+    row.decidedBy[r.by] = (row.decidedBy[r.by] ?? 0) + 1;
+  }
+  const rows = [...by.values()];
+  for (const row of rows) {
+    const why: string[] = [];
+    if (row.idleStalls > 0) why.push(`${row.idleStalls} of ${row.games} games stopped playing (60 s with no order while an idle unit stood by)`);
+    if (row.broken > 0) why.push(`${row.broken} of ${row.games} games not played or without a single order`);
+    row.open = why.length === 0;
+    row.why = why.join('; ');
+  }
+  return rows.sort((a, b) => `${a.map}|${a.matchup}|${a.winMode ?? ''}`.localeCompare(`${b.map}|${b.matchup}|${b.winMode ?? ''}`));
+}
+
+export function openCellsTableOf(rows: readonly OpenCellRow[]): string {
+  const head = '| map | human plays | win mode | games | stopped playing (idle) | literal 60 s | decided by | verdict |';
+  const sep = '|---|---|---|---|---|---|---|---|';
+  const lines = rows.map((r) => `| ${r.map} | ${r.matchup} | ${r.winMode ?? 'annihilation'} | ${r.games} | ${r.idleStalls} | ${r.literalStalls} | ${Object.entries(r.decidedBy).map(([k, v]) => `${k} ${v}`).join(', ')} | ${r.open ? 'open' : `CLOSED: ${r.why}`} |`);
+  return [head, sep, ...lines].join('\n');
+}
+
 // ---- the CLI -------------------------------------------------------------------------------------------------------------------
 
 function argOf(name: string, argv: readonly string[]): string | undefined {
@@ -442,17 +502,22 @@ async function main(argv: readonly string[]): Promise<void> {
   const modes = argOf('modes', argv)?.split(',') as (WinMode | 'annihilation')[] | undefined;
   const baselines = argOf('baselines', argv)?.split(',') as Baseline[] | undefined;
   const shard = argOf('shard', argv);
+  const resume = argv.includes('--resume');
   const commander = (argOf('commander', argv) ?? 'rush') as CommanderKind;
   const options = argOf('options', argv) === undefined ? undefined : (JSON.parse(argOf('options', argv) as string) as CommanderOptions);
-  const cells = cellsOf({ maps, modes, baselines });
+  const seats = argOf('seats', argv)?.split(',').map(Number) as Seat[] | undefined;
+  const cells = cellsOf({ maps, modes, baselines, ...(seats ? { seats } : {}) });
   mkdirSync(out, { recursive: true });
   if (shard !== undefined) {
     // A worker: its slice of (cell, seed) games, one JSON line each.
     const [i, n] = shard.split('/').map(Number);
     const file = join(out, `games.${i}.jsonl`);
+    // --resume: a shard plays its games in a fixed order, so the lines already in its file are exactly its first games.
+    let done = resume && existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() !== '').length : 0;
     let k = 0;
     for (const cell of cells) for (let s = 0; s < seeds; s++) {
       if (k++ % n !== i) continue;
+      if (done > 0) { done--; continue; }
       appendFileSync(file, `${JSON.stringify(playGame(cell, seedOf(s), { commander, options }))}\n`);
     }
     return;
@@ -475,8 +540,11 @@ async function main(argv: readonly string[]): Promise<void> {
   writeFileSync(join(out, 'table.md'), `${table}\n`);
   const composition = compositionTableOf(compositionRowsOf(records));
   writeFileSync(join(out, 'composition.md'), `${composition}\n`);
+  const openCells = openCellsTableOf(openCellsOf(records));
+  writeFileSync(join(out, 'open-cells.md'), `${openCells}\n`);
   console.log(table);
   console.log(`\n${composition}`);
+  if (argv.includes('--open-cells')) console.log(`\n${openCells}`);
   console.log(`\n${records.length} games, ${records.filter((r) => r.status === 'played').length} played, ${records.filter((r) => r.status === 'unsupported').length} unsupported, ${records.filter((r) => r.status === 'error').length} errors; ${(records.reduce((a, r) => a + r.wallMs, 0) / 1000).toFixed(0)} s of game time`);
 }
 

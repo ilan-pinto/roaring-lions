@@ -24,7 +24,7 @@
 //      line, rather than a line reading from 0. `applyUpgrades` throws on
 //      that case (it is a schema violation upstream); a shop screen must not
 //      take a mission down, so it stays quiet instead.
-import { readPath, type UpgradableUnit } from '@lions/data';
+import { readPath, tierPatch, type BranchPick, type UpgradableUnit } from '@lions/data';
 import { t } from '../i18n/t';
 
 /** How a stat is written, which is not the same as what it is measured in:
@@ -93,13 +93,17 @@ export function benefitLabel(path: string): { label: string; unit: BenefitUnitKi
  * own range, or a unit with no upgrades at all: this is a screen, and every
  * one of those is reachable from data that shrank after a purchase.
  */
-export function upgradeBenefits(unit: UpgradableUnit, track: string, tier: number): BenefitLine[] {
+export function upgradeBenefits(unit: UpgradableUnit, track: string, tier: number, pick?: BranchPick): BenefitLine[] {
   const tiers = unit.upgrades?.[track]?.tiers;
   if (tiers === undefined || tier < 1 || tier > tiers.length) return [];
-  const patch = tiers[tier - 1].patch;
+  // GH-1384: a branched tier reads the branch `pick` (each fork card passes its own,
+  // `garage-fork.ts`), through the same `tierPatch` `applyUpgrades` reads. With no pick an
+  // open build reads no line for it, and a closed build its envelope, as `applyUpgrades` does.
+  const patch = tierPatch(tiers[tier - 1], pick);
+  if (patch === undefined) return [];
   // Tier 1 reads against the base; every tier above it against the tier below,
   // which is the base plus THAT tier's own cumulative delta.
-  const below = tier >= 2 ? tiers[tier - 2].patch : undefined;
+  const below = tier >= 2 ? tierPatch(tiers[tier - 2], pick) : undefined;
 
   const out: BenefitLine[] = [];
   for (const [path, delta] of Object.entries(patch)) {

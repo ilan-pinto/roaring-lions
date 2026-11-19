@@ -15,6 +15,8 @@
  * with it, so a later replay runner (F4) can say "reproduced" only when its
  * own hash agrees.
  */
+import { BRANCHES_OPEN } from '@lions/data';
+
 export const COMMANDS_MAX_BYTES = 64 * 1024;
 export const START_MAX_BYTES = 32 * 1024;
 
@@ -28,10 +30,23 @@ export interface ReplayStart {
   ledger: unknown;
   /** The account's tiers, as the one `upgradePrepass` read them. */
   tiers: unknown;
+  /** GH-1384: the branch owned per branched (unit, track), as the same prepass read them. A log
+   *  from before branching has none, and replays a branched tier at the tier below. */
+  picks?: unknown;
   /** Units the account has bought (`kdfUnlockGate`'s `bought`). */
   unlocks: readonly string[];
   /** The roster indices the player sent in, or null for the default force. */
   deploy: readonly number[] | null;
+  /** GH-1395 slice 2 (D10): the amendments to the orders the run was started with; absent for an unamended run. A replay
+   *  without them would rebuild the plain mission under the amended run's name. */
+  amendments?: readonly string[];
+}
+
+/** GH-1384: the start's `picks` field, spread into the start the battlefield begins. Only once branching is open: while
+ *  `BRANCHES_OPEN` is false it is `{}`, so the replay start is dev's, with no `picks` key. `open` is the switch, which only a
+ *  test passes (`branch_switch_wiring.test.ts` holds every production call to one argument). */
+export function replayStartPicks(picks: unknown, open: boolean = BRANCHES_OPEN): Pick<ReplayStart, 'picks'> {
+  return open ? { picks } : {};
 }
 
 export type ReplayEntry = { tick: number; cmd: unknown } | { tick: number; buy: string };

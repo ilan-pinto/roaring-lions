@@ -41,3 +41,26 @@ export const KIT_TRACKS: Readonly<Record<string, Readonly<Record<string, number>
   inf_grenadier: { armour: 3, sensors: 3, firepower: 3 },
   ugv_recon_dog: { armour: 3, sensors: 3 },
 };
+
+/**
+ * GH-1384: the BRANCHED tracks of each KDF type, a set per type (one today, under the content cap C1, but
+ * nothing here assumes one). A branched track's last tier is an either/or of two branches, and a seat's
+ * `picks` name which one it fields (`seatPicksField`). A pick is read only for a track listed here, and only
+ * where the seat's cleaned tiers hold that track's LAST tier (`KIT_TRACKS`). Pinned to `@lions/data`'s
+ * `branchedTracks` both ways by `kit-tracks.test.ts`, as `KIT_TRACKS` is to `maxTiers`.
+ */
+export const KIT_BRANCHES: Readonly<Record<string, readonly string[]>> = {
+  mbt_lavi: ['firepower'],
+  ifv_namer: ['firepower'],
+  apc_eitan: ['firepower'],
+  inf_squad: ['firepower'],
+  at_team: ['sensors'],
+  mortar_team: ['sensors'],
+  recon_drone: ['sensors'],
+  sniper_team: ['firepower'],
+  jeep_shoded: ['armour'],
+  dozer_d9: ['armour'],
+  heli_peten: ['firepower'],
+  scout_shachaf: ['sensors'],
+  apc_kipod: ['armour'],
+};
