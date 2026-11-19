@@ -76,20 +76,25 @@ describe('framesRunSlow: a verdict is the MEDIAN over a FULL sample', () => {
   });
 });
 
-/** A fake clock and frame source: `play` feeds the callbacks the timestamps in order. */
+/**
+ * A fake clock and frame source: `frame` feeds the callbacks the timestamps in order. Like a real `requestAnimationFrame`, a
+ * request fires ONCE: a delivered frame consumes its callback, so a probe that does not ask again gets no further frames.
+ */
 function harness(over: Partial<ProbeDeps> = {}) {
   let cb: ((ts: number) => void) | null = null;
+  let cbId = 0;
   let nextId = 1;
   const cancelled: number[] = [];
   let wall = 0;
   const deps: ProbeDeps = {
     raf: (f) => {
       cb = f;
-      return nextId++;
+      cbId = nextId++;
+      return cbId;
     },
     cancel: (id) => {
       cancelled.push(id);
-      cb = null;
+      if (id === cbId) cb = null;
     },
     now: () => wall,
     visible: () => true,
@@ -102,6 +107,7 @@ function harness(over: Partial<ProbeDeps> = {}) {
   const frame = (ts: number, wallMs = ts): void => {
     wall = wallMs;
     const f = cb;
+    cb = null; // the request is spent, as a real rAF's is once it fires
     if (f !== null) f(ts);
   };
   return { frame, results, cancelled, stop, pending: () => cb !== null };
