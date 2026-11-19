@@ -37,3 +37,11 @@ unarmed bearer and his twin), `mesh_fragments.test.ts` (three builds blind to th
 `launcher_clearance.test.ts` (the box packs the same instrument still reads). A byte copy, not new art: its .blend
 source is the one in history at that commit. The frozen rigid GLB is decision 8 of the lead's approval of 15 Nov 2026
 (GH-826).
+
+release-notes-599d38012.json -- a byte copy of data/release-notes/next.json at commit 599d38012 (main's merge of dev
+7a5434987, PR 1634), the promotion cut as v0.134.1 because its 87 commits carried no `feat:` type. Check it with
+`git show 599d38012:data/release-notes/next.json | cmp - tools/src/fixtures/release-notes-599d38012.json`.
+
+Its sections are 0 units, 16 rules and 2 fixes. `decide_version.test.ts` feeds it to a scratch promotion, where the
+release rule of 19 Nov 2026 (the notes' units or rules cut a minor) must answer 0.135.0. Real-shaped notes, not new
+content: it is never read as release notes (it is outside data/release-notes/).

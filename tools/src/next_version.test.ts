@@ -5,7 +5,7 @@
 // documentation-only merges regularly, and a bump there would cut a tag
 // marking no change to the game.
 import { describe, expect, it } from 'vitest';
-import { BUMP_BY_TYPE, bumpOf, commitType, nextVersion } from '../next_version.mjs';
+import { BUMP_BY_TYPE, bumpOf, commitType, nextVersion, notesBump } from '../next_version.mjs';
 
 describe('commitType', () => {
   it('reads a bare prefix and a scoped one', () => {
@@ -121,5 +121,70 @@ describe('nextVersion', () => {
   it('refuses a version it cannot parse instead of guessing', () => {
     expect(() => nextVersion('0.1', ['feat: thing'])).toThrow();
     expect(() => nextVersion('v0.1.0', ['feat: thing'])).toThrow();
+  });
+});
+
+// The release notes being released (lead, 19 Nov 2026). Real-shaped: data/schemas/release_notes.schema.json.
+const notes = (units: string[], rules: string[], fixes: string[]) => ({ version: 'next', units, rules, fixes });
+const EMPTY_NOTES = notes([], [], []);
+
+describe('notesBump', () => {
+  it('a unit or a rule is a minor', () => {
+    expect(notesBump(notes(['A new carrier.'], [], []))).toBe('minor');
+    expect(notesBump(notes([], ['A new rule.'], []))).toBe('minor');
+    expect(notesBump(notes(['A unit.'], ['A rule.'], ['A fix.']))).toBe('minor');
+  });
+
+  it('fixes alone are a patch', () => {
+    expect(notesBump(notes([], [], ['A fix.', 'Another fix.']))).toBe('patch');
+  });
+
+  it('empty, missing or malformed notes are none, so the commits decide', () => {
+    expect(notesBump(EMPTY_NOTES)).toBe('none');
+    expect(notesBump(null)).toBe('none');
+    expect(notesBump(undefined)).toBe('none');
+    expect(notesBump('rules')).toBe('none');
+    expect(notesBump([['a rule']])).toBe('none');
+    // A section that is not an array is read as empty, never as a bump.
+    expect(notesBump({ version: 'next', units: 'one', rules: { a: 1 }, fixes: 3 })).toBe('none');
+    expect(notesBump({ version: 'next', units: [], rules: 'one', fixes: ['A fix.'] })).toBe('patch');
+  });
+});
+
+describe('nextVersion with notes: the stronger of the notes and the commits', () => {
+  // Our squash titles: never feat, so the commit rule alone is a patch.
+  const OURS = ['app: a panel', 'data: a mission', 'ci: a gate'];
+
+  it('rules over our titles cut a minor (the 599d38012 promotion: 0 units, 16 rules, 2 fixes)', () => {
+    const rules = Array.from({ length: 16 }, (_, i) => `Rule ${i + 1}.`);
+    expect(nextVersion('0.134.0', OURS, notes([], rules, ['Fix 1.', 'Fix 2.']))).toBe('0.135.0');
+  });
+
+  it('fixes alone over our titles cut a patch', () => {
+    expect(nextVersion('0.134.0', OURS, notes([], [], ['A fix.']))).toBe('0.134.1');
+  });
+
+  it('notes that say nothing leave the commit rule exactly as it was', () => {
+    for (const n of [EMPTY_NOTES, null, undefined]) {
+      expect(nextVersion('0.134.0', OURS, n)).toBe('0.134.1');
+      expect(nextVersion('0.134.0', ['docs: a', 'ci: b'], n)).toBeNull();
+      expect(nextVersion('0.134.0', ['feat: a'], n)).toBe('0.135.0');
+      expect(nextVersion('0.134.0', [], n)).toBeNull();
+    }
+    expect(nextVersion('0.134.0', OURS)).toBe('0.134.1');
+  });
+
+  it('a feat commit still cuts a minor over fixes-only notes', () => {
+    expect(nextVersion('0.134.0', ['feat(app): a thing'], notes([], [], ['A fix.']))).toBe('0.135.0');
+  });
+
+  it('notes alone release: rules over docs-only commits cut a minor, fixes a patch', () => {
+    expect(nextVersion('0.134.0', ['docs: a'], notes([], ['A rule.'], []))).toBe('0.135.0');
+    expect(nextVersion('0.134.0', [], notes([], [], ['A fix.']))).toBe('0.134.1');
+  });
+
+  it('nothing cuts a major: not the notes, not a breaking marker', () => {
+    expect(nextVersion('0.134.0', ['feat(app)!: breaking'], notes(['A unit.'], ['A rule.'], []))).toBe('0.135.0');
+    expect(nextVersion('1.9.3', [], notes(['A unit.'], [], []))).toBe('1.10.0');
   });
 });

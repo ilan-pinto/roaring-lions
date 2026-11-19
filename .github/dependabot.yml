@@ -5,7 +5,8 @@
 # Commit-message prefixes feed tools/next_version.mjs: `chore` moves no
 # version (a dev-tooling bump must not cut a release), `fix` is a patch (a
 # runtime bump changes what ships). Neither is `feat`, so none reaches the
-# displayed major.minor.
+# displayed major.minor on its own (the release notes can: a promotion whose
+# next.json carries units or rules cuts a minor, docs/agent-notes/release-notes.md).
 #
 # Also on, in repository settings (not configurable here): Dependabot alerts
 # and Dependabot security updates.
