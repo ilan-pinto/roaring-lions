@@ -109,6 +109,29 @@ antiguo" and "calle Mayor" (the English uses both capitalised and lowercase form
 verb agreement because the same word starts a sentence and sits mid-sentence; the Delete key label stays "Del" where a Spanish keyboard shows
 "Supr"; the damaged-save file name `damaged-save-{n}.txt` was translated and should probably stay as the English file name.
 
+## `ru` is staged too (GH-1406, GH-1407)
+
+Russian, stacked on `es-ES`: `data/locales/ru/missions.json`, `units.json`, `chrome.src.json` and `packages/app/src/i18n/ru.json`. Machine
+translation by Claude, in-house, no paid service, **not proofread by a human**; `ru` is not in `LOCALES`. The Cyrillic faces it needs are the
+lead's option B (Fira Sans for Barlow, Oswald for Big Shoulders Display, Plex Mono's own Cyrillic; PR for the fonts). **Plurals:** every Russian
+plural carries `one`, `few`, `many` and `other` (`other`, for fractions, takes the genitive singular, as `few` does), and
+`tools/validate_chrome_catalogue.mjs` requires that for `ru` and for no other language (`EXTRA_PLURAL_CATEGORIES`): each form must have the
+shape of a branch of the English plural of the same argument. Register: military, terse, formal "вы", infinitive for UI and orders, «ёлочки»,
+em dashes. Latin-script names (KDF, Sarim, the units, the towns) stay in Latin and are never declined: the sentences are rephrased around them.
+**Terminology calls for a proofreader:** Conduct = "Поведение", rules of engagement = "правила применения силы", mission = "задание" (the
+briefing section "Mission" = "Задача"), objective = "цель", tile = "клетка" (a UI build tile = "плитка"), squad = "отделение", team =
+"расчёт" or "группа", Store = "Интендантство", garrison (verb) = "занимать" (a garrisoned building = "занят гарнизоном"), medic = "санитар",
+fire support = "огневая поддержка", suppression = "подавление", Loitering Munition = "барражирующий боеприпас", Charge Squad = "отряд подрыва"
+(mission prose says "charge squad" for the same unit, rendered the same way), satchel charges = "ранцевые заряды",
+the dock bucket "one-way" = "в один конец", civilians lost = "потеряно" / "потеряны" (never "убито"), campaign posture = "режим", the border
+fence = "ограда" (Fence Road and Badlands stay Latin), a D9 "blade" in Bir Tarsha IV = "бульдозер", the unit name "technical" = "Вооружённый пикап" but the loanword is
+kept in Latin in prose, civic hall = "общинный зал", souk = "рынок", Old Town = "Старый город" (Main Street stays Latin), Roar coin = "монета Roar",
+brigade packs Патруль / Рота / Бригада / Дивизия, a counted game unit = "единица" in numbers and "подразделение" elsewhere, intel =
+"разведданные", checkpoint = "КТ" on chips, tiles per second = "кл/с", HP stays "HP", advisor roles = "Советовать" / "Помогать", Desync =
+"рассинхронизация", the dock = "док" in prose and "панель" in places. Check in play: the hostage count words (`world.hostages.n0` to `n20`:
+"Один", "Два"...) have no agreement with the sentence, because the same word starts a sentence and sits mid-sentence; four countdown strings keep
+"s" for seconds where Russian writes "с"; the advisor command strings that took "with N units" were rephrased to avoid inflecting the count.
+
 ## Staged versus shipped: lag is reported, wrong is red (GH-1406)
 
 A language is **shipped** when it is in `LOCALES` (`packages/app/src/i18n/locales.ts`): a player can choose it. Anything with files here and not in `LOCALES` is **staged**.

@@ -138,6 +138,9 @@ importers:
         specifier: workspace:*
         version: link:../packages/sim
     devDependencies:
+      '@electron/fuses':
+        specifier: 2.1.3
+        version: 2.1.3
       '@electron/packager':
         specifier: 20.3.0
         version: 20.3.0(supports-color@10.2.2)
@@ -302,6 +305,11 @@ packages:
 
   '@electron/asar@4.3.2':
     resolution: {integrity: sha512-2nwyO3OgmLgkYQe6TzB8FmyrBKGgmXzSO51ozoG2BpHOLPTPdQpBt/zD0MdPkhQr4UqVgw3u09y4uYxgZKhmtg==}
+    engines: {node: '>=22.12.0'}
+    hasBin: true
+
+  '@electron/fuses@2.1.3':
+    resolution: {integrity: sha512-LoKJUXNiJ4JM8IIrUltSHI+8pkogaGj5wmJx81jE/Wk3g2w1/kfMbTEKNoY5kitGE8hiC12h32R/1SlywFtxXg==}
     engines: {node: '>=22.12.0'}
     hasBin: true
 
@@ -2319,6 +2327,8 @@ snapshots:
     dependencies:
       glob: 14.0.6
       minimatch: 11.0.8
+
+  '@electron/fuses@2.1.3': {}
 
   '@electron/get@5.1.0(supports-color@10.2.2)':
     dependencies:
