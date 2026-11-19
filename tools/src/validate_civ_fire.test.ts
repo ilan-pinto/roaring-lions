@@ -38,6 +38,26 @@ describe('civFireFailures', () => {
     ]);
   });
 
+  // A carrier's passengers spawn on the carrier's side: unchecked, a flagged rider of a `reinforce` carrier passed here
+  // and at load, then threw from `spawnPlacement` when the trigger fired. Mutation: drop the `passengers` walk.
+  it('refuses it on a passenger of a reinforce carrier, a starting-force carrier and a crowd placement; takes an enemy one', () => {
+    const rider = (unit: string, flag: object): object => ({ unit: 'apc_m113', count: 1, at: [2, 2], passengers: [{ unit, count: 1, ...flag }] });
+    const m = {
+      starting_force: [rider('inf_squad', FLAG)],
+      civilians: { groups: [{ unit: 'civilians', count: 1, at: [5, 5], passengers: [{ unit: 'civilians', count: 1, fires_on_civilians: false }] }] },
+      enemy: { garrison: [rider('militia_cell', FLAG)] },
+      triggers: [
+        { id: 'relief', on: { kind: 'timer_s', value: 60 }, do: { kind: 'reinforce', units: [rider('inf_squad', FLAG)] } },
+        { id: 'raid', on: { kind: 'timer_s', value: 60 }, do: { kind: 'spawn', units: [rider('militia_cell', FLAG)] } },
+      ],
+    };
+    expect(civFireFailures(m, 'f.json')).toEqual([
+      'f.json: starting_force apc_m113 passenger inf_squad carries fires_on_civilians, which only an enemy placement takes (GH-1438 E6)',
+      'f.json: civilians.groups civilians passenger civilians carries fires_on_civilians, which only an enemy placement takes (GH-1438 E6)',
+      'f.json: trigger "relief" reinforce apc_m113 passenger inf_squad carries fires_on_civilians, which only an enemy placement takes (GH-1438 E6)',
+    ]);
+  });
+
   it('refuses false too: the field means nothing there, so it may not appear', () => {
     expect(civFireFailures({ civilians: { groups: [{ unit: 'civilians', count: 1, at: [1, 1], fires_on_civilians: false }] } }, 'f.json')).toHaveLength(1);
   });

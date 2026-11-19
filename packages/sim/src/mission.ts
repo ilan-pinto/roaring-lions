@@ -2901,7 +2901,8 @@ export class MissionRuntime {
    *  `free` or `authored`), in spawn order. Not called for a mission with no `start_layout`. */
   start(onLayout?: (placements: readonly StartPlacement[]) => void): void {
     // GH-1438 E6: `fires_on_civilians` is an enemy placement's. On a player or a civilian placement, refuse it here, at
-    // load: a `reinforce` carrying it would otherwise throw from `spawnPlacement` in the middle of the mission.
+    // load: a `reinforce` carrying it would otherwise throw from `spawnPlacement` in the middle of the mission. A
+    // carrier's `passengers` spawn on the carrier's side (`embarkPassengers`), so they are walked too, at any depth.
     const friendly: { where: string; list: readonly PlacementJson[] }[] = [
       { where: 'starting_force', list: this.mission.starting_force ?? [] },
       { where: 'civilians.groups', list: this.mission.civilians?.groups ?? [] },
@@ -2909,13 +2910,15 @@ export class MissionRuntime {
         t.do.kind === 'reinforce' ? [{ where: `trigger "${t.id ?? `trigger_${i}`}" reinforce`, list: t.do.units ?? [] }] : []
       ),
     ];
-    for (const { where, list } of friendly) {
+    const refuseCivFire = (where: string, list: readonly PlacementJson[]): void => {
       for (const p of list) {
         if (p.fires_on_civilians === true) {
           throw new Error(`mission ${this.mission.id}: ${where} ${p.unit} carries fires_on_civilians, which only an enemy placement takes`);
         }
+        if (p.passengers !== undefined) refuseCivFire(`${where} ${p.unit} passenger`, p.passengers);
       }
-    }
+    };
+    for (const { where, list } of friendly) refuseCivFire(where, list);
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
@@ -4094,7 +4097,8 @@ export class MissionRuntime {
     }
 
     // GH-1438 E6: only an enemy placement fires on civilians. `start()` refuses the flag on every player and civilian
-    // placement it can see (the starting force, the crowd, every `reinforce`), so this guard is never reached mid-mission.
+    // placement it can see (the starting force, the crowd, every `reinforce`, and every passenger of any of them), so this
+    // guard is never reached mid-mission.
     if (p.fires_on_civilians === true && side !== 1) {
       throw new Error(`mission ${this.mission.id}: ${p.unit} is a side-${side} placement; only an enemy placement takes fires_on_civilians`);
     }

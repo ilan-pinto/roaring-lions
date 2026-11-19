@@ -1,5 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import type { FormationJson } from './formation-template';
 import { Sim, type SimEvent } from './sim';
 import { encodeSim, internals, restoreSim, SnapshotRefused } from './snapshot';
 import { forkWitness, type ForkVerdict } from './snapshot-witness';
@@ -98,6 +102,39 @@ describe('fires on civilians: who shoots whom', () => {
     let fired = 0;
     for (let t = 0; t < 200; t++) for (const e of sim.tick()) if (e.kind === 'fire') fired++;
     expect(fired).toBe(0);
+  });
+});
+
+// A shot at a civilian is not contact: `fireAt` reports formation contact only for a target of the fighting sides
+// (`side[target] <= 1`), so a flagged cell marching in an Attack formation keeps marching past the crowd it fires on.
+// Mutation: delete the side test from `fireAt`'s `fmPend` call (contacts 0 -> 1).
+describe('fires on civilians: a formation', () => {
+  const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+  const attack = JSON.parse(readFileSync(join(ROOT, 'data', 'formations', 'attack.json'), 'utf8')) as FormationJson;
+
+  it('two flagged cells attack-moving in formation past a civilian fire on him and report no contact', () => {
+    const sim = new Sim({ seed: 0x15, width: 40, height: 12, capacity: 16 });
+    sim.addUnitType(CF_WOUNDED);
+    const cell = sim.addUnitType(CF_CELL);
+    const civType = sim.addUnitType(CF_CIV);
+    sim.addFormationType(attack);
+    const a = sim.spawn(cell, 1, fx.from(4.5), fx.from(5.5));
+    const b = sim.spawn(cell, 1, fx.from(4.5), fx.from(6.5));
+    const civ = sim.spawn(civType, 2, fx.from(12.5), fx.from(5.5));
+    sim.setCivFire(a);
+    sim.setCivFire(b);
+    sim.queueCommand({ kind: 'attackMove', ids: [a, b], x: fx.from(36.5), y: fx.from(6.5), formation: 'attack' });
+    const evs: SimEvent[] = [...sim.tick()];
+    // The order formed a group: without one there is nothing to report contact to, and the 0 below would be vacuous.
+    const fmGroup = internals(sim).fmGroup as Int32Array;
+    expect(internals(sim).fmLive).toBe(true);
+    expect(fmGroup[a]).toBeGreaterThanOrEqual(0);
+    expect(fmGroup[b]).toBe(fmGroup[a]);
+    for (let t = 0; t < 400; t++) evs.push(...sim.tick());
+    const atCiv = evs.filter((e) => e.kind === 'fire' && (e as Fire).target === civ).length;
+    const contacts = evs.filter((e) => e.kind === 'formationContact' || e.kind === 'formationSprung').length;
+    expect(atCiv).toBe(27); // read off the run
+    expect(contacts).toBe(0);
   });
 });
 

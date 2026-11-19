@@ -9206,7 +9206,10 @@ export class Sim {
     this.beamTgt[k] = target;
     this.beamAt[k] = now;
     this.lastFired[shooter] = now; // a beam is a firing signature like any shot
-    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt (its target is chosen by selectTarget: hostile-only)
+    // GH-859 P1b: a beam never reaches fireAt, so it reports its own contact. Its target comes from selectTarget, which is
+    // hostile-only but for GH-1438 E6's flagged side-1 shooter, who may pick a civilian (side 2). Unlike fireAt's, this
+    // call has no side test: a flagged shooter's beam on a civilian would report contact. No shipped beam is flagged.
+    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]);
     this.beamHeat[k]++;
     if (++this.beamDwell[k] >= b.dwellTicks) {
       this.beamDwell[k] = 0;

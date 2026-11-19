@@ -5,7 +5,8 @@
  * A save records the epoch it was made under, and a resume refuses a save from another one. `SNAPSHOT_FORMAT` and the schema digests already
  * refuse a changed STATE TABLE; what they cannot see is a change to sim CODE or TUNING that leaves every column where it was and changes
  * the outcome. That is what the epoch is for: bump `epoch` BY HAND in the commit that deliberately changes sim behaviour, i.e. in the commit that
- * moves a golden pin (`determinism.test.ts`'s pins).
+ * moves a golden pin (`determinism.test.ts`'s pins). A commit that moves the snapshot schema digest, by adding or removing rows that
+ * every world encodes (not rows behind a `when`), bumps the epoch too, pin or no pin, as E1 (PR 1609) and E6 (PR 1652) do.
  *
  * `fingerprint` is a hash of those pins AND of every value `tuning.ts` exports (slice 2 of GH-1393: a tuning edit changes what a match does, and
  * a constant no pin world exercises would otherwise move nothing), and `tools/src/sim_epoch.test.ts` recomputes it from the test file's own text: a pin that moves

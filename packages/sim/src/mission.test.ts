@@ -8020,4 +8020,14 @@ describe('E6: fires_on_civilians on a placement', () => {
       })
     ).toThrow(/trigger "relief" reinforce cf_kdf carries fires_on_civilians/);
   });
+
+  // A passenger spawns on its carrier's side (`embarkPassengers`). Unchecked, a flagged rider of a `reinforce` carrier
+  // loaded clean and threw from `spawnPlacement` when the trigger fired, 60 s in. Mutation: drop the passengers walk.
+  it('refuses the flag on a passenger of a reinforce carrier or a starting-force carrier, at load', () => {
+    const rider = { unit: 'cf_kdf', count: 1, at: [1, 8] as [number, number], passengers: [{ unit: 'cf_kdf', count: 1, fires_on_civilians: true }] };
+    expect(() =>
+      cfWorld({ triggers: [{ id: 'relief', label: 'Relief', on: { kind: 'timer_s', value: 60 }, do: { kind: 'reinforce', units: [rider] } }] })
+    ).toThrow(/trigger "relief" reinforce cf_kdf passenger cf_kdf carries fires_on_civilians/);
+    expect(() => cfWorld({ starting_force: [rider] })).toThrow(/starting_force cf_kdf passenger cf_kdf carries fires_on_civilians/);
+  });
 });
