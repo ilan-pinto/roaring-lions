@@ -7,8 +7,9 @@
 //   node tools/ci/promotion-pr.mjs --base=origin/main --head=origin/dev [--ci=<json>] [--open=<json>] [--repo=owner/name]
 //                                  [--server=https://github.com] --out=<body file>
 //
-//   --ci     {"tip": <workflow run or null>, "latest": <workflow run or null>}: the `ci` run on the dev tip's sha, and the
-//            newest `ci` push run on dev (either may be null). Missing file or flag: the body says the result is unknown.
+//   --ci     {"tip": <workflow run or null>, "latest": <workflow run or null>, "main": <workflow run or null>}: the `ci` run on the dev tip's sha, and the
+//            newest `ci` push run on dev, and (GH-1409) the newest `ci` push run on main (any may be null). Missing file or
+//            flag: the body says the result is unknown.
 //   --open   the JSON array `gh pr list --base main --head dev --state open --json number,title,body` printed.
 //
 // Prints GITHUB_OUTPUT lines on stdout: `action=` create | update | none | empty | foreign, `number=` (update/none/
@@ -162,6 +163,33 @@ export function ciLine(headSha, ci) {
   return `**Latest dev CI:** unknown. No \`ci\` push run on dev was found for \`${short}\` or before it.`;
 }
 
+/** The doc a red main line points to (GH-1409). */
+export const MAIN_GREEN_GUIDE = 'docs/agent-notes/main-green.md';
+
+/**
+ * The "Main CI" line (GH-1409 part c). REPORT-ONLY: a promotion lands on main, so main's own last `ci` run should be
+ * green before it does, and this line says whether it is. It gates nothing (the lead approves the merge, and the line
+ * says so). `main` is the newest `ci` push run on main, whatever its state; only `success` reads as green. A run still
+ * going, a run with no verdict, and a failed read are each said in their own words, never rounded to green.
+ *
+ * @param {{ main?: Run | null } | null} ci
+ * @returns {string}
+ */
+export function mainLine(ci) {
+  const r = ci ? ci.main : null;
+  if (!r) return '**Main CI:** unknown. No `ci` push run on `main` could be read. Check main before merging.';
+  const at = (r.head_sha ?? '').slice(0, 9) || 'an unknown sha';
+  const link = r.html_url ?? '(no run link)';
+  if (r.status !== 'completed') {
+    return `**Main CI:** the newest \`ci\` run on \`main\` is **${r.status ?? 'unknown'}** (not finished) on \`${at}\`: ${link}. Wait for it before merging.`;
+  }
+  if (r.conclusion === 'success') return `**Main CI:** green. The newest \`ci\` run on \`main\` is **success** on \`${at}\`: ${link}`;
+  return (
+    `**Main CI: NOT GREEN.** The newest \`ci\` run on \`main\` is **${r.conclusion ?? 'no conclusion'}** on \`${at}\`: ${link}. ` +
+    `Main is fixed before it moves again (\`${MAIN_GREEN_GUIDE}\`). This line is a report; it does not block the merge.`
+  );
+}
+
 /** The release notes the next release publishes (GH-1622), as it stands on dev. */
 export const NOTES_PATH = 'data/release-notes/next.json';
 /** The drafting guide the notes line points to. */
@@ -285,7 +313,7 @@ export function titleOf(entries) {
  * The PR body. Deterministic in its inputs (no clock), which is what lets "already current" be a string comparison.
  * `notes` is notesLine's output; the CLI always passes it, and a caller that leaves it out gets the body without it.
  *
- * @param {{ entries: readonly Entry[], headSha: string, baseSha: string, ci: { tip?: Run | null, latest?: Run | null } | null,
+ * @param {{ entries: readonly Entry[], headSha: string, baseSha: string, ci: { tip?: Run | null, latest?: Run | null, main?: Run | null } | null,
  *           compareUrl?: string | null, notes?: string | null, limit?: number }} input
  * @returns {string}
  */
@@ -302,6 +330,8 @@ export function renderBody({ entries, headSha, baseSha, ci, compareUrl = null, n
       (compareUrl ? `. Full diff: ${compareUrl}` : '.'),
     '',
     ciLine(headSha, ci),
+    '',
+    mainLine(ci),
     '',
     ...(notes ? [notes, ''] : []),
     '**This PR has no `ci` run of its own.** A PR opened or edited with `GITHUB_TOKEN` starts no workflow (GitHub\'s guard',

@@ -310,3 +310,53 @@ Of the 992 games, those that show the literal 60 s stall reading fall 842 -> 668
 - **As a heuristic over this view it does not pay.** Net -52 wins of 992 (665 -> 613). The loss is concentrated in the mirror rooms against a passive opponent (-31) and in the Sarim economy room against a passive opponent (-8): a group that backs away from a defender's guns gives up its shots and the clock decides (median game 301 s -> 387 s in the mirror vs passive rooms). The KDF economy cell against a rushing Sarim moves the other way (15 -> 23, 13 / 5, p = 0.10, not distinguishable from noise), and the matching Sarim economy cell against the same rush does not (59 -> 55), so "there is something to regroup with" does not explain it: both seats have an economy there.
 - **What the heuristic cannot see** from a `SideView`: the terrain between the group and home, the foe's reach and speed (a group on foot cannot outrun a wheeled foe by walking), whether the contacts are the whole of the foe, and which of its own units are the dangerous ones. Whether a retreat should be a stand at a cover tile, a fall back to a garrison, or nothing, is HOLD FOR LEAD together with any retreat-radius or "how long to regroup" number; none is written here.
 - Three versions are reported because the first was measured, found to loop, and changed, and the second was reviewed and changed; none is tuned to a result. The option stays off.
+
+## 6. Slice 4 of the commander: mass, then commit (GH-1391)
+
+Slices 1 to 3 never decide WHEN the army goes: the march sends what is idle at home at once. Slice 4 adds the timing, **off unless `CommanderOptions.mass` is set**: the probe below says it loses games.
+
+- **Strength.** The sum of `cost x hp` over the seat's able units. The foe's is the largest sum over the contacts in sight at ONE decision, remembered after they leave sight (fog-visible units only; nothing it cannot see is read), and **never less than the seat's own first force** (a matched room: a snapshot of the fog under-counts).
+- **Massing.** Until the seat's strength is strictly greater than the foe's, the units the march would send (idle at home) are held where they stand, and kept from the straggler sweep. A room with no economy and nothing yet seen has nothing to wait for or to learn by waiting, so the seat goes at once, as `rush` does.
+- **Committing.** The first decision its strength is strictly greater, the march runs as before.
+- **Re-planning.** After a lost engagement (the retreat's reading: the units away from home with a contact in reach are worth strictly less than the contacts around them; an exact tie is not a loss) it masses again, unless its strength is still strictly greater than the same foe it commits on: the largest force it has now seen, never below its own first force (PR 1596 re-massed against the seen snapshot alone, so a seat that would not have committed could stay committed; the follow-up uses one floor for both). Units already out are never recalled (that is `retreat`).
+- **Only the idle units AT HOME are held while massing.** A zone share still leaves (task 2 takes its units before the march), and its spare members idle away from home (those not holding the zone) still go forward through the straggler sweep (`sweepStragglers`; `rush` itself sends only what is at home).
+- With it on, the slice 1 guard is off: the army massed at home is the defending group, and a guard that never marches could never add to the edge the seat waits for.
+- No new tuned number; every comparison is whole-number and strict.
+
+### What was measured (the same 992 games; slice 1 is the baseline, the commander with only `mass` added)
+
+| version | wins / losses | games that differ from slice 1 |
+|---|---|---|
+| slice 1 | 665 / 327 | |
+| mass, version 1 (foe = the largest snapshot seen, else its own first force) | 607 / 385 | 157 |
+| **mass, version 2 (foe never below its own first force)** | **616 / 376** | 147 |
+
+Version 2 by group, wins slice 1 -> mass (gained / lost, two-sided sign test on paired seeds, six economy and mirror cells uncorrected):
+
+| group | vs | games | wins | gained / lost | p |
+|---|---|---|---|---|---|
+| mirror | passive | 336 | 234 -> 234 | 0 / 0 | 1.0 |
+| mirror | rush | 336 | 197 -> 193 | 2 / 6 | 0.29 |
+| economy, KDF | passive | 80 | 80 -> 44 | 0 / 36 | < 0.01 |
+| economy, KDF | rush | 80 | 15 -> 12 | 3 / 6 | 0.51 |
+| economy, Sarim | passive | 80 | 80 -> 75 | 0 / 5 | 0.06 |
+| economy, Sarim | rush | 80 | 59 -> 58 | 9 / 10 | 1.0 |
+
+The literal 60 s stall reading falls 842 -> 760 and the idle-unit reading 109 -> 26 (held units are kept, and the seat is not idle while it waits); orders a minute (median) 1.06 -> 1.07.
+
+**Version 3 (the 1596 follow-up: re-mass against the same floor it commits on).** Re-measured on the two headline cells only, the 320 games of `pnpm commander:probe -- --maps=tel_marum,wadi_tarfan,wadi_tarfan_l --baselines=passive --commander=slice4 --seeds=8 --jobs=4` (the 160 games of the two passive economy rows above, plus the 160 mirror-room games of the same three maps). Version 2 reproduces exactly (44 and 75 of 80) before the change. After it, wins version 2 -> 3, gained / lost on paired seeds:
+
+| group | vs | games | wins v2 -> v3 | gained / lost | games that differ | wins slice 1 -> v3 (gained / lost) |
+|---|---|---|---|---|---|---|
+| economy, KDF | passive | 80 | 44 -> 46 | 2 / 0 | 8 | 80 -> 46 (0 / 34) |
+| economy, Sarim | passive | 80 | 75 -> 77 | 3 / 1 | 40 | 80 -> 77 (0 / 3) |
+| mirror (these three maps) | passive | 160 | 111 -> 111 | 0 / 0 | 8 | |
+
+The numbers move, a little and the right way, and the reading does not: every one of the 37 economy games it still loses against a passive foe (41 before) is decided by the clock, with the same median end of 14 units to the foe's 26. A mirror room cannot outgrow its own first force, so there a lost engagement now holds what stands at home for the rest of the game (defend still meets a contact at the camp): 8 of the 160 mirror games play differently and none changes its result. The rush rows and the other four maps were not re-run; the 992-game rows above are version 2's.
+
+### Reading it
+
+- **It changes nothing in the mirror rooms and loses in the economy rooms against a passive foe.** A mirror room has no economy, so the seat commits at once (the same game as slice 1: 845 of 992 games identical). The loss is KDF economy against passive, 80 -> 44, and all 41 of the games it loses against a passive foe in the economy rooms are decided by the clock: slice 1 "wins" there by standing with more units than the foe (a median of 31 to 26, hoarding its guard), while the massing seat commits as soon as it is strictly stronger, attacks a foe that is dug in, and ends with a median of 14 units to the foe's 26, which it never dented. **The clock win of slice 1 is not a plan; the attack is not better.**
+- **Version 1 vs 2.** Version 1 took the foe to be the largest snapshot seen and committed on a few units seen of a matched force; version 2 never lets a snapshot lower the foe below the seat's own first force. It recovered 9 wins and no cell changed sign. Neither is tuned to a result.
+- **What would make it pay is a margin, which is a number.** "Strictly greater" is the only edge a plain comparison gives, and an attacker needs more than a tie-breaker against a defender in cover. The margin, and what counts as strength (cost, hp, speed, reach), are HOLD FOR LEAD together with whether the clock score should reward hoarding.
+- **The ladder (PR 1549's three levels, mirror pairing only) does not move:** the levels stay strictly ordered (gate PASS, worst per-cell inversion 0), pooled computer win rate easy / medium / hard 1.0 / 13.2 / 47.3% against the shipped seat's 1.0 / 14.0 / 47.8%; only rush on medium and hard moves (13.3 -> 11.0, 54.3 -> 52.9). 1773 of 1890 games are identical to the shipped seat.

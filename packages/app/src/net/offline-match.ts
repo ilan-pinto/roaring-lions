@@ -86,9 +86,10 @@ export function offlineConfig(r: OfflineRequest): MatchConfig {
   if (!computerSeatOpen(r.map, r.matchup, r.winMode ?? null)) throw new Error(`offline match: the computer seat is not open on ${r.map} (${r.matchup}, ${r.winMode ?? 'annihilation'})`);
   const factions = factionsOfMatchup(r.matchup);
   const sides = sidesOfFactions(factions);
-  // GH-1389: the level's handicap goes on the COMPUTER seat's `withhold`, and only when it leaves something at home, so a level
+  // GH-1389: the level's handicap goes on the COMPUTER seat's `withhold`, read for the faction THAT seat plays (Kornets when the
+  // computer is Sarim, Lavis when it is KDF: lead ruling, 19 Nov 2026), and only when it leaves something at home, so a level
   // that fields the whole force (and no level at all) mints the very config it always did.
-  const withhold = r.level === undefined ? {} : withholdOf(computerLevelOf(r.level));
+  const withhold = r.level === undefined ? {} : withholdOf(computerLevelOf(r.level), factions[COMPUTER_SEAT]);
   const handicap = Object.keys(withhold).length > 0 ? { withhold } : {};
   const seat = (s: Seat, kind: 'human' | 'bot', name: string) => ({
     seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [],

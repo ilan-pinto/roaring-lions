@@ -12,9 +12,14 @@ import { validateConfig } from '@lions/net';
 import { buildMatchWorld, matchTick } from '../match-world';
 import { runFrames, seatWorldFor } from '../frame-step';
 import { offlineConfig, offlineMatch, COMPUTER_SEAT, HUMAN_SEAT, type OfflineRequest } from '../offline-match';
-import { VERSUS_KDF, versusForceOf } from '../versus-force';
+import { VERSUS_KDF, VERSUS_SARIM, versusForceOf } from '../versus-force';
 
 const REQ: OfflineRequest = { map: 'tel_marum', matchup: 'mirror', callsign: 'Ari', computerName: 'Basic computer', build: 'test+0', seed: 1234 };
+/** The human on KDF, the computer on SARIM: a camp cell the lobby opens (`open-cells.ts`). Lead ruling, 19 Nov 2026: the
+ *  computer's level withholds Kornets here, never Lavis. */
+const REQ_SARIM: OfflineRequest = { map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp', callsign: 'Ari', computerName: 'Basic computer', build: 'test+0', seed: 1234 };
+/** The human on SARIM, the computer on KDF. */
+const REQ_KDF_BOT: OfflineRequest = { ...REQ_SARIM, matchup: 'sarim' };
 
 const typesOn = (w: ReturnType<typeof buildMatchWorld>, side: 0 | 1): string[] => {
   const byIdx = new Map<number, string>();
@@ -38,11 +43,12 @@ describe('absent a level, the computer seat is today\'s, byte for byte', () => {
     expect(versusForceOf('kdf', {})).toBe(VERSUS_KDF);
   });
 
-  it('the config names no withhold, and "hard" (which leaves nothing home) mints the identical config', () => {
-    const none = offlineConfig(REQ);
+  it.each([['mirror', REQ], ['computer on Sarim', REQ_SARIM], ['computer on KDF v a Sarim human', REQ_KDF_BOT]] as const)('the config names no withhold, and "hard" (which leaves nothing home) mints the identical config: %s', (_, req) => {
+    const none = offlineConfig(req);
     expect(none.seats.some((s) => 'withhold' in s)).toBe(false);
-    expect(withholdOf(computerLevelOf('hard'))).toEqual({});
-    expect(JSON.stringify(offlineConfig({ ...REQ, level: 'hard' }))).toBe(JSON.stringify(none));
+    expect(withholdOf(computerLevelOf('hard'), 'kdf')).toEqual({});
+    expect(withholdOf(computerLevelOf('hard'), 'sarim')).toEqual({});
+    expect(JSON.stringify(offlineConfig({ ...req, level: 'hard' }))).toBe(JSON.stringify(none));
   });
 
   it('the world and its play are identical: the same hash at spawn and after the first decisions', () => {
@@ -52,12 +58,20 @@ describe('absent a level, the computer seat is today\'s, byte for byte', () => {
     expect(typesOn(a, 1)).toEqual(VERSUS_KDF.map(([id]) => id));
     expect(playedHash({ ...REQ, level: 'hard' }, 260)).toBe(playedHash(REQ, 260));
   }, 120_000);
+
+  it('the same on the Sarim cell: hard spawns the identical world, the whole Sarim force on the computer side', () => {
+    const ca = offlineConfig(REQ_SARIM);
+    const a = buildMatchWorld(ca);
+    const b = buildMatchWorld(offlineConfig({ ...REQ_SARIM, level: 'hard' }));
+    expect(b.sim.hash()).toBe(a.sim.hash());
+    expect(typesOn(a, ca.seats[COMPUTER_SEAT].side)).toEqual(VERSUS_SARIM.map(([id]) => id));
+  }, 120_000);
 });
 
 describe('at a level, the computer fields its force minus exactly what the level names', () => {
-  it.each(COMPUTER_LEVEL_IDS.filter((id) => Object.keys(withholdOf(computerLevelOf(id))).length > 0))('%s', (id) => {
+  it.each(COMPUTER_LEVEL_IDS.filter((id) => Object.keys(withholdOf(computerLevelOf(id), 'kdf')).length > 0))('%s', (id) => {
     const config = offlineConfig({ ...REQ, level: id });
-    const withhold = withholdOf(computerLevelOf(id));
+    const withhold = withholdOf(computerLevelOf(id), 'kdf');
     expect(config.seats[COMPUTER_SEAT].withhold).toEqual(withhold);
     expect(config.seats[HUMAN_SEAT].withhold).toBeUndefined();
     expect(validateConfig(JSON.parse(JSON.stringify(config)))).not.toBeNull();
@@ -74,6 +88,26 @@ describe('at a level, the computer fields its force minus exactly what the level
     expect(count(typesOn(w, computerSide))).toEqual(want);
     expect(w.bySide[computerSide].length).toBe(VERSUS_KDF.length - Object.values(withhold).reduce((a, b) => a + b, 0));
   });
+
+  // The bot seat reads the withhold of the faction IT plays: Kornets as Sarim, Lavis as KDF, whatever the human plays.
+  it.each([
+    ['easy', 'the computer on Sarim', REQ_SARIM, VERSUS_SARIM, VERSUS_KDF, { atgm_cell: 8 }],
+    ['medium', 'the computer on Sarim', REQ_SARIM, VERSUS_SARIM, VERSUS_KDF, { atgm_cell: 4 }],
+    ['easy', 'the computer on KDF v a Sarim human', REQ_KDF_BOT, VERSUS_KDF, VERSUS_SARIM, { mbt_lavi: 2 }],
+    ['medium', 'the computer on KDF v a Sarim human', REQ_KDF_BOT, VERSUS_KDF, VERSUS_SARIM, { mbt_lavi: 1 }],
+  ] as const)('%s, %s', (id, _, req, botForce, humanForce, want) => {
+    const config = offlineConfig({ ...req, level: id });
+    expect(config.seats[COMPUTER_SEAT].withhold).toEqual(want);
+    expect(config.seats[HUMAN_SEAT].withhold).toBeUndefined();
+    expect(validateConfig(JSON.parse(JSON.stringify(config)))).not.toBeNull();
+    const w = buildMatchWorld(config);
+    expect(typesOn(w, config.seats[HUMAN_SEAT].side)).toEqual(humanForce.map(([u]) => u));
+    const [[unit, n]] = Object.entries(want);
+    const bot = typesOn(w, config.seats[COMPUTER_SEAT].side);
+    expect(bot.length).toBe(botForce.length - n);
+    expect(bot.filter((u) => u === unit).length).toBe(botForce.filter(([u]) => u === unit).length - n);
+    expect(bot).toEqual(versusForceOf(config.seats[COMPUTER_SEAT].faction, want).map(([u]) => u));
+  }, 120_000);
 
   it('withholds the LAST placements of a type and keeps every other placement in order', () => {
     const out = versusForceOf('kdf', { mbt_lavi: 1, inf_squad: 2 });
