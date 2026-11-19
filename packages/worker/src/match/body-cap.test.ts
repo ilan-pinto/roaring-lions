@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, SNAPSHOT_MAX_COMPRESSED_BYTES } from '@lions/net';
 import { handleMatch, MATCH_BODY_MAX_BYTES } from './routes';
 import { signTicket } from './ticket';
-import { KIT_TRACKS } from './kit-tracks';
+import { KIT_BRANCHES, KIT_TRACKS } from './kit-tracks';
 import { STORE_SPECIALS } from './store-specials';
 import { SHIPPED_MAP_IDS } from './map-ids';
 import { MAX_FIELD_CHARS, ROUND_TICKS_RANGE, ROUND_WALL_MS_RANGE } from './room-fields';
@@ -19,12 +19,19 @@ const enc = new TextEncoder();
 const bytes = (v: unknown): number => enc.encode(JSON.stringify(v)).length;
 
 /** The cap's literal and the measurement it was set from (kept in step with routes.ts). */
-const CAP_LITERAL = 3584;
+const CAP_LITERAL = 4096;
 
 /** Every KDF type's every track at its maximum tier, from the real table. */
 function fullTiers(): Record<string, Record<string, number>> {
   const out: Record<string, Record<string, number>> = {};
   for (const [id, tracks] of Object.entries(KIT_TRACKS)) out[id] = { ...tracks };
+  return out;
+}
+
+/** GH-1384: a pick on every branched track, from the real table (2, as wide as 1). Sent beside the full tiers, so every one is kept. */
+function fullPicks(): Record<string, Record<string, 1 | 2>> {
+  const out: Record<string, Record<string, 1 | 2>> = {};
+  for (const [id, tracks] of Object.entries(KIT_BRANCHES)) out[id] = Object.fromEntries(tracks.map((t) => [t, 2 as const]));
   return out;
 }
 
@@ -39,9 +46,11 @@ function legitimateBodies(): { create: object; join: object } {
   const tiers = fullTiers();
   // GH-1102: every Store special owned, from the real table.
   const specials = [...STORE_SPECIALS];
+  // GH-1384: and a branch pick on every branched track (an open build's claim; a closed build sends none).
+  const picks = fullPicks();
   return {
-    create: { player, callsign, map: longestMap, build, mode: 'versus', matchup: 'mirror', kind: 'human', pace, kit: 'brigade', tiers, specials },
-    join: { player, callsign, build, kind: 'human', tiers, specials },
+    create: { player, callsign, map: longestMap, build, mode: 'versus', matchup: 'mirror', kind: 'human', pace, kit: 'brigade', tiers, picks, specials },
+    join: { player, callsign, build, kind: 'human', tiers, picks, specials },
   };
 }
 

@@ -16,7 +16,6 @@
 // undefined` read as a full re-buy, the Lavi's 3750 -> 3960 double-count F5
 // found).
 import { readPath, tierPatch, type BranchPick, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
-import { GARAGE_BRANCH } from '../branch-bridge';
 import { t } from '../i18n/t';
 import { prefersReducedMotion } from './motion';
 import { asPercent, benefitLabel, type BenefitUnitKind } from './upgrade-benefit';
@@ -58,8 +57,8 @@ export function previewDeltas(
   track: string,
   owned: number,
   tier: number,
-  /** The branch a hovered branched rung would buy (`GARAGE_BRANCH` until the fork). */
-  pick: BranchPick = GARAGE_BRANCH
+  /** The branch a hovered fork card would buy (`garage-fork.ts`); absent off the fork. */
+  pick?: BranchPick
 ): ReadonlyMap<string, number> {
   const spec = unit.upgrades?.[track];
   const out = new Map<string, number>();

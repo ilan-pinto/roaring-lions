@@ -74,6 +74,13 @@ export class CivilianFlight {
     return this.evacuatedSet.size;
   }
 
+  /** How many of `ids` got out (E3, a group-scoped evacuation). Latched like `evacuatedCount`; no allocation. */
+  evacuatedCountIn(ids: readonly number[]): number {
+    let n = 0;
+    for (const id of ids) if (this.evacuatedSet.has(id)) n++;
+    return n;
+  }
+
   /** Whether this civilian has already been counted out. */
   hasEvacuated(id: number): boolean {
     return this.evacuatedSet.has(id);
@@ -260,6 +267,10 @@ export class CivilianFlight {
     const st = sim.state;
     for (const civ of civIds) {
       if (this.evacuatedSet.has(civ) || st.alive[civ] === 0) continue;
+      // E3: a mission hands in a GROUP's ids, and a group name is not owned by one side: a soldier whose placement
+      // shares a civilian group's name is never counted out and taken off the map. Every id a caller passed before
+      // E3 was a civilian, so this skips nobody there.
+      if (st.side[civ] !== 2) continue;
       // The same rule livingIn and contestedIn were fixed for: a buried body's
       // coordinates name a tile it is not standing on. Counting one here
       // evacuates a family that never moved, deletes it, and writes the

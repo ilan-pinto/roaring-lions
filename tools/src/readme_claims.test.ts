@@ -37,17 +37,17 @@ const world = json<{ regions: Region[] }>('data/campaign/world.json');
 const missionFiles = readdirSync(join(ROOT, 'data/missions')).filter((f) => f.endsWith('.json'));
 
 describe('README: campaign numbers', () => {
-  it('"three fronts, 38 missions" is the count on the campaign map', () => {
+  it('"three fronts, 39 missions" is the count on the campaign map', () => {
     const onMap = world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions));
     expect(world.regions).toHaveLength(3);
     expect(README).toContain(`three fronts, ${onMap.length} missions`);
   });
-  it('the tutorial is the one mission file outside the map ("the thirty-ninth")', () => {
+  it('the tutorial is the one mission file outside the map ("the fortieth")', () => {
     const onMap = new Set(world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions)));
     const off = missionFiles.map((f) => f.replace(/\.json$/, '')).filter((id) => !onMap.has(id));
     expect(off).toEqual(['beit_sahwan_0_tutorial']);
-    expect(missionFiles).toHaveLength(39);
-    expect(README).toContain('is the thirty-ninth mission file');
+    expect(missionFiles).toHaveLength(40);
+    expect(README).toContain('is the fortieth mission file');
   });
   it('every town count in the front table is the town\'s mission count', () => {
     for (const r of world.regions) for (const t of r.towns) expect(README, t.name).toContain(`${t.name} (${t.missions.length})`);
@@ -85,6 +85,21 @@ describe('README: credits, coins and the unit table', () => {
     const wallet = readFileSync(join(ROOT, 'packages/economy/src/wallet.ts'), 'utf8');
     expect(wallet).toMatch(/export const PURCHASES_OPEN\s*(:\s*boolean\s*)?=\s*false/);
     expect(README).toContain('the real-money coin packs are switched off');
+  });
+  it('says coins buy units (the lead\'s rule of 18 Nov 2026), that a coin-bought unit reaches a match against a person only through a Bring-your-brigade room (the standard kit stays equal), and no longer promises cosmetics only', () => {
+    expect(README).toContain('**coins buy new units**');
+    expect(README).toContain('in a match against another player too');
+    expect(README).not.toMatch(/cosmetics only/i);
+    expect(README).not.toMatch(/pay-to-win/i);
+    // The lead, 18 Nov 2026: the standard kit stays equal, and a coin-bought unit reaches a match against a person only through a "Bring your brigade" room.
+    // A matched (standard) kit room fields NOBODY's owned kit, earned or bought (connect.ts roomClaim returns {}), so "fields only what you earn" is false.
+    expect(README).toContain('through a "Bring your brigade" room');
+    expect(README).toContain('it fields nothing from either brigade');
+    expect(README).not.toMatch(/fields only what you earn/i);
+    const en = JSON.parse(readFileSync(join(ROOT, 'packages/app/src/i18n/en.json'), 'utf8')) as Record<string, string>;
+    expect(en['versus.host.kit'], 'the room option the README names is the one on the host screen').toBe('Bring your brigade');
+    const lede = JSON.parse(readFileSync(join(ROOT, 'packages/app/src/i18n/en.json'), 'utf8'))['stores.lede'] as string;
+    expect(lede, 'the Stores screen still says coins buy what credits buy').toContain('Coins buy what credits buy');
   });
   const units = new Map<string, { id: string; unlock?: { roe_rating_min?: number; stars_min?: number; price?: number } }>();
   for (const f of readdirSync(join(ROOT, 'data/units/kdf'))) {

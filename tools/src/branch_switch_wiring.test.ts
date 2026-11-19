@@ -45,7 +45,8 @@ function callArgs(src: string, name: string): string[][] {
 }
 
 const FILES = sources(join(ROOT, 'packages')).map((f) => ({ file: relative(ROOT, f), src: readFileSync(f, 'utf8') }));
-/** The switch's own module, its readers' modules in data and economy, the resume record and the replay start (`replayStartPicks`). */
+/** The switch's own module, its readers' modules in data and economy, the resume record, the replay start (`replayStartPicks`)
+ *  and the room path's three readers (GH-1384, the net slice). */
 const MAY_NAME_THE_SWITCH = new Set([
   'packages/data/src/branches-open.ts',
   'packages/data/src/upgrades.ts',
@@ -55,9 +56,14 @@ const MAY_NAME_THE_SWITCH = new Set([
   'packages/economy/src/wallet.ts',
   'packages/app/src/mission-resume.ts',
   'packages/app/src/feedback/replay.ts',
+  // GH-1384, the net slice: the room claim (`roomClaim`), the seat world (`seatKitPicksOf`), and the Worker's one read
+  // for the room routes, meta and mint (`picksOpen`).
+  'packages/app/src/net/connect.ts',
+  'packages/app/src/net/match-world.ts',
+  'packages/worker/src/match/room-fields.ts',
 ]);
 /** The most arguments a production call may pass: one fewer than the signature, so `open` is always the default. */
-const MAX_ARGS: Record<string, number> = { applyUpgrades: 3, tierPatch: 2, parseStartInputs: 1, replayStartPicks: 1 };
+const MAX_ARGS: Record<string, number> = { applyUpgrades: 3, tierPatch: 2, parseStartInputs: 1, replayStartPicks: 1, roomClaim: 2, seatKitPicksOf: 3 };
 
 describe('the branch switch reaches production through its default (GH-1384)', () => {
   it('no production call passes `open`', () => {

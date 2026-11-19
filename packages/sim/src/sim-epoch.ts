@@ -15,6 +15,6 @@
  *
  * A constant and a number: no column, no hash, no tuning. The golden hashes do not move.
  */
-export const SIM_EPOCH_RECORD = { epoch: 1, fingerprint: 1875494945 } as const;
+export const SIM_EPOCH_RECORD = { epoch: 2, fingerprint: 3342987182 } as const;
 
 export const SIM_EPOCH: number = SIM_EPOCH_RECORD.epoch;
