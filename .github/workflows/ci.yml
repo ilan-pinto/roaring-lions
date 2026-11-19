@@ -865,7 +865,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      # contents to push the bump and the tag, and to publish the GitHub release (GH-1622). Nothing broader.
+      # contents to push the bump and the tag, to publish the GitHub release (GH-1622) and to push the cut/vX tag
+      # (lead, 19 Nov). Nothing broader.
       contents: write
     steps:
       # The whole history and every tag: the rule reads the range since the
@@ -961,4 +962,22 @@ jobs:
           node tools/ci/release-notes-md.mjs render --version="${NEXT}" --out="$RUNNER_TEMP/release-notes.md"
           cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
           gh release create "v${NEXT}" --verify-tag --title "v${NEXT}" --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      # Lead, 19 Nov 2026: every promotion tags its dev branch cut. The promotion is the PUSHED commit, $GITHUB_SHA (HEAD
+      # is now the release bump on top of it, which has one parent), and the cut is its SECOND parent, the dev commit:
+      # annotated `cut/v<NEXT>`, pushed by name (tools/ci/cut-tag.mjs, tested in tools/src/ci/cut-tag.test.ts). The name
+      # never matches `v*`, so decide_version's `git describe --match 'v*'` never reads it as a release, and this step
+      # never creates, moves or deletes a `v*` tag. It skips with a log line when the pushed commit has no second parent,
+      # when that parent is not on dev, or when the tag already exists here or on origin (never moved). Last, so a
+      # failure here costs the cut tag and nothing else.
+      - name: Tag the promoted dev cut
+        if: steps.decide.outputs.next != ''
+        env:
+          NEXT: ${{ steps.decide.outputs.next }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin dev
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node tools/ci/cut-tag.mjs --release="v${NEXT}" --merge="${GITHUB_SHA}" --dev=origin/dev --remote=origin
 

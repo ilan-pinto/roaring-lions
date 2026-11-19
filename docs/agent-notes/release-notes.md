@@ -106,6 +106,30 @@ place of a Latin "C") is not folded, and there is no script check. The lead's re
 | "The relay split moves match rooms onto a second worker; agents ran a staging migration." | hosting work, worker, agents, migration | (nothing: leave it out) |
 | "Beit Sahwan IV: civilians moved clear of the force, grown to fifteen, with musters." | a design note, with "musters" as jargon | "Beit Sahwan IV: fifteen civilians now gather away from your troops at the start." |
 
+## The cut tag
+
+Every promotion also tags the `dev` commit it promoted (lead, 19 Nov 2026), so "what went out in vX" is one ref:
+`cut/vX.Y.Z`, annotated, on the promotion merge commit's SECOND parent (main is the first parent, the promoted `dev`
+tip the second). The first was made by hand: `cut/v0.135.0` on 7a5434987, promoted by main's merge 599d38012 (PR 1634).
+
+- **The release step makes it.** After the `version` job has pushed `vX.Y.Z` and published the GitHub release, its
+  last step runs `node tools/ci/cut-tag.mjs --release=vX.Y.Z --merge=$GITHUB_SHA --dev=origin/dev --remote=origin`.
+  `$GITHUB_SHA` is the pushed merge commit, named explicitly: by then `HEAD` is the bump commit, which has one parent.
+  No release cut (a docs-only promotion), no cut tag.
+- **It skips, with a log line, never a failure,** when the pushed commit has no second parent, when that parent is not
+  on `origin/dev`, or when `cut/vX.Y.Z` already exists here or on origin. An existing cut tag is never moved, deleted or
+  forced, so a hand-made one wins.
+- **The name never matches `v*`.** `tools/decide_version.mjs` finds the last release with
+  `git describe --tags --match 'v*'`. A cut tag can be the nearest tag to main's tip before vX exists (the hand-made
+  `cut/v0.135.0` sat one commit below the unreleased merge 599d38012): read as a release, it would have made the range
+  the merge commit alone, which `--no-merges` empties, and v0.135.0 would never have been cut. Never rename it into
+  `v*` (`v-cut/...` included), and never make a `v*` tag from this step.
+- **Pinned** in `tools/src/ci/cut-tag.test.ts`: the name, decide_version's real `lastTag` against a scratch repository
+  holding `v0.1.0` and a newer `cut/v0.2.0` (it must answer `v0.1.0`), and the create and skip paths against a scratch
+  repository with a bare `origin`.
+- **By hand**, if the step failed: `git tag -a cut/vX.Y.Z -m "Branch cut for vX.Y.Z" <merge>^2` and
+  `git push origin refs/tags/cut/vX.Y.Z`. What a release took from `dev`: `git log --first-parent cut/vA..cut/vB`.
+
 ## Where it is checked
 
 - Schema: `data/schemas/release_notes.schema.json`. Filter gate and filename rule: `tools/validate_release_notes.mjs`,
@@ -113,3 +137,4 @@ place of a Latin "C") is not folded, and there is no script check. The lead's re
 - The promotion PR line: `notesLine` in `tools/ci/promotion-pr.mjs`, which only counts entries and never quotes them.
 - The release step: the `version` job in `.github/workflows/ci.yml`, with `tools/ci/release-notes-md.mjs` (tested in
   `tools/src/ci/release-notes-md.test.ts`).
+- The cut tag: `tools/ci/cut-tag.mjs`, the `version` job's last step, tested in `tools/src/ci/cut-tag.test.ts`.
