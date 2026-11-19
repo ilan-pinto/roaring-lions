@@ -8669,6 +8669,12 @@ fieldset.rl-versus__maps {
 .rl-versus__win[hidden] {
   display: none;
 }
+/* Versus field works: the host's switch row and the room's line are toggled with `hidden`, and their base classes
+   (.rl-versus__kit, .rl-versus__room-kit) set display: flex, which an author rule wins over the user agent's [hidden]. */
+.rl-versus__works[hidden],
+.rl-versus__room-works[hidden] {
+  display: none;
+}
 .rl-versus__side-reason[hidden],
 .rl-versus__matchup-note[hidden],
 .rl-versus__side-note[hidden] {

@@ -295,6 +295,19 @@ describe('validateCommand: field works requests (GH-277)', () => {
       }
     }
   });
+  it('a field-works room (the lead, 18 Nov 2026): each seat raises and cancels for its OWN side, never the other\'s', () => {
+    const room = { ...world, versus: true, fieldWorks: true };
+    for (const seat of [0, 1] as const) {
+      const own = seat === 0 ? [1] : [11];
+      const theirs = seat === 0 ? [11] : [1];
+      expect(validateCommand({ kind: 'raiseWorks', side: seat, works: 'kdf_outpost', x: 4, y: 4, ids: own }, seat, room)).toBe(true);
+      expect(validateCommand({ kind: 'raiseWorks', side: seat, works: 'kdf_outpost', x: 4, y: 4, ids: [] }, seat, room)).toBe(true);
+      expect(validateCommand({ kind: 'raiseWorks', side: seat, works: 'kdf_outpost', x: 4, y: 4, ids: theirs }, seat, room)).toBe(false);
+      expect(validateCommand({ kind: 'raiseWorks', side: 1 - seat, works: 'kdf_outpost', x: 4, y: 4, ids: [] }, seat, room)).toBe(false);
+      expect(validateCommand({ kind: 'cancelWorks', side: seat, site: 0 }, seat, room)).toBe(true);
+      expect(validateCommand({ kind: 'cancelWorks', side: 1 - seat, site: 0 }, seat, room)).toBe(false);
+    }
+  });
   it('the sim-level construct and cancelConstruct never validate, from any seat', () => {
     expect(validateCommand({ kind: 'construct', ids: [1], structType: 0, x: 4, y: 4 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'cancelConstruct', site: 0 }, 0, world)).toBe(false);

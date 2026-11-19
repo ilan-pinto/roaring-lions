@@ -271,6 +271,36 @@ export interface MatchConfig {
    *  Worker alone, from `FLAG_SETUP_MAPS` and the room's `winMode` -- never from a client value. Strictly `true` or absent
    *  (`validateConfig`); absent is today's flag raid, byte for byte. */
   flagSetup?: true;
+  /** Versus field works (the lead's ruling, 18 Nov 2026: "add it to play with a friend, Annihilation mode option", "KDF vs KDF
+   *  only"): the host opened the room with field works on. Each seat then raises the shipped KDF works from its own purse of
+   *  `FIELD_WORKS_LOGISTICS` (no income), through a works-only runtime (`buildMatchWorld`). Strictly `true` or absent, and
+   *  only in an annihilation room (no `winMode`) of two KDF seats (`validateConfig`, `fieldWorksAllowed`). Absent is today's
+   *  room, byte for byte. Both machines build from the config, so a world built without it differs in the runtime digest
+   *  from tick 0 (`matchDigest`). */
+  fieldWorks?: true;
+}
+
+/** The logistics each seat of a field-works room starts with (the lead's ruling, 18 Nov 2026), whole logistics. No income. */
+export const FIELD_WORKS_LOGISTICS = 1000;
+
+/** Whether a room may carry `fieldWorks`: a versus room, annihilation (no win mode), both seats KDF. The one predicate the
+ *  validator, the Worker's `/create` and the lobby's toggle read. */
+export function fieldWorksAllowed(c: { readonly mode: 'sandbox' | 'versus'; readonly winMode?: WinMode | null; readonly factions: readonly [Faction, Faction] }): boolean {
+  return c.mode === 'versus' && (c.winMode ?? undefined) === undefined && c.factions[0] === 'kdf' && c.factions[1] === 'kdf';
+}
+
+/** Whether a config plays field works: `fieldWorks: true` (which `validateConfig` admits only where `fieldWorksAllowed`). */
+export function fieldWorksRoom(c: Pick<MatchConfig, 'fieldWorks'>): boolean {
+  return c.fieldWorks === true;
+}
+
+/** What `/create` asked for: `true` on, anything else off. A request for it where it is not allowed is refused (the Worker
+ *  answers 400), never quietly dropped, so a host is never shown a room without the works they asked for. */
+export type FieldWorksRequest = { on: boolean; refused?: undefined } | { on?: undefined; refused: string };
+export function fieldWorksRequest(v: unknown, room: { mode: 'sandbox' | 'versus'; matchup: Matchup; winMode?: WinMode }): FieldWorksRequest {
+  if (v !== true) return { on: false };
+  if (!fieldWorksAllowed({ mode: room.mode, winMode: room.winMode, factions: factionsOfMatchup(room.matchup) })) return { refused: 'field works are for an annihilation room, KDF against KDF' };
+  return { on: true };
 }
 
 /** The cadence the room mints, in frame ticks: one a minute at 20 Hz (D2). */
@@ -545,6 +575,11 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (c.winMode !== undefined && (c.mode !== 'versus' || winModeField(c.winMode) === undefined)) return null;
   // GH-976 R0.25: strictly `true`, and only in a flag room. `1`, `'true'` and `false` are refused, not coerced.
   if (c.flagSetup !== undefined && (c.flagSetup !== true || c.winMode !== 'flag')) return null;
+  // Versus field works: strictly `true`, and only in an annihilation room of two KDF seats. `1`, `'true'` and `false` are refused.
+  if (c.fieldWorks !== undefined) {
+    const seats = c.seats as [SeatConfig, SeatConfig];
+    if (c.fieldWorks !== true || !fieldWorksAllowed({ mode: c.mode, winMode: c.winMode as WinMode | undefined, factions: [seats[0].faction, seats[1].faction] })) return null;
+  }
   if (c.snapshotEveryTicks !== undefined) {
     const e = c.snapshotEveryTicks;
     if (!isInt(e) || e < 0 || e > SNAPSHOT_EVERY_TICKS_MAX || (e !== 0 && e % c.hashEveryTicks !== 0)) return null;

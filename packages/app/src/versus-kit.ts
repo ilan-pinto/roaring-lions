@@ -23,6 +23,7 @@ export { buildMatchWorld, matchTick } from './net/match-world';
 export { shippedContentDigest } from './net/content-digest';
 export { SPECTATOR_SHOWN, spectatorSink } from './net/spectator';
 export { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
+export { roomWorksDockRuntime, roomWorksPurse, roomWorksSeat } from './net/room-works';
 export { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
 export { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 export { inboxOf } from './ui/chat-inbox';

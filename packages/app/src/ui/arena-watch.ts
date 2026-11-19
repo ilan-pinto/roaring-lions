@@ -63,7 +63,7 @@ export function showArenaWatch(host: HTMLElement, deps: ArenaWatchDeps): Dispose
     strip.update(stripText({
       phase, n: shownN, of: live?.game.of ?? 0, labels, score: reading?.score ?? null, sides, tick, roundTicks,
       waiting: reading !== null && waitingOnPlayers({ tick, roundTicks, behind: reading.behind, sinceMovedMs: now() - movedAt, over: reading.over }),
-      verdict, view,
+      verdict, view, fieldWorks: reading?.config.fieldWorks === true,
     }));
   };
   const read = (): void => {
