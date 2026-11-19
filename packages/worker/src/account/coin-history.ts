@@ -18,6 +18,7 @@ interface Row {
   track: unknown;
   tier: unknown;
   note: unknown;
+  refund: number;
   moved: number;
 }
 
@@ -46,7 +47,7 @@ function whatOf(r: Row): CoinWhat {
       return { kind: 'unit', unitId: str(r.unit_id, ID_MAX) ?? '', moved: r.moved === 1 };
     case 'tier': {
       const tier = typeof r.tier === 'number' && Number.isInteger(r.tier) && r.tier >= 0 && r.tier <= 99 ? r.tier : 0;
-      return { kind: 'tier', unitId: str(r.unit_id, ID_MAX) ?? '', track: str(r.track, TRACK_MAX) ?? '', tier, moved: r.moved === 1 };
+      return { kind: 'tier', unitId: str(r.unit_id, ID_MAX) ?? '', track: str(r.track, TRACK_MAX) ?? '', tier, moved: r.moved === 1, ...(r.refund === 1 ? { refund: true as const } : {}) };
     }
     case 'coupon':
       return { kind: 'coupon' };
@@ -84,6 +85,7 @@ export async function coins(ctx: AccountCtx): Promise<Response> {
          CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.track') = 'text' THEN json_extract(j.detail, '$.track')     END AS track,
          CASE WHEN json_valid(j.detail) AND json_type(j.detail, '$.tier') = 'integer' THEN json_extract(j.detail, '$.tier')      END AS tier,
          CASE WHEN json_valid(j.detail) AND j.kind = 'admin' AND json_type(j.detail, '$.note') = 'text' THEN json_extract(j.detail, '$.note') END AS note,
+         CASE WHEN json_valid(j.detail) AND j.kind = 'tier' AND json_type(j.detail, '$.refund') = 'true' THEN 1 ELSE 0 END AS refund,
          EXISTS (SELECT 1 FROM coin_journal c
                  WHERE c.member_id = j.member_id AND c.op_id = j.op_id AND c.kind IN ('claim', 'backfill')) AS moved
        FROM coin_journal j
