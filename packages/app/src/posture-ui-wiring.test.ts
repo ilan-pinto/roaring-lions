@@ -33,15 +33,17 @@ describe('the posture UI lazy boundary', () => {
 });
 
 describe('each ruling at its place in main.ts', () => {
-  it('the deploy line: only on a new campaign briefing (never the tutorial or a resumed run), and a change restarts it', () => {
+  it('the deploy line: only on a new campaign briefing (never the tutorial or a resumed run), and a change restarts it with the run’s amendments', () => {
     // The whole block, exactly: the deps are `deployPostureDeps`'s (its `?fresh` guards are unit-tested in
     // `ui/posture-ui.test.ts`), fed the URL's `fresh`, the ledger this boot read, the campaign store and the restart; the line
-    // is mounted under the orders (or in the box), and its disposer is registered where it is made.
+    // is mounted under the orders (or in the box), and its disposer is registered where it is made. The restart carries this
+    // run's amendments (GH-1395 slice 2, the lead's ruling on the review): a posture change keeps the picked set, and
+    // `amendmentsForRun` judges it again on the new posture, so on Easier it drops (`challenge-ui.test.ts`).
     expect(main).toMatch(
       new RegExp(
         [
           String.raw`if \(resumed === null && posture\.showsPosture\(mission\)\) \{`,
-          String.raw`const line = posture\.posturePicker\(posture\.deployPostureDeps\(\{ fresh: params\.get\('fresh'\) !== null, ledger, store: ledgerStore, restart: \(\) => req\.restart\(\) \}\)\);`,
+          String.raw`const line = posture\.posturePicker\(posture\.deployPostureDeps\(\{ fresh: params\.get\('fresh'\) !== null, ledger, store: ledgerStore, restart: \(\) => req\.restart\(\{ amendments: runAmendments \}\) \}\)\);`,
           String.raw`\(stage\.querySelector\('\.rl-loading__orders'\) \?\? stage\.querySelector\('\.rl-loading__box'\)\)\?\.append\(line\.el\);`,
           String.raw`onDispose\(line\.dispose\);`,
         ].join(String.raw`\s*`)
@@ -49,6 +51,9 @@ describe('each ruling at its place in main.ts', () => {
     );
     // `ledger` is the one this boot read: `{}` under `?fresh`, never the store.
     expect(main).toMatch(/const ledger: CampaignLedger = params\.get\('fresh'\) !== null \? \{\} : ledgerStore\.readLedger\(\);/);
+    // No restart in main.ts sheds the run's amendments: every call names them (the posture line, the pause menu's Restart),
+    // and only the amendments panel hands a NEW set.
+    expect(main).not.toMatch(/req\.restart\(\s*\)/);
     // After the briefing exists, so the line has somewhere to go.
     expect(main.search(/posture\.posturePicker\(posture\.deployPostureDeps\(/)).toBeGreaterThan(main.search(/const loading = showLoading\(/));
   });
@@ -57,9 +62,11 @@ describe('each ruling at its place in main.ts', () => {
     // The line hands its `freeze` out where it is made, and the default does nothing (no line: the tutorial, a resumed run).
     expect(main).toMatch(/let freezePostureLine = \(\): void => undefined;\s*if \(resumed === null && posture\.showsPosture\(mission\)\) \{/);
     expect(main).toMatch(/onDispose\(line\.dispose\);\s*freezePostureLine = line\.freeze;\s*\}/);
-    // The very next statement after `loading.done()` settles, before the abort check and before anything else can yield.
+    // Among the statements straight after `loading.done()` settles, before the abort check and before anything else can
+    // yield. The amendments panel's freeze (GH-1395 slice 2) shares that run, in either order: nothing but comments and the
+    // two freeze calls may stand between the catch block and the abort check.
     expect(main).toMatch(
-      /await loading\.done\(\{ keep: introPlanned !== null \}\);\s*\} catch \(err\) \{\s*teardown\(\);\s*throw err;\s*\}\s*(?:\/\/[^\n]*\n\s*)*freezePostureLine\(\);\s*if \(req\.signal\.aborted\) abandon\('left before deploy'\);/
+      /await loading\.done\(\{ keep: introPlanned !== null \}\);\s*\} catch \(err\) \{\s*teardown\(\);\s*throw err;\s*\}\s*(?:(?:\/\/[^\n]*|freezeAmendments\(\);)\s*)*freezePostureLine\(\);\s*(?:(?:\/\/[^\n]*|freezeAmendments\(\);)\s*)*if \(req\.signal\.aborted\) abandon\('left before deploy'\);/
     );
     expect(main.match(/freezePostureLine\(\)/g)?.length).toBe(1);
   });

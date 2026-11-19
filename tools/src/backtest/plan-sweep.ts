@@ -36,7 +36,7 @@ import { POSTURE_SEEDS, SWEEP_SEEDS } from './passive-sweep';
 import type { PostureId } from '@lions/data';
 import { LADDER_VARIANTS, monotoneFailure, postureClockFailures, postureLimit, readingOf, wrongWay, type Rate, type Variant } from './posture-ladder';
 import { challengeMissionIds } from '@lions/data';
-import { challengeLine, tallyChallenge } from './challenge-reading';
+import { challengeLine, challengePlanVerdict, GATED_CHALLENGE_PLANS, isChallengePlan, tallyChallenge } from './challenge-reading';
 
 /** True inside a seed's child process. */
 export const PLAN_CHILD = process.env.PT_PLAN_CHILD === '1';
@@ -240,7 +240,10 @@ export async function drainPlanSweeps(
   if (process.env.PT_PLAN_SWEEP === '0') {
     reportLimitHeadroom([runLog]);
     reportMinWin([runLog], 1);
-    return new Map([[seeds[0], runLog.slice()]]);
+    const only = new Map([[seeds[0], runLog.slice()]]);
+    // GH-1395 slice 2: on the one seed, the challenge plans must still beat their challenge.
+    reportChallengePlans([seeds[0]], only, runLog.filter((r) => r.expect === 'victory').map((r) => r.label));
+    return only;
   }
   if (pending > 0) await new Promise<void>((resolve) => (onIdle = resolve));
   const bySeed = new Map<number, RunRecord[]>([[seeds[0], runLog.slice()]]);
@@ -268,6 +271,7 @@ export async function drainPlanSweeps(
     if (missed.length) console.error(`${label}: FAILED — the plan does not win on every seed`);
   }
   console.log(`plan sweep: ${held} of ${labels.length} winning plans win on all ${seeds.length} seeds`);
+  reportChallengePlans(seeds, bySeed, labels);
   for (const g of gates424242) {
     let open = 0;
     let closed = 0;
@@ -284,9 +288,38 @@ export async function drainPlanSweeps(
   }
   reportLimitHeadroom(bySeed.values());
   reportMinWin(bySeed.values(), seeds.length);
-  reportPostures(seeds, bySeed, labels);
-  reportChallenges(labels);
+  // GH-1395 slice 2: a challenge plan is judged on its challenge's own terms at Standard (above), not on the posture
+  // ladder or the report-only reading, whose children never play it.
+  const plain = labels.filter((l) => !isChallengePlan(l));
+  reportPostures(seeds, bySeed, plain);
+  reportChallenges(plain);
   return bySeed;
+}
+
+/**
+ * GH-1395 slice 2 (C6/C7, design §8), GATED: every challenge plan (`challenge-reading.ts`) must win AND beat its challenge
+ * on every sweep seed. The list is pinned (`GATED_CHALLENGE_PLANS`), so a plan that stops running is a miss on every seed,
+ * never a loop over nothing; a challenge-plan label the list does not name is refused.
+ */
+function reportChallengePlans(seeds: readonly number[], bySeed: ReadonlyMap<number, readonly RunRecord[]>, labels: readonly string[]): void {
+  const found = labels.filter(isChallengePlan);
+  for (const label of found) {
+    if (!GATED_CHALLENGE_PLANS.includes(label)) {
+      console.error(`challenge plan ${label}: FAILED — not in GATED_CHALLENGE_PLANS (challenge-reading.ts)`);
+      process.exitCode = 1;
+    }
+  }
+  let held = 0;
+  for (const label of GATED_CHALLENGE_PLANS) {
+    const v = challengePlanVerdict(seeds.map((seed) => ({ seed, run: bySeed.get(seed)?.find((x) => x.label === label) })));
+    console.log(`${label}: challenge BEATEN on ${v.beaten}/${seeds.length} seeds` + (v.missed.length ? ` -- missed on ${v.missed.join(', ')}` : ''));
+    if (v.beaten === seeds.length) held++;
+    else {
+      console.error(`${label}: FAILED — the challenge plan does not beat its challenge on every seed`);
+      process.exitCode = 1;
+    }
+  }
+  console.log(`challenge plans: ${held} of ${GATED_CHALLENGE_PLANS.length} beat their challenge on all ${seeds.length} seeds`);
 }
 
 /**

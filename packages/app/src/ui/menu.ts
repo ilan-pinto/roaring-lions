@@ -133,6 +133,9 @@ export interface CampaignOptions {
   /** GH-1394 slice 2 (ruling D10): builds the campaign posture chip under the theatre line. Absent, no chip. Its code rides in
    *  the lazy `ui/posture-ui.ts` chunk, so the board hands in a builder, as for `resume`. */
   posture?: () => { el: HTMLElement; dispose(): void };
+  /** GH-1395 slice 2: the challenge mark beside a town's stars, on both boards. Built by the lazy `challenge-board.ts` and
+   *  handed in, so the board itself imports no challenge code; absent, no mark. */
+  townMark?: (townId: string) => HTMLElement | null;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -391,6 +394,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
       missionOf: opts.missionOf,
       portraitUrl: opts.portraitUrl,
       statusHost: nav,
+      townMark: opts.townMark,
     });
   // A world with no GLB in the catalogue has no diorama to draw, and
   // `meshUrl` throws by name for a catalogue entry whose file is gone. Both
@@ -422,6 +426,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
           statusHost: nav,
+          townMark: opts.townMark,
           navigate: opts.navigate,
           signal: opts.signal,
         }).el;

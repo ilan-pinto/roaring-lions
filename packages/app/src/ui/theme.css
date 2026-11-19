@@ -11305,3 +11305,103 @@ fieldset.rl-versus__maps {
   font: var(--t-m) / 1.4 var(--font-body);
   color: var(--ink);
 }
+
+/* GH-1395 slice 2: "Amendments to the orders", under the deploy screen's orders. A disclosure (open while any amendment is
+   on), the three toggles, the challenge it names, and what beating it pays. The challenge's coin mark is the coin colour
+   (`--roar`), because what it pays is coins (design §5.3); no new colour. */
+.rl-amend {
+  margin: var(--s2) 0 0;
+  font: var(--t-s) / var(--lh-body) var(--font-body);
+  color: var(--ink);
+}
+.rl-amend__summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+.rl-amend__head {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-amend__count { color: var(--ink-mute); }
+.rl-amend__rows {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.rl-amend__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s1) var(--s2);
+  text-align: start;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-amend__row[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-amend__row:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-amend__name { font-weight: 600; }
+.rl-amend__need { color: var(--roar); font-size: var(--t-s); }
+.rl-amend__blurb { grid-column: 1 / -1; color: var(--ink-mute); }
+.rl-amend__challenge { margin-top: var(--s2); }
+.rl-amend__challenge p { margin: var(--s1) 0 0; }
+.rl-amend__challenge-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-weight: 600;
+}
+.rl-amend__challenge-blurb,
+.rl-amend__challenge-state { color: var(--ink-mute); }
+.rl-amend__challenge[data-armed='true'] .rl-amend__challenge-state { color: var(--ink); }
+.rl-amend__pays,
+.rl-amend__when {
+  margin: var(--s1) 0 0;
+  color: var(--ink-mute);
+}
+/* The coin mark, one drawing for the panel, the after-action rung and the board: a terracotta disc with a darker edge. */
+.rl-amend__mark,
+.rl-aar__rung-coin,
+.rl-world__challenge::before {
+  display: inline-block;
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: var(--roar);
+  box-shadow: inset 0 0 0 1px var(--roar-deep);
+}
+.rl-amend__challenge[data-armed='false'] .rl-amend__mark { background: transparent; box-shadow: inset 0 0 0 1px var(--roar); }
+/* The after-action's challenge rung: its own row under the three stars (D2: it is not a fourth star). */
+.rl-aar__rung--challenge {
+  grid-column: 1 / -1;
+  align-items: center;
+  border-top: 1px solid var(--panel-rule);
+  border-inline-end: 0;
+}
+.rl-aar__rung--challenge.rl-aar__rung--missed .rl-aar__rung-coin { background: transparent; box-shadow: inset 0 0 0 1px var(--roar); }
+/* The campaign board: "challenge done", beside a town's stars. */
+.rl-world__challenge {
+  color: var(--roar);
+  font-family: var(--font-mono);
+}
+.rl-world__challenge::before {
+  content: '';
+  margin-inline: var(--s1) 2px;
+  vertical-align: -0.05em;
+}

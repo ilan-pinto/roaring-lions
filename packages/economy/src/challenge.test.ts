@@ -80,7 +80,7 @@ describe('the claim: from a device wallet only, once, ORed', () => {
     expect(d.record.missions[PILOT]).toEqual({ won: true, stars: 0, challenge: true });
     expect(challengeDifference(d.record, device).coins).toBe(0);
   });
-  it('a forged flag on every world mission is worth 10 x the index, never 10 x 29', () => {
+  it('a forged flag on every world mission is worth 10 x the index, never 10 x 34', () => {
     const device = flagged(Object.fromEntries(ids.map((id) => [id, { won: true, stars: 3, challenge: true as const }])));
     expect(challengeDifference(none, device).coins).toBe(10 * challengeMissionIds.length);
     expect(challengeMissionIds.length).toBe(6);

@@ -50,6 +50,9 @@ export interface WorldMapOptions {
    *  `showCampaign` hands it the footer, so the status line is never under
    *  the Main Menu button). Absent, it is the board's last child, as before. */
   statusHost?: HTMLElement;
+  /** GH-1395 slice 2: an extra mark beside a town's stars (the challenge mark, built by the lazy `challenge-board.ts`).
+   *  Absent, or null for a town, draws nothing. Never part of the star count. */
+  townMark?: (townId: string) => HTMLElement | null;
 }
 
 /** viewBox the town coordinates in world.json are expressed in. */
@@ -224,6 +227,8 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       if (stars.possible > 0) {
         marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
+      const extra = opts.townMark?.(town.id);
+      if (extra) marker.appendChild(extra);
       board.appendChild(marker);
       townMarkers.push({ id: town.id, el: marker });
     }
