@@ -214,10 +214,17 @@ describe('discardSuspended', () => {
 describe('one reader and writer (design G5)', () => {
   const root = join(__dirname, '..', '..', '..');
   it('only mission-save-store.ts names the key: not main.ts, not a screen, not the campaign slots', () => {
-    const hits = execFileSync('git', ['grep', '--untracked', '-l', '--', 'lions.mission.suspend'], { cwd: root, encoding: 'utf8' })
-      .split('\n').filter((f) => f !== '')
-      // the store, its test, the design note and this note's docs may name it; no other source does
-      .filter((f) => !/(^|\/)(mission-save-store(\.test)?\.ts|[^/]+\.md|[^/]+\.html)$/.test(f));
+    // Scoped to source files, at any depth: a pathspec `*.ts` matches through directories. The unscoped grep also read
+    // every binary a full checkout carries (art/, assets/, docs/: ~6,100 files, ~1.3 GB, against ~3,500 and ~44 MB
+    // here) and took 36.7 s cold on a full checkout (0.10 s scoped, 18 Nov 2026): past the 5 s timeout under load.
+    // .md and .html may name the key, so leaving them out of the scan drops nothing the filter below would keep.
+    const SOURCE = ['*.ts', '*.tsx', '*.mts', '*.cts', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.json', '*.py'];
+    const all = execFileSync('git', ['grep', '--untracked', '-I', '-l', '--', 'lions.mission.suspend', ...SOURCE], { cwd: root, encoding: 'utf8' })
+      .split('\n').filter((f) => f !== '');
+    // Not vacuous: the scan reaches the app's source, where the store itself names the key.
+    expect(all).toContain('packages/app/src/mission-save-store.ts');
+    // the store, its test, the design note and this note's docs may name it; no other source does
+    const hits = all.filter((f) => !/(^|\/)(mission-save-store(\.test)?\.ts|[^/]+\.md|[^/]+\.html)$/.test(f));
     expect(hits).toEqual([]);
     expect(readFileSync(join(__dirname, 'mission-save-store.ts'), 'utf8')).toContain("'lions.mission.suspend'");
   });

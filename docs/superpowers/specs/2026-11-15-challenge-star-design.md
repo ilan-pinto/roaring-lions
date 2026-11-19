@@ -1,5 +1,7 @@
 # Mission amendments and a challenge mark (GH-1395) — design for the lead
 
+> **Superseded in part, 18 Nov 2026:** the lead ruled "I want users to be able to use coins to buy new units. That's the leading rule." (relayed on GH-1378 and GH-1415; it reverses the 16 Nov GH-1378 item 6, "paid coins buy cosmetics only at launch"). §6's reason "coins buy no power" no longer holds; the challenge rules themselves (10 earned coins once, nothing for sale, no amendment or skip purchasable) are unchanged. The current rule is `docs/GDD.md` §9: Roar coins buy units and upgrade tiers as brigade credits do, coins bought with money included once purchases open; credits are still never sold. A second ruling the same day answers where they may be used: "coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is RETIRED" (`docs/HANDOVER.md`, rows G7 and G7-R); its scope is set by a third ruling the same day: "standard-kit rooms stay EQUAL (no owned kit, coins or credits); coin-bought units reach PvP only through 'Bring your brigade' rooms. No code change.". The body below is kept as history.
+
 **Date:** 2026-11-15 · **Status:** **updated 16 Nov 2026 to the lead's rulings on D1 to D13** (the comments on PR 1459: no diamond;
 a beaten challenge pays 10 Roar coins once per account; §10 carries every ruling). Still docs only: no code, no data, no sim
 change. A mock is beside it: `2026-11-15-challenge-star-mock.html` and its screenshot `2026-11-15-challenge-star-mock.png`.
@@ -242,6 +244,19 @@ win**, or "the challenge is harder" holds vacuously.
 force (fewer units, a shorter clock). It must win the challenge on the 30-seed ladder with the house margin (120 s and 20%
 to `time_limit_s`; for Tight clock, to the *scaled* limit, which is exactly why it is bounded by the floor), and the
 passive plan must lose it. `pnpm playtest` fails if a challenge has no winning plan.
+
+**As built, Whole Picture (Beit Sahwan I, GH-1395 slice 2, PR 1568).** The lead ruled that the challenge needs one of
+the mission's two carried secondaries, not both (`carries_all` is gone; the win is `objective_done: "hvt_seen"`). The
+one it names is the ATGM pair, `hvt_seen`, and not the track north, `find_the_column`, because the plain plan with
+the drone taken away already identifies the track on every one of the 30 seeds: requiring the track would leave the
+challenge nothing to beat. The pair is what the challenge's name and blurb promise, and `picture` (six identified
+ENEMIES, whoever they are) ends the mission before the plain plan's screen gets there (0 of 30). Removing `carries: true`
+from a secondary in the mission JSON instead would have changed Beit Sahwan I's ledger and credits for every player, not
+only the challenge's. The gated plan is `wholePicturePlan` (`tools/src/backtest/plans/beit_sahwan.ts`), labelled
+`beit_sahwan_1_recon (challenge whole_picture)`: the Lavi alone, round the south of the map to (37, 29), with the pair
+the fourth and fifth enemies identified. `plan-sweep.ts` requires it to win AND beat the challenge on every sweep seed
+(`GATED_CHALLENGE_PLANS`, `challengePlanVerdict`); with both secondaries required again it misses on 30 of 30. The other
+five pilot challenges have no gated plan yet, and the amended passive control is not yet a separate line.
 
 ## 9. Rollout
 

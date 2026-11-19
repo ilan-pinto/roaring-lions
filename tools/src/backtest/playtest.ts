@@ -39,7 +39,7 @@ import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 import { NINE } from './special-units-probes';
 import { aloneAtMax, judge as judgeTracks, orphanExemptions, trackChecks, tracksOf } from './bought-tracks';
-import { registeredUnits, run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { challengeReadingOn, challengeRun, currentPosture, registeredUnits, run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
 import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
@@ -47,7 +47,8 @@ import { bankedOver, bankingBoundFailure, bankingLine } from './banking';
 import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 import { wadiHalam1Plan, wadiHalam2Plan, wadiHalam3Plan, wadiHalam4Plan, wadiHalam5Plan } from './plans/wadi_halam';
-import { firstLightPlan } from './plans/beit_sahwan';
+import { firstLightPlan, wholePicturePlan } from './plans/beit_sahwan';
+import { challengePlanLabel } from './challenge-reading';
 import { EIN_QASAB_PLANS } from './plans/ein_qasab';
 import { QASR_LIWAN_PLANS } from './plans/qasr_liwan';
 import { BIR_TARSHA_PLANS } from './plans/bir_tarsha';
@@ -210,6 +211,17 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
   at(300, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 18) }));
   at(480, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(27, 20) }));
 }, led0, 'victory', 'beit_sahwan_1_recon', 3);
+
+// GH-1395 slice 2 (C6/C7, design §8): Whole Picture's gated challenge plan. Played with the challenge's amendments on
+// (`challengeRun`: no drone) from First Light's ledger, as the plain plan is, and NOT chained: nothing after reads its
+// ledger, and its label is not the mission id, so `missionStars`, `missionCredits` and both ladders never see it. The
+// 30-seed sweep holds it twice (`plan-sweep.ts`): it must win on every seed, and beat the challenge on every seed. It
+// plays at Standard only: the posture ladder and the report-only challenge children skip it (the challenge is closed on
+// Easier, and the challenge children amend every run already). Falsified 18 Nov by putting `carries_all` back beside
+// `objective_done` (both carried secondaries): the plan never identifies the track, so it missed on 30 of 30 seeds, red.
+if (currentPosture() === 'standard' && !challengeReadingOn()) {
+  challengeRun(() => run('beit_sahwan_1_recon', wholePicturePlan, led0, 'victory', challengePlanLabel('beit_sahwan_1_recon', 'whole_picture'), 2));
+}
 
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
 // GH-382 moved it onto beit_sahwan_2 (the western terraces): the plan is unchanged -- the whole force
@@ -740,9 +752,46 @@ const bs4Plan: Plan = (sim, rt, ids, at) => {
   // east, and an infantry squad on its own in that fight dies (seed 1).
   at(28, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 27) }));
 
-  // The Namer peels off at once to the collection point, banking the two southern civilians inside
-  // twenty seconds and staying out of every ambush for the rest of the mission.
-  at(1, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(29, 33) }));
+  // Nobody is banked for free any more (GH-1438, the civilian drama). The nine residents stand at four
+  // musters from t = 2 s (the `withdraw_to` triggers), every one 4.5 tiles or more from the start line,
+  // and only a ground soldier within 4 tiles walks them out. Four shepherds, one per quarter:
+  //   - clinic (2, muster (36, 35)): the Namer peels off at once to the open ground east of the yard,
+  //     (32.5, 35.5), three and a half tiles from them. They board it and it carries them the four tiles
+  //     back to the collection point, where it stays, out of every ambush, for the rest of the mission;
+  //   - yard (2, muster (12, 39)): the medic team, below;
+  //   - souk (3, muster (10, 21)): the westmost rifle squad, below;
+  //   - market (2, muster (24, 20)): nobody is sent. The two Yahalom teams and the infantry gather at
+  //     the crossroads (28, 22) for the pit at about 60 s, which is within 4 tiles of them.
+  // The pair on the quarry floor and the four beside Sahim are shepherded by the pit assault as before.
+  at(1, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(32.5, 35.5) }));
+  at(16, () => sim.queueCommand({ kind: 'move', ids: rescueVehicle, ...M(29, 33) }));
+
+  // The medic team is the yard's shepherd: south-west, away from every garrison, to (14.5, 39.5), three
+  // tiles from the two people at (12, 39.5). They walk themselves back to the collection point.
+  const medics = ids('inf_medic_squad');
+  at(3, () => sim.queueCommand({ kind: 'move', ids: medics, ...M(14.5, 39.5) }));
+  at(35, () => sim.queueCommand({ kind: 'move', ids: medics, ...M(26, 36) }));
+
+  // The westmost rifle squad shepherds the souk, but only once the lane head is quiet (the charge squad
+  // and the rocket team sit on it): it goes along the main road to (12.5, 22.5) and is pulled back to the
+  // crossroads the moment it is within 3 tiles of the families' centre (10.5, 21.5), when the whole
+  // column of three stands within 4 of it. The house garrison is 8 tiles off there. Measured: the
+  // south-west way round, past the house, shoots the squad to a rout before it has moved, and standing
+  // at (15, 23.5) cost it 330 of its 386 hp.
+  const souk = inf.slice(2);
+  at(30, () => sim.queueCommand({ kind: 'move', ids: souk, ...M(12.5, 22.5) }));
+  let soukDone = false;
+  for (let sec = 31; sec <= 100; sec++)
+    at(sec, () => {
+      if (soukDone) return;
+      const lead = souk.find((i) => sim.state.alive[i] === 1);
+      if (lead === undefined) return;
+      const dx = fx.toNumber(sim.state.posX[lead]) - 10.5;
+      const dy = fx.toNumber(sim.state.posY[lead]) - 21.5;
+      if (dx * dx + dy * dy > 3 * 3) return;
+      soukDone = true;
+      sim.queueCommand({ kind: 'move', ids: souk, ...M(28, 22) });
+    });
 
   // The drone scouts toward the pit from a stand-off outside any occupant's weapon range.
   at(2, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 20) }));
@@ -4338,6 +4387,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 184, II 232, III 312, IV 248, V 256 intel on seed 424242). The one short plan is still `beit_sahwan_2_foothold`, so "49 of 50".
 // Bir Tarsha's four winning plans each earn a sweep (GH-1438): 49 -> 53 of 54 winning plans. Was 49.
 // Bir Tarsha IV's plan earns one too (240 intel on seed 424242): 53 -> 54 of 55. Was 53.
+// 2026-11-18, GH-1395 slice 2: unchanged at 54, now "54 of 56". Whole Picture's challenge plan (`beit_sahwan_1_recon (challenge whole_picture)`)
+// is a winning run that earns no sweep (128 intel on 424242): it wins in 95 s, at the sixth enemy identified, with no drone. It is the
+// second short plan, beside `beit_sahwan_2_foothold` (112).
 const INTEL_WINNERS_ONE_SWEEP = 54;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own

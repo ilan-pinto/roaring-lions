@@ -183,11 +183,11 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Unterirdisch",
-    "briefing": "Die Stadt gehört uns, und das Feuer hat nicht aufgehört. Schüsse kommen aus leerem Gelände, die Schützen sind weg, bevor das Echo kommt, und der Grund liegt unter deinen Füßen. Nadir Sahim hat diesen Bezirk untergraben, Jahre bevor wir ihn erreichten, und er hat ihn nicht verlassen. Er hält den Nordschachtkopf auf dem Boden des alten Kalksteinbruchs, mit vier Menschen neben sich, die seit dem ersten Morgen außer Reichweite sind. Der Sammelpunkt liegt drei Felder von deiner Startlinie entfernt, und sie zählen, sobald sie ihn erreichen. Vier Minuten für die Menschen und fünf für die Routen; die zweite Uhr wartet nicht auf die erste. Idit hat vier Routen unter der Stadt, und eine wird gerade wieder geöffnet: Aushub schiebt sich westlich entlang der Hauptstraße. Schutt hält den Namer und den Eitan überall außer auf der Hauptstraße auf, das Geröll an der Südseite des Steinbruchs ist nur zu Fuß passierbar, und die Förderrampe in seiner Ostwand ist der einzige Zugang für Radfahrzeuge. Die Grube kann nicht über ihren eigenen Rand sehen, du aber hinein. Aufgeworfene Erde kann jeder Soldat lesen. Ein Raketentrupp steht über den Vieren; die Kanone des Namer antwortet darauf und kostet dich den Einsatz. Nichts Schweres innerhalb von zwei Feldern um sie. Nur die Drohne oder die Pioniere können dir sagen, wohin die anderen drei laufen, und nur solange jemand hinsieht. Yahalom muss im Freien neben einer Route stillstehen, um die Ladung zu setzen, ob sie leben, ist also eine Entscheidung, die du mit allem anderen triffst, was du hast. Hol die Menschen heraus, nimm den Boden, auf dem er steht, und bring dann alle vier zum Einsturz.",
+    "briefing": "Die Stadt gehört uns, und das Feuer hat nicht aufgehört. Schüsse kommen aus leerem Gelände, die Schützen sind weg, bevor das Echo kommt, und der Grund liegt unter deinen Füßen. Nadir Sahim hat diesen Bezirk untergraben, Jahre bevor wir ihn erreichten, und er hat ihn nicht verlassen. Er hält den Nordschachtkopf auf dem Boden des alten Kalksteinbruchs, mit vier Menschen neben sich, die seit dem ersten Morgen außer Reichweite sind. Fünfzehn Menschen sind noch im Bezirk. Vier sind bei ihm, zwei weitere stehen auf dem Boden des Steinbruchs, und neun harren in den Südhöfen, im Souk, im Marktviertel und im Klinikviertel aus; diese neun bleiben, wo sie sind, bis ein Soldat nahe genug kommt, um sie hinauszuführen. Neun am Sammelpunkt innerhalb von vier Minuten, zwölf, wenn du kannst, die vier bei Sahim, wenn du sie erreichst, und wer bei Ablauf der Zeit noch auf den Straßen ist, wird weggebracht. Der Sammelpunkt liegt drei Felder von deiner Startlinie entfernt, und sie zählen, sobald sie ihn erreichen. Fünf Minuten für die Routen; die zweite Uhr wartet nicht auf die erste. Idit hat vier Routen unter der Stadt, und eine wird gerade wieder geöffnet: Aushub schiebt sich westlich entlang der Hauptstraße. Schutt hält den Namer und den Eitan überall außer auf der Hauptstraße auf, das Geröll an der Südseite des Steinbruchs ist nur zu Fuß passierbar, und die Förderrampe in seiner Ostwand ist der einzige Zugang für Radfahrzeuge. Die Grube kann nicht über ihren eigenen Rand sehen, du aber hinein. Aufgeworfene Erde kann jeder Soldat lesen. Ein Raketentrupp und ein Ladungstrupp stehen an der Gasse, durch die die Marktleute kommen müssen, eine Schützenzelle hält den Souk, und was auf deine Trupps abgefeuert wird, schlägt dort ein, wo die Menschen stehen. Ein Raketentrupp steht über den Vieren; die Kanone des Namer antwortet darauf und kostet dich den Einsatz. Nichts Schweres innerhalb von zwei Feldern um sie. Nur die Drohne oder die Pioniere können dir sagen, wohin die anderen drei laufen, und nur solange jemand hinsieht. Yahalom muss im Freien neben einer Route stillstehen, um die Ladung zu setzen, ob sie leben, ist also eine Entscheidung, die du mit allem anderen triffst, was du hast. Hol die Menschen heraus, nimm den Boden, auf dem er steht, und bring dann alle vier zum Einsturz.",
     "sections": {
       "situation": "Die Stadt gehört uns, und das Feuer hat nicht aufgehört. Schüsse kommen aus leerem Gelände, die Schützen sind weg, bevor das Echo kommt, und der Grund liegt unter deinen Füßen. Nadir Sahim hat diesen Bezirk untergraben, Jahre bevor wir ihn erreichten, und er hat ihn nicht verlassen. Er hält den Nordschachtkopf auf dem Boden des alten Kalksteinbruchs, mit vier Menschen neben sich, die seit dem ersten Morgen außer Reichweite sind.",
-      "mission": "Der Sammelpunkt liegt drei Felder von deiner Startlinie entfernt, und sie zählen, sobald sie ihn erreichen. Vier Minuten für die Menschen und fünf für die Routen; die zweite Uhr wartet nicht auf die erste.",
-      "execution": "Idit hat vier Routen unter der Stadt, und eine wird gerade wieder geöffnet: Aushub schiebt sich westlich entlang der Hauptstraße. Schutt hält den Namer und den Eitan überall außer auf der Hauptstraße auf, das Geröll an der Südseite des Steinbruchs ist nur zu Fuß passierbar, und die Förderrampe in seiner Ostwand ist der einzige Zugang für Radfahrzeuge. Die Grube kann nicht über ihren eigenen Rand sehen, du aber hinein. Aufgeworfene Erde kann jeder Soldat lesen. Ein Raketentrupp steht über den Vieren; die Kanone des Namer antwortet darauf und kostet dich den Einsatz. Nichts Schweres innerhalb von zwei Feldern um sie. Nur die Drohne oder die Pioniere können dir sagen, wohin die anderen drei laufen, und nur solange jemand hinsieht. Yahalom muss im Freien neben einer Route stillstehen, um die Ladung zu setzen, ob sie leben, ist also eine Entscheidung, die du mit allem anderen triffst, was du hast.",
+      "mission": "Fünfzehn Menschen sind noch im Bezirk. Vier sind bei ihm, zwei weitere stehen auf dem Boden des Steinbruchs, und neun harren in den Südhöfen, im Souk, im Marktviertel und im Klinikviertel aus; diese neun bleiben, wo sie sind, bis ein Soldat nahe genug kommt, um sie hinauszuführen. Neun am Sammelpunkt innerhalb von vier Minuten, zwölf, wenn du kannst, die vier bei Sahim, wenn du sie erreichst, und wer bei Ablauf der Zeit noch auf den Straßen ist, wird weggebracht. Der Sammelpunkt liegt drei Felder von deiner Startlinie entfernt, und sie zählen, sobald sie ihn erreichen. Fünf Minuten für die Routen; die zweite Uhr wartet nicht auf die erste.",
+      "execution": "Idit hat vier Routen unter der Stadt, und eine wird gerade wieder geöffnet: Aushub schiebt sich westlich entlang der Hauptstraße. Schutt hält den Namer und den Eitan überall außer auf der Hauptstraße auf, das Geröll an der Südseite des Steinbruchs ist nur zu Fuß passierbar, und die Förderrampe in seiner Ostwand ist der einzige Zugang für Radfahrzeuge. Die Grube kann nicht über ihren eigenen Rand sehen, du aber hinein. Aufgeworfene Erde kann jeder Soldat lesen. Ein Raketentrupp und ein Ladungstrupp stehen an der Gasse, durch die die Marktleute kommen müssen, eine Schützenzelle hält den Souk, und was auf deine Trupps abgefeuert wird, schlägt dort ein, wo die Menschen stehen. Ein Raketentrupp steht über den Vieren; die Kanone des Namer antwortet darauf und kostet dich den Einsatz. Nichts Schweres innerhalb von zwei Feldern um sie. Nur die Drohne oder die Pioniere können dir sagen, wohin die anderen drei laufen, und nur solange jemand hinsieht. Yahalom muss im Freien neben einer Route stillstehen, um die Ladung zu setzen, ob sie leben, ist also eine Entscheidung, die du mit allem anderen triffst, was du hast.",
       "notes": "Hol die Menschen heraus, nimm den Boden, auf dem er steht, und bring dann alle vier zum Einsturz."
     },
     "aftermath": "Vier Routen unter Beit Sahwan, und der Mann, der sie grub, kam mit leeren Händen aus der letzten heraus. Die Brigade nahm die Akte und sagte nichts weiter dazu. Der Perimeter gehört uns. Die Enklave nicht.",
@@ -199,28 +199,42 @@
     "objectives": {
       "bring_it_down": "Jede Route unter dem Bezirk zum Einsturz bringen",
       "read_the_ground": "Die Mannschaft finden, die Sahims Westroute wieder öffnet",
-      "get_them_out": "Fünf Menschen zum Sammelpunkt bringen, bevor die Routen fallen",
+      "get_them_out": "Neun Menschen binnen vier Minuten zum Sammelpunkt bringen",
       "take_the_shaft_head": "Den Schachtkopf halten, bis Sahim draußen ist",
-      "find_spade": "Nadir Sahim am Schachtkopf finden"
+      "find_spade": "Nadir Sahim am Schachtkopf finden",
+      "most_of_them": "Zwölf der fünfzehn binnen vier Minuten zum Sammelpunkt bringen",
+      "bring_back_the_four": "Die vier am Schachtkopf Festgehaltenen zum Sammelpunkt bringen"
     },
     "objective_say": {
       "read_the_ground": "Das ist die Mannschaft an der Westroute. Er hält seine Gräber nah an der Arbeit, und so haben wir ihn gefunden.",
-      "get_them_out": "Fünf am Sammelpunkt. Zum ersten Mal gibt dieser Bezirk jemanden zurück.",
-      "take_the_shaft_head": "Der Schachtkopf gehört dir, und er steht auf der falschen Seite davon. Vier Jahre gegraben, und jetzt ist er über der Erde."
+      "get_them_out": "Neun am Sammelpunkt. Zum ersten Mal gibt dieser Bezirk jemanden zurück.",
+      "take_the_shaft_head": "Der Schachtkopf gehört dir, und er steht auf der falschen Seite davon. Vier Jahre gegraben, und jetzt ist er über der Erde.",
+      "most_of_them": "Zwölf am Sammelpunkt. Halte die Gasse offen für jeden, der noch kommt.",
+      "bring_back_the_four": "Die vier vom Schachtkopf sind am Sammelpunkt. Alle vier."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Die Zeit ist um, und unter dieser Stadt liegt noch Boden, der nicht uns gehört.",
-      "get_them_out": "Die Zeit für die Menschen ist um. Nichts unter dieser Stadt ist das wert, was wir gerade nicht getan haben."
+      "get_them_out": "Die Zeit für die Menschen ist um. Nichts unter dieser Stadt ist das wert, was wir gerade nicht getan haben.",
+      "most_of_them": "Die Zeit für die Zwölf ist um. Wer noch auf den Straßen ist, wird weggebracht, und diese Zahl ist der Preis."
+    },
+    "triggers": {
+      "yard_families_shelter": "Hoffamilien bleiben im Hof",
+      "souk_families_shelter": "Souk-Familien weichen in die Westgasse zurück",
+      "market_families_shelter": "Marktfamilien bleiben in der Gasse",
+      "clinic_families_shelter": "Klinikfamilien weichen in den Schutt zurück"
+    },
+    "trigger_say": {
+      "the_streets_are_cleared": "Die Zeit ist um. Wer noch auf den Straßen ist, wurde über seine Linie gebracht."
     },
     "wave_say": {
       "1": "Das Letzte, was die Mörserlinie schicken kann. Danach setzt er die ein, die unter der Erde sind."
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "8ce1b9df",
+      "briefing": "2b6d54c3",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
-      "objectives.get_them_out": "132b3d66",
+      "objectives.get_them_out": "4ce3c7c6",
       "objectives.take_the_shaft_head": "a7d2e8b7",
       "objectives.find_spade": "da8ec255",
       "aftermath": "f882c5da",
@@ -228,15 +242,25 @@
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "3f2accd6",
-      "sections.execution": "d5a8f0e2",
+      "sections.mission": "09bb6a00",
+      "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
-      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.get_them_out": "d2fd78e3",
       "objective_say.take_the_shaft_head": "72ea9cfa",
       "objective_say_on_fail.bring_it_down": "68b7b2f2",
       "objective_say_on_fail.get_them_out": "232994e9",
-      "wave_say.1": "c220fa50"
+      "wave_say.1": "c220fa50",
+      "objectives.most_of_them": "053aa740",
+      "objective_say.most_of_them": "6ec2fd04",
+      "objective_say_on_fail.most_of_them": "9fa99b11",
+      "trigger_say.the_streets_are_cleared": "ca259384",
+      "triggers.yard_families_shelter": "dd03b9f1",
+      "triggers.souk_families_shelter": "6c21d359",
+      "triggers.market_families_shelter": "a5940c9f",
+      "triggers.clinic_families_shelter": "8a8ab1c5",
+      "objectives.bring_back_the_four": "235dacf1",
+      "objective_say.bring_back_the_four": "0ce0f960"
     }
   },
   "beit_sahwan_breach": {
@@ -565,7 +589,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Toter Raum",
-    "briefing": "Der Hof in dieser Senke ist der Sammelplatz der Winterstraße, und seine Drohnenkisten warten in der Scheune darauf, dass der Regen aufhört. Die Kämme beiderseits stehen vier Stufen darüber, und nichts von den Nordhügeln ist zu sehen, bis es sie erklimmt. Halte die Senke fünf Minuten und brenne die Scheune in denselben fünf nieder. Die Ladungen der Pioniere sind sauber und unter Feuer langsam; Mörser und Namer sind schnell, und jede Granate nahe dem Hof wird angerechnet. Im Hof zwischen Haus und Scheune ist eine Familie, zwei Felder von der Zelle darin. Im Nordsattel steht ein Lkw, und heute identifiziert ist er ein bekanntes Geschütz über dem Dammkopf, kein erster Schuss. Der Nachschub reicht für einen Außenposten. Gräbst du ihn in die Senke, sieht er nichts; stellst du ihn auf den Kamm, sieht er sie kommen, von außerhalb des Bodens, den du halten musst. Jedes Rad aus dem Osten kommt durch eine zwei Felder breite Lücke im Deich. Von Norden ist es der Sattel für Räder und der Kamm für Fußvolk. Die Scheune ist der Auftrag; Haus und Familie daneben gehen in die Wertung.",
+    "briefing": "Der Hof in dieser Senke ist der Sammelplatz der Winterstraße, und seine Drohnenkisten warten in der Scheune darauf, dass der Regen aufhört. Die Kämme beiderseits stehen vier Stufen darüber, und nichts von den Nordhügeln ist zu sehen, bis es sie erklimmt. Halte die Senke fünf Minuten und brenne die Scheune in denselben fünf nieder. Die Ladungen der Pioniere sind sauber und unter Feuer langsam; Mörser und Namer sind schnell, und jede Granate nahe dem Hof wird angerechnet. Im Hof zwischen Haus und Scheune ist eine Familie, zwei Felder von der Zelle darin. Im Nordsattel steht ein Lkw, und heute identifiziert ist er ein bekanntes Geschütz über dem Dammkopf, kein erster Schuss. Der Nachschub reicht für einen Außenposten. Gräbst du ihn in die Senke, sieht er nichts; stellst du ihn auf den Kamm, sieht er sie kommen, von außerhalb des Bodens, den du halten musst. Jedes Rad aus dem Osten kommt durch eine zwei Felder breite Lücke im Basaltrücken. Von Norden ist es der Sattel für Räder und der Kamm für Fußvolk. Die Scheune ist der Auftrag; Haus und Familie daneben gehen in die Wertung.",
     "debrief": {
       "victory": "Der Hof gehört uns, und die Scheune ist Asche. Was nun über diese Kämme kommt, kommt in uns hinab, und wir sehen es zuerst am Horizont.",
       "defeat": "Wir sind vom Hof herunter, und sie sind zurück in der Senke. Vom Kamm aus sieht man nicht, was sie hineinschaffen."
@@ -585,11 +609,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "Sattel-Lkw kommt zum Hof herunter",
-      "riders_come_through_the_dyke_gap": "Fahrer kommen durch die Deichlücke"
+      "riders_come_through_the_dyke_gap": "Fahrer kommen durch die Lücke im Basaltrücken"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "Der Lkw im Sattel ist auf dem Nordpfad Richtung Hof losgefahren. Soll er auf diesem Boden identifiziert werden, dann jetzt.",
-      "riders_come_through_the_dyke_gap": "Fahrer durch die Deichlücke, einzeln, denn so breit ist sie. Sie ist die einzige Tür auf dieser Seite."
+      "riders_come_through_the_dyke_gap": "Fahrer durch die Lücke im Basaltrücken, einzeln, denn so breit ist sie. Sie ist die einzige Tür auf dieser Seite."
     },
     "wave_say": {
       "1": "Zwei Zellen gehen zu Fuß über den Nordkamm. Vom Hof aus sind sie erst da, wenn sie am Horizont stehen.",
@@ -597,12 +621,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -610,7 +634,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }

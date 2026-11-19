@@ -10,6 +10,7 @@
     "playtest": "tsx src/backtest/playtest.ts",
     "fw:probes": "tsx src/backtest/field-works-probes.ts",
     "versus:probe": "tsx src/backtest/versus-probe.ts",
+    "computer:ladder": "tsx src/backtest/computer-ladder.ts",
     "commander:probe": "tsx src/backtest/commander-probe.ts",
     "s4:gate": "tsx src/backtest/s4-gate.ts",
     "formations:probe": "tsx src/backtest/formation-probes.ts",
@@ -114,10 +115,10 @@
     "jpeg-js": "0.4.4",
     "meshoptimizer": "1.1.1",
     "pixelmatch": "^7.2.0",
-    "playwright": "^1.65.0",
+    "playwright": "^1.65.1",
     "pngjs": "^7.0.0",
     "tsx": "^4.23.15",
-    "ws": "8.22.1",
+    "ws": "8.23.0",
     "zod": "4.6.7"
   }
 }

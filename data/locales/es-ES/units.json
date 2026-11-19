@@ -70,9 +70,9 @@
     }
   },
   "charge_squad": {
-    "name": "Escuadra suicida",
+    "name": "Escuadra de cargas",
     "src": {
-      "name": "3d951ba5"
+      "name": "26a92c0f"
     }
   },
   "civilians": {

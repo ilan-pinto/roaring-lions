@@ -13,6 +13,8 @@
 //   data/tutorial/** against data/schemas/tutorial.schema.json
 //   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
 //                    menu and budget rules in tools/validate_doctrine.mjs
+//   data/computer/levels.json against data/schemas/computer_levels.schema.json (GH-1389), plus the
+//                    order, unit and no-boost rules in tools/validate_computer_levels.mjs
 //   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
 //                    anchor rules in tools/validate_versus_modes.mjs
 //   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
@@ -48,6 +50,7 @@ import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
+import { computerLevelFailures } from './validate_computer_levels.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
@@ -57,6 +60,7 @@ import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
+import { gateFailures } from './validate_gate.mjs';
 import {
   buildableOwnerFailures,
   fieldWorksCarrierReport,
@@ -211,6 +215,7 @@ const schemas = {
   avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
   difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
+  computerLevels: loadJson(join(ROOT, 'data/schemas/computer_levels.schema.json')),
   amendments: loadJson(join(ROOT, 'data/schemas/amendments.schema.json')),
   challenge: loadJson(join(ROOT, 'data/schemas/challenge.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
@@ -226,7 +231,7 @@ const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -251,6 +256,7 @@ if (
     avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
     difficulty: ajv.compile(schemas.difficulty),
+    computerLevels: ajv.compile(schemas.computerLevels),
     amendments: ajv.compile(schemas.amendments),
     challenge: ajv.compile(schemas.challenge),
     arenaResults: ajv.compile(schemas.arenaResults),
@@ -286,6 +292,7 @@ if (
   checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
   checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
+  checked += validateFile(join(ROOT, 'data/computer/levels.json'), validators.computerLevels, 'computer_levels.schema');
   // GH-1395: the amendment library, and the per-mission challenge files beside it.
   checked += validateFile(join(ROOT, 'data/challenges/amendments.json'), validators.amendments, 'amendments.schema');
   checked += validateDir(join(ROOT, 'data/challenges'), validators.challenge, 'challenge.schema', [], ['amendments.json']);
@@ -1395,6 +1402,9 @@ const garrisonableSymbols = new Set(
   }
   const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...doctrineFailures(doctrines, doctrineUnits));
+  // GH-1389: the computer levels -- KDF units, strictly ordered by the force they field, no income or vision key.
+  const levelsFile = join(ROOT, 'data/computer/levels.json');
+  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits));
 }
 
 // --- versus rules files (N3 Task 1) -------------------------------------------
@@ -1514,6 +1524,20 @@ failures.push(
     structureCatalogue,
     jsonFilesIn(join(ROOT, 'data/maps')).map((file) => ({ file: rel(file), rows: loadJson(file)?.rows ?? [] })),
     TERRAIN_SYMBOLS
+  )
+);
+
+// GH-1438 E1: the compound gate. One structure, 2x1 or 1x2, never on a map with a versus rules file
+// (validate_gate.mjs). Nothing ships a gate type yet, so today this checks nothing; it is the gate's own fence.
+failures.push(
+  ...gateFailures(
+    structureCatalogue,
+    jsonFilesIn(join(ROOT, 'data/maps')).map((file) => {
+      const m = loadJson(file);
+      return { id: m?.id, file: rel(file), rows: m?.rows ?? [] };
+    }),
+    jsonFilesIn(join(ROOT, 'data/missions')).map((file) => ({ file: rel(file), mission: loadJson(file) })),
+    new Set(jsonFilesIn(join(ROOT, 'data/versus'), ['modes']).map((file) => loadJson(file)?.map ?? basename(file, '.json')))
   )
 );
 

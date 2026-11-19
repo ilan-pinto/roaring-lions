@@ -41,12 +41,13 @@
           "type": "object",
           "additionalProperties": false,
           "minProperties": 1,
-          "description": "The CLOSED predicate set (§5.1), each read off the run's own result row: Conduct at least n; at most n player units lost (every unit that died, built ones included, as the ledger's `lost`); the run ended inside the mission's own target_minutes; every carrying secondary complete. All named fields must hold.",
+          "description": "The CLOSED predicate set (§5.1), each read off the run's own result row: Conduct at least n; at most n player units lost (every unit that died, built ones included, as the ledger's `lost`); the run ended inside the mission's own target_minutes; every carrying secondary complete; one named SECONDARY objective of the mission complete (`objective_done`, the lead's ruling on PR 1568; tools/validate_challenges.mjs refuses an id that is not a secondary of this mission). All named fields must hold, and each only adds to a victory.",
           "properties": {
             "conduct_at_least": { "type": "integer", "minimum": 1, "maximum": 100 },
             "lost_at_most": { "type": "integer", "minimum": 0, "maximum": 20 },
             "ticks_at_most_target": { "const": true },
-            "carries_all": { "const": true }
+            "carries_all": { "const": true },
+            "objective_done": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
           }
         }
       }
