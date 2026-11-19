@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/computer_levels.schema.json",
   "title": "Computer opponent levels",
-  "description": "GH-1389: the three levels of the versus computer seat (GH-1388), easiest first. A level is a STATED handicap on the computer's FORCE SIZE and nothing else: `withhold` names the units of its placed force (`VERSUS_KDF`) it leaves at home, and the label and blurb (en.json keys) say so to the player. The computer seat plays the mirror pairing only, which has no purse and no income, so a purse lever would change nothing and there is none. There is NO field for income, purse, logistics, vision, fog or intel, and every object is closed (`additionalProperties: false`), so a hidden boost cannot be written here at all; `tools/validate_computer_levels.mjs` scans each level for that vocabulary as well, and holds the cross-file rules (every unit a KDF unit, the levels strictly ordered by the value they field). Read by the app only (`offlineConfig` writes the handicap onto the computer seat's `withhold`); the sim never learns a level exists, only which units were spawned. Absent a level, the computer fields its whole force, as before GH-1389.",
+  "description": "GH-1389: the three levels of the versus computer seat (GH-1388), easiest first. A level is a STATED handicap on the computer's FORCE SIZE and nothing else: `withhold` names, PER FACTION the computer can play (`kdf`: `VERSUS_KDF`; `sarim`: `VERSUS_SARIM`), the units of its placed force it leaves at home, and the label and blurb (en.json keys) say so to the player. The computer seat plays placed forces only (the mirror, and the KDF v Sarim camp cells, `open-cells.ts`), which have no purse and no income, so a purse lever would change nothing and there is none. There is NO field for income, purse, logistics, vision, fog or intel, and every object is closed (`additionalProperties: false`), so a hidden boost cannot be written here at all; `tools/validate_computer_levels.mjs` scans each level for that vocabulary as well, and holds the cross-file rules (per faction: every unit in that faction's placed force and at most the count it fields, each level withholding at least what the level above it does, the levels strictly ordered by the value they field). Read by the app only (`offlineConfig` writes the handicap for the computer seat's faction onto that seat's `withhold`); the sim never learns a level exists, only which units were spawned. Absent a level, the computer fields its whole force, as before GH-1389.",
   "type": "object",
   "additionalProperties": false,
   "required": ["levels"],
@@ -24,17 +24,27 @@
         "label_key": { "type": "string", "pattern": "^versus\\.cpu\\.level\\.[a-z]+\\.label$" },
         "blurb_key": { "type": "string", "pattern": "^versus\\.cpu\\.level\\.[a-z]+\\.blurb$" },
         "withhold": {
-          "type": "array",
-          "description": "The units of the computer's placed force it leaves at home: the LAST `count` placements of each `unit` (`versusForceOf`). Empty is the whole force.",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["unit", "count"],
-            "properties": {
-              "unit": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-              "count": { "type": "integer", "minimum": 1, "maximum": 64 }
-            }
+          "type": "object",
+          "description": "The handicap by the faction the computer seat plays (lead ruling, GH-1389, 19 Nov 2026: per-faction withholds). Both factions are required, so a level states what it does whichever side the computer takes.",
+          "additionalProperties": false,
+          "required": ["kdf", "sarim"],
+          "properties": {
+            "kdf": { "$ref": "#/$defs/withholdList" },
+            "sarim": { "$ref": "#/$defs/withholdList" }
           }
+        }
+      }
+    },
+    "withholdList": {
+      "type": "array",
+      "description": "The units of that faction's placed force (`VERSUS_KDF` / `VERSUS_SARIM`) the computer leaves at home: the LAST `count` placements of each `unit` (`versusForceOf`). Empty is the whole force.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit", "count"],
+        "properties": {
+          "unit": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 64 }
         }
       }
     }
