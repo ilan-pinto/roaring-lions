@@ -413,6 +413,10 @@
             ],
             "description": "E3 (GH-1438): evacuate_before only. The civilian groups this evacuation counts, one name or several, each a `group` on a civilians.groups placement (validate:data and the runtime refuse any other). The objective counts only those people, and its zone collects (counts and takes off the map) only them while it is active: a person of another group who walks in is not counted by it, and once it is complete a late arrival of its own group stands in the zone uncounted. When every primary evacuate_before is scoped, civ.settlements_evacuated counts the people of the primaries' groups. Absent: every civilian, one shared tally, as before."
           },
+          "counts_rescued": {
+            "type": "boolean",
+            "description": "E12 (GH-1438): evacuate_before only. A civilian of this evacuation's people (its `group`, or every civilian when unscoped) whom the player's side rescues while it is active -- admitted to an aid post or evacuated by a carrier as a wounded man -- is counted out like one who walked into the zone: once, in the same tally, with the same `evacuated` event. Absent or false: a rescued civilian counts toward Conduct only, as before."
+          },
           "side": {
             "enum": [
               0,
@@ -488,6 +492,10 @@
           },
           {
             "if": { "required": ["group"] },
+            "then": { "properties": { "type": { "const": "evacuate_before" } } }
+          },
+          {
+            "if": { "required": ["counts_rescued"] },
             "then": { "properties": { "type": { "const": "evacuate_before" } } }
           },
           {
