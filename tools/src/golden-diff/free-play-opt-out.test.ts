@@ -31,7 +31,7 @@ describe('every gated free-play capture opts out of the free-play defaults (the 
   it('the scenario table has the free-play scenarios this pin is about, gated ones among them (literals)', () => {
     // Not vacuous: an emptied or renamed table would otherwise pass every loop below.
     expect(sandbox.map((s) => s.id).sort()).toEqual(
-      ['aftermath', 'dusk', 'fogged', 'graded', 'kitted', 'open-ground', 'quiet', 'ragdoll', 'relief', 'rubble', 'vehicle'].sort(),
+      ['aftermath', 'dusk', 'fogged', 'graded', 'kitted', 'open-ground', 'quiet', 'ragdoll', 'relief', 'rubble', 'soft-smoke', 'vehicle'].sort(),
     );
     expect(sandbox.filter((s) => isGated(BASELINES[s.id as keyof typeof BASELINES])).length).toBeGreaterThanOrEqual(10);
   });
