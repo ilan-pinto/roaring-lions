@@ -1,0 +1,19 @@
+{
+  "id": "sarim_militia",
+  "extends": "sarim",
+  "status": "proposed",
+  "label": "doctrine.sarim_militia.name",
+  "blurb": "doctrine.sarim_militia.blurb",
+  "gives_up": "doctrine.sarim_militia.gives_up",
+  "signature": {
+    "formation": "sarim_militia_swarm"
+  },
+  "ops": [
+    {"op": "menu_remove", "units": ["manpad_team", "rocket_battery"]},
+    {"op": "menu_add", "units": ["militia_cell", "rpg_team"]},
+    {"op": "set_pop_cap", "value": 44},
+    {"op": "set_price", "unit": "militia_cell", "logistics": 258},
+    {"op": "set_price", "unit": "recoilless_team", "logistics": 212},
+    {"op": "set_price", "unit": "sarim_rifles", "logistics": 345}
+  ]
+}

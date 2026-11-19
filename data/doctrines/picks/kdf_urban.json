@@ -1,0 +1,19 @@
+{
+  "id": "kdf_urban",
+  "extends": "kdf",
+  "status": "proposed",
+  "label": "doctrine.kdf_urban.name",
+  "blurb": "doctrine.kdf_urban.blurb",
+  "gives_up": "doctrine.kdf_urban.gives_up",
+  "signature": {
+    "formation": "kdf_urban_casualty"
+  },
+  "ops": [
+    {"op": "menu_remove", "units": ["ifv_namer", "heli_peten"]},
+    {"op": "menu_add", "units": ["breach_team", "demo_squad"]},
+    {"op": "set_pop_cap", "value": 35},
+    {"op": "set_price", "unit": "breach_team", "logistics": 290},
+    {"op": "set_price", "unit": "demo_squad", "logistics": 283},
+    {"op": "set_price", "unit": "mbt_lavi", "logistics": 915}
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/doctrine_pick.schema.json",
+  "title": "Doctrine pick",
+  "description": "One doctrine a seat picks before a match (GH-1383; design docs/superpowers/specs/2026-11-17-doctrines-design.md §2.2): its faction's base doctrine (data/doctrines/<faction>.json, unchanged) and a closed list of four operations on it (the lead's Q5, 19 Nov 2026: menu remove, menu add, cap and price; no stat patch). Applied by @lions/data's resolveDoctrine/applyDoctrine before addUnitType; the sim never sees this file. `pnpm validate:data` holds the cross-file rules P1-P10 (tools/validate_doctrine.mjs) and the cost-curve bar (tools/doctrine_balance.py; the lead's Q6). Nothing reads a pick at runtime until slice 3 (DOCTRINES_OPEN).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "extends", "label", "blurb", "gives_up", "signature", "ops", "status"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^(kdf|sarim)_[a-z0-9_]+$", "description": "The pick's id, which is its file's name. The player word is \"doctrine\"; the code word is \"pick\" (the lead's Q1)." },
+    "extends": { "enum": ["kdf", "sarim"], "description": "The base doctrine's id, which is its faction. The id's prefix must match (P1)." },
+    "label": { "$ref": "#/$defs/key" },
+    "blurb": { "$ref": "#/$defs/key" },
+    "gives_up": { "$ref": "#/$defs/key", "description": "The one line that says what this doctrine gives up (the issue's tester criterion)." },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formation"],
+      "description": "The doctrine's one signature call: a doctrine-gated formation (the lead's Q4), data only. Its file, in data/formations/doctrine/, and the formation schema's `doctrines` field are slice 5's; until then this is an id (P9's slice-1 half).",
+      "properties": { "formation": { "type": "string", "pattern": "^[a-z0-9_]+$" } }
+    },
+    "status": { "enum": ["proposed", "probed", "ruled"], "description": "No balance claim beyond the cost-curve gate while it reads proposed." },
+    "ops": { "type": "array", "minItems": 2, "maxItems": 24, "items": { "$ref": "#/$defs/op" } }
+  },
+  "$defs": {
+    "key": { "type": "string", "pattern": "^doctrine\\.[a-z0-9_]+\\.[a-z_]+$" },
+    "unitId": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "op": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["op", "units"],
+          "properties": { "op": { "const": "menu_remove" }, "units": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/unitId" } } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["op", "units"],
+          "properties": { "op": { "const": "menu_add" }, "units": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/unitId" } } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["op", "value"],
+          "properties": { "op": { "const": "set_pop_cap" }, "value": { "type": "integer", "minimum": 1 } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["op", "unit", "logistics"],
+          "properties": { "op": { "const": "set_price" }, "unit": { "$ref": "#/$defs/unitId" }, "logistics": { "type": "integer", "minimum": 1 } }
+        }
+      ]
+    }
+  }
+}
