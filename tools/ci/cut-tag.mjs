@@ -6,11 +6,12 @@
 //                             [--remote=origin]
 //
 // The promotion merge's SECOND parent is the dev commit that was promoted (main is the first). The tag goes there,
-// annotated, and is pushed by name. It is skipped, with a log line and exit 0, when:
+// annotated, and is pushed by name. It is skipped, with a log line, a GitHub Actions `::warning::` annotation (on
+// stdout, so the run's summary shows it) and exit 0, when:
 //   - the pushed commit has no second parent (not a merge, so not a promotion);
 //   - the second parent is not on `--dev` (a merge from some other branch is not a dev cut);
-//   - `cut/vX.Y.Z` already exists, here or on the remote (the PM's hand-made one for v0.135.0): never moved, never
-//     deleted, never forced.
+//   - `cut/vX.Y.Z` already exists, here or on the remote (the PM's hand-made one for v0.134.1): never moved, never
+//     deleted, never forced. When the existing tag's commit is not the promoted one, the warning says so.
 //
 // The name never matches `v*`, the glob tools/decide_version.mjs hands `git describe --match` to find the last
 // RELEASE: a cut tag on a newer commit than vX would otherwise be read as the last release. This module never
@@ -59,12 +60,20 @@ export function gitIn(cwd = process.cwd()) {
 /**
  * Tag the promoted dev commit (`merge^2`) as `cut/<release>` and push it by name, or say why not.
  *
+ * Every skip calls `log` with the run-log line AND `annotate` with a `::warning::<detail>` workflow command.
+ *
  * @param {{ release: string, merge: string, git: GitRunner, dev?: string | null, remote?: string | null,
- *   log?: (line: string) => void }} opts
+ *   log?: (line: string) => void, annotate?: (line: string) => void }} opts
  * @returns {Outcome}
  */
-export function cutTag({ release, merge, git, dev = null, remote = null, log = () => {} }) {
+export function cutTag({ release, merge, git, dev = null, remote = null, log = () => {}, annotate = () => {} }) {
   const name = cutTagName(release);
+  /** @param {'no-second-parent' | 'not-on-dev' | 'exists'} reason @param {string} detail @returns {Outcome} */
+  const skip = (reason, detail) => {
+    log(`cut-tag: skipped, ${detail}`);
+    annotate(warning(detail));
+    return { action: 'skipped', reason, name, detail };
+  };
   /** @param {string[]} args */
   const must = (args) => {
     const r = git(args);
@@ -75,28 +84,31 @@ export function cutTag({ release, merge, git, dev = null, remote = null, log = (
   const mergeSha = must(['rev-parse', '--verify', `${merge}^{commit}`]);
   const second = git(['rev-parse', '--verify', '--quiet', `${mergeSha}^2^{commit}`]);
   if (second.status !== 0 || !second.stdout) {
-    const detail = `${mergeSha.slice(0, 9)} has no second parent: not a promotion merge, so no ${name}`;
-    log(`cut-tag: skipped, ${detail}`);
-    return { action: 'skipped', reason: 'no-second-parent', name, detail };
+    return skip('no-second-parent', `${mergeSha.slice(0, 9)} has no second parent: not a promotion merge, so no ${name}`);
   }
   const target = second.stdout;
 
   if (dev) {
     const onDev = git(['merge-base', '--is-ancestor', target, dev]);
     if (onDev.status !== 0) {
-      const detail = `${target.slice(0, 9)} (second parent of ${mergeSha.slice(0, 9)}) is not on ${dev}: no ${name}`;
-      log(`cut-tag: skipped, ${detail}`);
-      return { action: 'skipped', reason: 'not-on-dev', name, detail };
+      return skip('not-on-dev', `${target.slice(0, 9)} (second parent of ${mergeSha.slice(0, 9)}) is not on ${dev}: no ${name}`);
     }
   }
 
-  const local = git(['rev-parse', '--verify', '--quiet', `refs/tags/${name}`]);
-  const remoteRef = remote ? must(['ls-remote', '--tags', remote, `refs/tags/${name}`]) : '';
+  // The commit each existing tag points at: a local tag peeled by rev-parse; a remote one by ls-remote's `^{}` line
+  // (an annotated tag), else its own line (a lightweight tag).
+  const local = git(['rev-parse', '--verify', '--quiet', `refs/tags/${name}^{commit}`]);
+  const remoteRef = remote
+    ? must(['ls-remote', '--tags', remote, `refs/tags/${name}`, `refs/tags/${name}^{}`])
+    : '';
   if (local.status === 0 || remoteRef) {
     const where = local.status === 0 ? 'here' : `on ${remote}`;
-    const detail = `${name} already exists ${where}; left as it is (never moved)`;
-    log(`cut-tag: skipped, ${detail}`);
-    return { action: 'skipped', reason: 'exists', name, detail };
+    const existing = local.status === 0 ? local.stdout : remotePeeled(remoteRef, name);
+    const detail = existing === target
+      ? `${name} already exists ${where} on ${target.slice(0, 9)}, the promoted commit; left as it is (never moved)`
+      : `${name} exists ${where} on ${existing.slice(0, 9) || '(unknown)'}, not on the promoted ` +
+        `${target.slice(0, 9)}; left alone (never moved)`;
+    return skip('exists', detail);
   }
 
   const message =
@@ -107,6 +119,33 @@ export function cutTag({ release, merge, git, dev = null, remote = null, log = (
   log(`cut-tag: created ${name} on ${target.slice(0, 9)} (second parent of ${mergeSha.slice(0, 9)})` +
     (remote ? `, pushed to ${remote}` : ''));
   return { action: 'created', name, target };
+}
+
+/**
+ * A GitHub Actions warning annotation for `message`, escaped as the workflow-command format requires.
+ *
+ * @param {string} message
+ * @returns {string}
+ */
+export function warning(message) {
+  return `::warning::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`;
+}
+
+/**
+ * The commit an `ls-remote` listing of `refs/tags/<name>` (and its `^{}`) says the tag points at.
+ *
+ * @param {string} listing
+ * @param {string} name
+ * @returns {string}
+ */
+function remotePeeled(listing, name) {
+  /** @type {Record<string, string>} */
+  const byRef = {};
+  for (const line of listing.split('\n')) {
+    const [sha, ref] = line.trim().split(/\s+/);
+    if (sha && ref) byRef[ref] = sha;
+  }
+  return byRef[`refs/tags/${name}^{}`] ?? byRef[`refs/tags/${name}`] ?? '';
 }
 
 /** @param {string[]} argv */
@@ -126,6 +165,8 @@ function main(argv) {
     remote: args.remote ?? 'origin',
     git: gitIn(),
     log: (line) => console.error(line),
+    // Workflow commands are read from stdout.
+    annotate: (line) => console.log(line),
   });
 }
 

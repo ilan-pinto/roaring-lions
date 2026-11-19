@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { cutTag, cutTagName, gitIn, type GitResult } from '../../ci/cut-tag.mjs';
+import { cutTag, cutTagName, gitIn, warning, type GitResult } from '../../ci/cut-tag.mjs';
 import { lastTag } from '../../decide_version.mjs';
 
 const scratch: string[] = [];
@@ -123,6 +123,15 @@ function promotion(): { work: string; origin: string; c0: string; d2: string; me
 const vTags = (dir: string): string => run(dir, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/tags/v*');
 const peeled = (dir: string, tag: string): string => run(dir, 'rev-parse', `refs/tags/${tag}^{commit}`);
 const hasTag = (dir: string, tag: string): boolean => run(dir, 'tag', '-l', tag) === tag;
+const short = (sha: string): string => sha.slice(0, 9);
+
+describe('warning', () => {
+  it('is a GitHub Actions ::warning:: workflow command, escaped', () => {
+    expect(warning('cut/v0.2.0 exists here on abc, not on the promoted def; left alone'))
+      .toBe('::warning::cut/v0.2.0 exists here on abc, not on the promoted def; left alone');
+    expect(warning('100%\nnext')).toBe('::warning::100%25%0Anext');
+  });
+});
 
 describe('cutTag (c)', () => {
   it('tags the merge commit\'s SECOND parent, annotated, and pushes it; no v* tag moves', () => {
@@ -140,14 +149,27 @@ describe('cutTag (c)', () => {
     expect(lines.join('\n')).toMatch(/created cut\/v0\.2\.0/);
   });
 
+  it('a create raises no warning annotation', () => {
+    const p = promotion();
+    const notes: string[] = [];
+    cutTag({ release: 'v0.2.0', merge: p.merge, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work),
+      annotate: (l) => notes.push(l) });
+    expect(notes).toEqual([]);
+  });
+
   it('skips with a log line when the commit has no second parent (the release bump on top of the merge)', () => {
     const p = promotion();
     const lines: string[] = [];
+    const notes: string[] = [];
     const out = cutTag({
       release: 'v0.2.0', merge: p.bump, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work), log: (l) => lines.push(l),
+      annotate: (l) => notes.push(l),
     });
     expect(out).toMatchObject({ action: 'skipped', reason: 'no-second-parent' });
     expect(lines.join('\n')).toMatch(/skipped, .* has no second parent/);
+    expect(notes).toEqual([
+      `::warning::${short(p.bump)} has no second parent: not a promotion merge, so no cut/v0.2.0`,
+    ]);
     expect(hasTag(p.work, 'cut/v0.2.0')).toBe(false);
     expect(hasTag(p.origin, 'cut/v0.2.0')).toBe(false);
   });
@@ -158,10 +180,18 @@ describe('cutTag (c)', () => {
     commit(p.work, 'fix: off dev');
     run(p.work, 'checkout', '-q', 'main');
     run(p.work, 'merge', '-q', '--no-ff', '-m', 'Merge side', 'side');
+    const merge = run(p.work, 'rev-parse', 'HEAD');
+    const side = run(p.work, 'rev-parse', 'side');
+    const lines: string[] = [];
+    const notes: string[] = [];
     const out = cutTag({
-      release: 'v0.2.0', merge: run(p.work, 'rev-parse', 'HEAD'), dev: 'origin/dev', remote: 'origin', git: gitIn(p.work),
+      release: 'v0.2.0', merge, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work),
+      log: (l) => lines.push(l), annotate: (l) => notes.push(l),
     });
     expect(out).toMatchObject({ action: 'skipped', reason: 'not-on-dev' });
+    const detail = `${short(side)} (second parent of ${short(merge)}) is not on origin/dev: no cut/v0.2.0`;
+    expect(lines).toEqual([`cut-tag: skipped, ${detail}`]);
+    expect(notes).toEqual([`::warning::${detail}`]);
     expect(hasTag(p.origin, 'cut/v0.2.0')).toBe(false);
   });
 
@@ -170,11 +200,16 @@ describe('cutTag (c)', () => {
     run(p.work, 'tag', '-a', 'cut/v0.2.0', '-m', 'by hand', p.c0);
     run(p.work, 'push', '-q', 'origin', 'refs/tags/cut/v0.2.0');
     const lines: string[] = [];
+    const notes: string[] = [];
     const out = cutTag({
       release: 'v0.2.0', merge: p.merge, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work), log: (l) => lines.push(l),
+      annotate: (l) => notes.push(l),
     });
     expect(out).toMatchObject({ action: 'skipped', reason: 'exists' });
-    expect(lines.join('\n')).toMatch(/already exists here; left as it is/);
+    // The mismatch is named: the hand-made tag is on c0, the promoted commit is d2.
+    const detail = `cut/v0.2.0 exists here on ${short(p.c0)}, not on the promoted ${short(p.d2)}; left alone (never moved)`;
+    expect(lines).toEqual([`cut-tag: skipped, ${detail}`]);
+    expect(notes).toEqual([`::warning::${detail}`]);
     expect(peeled(p.work, 'cut/v0.2.0')).toBe(p.c0);
     expect(peeled(p.origin, 'cut/v0.2.0')).toBe(p.c0);
   });
@@ -184,10 +219,30 @@ describe('cutTag (c)', () => {
     run(p.work, 'tag', '-a', 'cut/v0.2.0', '-m', 'by hand', p.c0);
     run(p.work, 'push', '-q', 'origin', 'refs/tags/cut/v0.2.0');
     run(p.work, 'tag', '-d', 'cut/v0.2.0');
-    const out = cutTag({ release: 'v0.2.0', merge: p.merge, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work) });
+    const notes: string[] = [];
+    const out = cutTag({ release: 'v0.2.0', merge: p.merge, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work),
+      annotate: (l) => notes.push(l) });
     expect(out).toMatchObject({ action: 'skipped', reason: 'exists' });
+    // The remote tag is annotated: its peeled commit (ls-remote's ^{} line) is c0, not the tag object.
+    expect(notes).toEqual([
+      `::warning::cut/v0.2.0 exists on origin on ${short(p.c0)}, not on the promoted ${short(p.d2)}; left alone (never moved)`,
+    ]);
     expect(hasTag(p.work, 'cut/v0.2.0')).toBe(false);
     expect(peeled(p.origin, 'cut/v0.2.0')).toBe(p.c0);
+  });
+
+  it('an existing tag already on the promoted commit warns that it is skipped, without a mismatch', () => {
+    const p = promotion();
+    run(p.work, 'tag', '-a', 'cut/v0.2.0', '-m', 'by hand', p.d2);
+    run(p.work, 'push', '-q', 'origin', 'refs/tags/cut/v0.2.0');
+    const notes: string[] = [];
+    const out = cutTag({ release: 'v0.2.0', merge: p.merge, dev: 'origin/dev', remote: 'origin', git: gitIn(p.work),
+      annotate: (l) => notes.push(l) });
+    expect(out).toMatchObject({ action: 'skipped', reason: 'exists' });
+    expect(notes).toEqual([
+      `::warning::cut/v0.2.0 already exists here on ${short(p.d2)}, the promoted commit; left as it is (never moved)`,
+    ]);
+    expect(notes.join('\n')).not.toMatch(/not on the promoted/);
   });
 
   it('with an injected runner: a skip writes nothing, and a create never forces, deletes or names a v* tag', () => {

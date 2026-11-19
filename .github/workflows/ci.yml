@@ -968,10 +968,12 @@ jobs:
       # annotated `cut/v<NEXT>`, pushed by name (tools/ci/cut-tag.mjs, tested in tools/src/ci/cut-tag.test.ts). The name
       # never matches `v*`, so decide_version's `git describe --match 'v*'` never reads it as a release, and this step
       # never creates, moves or deletes a `v*` tag. It skips with a log line when the pushed commit has no second parent,
-      # when that parent is not on dev, or when the tag already exists here or on origin (never moved). Last, so a
-      # failure here costs the cut tag and nothing else.
+      # when that parent is not on dev, or when the tag already exists here or on origin (never moved); each skip is a
+      # `::warning::` annotation on the run. Last, and continue-on-error, so a failure here costs the cut tag and
+      # nothing else (by hand: docs/agent-notes/release-notes.md, "The cut tag").
       - name: Tag the promoted dev cut
         if: steps.decide.outputs.next != ''
+        continue-on-error: true
         env:
           NEXT: ${{ steps.decide.outputs.next }}
         run: |

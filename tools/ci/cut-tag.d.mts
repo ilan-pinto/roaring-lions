@@ -8,6 +8,7 @@ export type Outcome =
   | { action: 'created'; name: string; target: string }
   | { action: 'skipped'; reason: 'no-second-parent' | 'not-on-dev' | 'exists'; name: string; detail: string };
 export function gitIn(cwd?: string): GitRunner;
+export function warning(message: string): string;
 export function cutTag(opts: {
   release: string;
   merge: string;
@@ -15,4 +16,5 @@ export function cutTag(opts: {
   dev?: string | null;
   remote?: string | null;
   log?: (line: string) => void;
+  annotate?: (line: string) => void;
 }): Outcome;
