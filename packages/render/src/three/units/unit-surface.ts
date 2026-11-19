@@ -147,7 +147,7 @@ export const DUSK_SURFACE_PARAMS: SurfaceTable = {
 /**
  * Which rim, if any, a figure of `faction` takes from `table`: `'rain'` for `'kdf'`
  * on a table that asks (the wet one); `'dusk'` for EVERY faction on the dusk read's
- * table (GH-1403: a read that lifted one side would itself be a team signal); else
+ * table (GH-1403; the mechanism is even-handed, its effect is not: see `../dusk-read.ts`); else
  * false. Vehicles never ask (their loader passes no rim), and the shipped table has
  * no switch.
  */

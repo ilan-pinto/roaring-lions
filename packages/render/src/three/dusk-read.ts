@@ -13,8 +13,13 @@
  * ghosts" and was rejected; this is not one). The view-angle rim (`DUSK_READ_RIM_GAIN`) stays in the shader as a knob.
  * `units/rain-rim.ts` holds the GLSL, the shared uniforms (one set per flavour) and the node twin's maths.
  *
- * Every faction's figures take it at dusk (friend, foe and civilian alike: a read that lifted one side would itself be a
- * team signal). Vehicles do not: they are large, they read at dusk, and the Lavi carries its own team mark.
+ * Every faction's figures take it at dusk (friend, foe and civilian alike), but its EFFECT is not symmetric: it scales
+ * the albedo, so it visibly lifts the tan Sarim and militia figures and barely moves the dark KDF camouflage (x2 of a dark
+ * texel is still dark). The first Metal capture (`tools/src/perf/dusk-read-captures.ts`, 19 Nov 2026) shows exactly that,
+ * and on the one squad its noise left measurable, a figure lifted toward the ground's own luminance read WORSE against it
+ * (the rain read's finding again: a lift only moves a figure darker than the ground toward it). The rim, at 0 here, is the
+ * one arm that put an edge on the KDF figures. The numbers below are the lead's to judge. Vehicles do not take it: they
+ * are large, they read at dusk, and the Lavi carries its own team mark.
  *
  * OPT-IN, and the default is OFF: `RendererOptions.duskRead` (the app's `&duskread` switch) and only on a dusk renderer
  * that is not raining (rain has its own read, and rain wins). Off, `surfaceTableFor` returns the shipped tables by

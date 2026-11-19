@@ -11,18 +11,28 @@
  *   - `dusk-before` `&tod=dusk`, today's dusk (no dusk read material exists: `debugDuskRead().built` must be false);
  *   - `dusk-after`  `&tod=dusk&duskread`, the read at its shipped numbers, then a sweep of its knobs on the SAME frame
  *                   (`debugSetDuskRead`, repaint at zero elapsed time), the neutral arm (1, 1, 0) first.
- * The sim is deterministic, so every page reaches the same tick with the same units in the same places; the FRAME clock
- * (clip blends, gait phase) is not, so a cross-page A/B can differ in a pose. The exact control is inside `dusk-after`:
- * its neutral arm is the same frame with the read turned off.
+ * The sim is deterministic, but the schedule is RELATIVE to the tick the page froze at, which is not the same on every
+ * page (the first run froze `day` at tick 1 and the dusk pages at 0, so `day` was captured at 44 and the dusk pages at 43);
+ * the FRAME clock (clip blends, gait phase) is not deterministic either, so a cross-page A/B can differ in a pose. The
+ * exact control is inside `dusk-after`: its neutral arm is the same frame with the read turned off.
+ *
+ * KNOWN DEFECT (first run, 19 Nov 2026): the repaint is NOT static. The shipped arm shot first and again last differs in
+ * 2,912 px (mean 40 levels), all inside the fight (the missile trail and the burst's smoke), so live FX move between two
+ * zero-elapsed repaints and leak into every arm-to-arm difference there. The report therefore excludes, from every mask, the
+ * pixels where the three nominally identical e2 frames (`dusk-after`, `-e2`, `-repaint`) disagree, and prints how many it
+ * dropped per squad. The scene is also busier than it should be: the group is within weapon range, so a missile, a burst and
+ * a wounded man land in it. A clean re-run wants the two sides out of range of each other (sight, not fire), absolute ticks,
+ * and the FX frozen; none of that has been run yet.
  *
  * Run against a dev server YOU started from this worktree (never 5177), on the real Metal GPU, music off, one browser:
  *
  *   cd tools && npx tsx src/perf/dusk-read-captures.ts --port=<n> --attach [--out=<dir>]
+ *   cd tools && npx tsx src/perf/dusk-read-captures.ts --report-only [--out=<dir>]   (re-reads meta.json and the frames)
  *
  * Then it measures each squad's figure against the ground behind it (`wet-readability.ts`, CIEDE2000, floor 15.6) and
  * writes `report.txt` beside the frames. On `dusk-after` the figure mask is the pixels the exposure moves (neutral against
- * exposure 4), so it holds figure pixels only; on `day` and `dusk-before` it is units shown against units hidden, which
- * also takes in each unit's own shadow (said in the report).
+ * exposure 4) minus the FX noise above, which is meant to hold figure pixels only; on `day` and `dusk-before` it is units
+ * shown against units hidden, which also takes in each unit's own shadow and any live FX (said in the report).
  */
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
@@ -36,10 +46,13 @@ import { READABILITY_FLOOR, figureMask, maskSize, readability, type Frame } from
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
+const REPORT_ONLY = args.includes('--report-only');
 const PORT = Number(arg('port', '0'));
-if (!PORT) throw new Error('--port=<n> is required (your own dev server; 5177 is the lead’s)');
-if (PORT === 5177) throw new Error('5177 is the lead’s dev server');
-await requireAttach('dusk-read', [PORT]);
+if (!REPORT_ONLY) {
+  if (!PORT) throw new Error('--port=<n> is required (your own dev server; 5177 is the lead’s)');
+  if (PORT === 5177) throw new Error('5177 is the lead’s dev server');
+  await requireAttach('dusk-read', [PORT]);
+}
 const OUT = path.resolve(arg('out', '../.superpowers/gh1403'));
 const ZOOM = Number(arg('zoom', '1'));
 const VIEWPORT = { width: 1600, height: 900 } as const;
@@ -335,6 +348,40 @@ async function runPage(page: Page, spec: PageSpec, gpu: string): Promise<Meta> {
 }
 
 const MASK_RADIUS_PX = 70;
+/** A pixel where two nominally identical frames differ by more than this in some channel is FX noise. */
+const NOISE_LEVELS = 2;
+/** The noise mask is grown by this many pixels, so a trail's soft edge is dropped with it. */
+const NOISE_GROW_PX = 2;
+
+/** Pixels where any two of `frames` disagree, grown by `NOISE_GROW_PX`. */
+function noiseMask(frames: readonly Frame[]): Uint8Array {
+  const { width: w, height: h } = frames[0];
+  const raw = new Uint8Array(w * h);
+  for (let a = 0; a < frames.length; a++) {
+    for (let b = a + 1; b < frames.length; b++) {
+      const A = frames[a].data;
+      const B = frames[b].data;
+      for (let i = 0; i < w * h; i++) {
+        const d = Math.max(Math.abs(A[i * 4] - B[i * 4]), Math.abs(A[i * 4 + 1] - B[i * 4 + 1]), Math.abs(A[i * 4 + 2] - B[i * 4 + 2]));
+        if (d > NOISE_LEVELS) raw[i] = 1;
+      }
+    }
+  }
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (raw[y * w + x] !== 1) continue;
+      for (let dy = -NOISE_GROW_PX; dy <= NOISE_GROW_PX; dy++) {
+        for (let dx = -NOISE_GROW_PX; dx <= NOISE_GROW_PX; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h) out[ny * w + nx] = 1;
+        }
+      }
+    }
+  }
+  return out;
+}
 
 function report(metas: Meta[]): string {
   const lines: string[] = [];
@@ -347,21 +394,35 @@ function report(metas: Meta[]): string {
     lines.push(`${m.page}: tick ${m.tick}, zoom ${m.zoom}, camera ${m.camera.join(',')}, ${m.viewport.width}x${m.viewport.height}, ${m.gpu}`);
     const hidden = load(path.join(OUT, `${m.page}-units-hidden.png`));
     const arms = m.page === 'dusk-after' ? ARMS.filter((a) => a.name !== 'mask-e4').map((a) => `${m.page}-${a.name}`) : [m.page];
-    const maskNote = m.page === 'dusk-after' ? 'mask: neutral vs exposure 4 (figure pixels only)' : 'mask: units shown vs hidden (includes the unit\'s own shadow)';
+    const after = m.page === 'dusk-after';
+    const noise = after ? noiseMask([`${m.page}`, `${m.page}-e2`, `${m.page}-repaint`].map((n) => load(path.join(OUT, `${n}.png`)))) : null;
+    const maskNote = after
+      ? `mask: neutral vs exposure 4, minus FX noise (${maskSize(noise as Uint8Array)} px where the three e2 frames disagree, grown ${NOISE_GROW_PX} px)`
+      : 'mask: units shown vs hidden (includes the unit\'s own shadow and any live FX; no noise estimate on a one-frame page)';
     lines.push(`  ${maskNote}`);
-    lines.push(`  ${'squad'.padEnd(12)} ${'frame'.padEnd(22)} share median  mean   px`);
+    lines.push(`  ${'squad'.padEnd(12)} ${'frame'.padEnd(22)} share median  mean   px  dropped`);
     for (const s of m.squads) {
-      const mask =
-        m.page === 'dusk-after'
-          ? figureMask(load(path.join(OUT, `${m.page}-neutral.png`)), load(path.join(OUT, `${m.page}-mask-e4.png`)), s.sx, s.sy - 10, MASK_RADIUS_PX)
-          : figureMask(load(path.join(OUT, `${m.page}.png`)), hidden, s.sx, s.sy - 10, MASK_RADIUS_PX);
+      const mask = after
+        ? figureMask(load(path.join(OUT, `${m.page}-neutral.png`)), load(path.join(OUT, `${m.page}-mask-e4.png`)), s.sx, s.sy - 10, MASK_RADIUS_PX)
+        : figureMask(load(path.join(OUT, `${m.page}.png`)), hidden, s.sx, s.sy - 10, MASK_RADIUS_PX);
+      let dropped = 0;
+      if (noise) {
+        for (let i = 0; i < mask.length; i++) {
+          if (mask[i] === 1 && noise[i] === 1) {
+            mask[i] = 0;
+            dropped++;
+          }
+        }
+      }
       if (maskSize(mask) === 0) {
-        lines.push(`  ${s.name.padEnd(12)} (empty mask)`);
+        lines.push(`  ${s.name.padEnd(12)} (empty mask; ${dropped} px dropped as noise)`);
         continue;
       }
       for (const frame of arms) {
         const r = readability(load(path.join(OUT, `${frame}.png`)), hidden, mask);
-        lines.push(`  ${s.name.padEnd(12)} ${frame.replace(`${m.page}-`, '').padEnd(22)} ${f(100 * r.shareAboveFloor)}% ${f(r.perPixelMedian)} ${f(r.mean)} ${String(r.pixels).padStart(5)}`);
+        lines.push(
+          `  ${s.name.padEnd(12)} ${frame.replace(`${m.page}-`, '').padEnd(22)} ${f(100 * r.shareAboveFloor)}% ${f(r.perPixelMedian)} ${f(r.mean)} ${String(r.pixels).padStart(5)} ${String(dropped).padStart(7)}`
+        );
       }
     }
   }
@@ -369,6 +430,13 @@ function report(metas: Meta[]): string {
 }
 
 async function main(): Promise<void> {
+  if (REPORT_ONLY) {
+    const metas = JSON.parse(fs.readFileSync(path.join(OUT, 'meta.json'), 'utf8')) as Meta[];
+    const text = report(metas);
+    fs.writeFileSync(path.join(OUT, 'report.txt'), text + '\n');
+    console.log(text);
+    return;
+  }
   const browser = await chromium.launch({
     headless: true,
     args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--use-gl=angle', '--enable-gpu-rasterization', '--disable-gpu-sandbox'],
