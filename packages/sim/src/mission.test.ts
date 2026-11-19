@@ -8002,3 +8002,148 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     expect((cgWorld({ enabled: true }).sim as unknown as Evac).evacCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E8: `do.kind: abduct` (D18, Option A: an enemy group may lead civilians away on foot to the edge of the map,
+// where they leave play as taken). An escort of one cell at (5,5) takes two villagers standing beside it, walking them
+// east to an exit zone at x >= 26; a KDF squad waits at (2,1), out of the shepherd rule's four tiles.
+describe('E8: abduct', () => {
+  const AB_ESCORT: UnitTypeJson = {
+    id: 'ab_escort',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 0.9 },
+    sensors: { optics: 1, sight_tiles: 6, signature: 0.6 },
+    weapons: [],
+  };
+  const AB_KDF: UnitTypeJson = { ...AB_ESCORT, id: 'ab_kdf', mobility: { speed_tiles_s: 1.6 } };
+  const AB_CIV: UnitTypeJson = {
+    id: 'ab_civ',
+    role: 'civilian',
+    hull: { hp: 200, armor: { front: 0, side: 0, rear: 0 } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7 },
+  };
+  /** Ids: 0 the KDF squad, 1 the escort, 2-3 the villagers (group `taken`), 4 a far villager when `far` (group `taken`). */
+  function abWorld(opts: { far?: boolean; captives?: string; zone?: string | null; at?: number } = {}): World {
+    const sim = new Sim({ seed: 0x1438e8, width: 32, height: 12, capacity: 16 });
+    const ids = new Map<string, number>();
+    for (const t of [AB_ESCORT, AB_KDF, AB_CIV]) ids.set(t.id, sim.addUnitType(t));
+    const groups: PlacementJson[] = [{ unit: 'ab_civ', count: 2, at: [6, 5], group: 'taken' }];
+    if (opts.far === true) groups.push({ unit: 'ab_civ', count: 1, at: [5, 10], group: 'taken' }); // 5 tiles below the escort
+    const zone = opts.zone === undefined ? 'exit_zone' : opts.zone;
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 300 },
+          // An evacuation, so the shepherd rule is on (`missionShepherds`): a KDF ground soldier within four tiles frees them.
+          { id: 'home', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 300 },
+        ],
+        starting_force: [{ unit: 'ab_kdf', count: 1, at: [2, 1] }],
+        enemy: { garrison: [{ unit: 'ab_escort', count: 1, at: [5, 5], group: 'takers' }] },
+        civilians: { refuge: 'refuge', groups },
+        triggers: [
+          {
+            id: 'led_away',
+            label: 'They are led away',
+            on: { kind: 'timer_s', value: opts.at ?? 1 },
+            do: { kind: 'abduct', group: 'takers', captives: opts.captives ?? 'taken', to: 'exit', ...(zone === null ? {} : { zone }) },
+          },
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers: { exit: [29, 5], refuge: [1, 10] },
+        zones: { exit_zone: [26, 2, 6, 7], refuge_zone: [0, 8, 4, 4], pen: [4, 3, 4, 4] },
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  const taken = (out: MissionEvent[]): number[] => out.flatMap((e) => (e.kind === 'removed' && e.side === 2 ? [e.entity] : []));
+  const ESCORT = 1;
+  const VILLAGERS = [2, 3];
+
+  it('the captives follow the escort east and are taken in the exit zone: removed, with a removed event each', () => {
+    const w = abWorld();
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS);
+    expect(VILLAGERS.map((id) => w.sim.state.removed[id])).toEqual([1, 1]);
+    expect(w.sim.state.alive[ESCORT]).toBe(1);
+    // ...and nobody counted them as saved.
+    expect(out.mission.some((e) => e.kind === 'evacuated')).toBe(false);
+  });
+
+  it('before the trigger nobody is led anywhere: the villagers stand where they were placed', () => {
+    const w = abWorld({ at: 30 });
+    const x = VILLAGERS.map((id) => w.sim.state.posX[id]);
+    w.step(25 * TICKS_PER_SECOND);
+    expect(VILLAGERS.map((id) => w.sim.state.posX[id])).toEqual(x);
+  });
+
+  it('freed by a KDF soldier coming within four tiles, they are never taken: they run home instead', () => {
+    const w = abWorld();
+    w.step(3 * TICKS_PER_SECOND);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: w.sim.state.posX[2], y: w.sim.state.posY[2] });
+    const out = w.step(80 * TICKS_PER_SECOND);
+    expect(taken(out.mission)).toEqual([]);
+    expect(out.mission.filter((e) => e.kind === 'evacuated').length).toBeGreaterThan(0);
+  });
+
+  it('the escort killed: nobody is held -- no further order to a captive, and nobody taken', () => {
+    const w = abWorld();
+    w.step(4 * TICKS_PER_SECOND);
+    w.sim.debugKill(ESCORT);
+    w.step(1); // the kill lands
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(spy.mock.calls.filter(([c]) => 'ids' in c && c.ids.some((id) => VILLAGERS.includes(id)))).toEqual([]);
+    spy.mockRestore();
+    expect(taken(out.mission)).toEqual([]);
+  });
+
+  it('taken only while an escort lives: villagers standing in the exit zone with the escort dead are not taken', () => {
+    const w = abWorld({ zone: 'pen' }); // the pen is drawn round where they already stand
+    w.sim.debugKill(ESCORT);
+    const out = w.step(5 * TICKS_PER_SECOND);
+    expect(taken(out.mission)).toEqual([]);
+    const alive = abWorld({ zone: 'pen' });
+    expect(taken(alive.step(5 * TICKS_PER_SECOND).mission).sort()).toEqual(VILLAGERS); // the control: alive, they are
+  });
+
+  it('a captive more than six tiles from the leader is not held: the far villager stays, the near two are taken', () => {
+    const w = abWorld({ far: true });
+    const fx0 = [w.sim.state.posX[4], w.sim.state.posY[4]];
+    // Moved six and a half tiles off before the trigger, below the escort (the placement is 5 below; this is the walk).
+    w.sim.teleport(4, fx.from(5.5), fx.from(11.9));
+    const at = [w.sim.state.posX[4], w.sim.state.posY[4]];
+    expect(at).not.toEqual(fx0);
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS);
+    expect([w.sim.state.alive[4], w.sim.state.removed[4]]).toEqual([1, 0]);
+    expect([w.sim.state.posX[4], w.sim.state.posY[4]]).toEqual(at);
+  });
+
+  it('refuses at load: captives that are not civilians, and an abduct with no zone', () => {
+    expect(() => abWorld({ captives: 'takers' })).toThrow(/captives "takers" is not a civilian group/);
+    expect(() => abWorld({ captives: 'nobody' })).toThrow(/is not a civilian group/);
+    expect(() => abWorld({ zone: null })).toThrow(/abduct "led_away" needs group, to and zone/);
+  });
+});
