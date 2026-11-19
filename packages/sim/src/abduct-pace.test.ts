@@ -38,7 +38,12 @@ interface PaceWorld {
   readonly zoneX: number;
 }
 
-function paceWorld(opts: { route: number; captive?: UnitTypeJson; withdrawAt?: number; inert?: boolean }): PaceWorld {
+/** What a later trigger orders the escort group to `back` with (`laterAt`, default `withdraw_to`). */
+type LaterKind = 'withdraw_to' | 'commit' | 'abduct';
+const laterDo = (kind: LaterKind): NonNullable<MissionJson['triggers']>[number]['do'] =>
+  kind === 'abduct' ? { kind, group: 'takers', captives: 'taken', to: 'back', zone: 'back_zone' } : { kind, group: 'takers', to: 'back' };
+
+function paceWorld(opts: { route: number; captive?: UnitTypeJson; withdrawAt?: number; laterKind?: LaterKind; inert?: boolean }): PaceWorld {
   const tx = 5 + opts.route;
   const sim = new Sim({ seed: 0x1438e8, width: tx + 6, height: 12, capacity: 8 });
   const captive = opts.captive ?? CIVILIANS;
@@ -61,7 +66,7 @@ function paceWorld(opts: { route: number; captive?: UnitTypeJson; withdrawAt?: n
       },
       ...(opts.withdrawAt === undefined
         ? []
-        : [{ id: 'fall_back', label: 'They fall back', on: { kind: 'timer_s' as const, value: opts.withdrawAt }, do: { kind: 'withdraw_to', group: 'takers', to: 'back' } }]),
+        : [{ id: 'fall_back', label: 'They fall back', on: { kind: 'timer_s' as const, value: opts.withdrawAt }, do: laterDo(opts.laterKind ?? 'withdraw_to') }]),
       // A trigger that never fires, so the table has a word that is not an abduct's.
       ...(opts.inert === true ? [{ id: 'never', label: 'Never', on: { kind: 'timer_s' as const, value: 9999 }, do: { kind: 'withdraw_to', group: 'takers', to: 'back' } }] : []),
     ],
@@ -73,7 +78,7 @@ function paceWorld(opts: { route: number; captive?: UnitTypeJson; withdrawAt?: n
       return t;
     },
     markers: { exit: [tx, 5], refuge: [1, 10], back: [2, 9] },
-    zones: { exit_zone: [tx - 1, 2, 3, 7] },
+    zones: { exit_zone: [tx - 1, 2, 3, 7], back_zone: [1, 8, 3, 3] },
   });
   rt.start();
   return {
@@ -119,6 +124,12 @@ describe('E8 pacing at the shipped speeds: the escort waits for its captive', ()
     expect(r.widest).toBeLessThan(3.2);
     // It had to wait to keep him: more than once, on 60 tiles at a 0.15 t/s gap rate and a tile of hysteresis.
     expect(r.halts).toBeGreaterThan(3);
+    // ...and the tile of hysteresis (halt past three, walk on within two) is what spaces those waits out. Measured at the
+    // shipped values: 7 halts, 182 held ticks (26 a halt). With the walk-on at three tiles as well (`ABDUCT_PACE_GO_SQ`
+    // 9 x 65536, no hysteresis) the escort thrashes: 97 halts of one tick each. The bounds sit between, with margin on
+    // both sides: at most 12 halts, and at least 10 held ticks (half a second) a halt on average.
+    expect(r.halts).toBeLessThanOrEqual(12);
+    expect(r.heldTicks).toBeGreaterThanOrEqual(10 * r.halts);
   });
 
   it('a 120-tile route: still taken (no route is too long)', () => {
@@ -199,8 +210,10 @@ describe('E8 pacing: no deadlock', () => {
 });
 
 describe('E8 pacing: a later order to the escort stands', () => {
-  it('a withdraw_to of the escort while it waits: pacing is OFF, the escort goes where it was sent, and pacing never re-routes it', () => {
-    // The hobbled captive keeps the escort halted for the whole ten-second cap, so the withdraw lands inside a halt.
+  /** The escort halted for its hobbled captive (which keeps it halted for the whole ten-second cap), then a later trigger
+   *  of `kind` orders its group to `back` (2, 9) two seconds into the halt, eight before the cap. The orders to the
+   *  escort from the second that trigger fires, and the first abduct's word at that tick and every tick after. */
+  const orderedMidHalt = (kind: LaterKind): { w: PaceWorld; after: (string | number | null)[][]; firstAbduct: number[] } => {
     const probe = paceWorld({ route: 40, captive: HOBBLED });
     let first = -1;
     for (let i = 0; i < 60 * TICKS_PER_SECOND && first < 0; i++) {
@@ -208,22 +221,50 @@ describe('E8 pacing: a later order to the escort stands', () => {
       if (probe.pace()[0] > 0) first = probe.sim.tickCount;
     }
     const at = Math.ceil(first / TICKS_PER_SECOND) + 2; // seconds: two after the halt began, eight before the cap
-    const w = paceWorld({ route: 40, captive: HOBBLED, withdrawAt: at });
+    const w = paceWorld({ route: 40, captive: HOBBLED, withdrawAt: at, laterKind: kind });
     const orders: { tick: number; cmd: Command }[] = [];
     const spy = vi.spyOn(w.sim, 'queueCommand').mockImplementation(function (this: Sim, cmd: Command) {
       if ('ids' in cmd && cmd.ids.includes(ESCORT)) orders.push({ tick: w.sim.tickCount, cmd });
       return Sim.prototype.queueCommand.call(w.sim, cmd);
     });
+    const firstAbduct: number[] = [];
     for (let i = 0; i < 60 * TICKS_PER_SECOND; i++) {
+      // Halted the tick before it fires: the later order really does land inside a halt.
+      if (w.sim.tickCount === at * TICKS_PER_SECOND - 1) expect(w.pace()[0], 'halted before the later trigger').toBeGreaterThan(0);
       w.tick();
-      if (w.sim.tickCount === at * TICKS_PER_SECOND) expect(w.pace()[0], 'halted when the withdraw fires').toBe(OFF);
+      if (w.sim.tickCount >= at * TICKS_PER_SECOND) firstAbduct.push(w.pace()[0]);
     }
     spy.mockRestore();
-    const after = orders.filter((o) => o.tick >= at * TICKS_PER_SECOND);
+    const after = orders
+      .filter((o) => o.tick >= at * TICKS_PER_SECOND)
+      .map((o) => [o.cmd.kind, o.cmd.kind === 'move' || o.cmd.kind === 'attackMove' ? o.cmd.x >> 16 : null]);
+    return { w, after, firstAbduct };
+  };
+  const nearBack = (w: PaceWorld): number => Math.hypot(tiles(w.sim.state.posX[ESCORT]) - 2.5, tiles(w.sim.state.posY[ESCORT]) - 9.5);
+
+  it('a withdraw_to of the escort while it waits: pacing is OFF, the escort goes where it was sent, and pacing never re-routes it', () => {
+    const { w, after, firstAbduct } = orderedMidHalt('withdraw_to');
     // Exactly one order after the withdraw fired: the withdraw's own move to `back` (2, 9). No halt, no move east.
-    expect(after.map((o) => [o.cmd.kind, o.cmd.kind === 'move' ? o.cmd.x >> 16 : null])).toEqual([['move', 2]]);
-    expect(w.pace()[0]).toBe(OFF);
-    expect(Math.hypot(tiles(w.sim.state.posX[ESCORT]) - 2.5, tiles(w.sim.state.posY[ESCORT]) - 9.5)).toBeLessThan(1.5);
+    expect(after).toEqual([['move', 2]]);
+    expect(new Set(firstAbduct)).toEqual(new Set([OFF]));
+    expect(nearBack(w)).toBeLessThan(1.5);
+  });
+
+  it('a commit of the escort while it waits: the same, the commit`s own attack-move the only order after it', () => {
+    const { w, after, firstAbduct } = orderedMidHalt('commit');
+    expect(after).toEqual([['attackMove', 2]]);
+    expect(new Set(firstAbduct)).toEqual(new Set([OFF]));
+    expect(nearBack(w)).toBeLessThan(1.5);
+  });
+
+  it('a second abduct of the same escort while it waits: the first stops pacing, and nothing sends the escort east again', () => {
+    const { w, after, firstAbduct } = orderedMidHalt('abduct');
+    // The second abduct's own move to `back` comes first. It paces its own march (it may halt the escort for the
+    // captive it leads), but every move after it is to `back`: the first abduct never re-issues its move to `exit`.
+    expect(after[0]).toEqual(['move', 2]);
+    for (const o of after) if (o[0] !== 'halt') expect(o).toEqual(['move', 2]);
+    expect(new Set(firstAbduct)).toEqual(new Set([OFF]));
+    expect(nearBack(w)).toBeLessThan(1.5);
   });
 });
 
