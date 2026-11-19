@@ -440,7 +440,7 @@ reports (3 from the page), never the same one twice. A report waits in `crash-ou
 
 **The Worker** (`packages/worker/src/crash-ingest.ts`, `crash-meta.ts`): POST only; CLOSED unless the D1 `flags` row
 `crash` reads `'open'` (no row is closed), and `CRASH_CLOSED` closes it with no database; Origin must be the desktop
-build's, the Worker's own or `ALLOWED_ORIGINS`; `CRASH_LIMIT` 5 a minute per address (in the binding); a body of at most
+build's, the Worker's own or `ALLOWED_ORIGINS`; `CRASH_LIMIT` 5 a minute per address (in the binding, used only if bound: the binding is NOT in `wrangler.jsonc`, HOLD FOR LEAD, so until the lead adds it the per-minute limit is skipped and the D1 day caps below are the only bound); a body of at most
 6144 bytes of `application/json`; then 10 a day per launch, 20 per address (a keyed daily hash, `rate-day.ts`) and 200
 in all. No IP and no header is stored. Rows live in `crash_report` (migration `0008_crash_report.sql`, NOT applied by
 this change) for 90 days, deleted on the ingest path (25 per insert) rather than by the daily cron, whose D1 budget is
