@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fx, Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from '@lions/sim';
-import { CAUSE_WINDOW_TICKS, causeText, KillCauseTracker, parseKillCause, type KillCause } from './kill-cause';
+import { CAUSE_SUMMARY_MAX, CAUSE_WINDOW_TICKS, causeSummary, causeText, KillCauseTracker, parseKillCause, type KillCause } from './kill-cause';
 import { setCatalogue } from './i18n/t';
 import en from './i18n/en.json';
 
@@ -46,7 +46,14 @@ const DRONE: UnitTypeJson = {
   sensors: { optics: 1, sight_tiles: 6, signature: 1.0 },
 };
 
-const name = (id: string): string => ({ c_at: 'AT team', c_hull: 'Carrier', c_inf: 'Rifle squad', k_munition: 'Loitering munition', b_carrier: 'Laser truck', b_drone: 'Drone' })[id] ?? id;
+const CALLER: UnitTypeJson = { id: 's_caller', role: 'infantry', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } }, mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 4, signature: 0.5 } };
+const HELI: UnitTypeJson = {
+  id: 'h_heli', role: 'apc', hull: { hp: 900, armor: { front: 4, side: 4, rear: 4 }, transport_slots: 6 },
+  mobility: { speed_tiles_s: 3.2, domain: 'air' }, sensors: { optics: 1, sight_tiles: 10, signature: 1 }, weapons: [],
+};
+
+const name = (id: string): string =>
+  ({ c_at: 'AT team', c_hull: 'Carrier', c_inf: 'Rifle squad', k_munition: 'Loitering munition', b_carrier: 'Laser truck', b_drone: 'Drone', s_caller: 'Observer' })[id] ?? id;
 
 interface Death {
   victim: number;
@@ -136,7 +143,20 @@ describe('a kamikaze, from the real sim', () => {
     sim.spawn(sim.addUnitType(MUNITION), 0, fx.from(20.5), fx.from(6.5), 16384);
     sim.identifyTo(0, man);
     const d = runToDeath(sim, man, 20 * 30);
-    expect(d.cause).toEqual({ kind: 'kamikaze', attacker: 'k_munition', suppressed: false });
+    // GH-1380 sim step: the `destroyed` event now names the warhead, so the soft-target strike carries it too.
+    expect(d.cause).toEqual({ kind: 'kamikaze', attacker: 'k_munition', weapon: 'warhead', suppressed: false });
+  });
+
+  it('a man beside the hull it struck is caught in the warhead\'s blast: splash, with no plate and no penetration claimed', () => {
+    const sim = new Sim({ seed: 3, width: 40, height: 24, capacity: 8 });
+    const hull = sim.spawn(sim.addUnitType({ ...HULL, hull: { hp: 60, armor: { front: 300, side: 10, rear: 10 } } }), 1, fx.from(20.5), fx.from(12.5), 32768);
+    const man = sim.spawn(sim.addUnitType({ ...DUMMY_INF, hull: { hp: 60, armor: { front: 10, side: 10, rear: 10 } } }), 1, fx.from(20.5), fx.from(12.8));
+    const drone = sim.spawn(sim.addUnitType(MUNITION), 0, fx.from(20.5), fx.from(6.5), 16384);
+    sim.identifyTo(0, hull);
+    const d = runToDeath(sim, man, 20 * 30);
+    expect(d.by).toBe(drone);
+    expect(d.cause).toEqual({ kind: 'splash', attacker: 'k_munition', weapon: 'warhead', suppressed: false });
+    expect(causeText(d.cause, name)).toBe('Caught in a blast from Loitering munition (Explosive warhead).');
   });
 
   it('the munition\'s own death is "spent on its target", never "destroyed by" the thing it hit', () => {
@@ -158,6 +178,42 @@ describe('a beam, from the real sim', () => {
     const d = runToDeath(sim, drone, 60 * TICKS_PER_SECOND);
     expect(d.cause).toEqual({ kind: 'beam', attacker: 'b_carrier', weapon: 'beam', suppressed: false });
     expect(causeText(d.cause, name)).toBe('Burned down by Laser truck (Laser beam).');
+  });
+});
+
+describe('the other ways the sim kills, from the real sim (GH-1380: `destroyed` says how)', () => {
+  it('a called strike names the caller, and no weapon', () => {
+    const sim = new Sim({ seed: 7, width: 48, height: 32, capacity: 16 });
+    const caller = sim.spawn(sim.addUnitType(CALLER), 0, fx.from(5.5), fx.from(5.5));
+    const victim = sim.spawn(sim.addUnitType({ ...CALLER, id: 's_victim', hull: { hp: 50, armor: { front: 10, side: 10, rear: 10 } } }), 1, fx.from(24.5), fx.from(16.5));
+    sim.queueCommand({ kind: 'callStrike', caller, x: fx.from(24.5), y: fx.from(16.5) });
+    const d = runToDeath(sim, victim, 400);
+    expect(d.cause).toEqual({ kind: 'strike', attacker: 's_caller', suppressed: false });
+    expect(causeText(d.cause, name)).toBe('Caught in a strike called in by Observer.');
+  });
+
+  it('a garrison under a building that comes down: a collapse (here credited to nobody)', () => {
+    const sim = new Sim({ seed: 5, width: 32, height: 16, capacity: 16 });
+    const house = sim.addStructure(sim.addStructureType({ id: 's_house', name: 'House', hp_per_tile: 260, garrison_slots: 2, rubble_cover: 2 }), [6 * 32 + 14, 6 * 32 + 15, 7 * 32 + 14, 7 * 32 + 15]);
+    const holder = sim.spawn(sim.addUnitType({ ...DUMMY_INF, abilities: ['garrison'] }), 1, fx.from(13.0), fx.from(6.5));
+    sim.queueCommand({ kind: 'garrison', ids: [holder], structure: house });
+    for (let i = 0; i < 20 * TICKS_PER_SECOND && sim.state.garrisonedIn[holder] !== house; i++) sim.tick();
+    expect(sim.state.garrisonedIn[holder]).toBe(house); // the fixture put him inside
+    sim.debugDestroyStructure(house);
+    const d = runToDeath(sim, holder, 2);
+    expect(d.cause).toEqual({ kind: 'collapse', suppressed: false });
+    expect(causeText(d.cause, name)).toBe('Killed in a collapse.');
+  });
+
+  it('riders of an air carrier killed in the air went down with it', () => {
+    const sim = new Sim({ seed: 0x6980_0003, width: 40, height: 40, capacity: 16 });
+    const heli = sim.spawn(sim.addUnitType(HELI), 0, fx.from(20.5), fx.from(20.5));
+    const rider = sim.spawn(sim.addUnitType({ ...DUMMY_INF, role: 'infantry' }), 0, fx.from(20.5), fx.from(20.5));
+    expect(sim.embarkAtSpawn(heli, rider)).toBe(true);
+    sim.debugKill(heli);
+    const d = runToDeath(sim, rider, 2);
+    expect(d.cause).toEqual({ kind: 'carrier', suppressed: false });
+    expect(causeText(d.cause, name)).toBe('Went down with its carrier.');
   });
 });
 
@@ -245,12 +301,119 @@ describe('the join rules (hand-built events)', () => {
   });
 });
 
+describe('the join, with the weapon and the cause the sim now puts on `destroyed` (GH-1380, the PR 1435 review follow-ups)', () => {
+  const world = { typeIdOf: (e: number) => (e === 1 ? 'c_at' : e === 2 ? 'c_inf' : e === 9 ? 'c_hull' : undefined), isKamikaze: () => false };
+  const fire = (tick: number, shooter: number, target: number, weaponId: string): SimEvent => ({ kind: 'fire', tick, shooter, target, weaponId, pHit: 0, roll: 0, willHit: true, breakdown: {} as never });
+  const impact = (tick: number, shooter: number, target: number, weaponId: string, arc: 'front' | 'side' | 'rear'): SimEvent => ({
+    kind: 'impact', tick, shooter, target, weaponId, arc, effectiveArmor: 0, penetration: 0, pPen: 0, roll: 0, penetrated: true,
+  });
+  const beam = (tick: number, shooter: number, target: number): SimEvent => ({ kind: 'beam', tick, shooter, target, weaponId: 'beam', phase: 'struck', until: 0 });
+  type Cause = NonNullable<Extract<SimEvent, { kind: 'destroyed' }>['cause']>;
+  const dead = (tick: number, entity: number, by: number, cause?: Cause, weaponId?: string): SimEvent => ({
+    kind: 'destroyed', tick, entity, by, ...(cause === undefined ? {} : { cause }), ...(weaponId === undefined ? {} : { weaponId }),
+  });
+
+  it('two attackers on one man: A fires, B fires, A\'s round kills -- A\'s weapon is named, with or without the event\'s weapon', () => {
+    for (const ev of [dead(14, 9, 1, 'direct', 'spike_atgm'), dead(14, 9, 1)]) {
+      const tr = new KillCauseTracker(world);
+      tr.observe(fire(10, 1, 9, 'spike_atgm'));
+      tr.observe(fire(12, 2, 9, 'rifles'));
+      expect(tr.observe(ev)).toEqual({ kind: 'gun', attacker: 'c_at', weapon: 'spike_atgm', suppressed: false });
+    }
+  });
+
+  it('a beam that finishes a hull the same shooter\'s gun had holed names the beam, not the old plate', () => {
+    for (const ev of [dead(14, 9, 1, 'direct', 'beam'), dead(14, 9, 1)]) {
+      const tr = new KillCauseTracker(world);
+      tr.observe(impact(10, 1, 9, 'spike_atgm', 'rear'));
+      tr.observe(beam(12, 1, 9));
+      expect(tr.observe(ev)).toEqual({ kind: 'beam', attacker: 'c_at', weapon: 'beam', suppressed: false });
+    }
+  });
+
+  it('the event\'s weapon picks the slot: a later shot with another of the attacker\'s weapons does not take the kill', () => {
+    const tr = new KillCauseTracker(world);
+    tr.observe(impact(10, 1, 9, 'spike_atgm', 'rear'));
+    tr.observe(fire(12, 1, 9, 'rifles'));
+    expect(tr.observe(dead(14, 9, 1, 'direct', 'spike_atgm'))).toEqual({ kind: 'gun', attacker: 'c_at', weapon: 'spike_atgm', arc: 'rear', penetrated: true, suppressed: false });
+  });
+
+  it('a splash kill by a shooter who holed the hull a moment earlier is a blast, never "penetrated through the rear"', () => {
+    const tr = new KillCauseTracker(world);
+    tr.observe(impact(10, 1, 9, 'spike_atgm', 'rear'));
+    const c = tr.observe(dead(14, 9, 1, 'splash', 'spike_atgm')) as KillCause;
+    expect(c).toEqual({ kind: 'splash', attacker: 'c_at', weapon: 'spike_atgm', suppressed: false });
+    expect(causeText(c, name)).toBe('Caught in a blast from AT team (Spike anti-tank missile).');
+  });
+
+  it('a direct kill whose round left no candidate still names the weapon the event carries', () => {
+    expect(new KillCauseTracker(world).observe(dead(14, 9, 2, 'direct', 'rifles'))).toEqual({ kind: 'gun', attacker: 'c_inf', weapon: 'rifles', suppressed: false });
+  });
+
+  it('each other cause is its own kind, whatever candidates the victim had, and keeps the pinned flag', () => {
+    for (const kind of ['strike', 'bleed', 'collapse', 'carrier', 'other', 'spent'] as const) {
+      const tr = new KillCauseTracker(world);
+      tr.observe(impact(10, 2, 9, 'rifles', 'side'));
+      tr.observe({ kind: 'pinned', tick: 11, entity: 9 });
+      expect(tr.observe(dead(14, 9, 2, kind)), kind).toEqual({ kind, attacker: 'c_inf', suppressed: true });
+    }
+  });
+});
+
+describe('the words for each cause (literals)', () => {
+  const by = (kind: KillCause['kind'], extra: Partial<KillCause> = {}): KillCause => ({ kind, attacker: 'c_inf', suppressed: false, ...extra });
+  const anon = (kind: KillCause['kind']): KillCause => ({ kind, suppressed: false });
+  it('names who when the event credited someone', () => {
+    expect(causeText(by('splash', { weapon: 'rifles' }), name)).toBe('Caught in a blast from Rifle squad (Rifles).');
+    expect(causeText(by('splash'), name)).toBe('Caught in a blast from Rifle squad.');
+    expect(causeText(by('strike'), name)).toBe('Caught in a strike called in by Rifle squad.');
+    expect(causeText(by('bleed'), name)).toBe('Bled out from wounds dealt by Rifle squad.');
+    expect(causeText(by('collapse'), name)).toBe('Killed in a collapse brought down by Rifle squad.');
+    expect(causeText(by('carrier'), name)).toBe('Went down with its carrier, destroyed by Rifle squad.');
+  });
+  it('and never invents one when nobody was', () => {
+    expect(causeText(anon('splash'), name)).toBe('Caught in a blast.');
+    expect(causeText(anon('strike'), name)).toBe('Caught in a strike.');
+    expect(causeText(anon('bleed'), name)).toBe('Bled out from wounds.');
+    expect(causeText(anon('collapse'), name)).toBe('Killed in a collapse.');
+    expect(causeText(anon('carrier'), name)).toBe('Went down with its carrier.');
+    expect(causeText({ ...anon('bleed'), suppressed: true }, name)).toBe('Bled out from wounds. It was pinned down.');
+  });
+});
+
+describe('causeSummary: several nameless losses of one type (the debrief)', () => {
+  const other: KillCause = { kind: 'other', attacker: 'c_inf', suppressed: false };
+  const shot: KillCause = { kind: 'gun', attacker: 'c_at', weapon: 'spike_atgm', suppressed: false };
+  const blast: KillCause = { kind: 'splash', suppressed: false };
+  const fell: KillCause = { kind: 'collapse', suppressed: false };
+  it('counts each distinct line, the commonest first', () => {
+    expect(causeSummary([shot, other, other], name)).toBe('2× Destroyed by Rifle squad. 1× Shot by AT team (Spike anti-tank missile).');
+  });
+  it('equal counts keep the order they fell in', () => {
+    expect(causeSummary([shot, other], name)).toBe('1× Shot by AT team (Spike anti-tank missile). 1× Destroyed by Rifle squad.');
+    expect(causeSummary([other, shot], name)).toBe('1× Destroyed by Rifle squad. 1× Shot by AT team (Spike anti-tank missile).');
+  });
+  it('shows two lines at most, then how many fell some other way', () => {
+    expect(CAUSE_SUMMARY_MAX).toBe(2);
+    expect(causeSummary([blast, blast, fell, shot, other], name)).toBe('2× Caught in a blast. 1× Killed in a collapse. 2 more to other causes.');
+    expect(causeSummary([blast, blast, fell, shot], name)).toBe('2× Caught in a blast. 1× Killed in a collapse. 1 more to another cause.');
+  });
+  it('a loss with no stored cause counts as not recorded; an empty list has no line', () => {
+    expect(causeSummary([undefined, other, undefined], name)).toBe('2× Cause not recorded. 1× Destroyed by Rifle squad.');
+    expect(causeSummary([], name)).toBeUndefined();
+  });
+  it('all one cause is one line with its count', () => {
+    expect(causeSummary([blast, blast, blast], name)).toBe('3× Caught in a blast.');
+  });
+});
+
 describe('parseKillCause (a save is untrusted)', () => {
   const ok = { kind: 'gun', attacker: 'c_at', weapon: 'spike_atgm', arc: 'rear', penetrated: true, suppressed: false };
 
   it('round-trips what the tracker produces', () => {
     expect(parseKillCause(ok)).toEqual(ok);
     expect(parseKillCause({ kind: 'spent', suppressed: true })).toEqual({ kind: 'spent', suppressed: true });
+    for (const kind of ['splash', 'strike', 'bleed', 'collapse', 'carrier']) expect(parseKillCause({ kind, suppressed: false }), kind).toEqual({ kind, suppressed: false });
   });
 
   it('refuses every wrong shape, each by itself', () => {

@@ -1,6 +1,9 @@
 {
   "version": "next",
   "units": [],
-  "rules": [],
+  "rules": [
+    "The debrief and the unit card now say when a loss was caught in a blast, a called strike or a collapse, bled out, or went down with its carrier.",
+    "When the debrief lists several nameless crews of one type, it now tallies what killed them."
+  ],
   "fixes": []
 }
