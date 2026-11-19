@@ -948,7 +948,7 @@ Field names are the schema's. `at` values are tile centres. The `town` and the m
 [
   {"id": "all_five", "type": "collapse", "primary": true, "target": "fence_road", "seconds": 390, "text": "Bring down the five routes under the Fence Road in six and a half minutes", "say": {"speaker": "idit", "text": "All five down. The Fence Road runs over nothing."}, "say_on_fail": {"speaker": "shai", "text": "The clock is out. Whatever is still open under the Fence is open to anyone."}},
   {"id": "keep_the_surface", "type": "no_collateral_above", "primary": true, "threshold": 10, "text": "Lose no more than 10 Conduct", "say_on_fail": {"speaker": "shai", "text": "That is past ten. The houses above the routes are the count now."}},
-  {"id": "walk_the_person_out", "type": "evacuate_before", "primary": false, "target": "rescue_refuge", "count": 1, "seconds": 330, "hostages": true, "carries": true, "text": "Walk the person in the chamber out to the refuge", "say": {"speaker": "idit", "text": "One out and walking. That is the one that counts, and it is not on any clock."}},
+  {"id": "walk_the_person_out", "type": "evacuate_before", "primary": false, "target": "rescue_refuge", "count": 1, "seconds": 330, "hostages": true, "carries": true, "text": "Walk the person in the chamber out to the refuge", "say": {"speaker": "idit", "text": "One out and walking, with time still on the clock. That is the one that counts."}},
   {"id": "take_the_commander", "type": "eliminate_hvt", "primary": false, "target": "bt5_block_commander", "text": "Take the block commander", "say": {"speaker": "shai", "text": "The post is ours. The routes under it can be taken in any order now."}}
 ]
 ```

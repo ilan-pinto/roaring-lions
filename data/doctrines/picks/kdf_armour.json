@@ -1,0 +1,20 @@
+{
+  "id": "kdf_armour",
+  "extends": "kdf",
+  "status": "proposed",
+  "label": "doctrine.kdf_armour.name",
+  "blurb": "doctrine.kdf_armour.blurb",
+  "gives_up": "doctrine.kdf_armour.gives_up",
+  "signature": {
+    "formation": "kdf_armour_thrust"
+  },
+  "ops": [
+    {"op": "menu_remove", "units": ["heli_peten", "jeep_shoded", "yahalom_squad"]},
+    {"op": "menu_add", "units": ["apc_kipod"]},
+    {"op": "set_pop_cap", "value": 42},
+    {"op": "set_price", "unit": "at_team", "logistics": 245},
+    {"op": "set_price", "unit": "ifv_namer", "logistics": 605},
+    {"op": "set_price", "unit": "inf_squad", "logistics": 308},
+    {"op": "set_price", "unit": "mbt_lavi", "logistics": 860}
+  ]
+}

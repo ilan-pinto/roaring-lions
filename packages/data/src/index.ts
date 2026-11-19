@@ -12,6 +12,13 @@ import commanderJson from '../../../data/campaign/commander.json';
 import namesJson from '../../../data/campaign/names.json';
 import kdfDoctrine from '../../../data/doctrines/kdf.json';
 import sarimDoctrine from '../../../data/doctrines/sarim.json';
+// GH-1383 slice 1: the doctrine picks, registered in sorted directory order (id order). Read by nothing yet.
+import pickKdfAirmobile from '../../../data/doctrines/picks/kdf_airmobile.json';
+import pickKdfArmour from '../../../data/doctrines/picks/kdf_armour.json';
+import pickKdfUrban from '../../../data/doctrines/picks/kdf_urban.json';
+import pickSarimMilitia from '../../../data/doctrines/picks/sarim_militia.json';
+import pickSarimRaid from '../../../data/doctrines/picks/sarim_raid.json';
+import pickSarimStandoff from '../../../data/doctrines/picks/sarim_standoff.json';
 import rujmSawdaVersus from '../../../data/versus/rujm_sawda.json';
 import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
@@ -34,6 +41,7 @@ import layoutAssembly from '../../../data/layouts/assembly.json';
 import gradeDawn from '../../../data/grades/dawn.json';
 import gradeDusk from '../../../data/grades/dusk.json';
 import type { DoctrineJson, VersusModeFileJson, VersusRulesJson } from './versus';
+import type { DoctrinePickJson } from './doctrines';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
 import minWinSecondsJson from '../../../data/accounts/min_win_seconds.json';
@@ -331,6 +339,29 @@ export const doctrines: Readonly<Record<'kdf' | 'sarim', DoctrineJson>> = {
   kdf: kdfDoctrine as DoctrineJson,
   sarim: sarimDoctrine as DoctrineJson,
 };
+
+/** Doctrine picks (GH-1383 slice 1), keyed by id in id order: each extends `doctrines[pick.extends]` with the closed op
+ *  list `resolveDoctrine` applies. data/doctrines/picks/*.json against doctrine_pick.schema.json, P1-P10 and the cost-curve
+ *  gate in `pnpm validate:data`. Hand-kept, so `index.test.ts` pins it to the directory. Every pick reads `status: proposed`,
+ *  and nothing in the app reads this record until slices 2-3 (the pre-pass and the config). */
+export const doctrinePicks: Readonly<Record<string, DoctrinePickJson>> = {
+  kdf_airmobile: pickKdfAirmobile as DoctrinePickJson,
+  kdf_armour: pickKdfArmour as DoctrinePickJson,
+  kdf_urban: pickKdfUrban as DoctrinePickJson,
+  sarim_militia: pickSarimMilitia as DoctrinePickJson,
+  sarim_raid: pickSarimRaid as DoctrinePickJson,
+  sarim_standoff: pickSarimStandoff as DoctrinePickJson,
+};
+
+export {
+  resolveDoctrine,
+  applyDoctrine,
+  type DoctrineFaction,
+  type DoctrineOp,
+  type DoctrinePickJson,
+  type DoctrinableUnit,
+  type ResolvedDoctrine,
+} from './doctrines';
 
 /** Versus rules files (N3 Task 1), keyed by map id: each faction-matchup map's camps and
  *  income zones. data/versus/*.json against versus_rules.schema.json. */

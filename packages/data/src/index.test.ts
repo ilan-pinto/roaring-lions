@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chatFilters } from './chat-filters';
 import {
+  doctrinePicks,
+  doctrines,
   formations,
   layouts,
   grades,
@@ -130,6 +132,30 @@ describe('formations is pinned to the directory it comes from', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toEqual(['ambush', 'attack', 'column']);
+  });
+});
+
+describe('doctrinePicks is pinned to data/doctrines/picks (GH-1383 slice 1)', () => {
+  // The same shape as the formations pin above: a hand-kept record, so a pick file that ships without an import line
+  // is a doctrine no room could ever resolve. The base files (data/doctrines/*.json) are `doctrines`, never picks.
+  const picksDir = path.join(DATA_ROOT, 'doctrines', 'picks');
+
+  it('carries every pick file on disk, keyed by its own id', () => {
+    const onDisk = readdirSync(picksDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(path.join(picksDir, f), 'utf8')).id as string)
+      .sort();
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(Object.keys(doctrinePicks).sort()).toEqual(onDisk);
+    for (const [key, pick] of Object.entries(doctrinePicks)) expect(pick.id).toBe(key);
+  });
+
+  it('is in id order, three to a faction, and none of them is a base', () => {
+    const ids = Object.keys(doctrinePicks);
+    expect(ids).toEqual([...ids].sort());
+    expect(ids).toEqual(['kdf_airmobile', 'kdf_armour', 'kdf_urban', 'sarim_militia', 'sarim_raid', 'sarim_standoff']);
+    expect(Object.keys(doctrines).sort()).toEqual(['kdf', 'sarim']);
+    for (const id of ids) expect(Object.keys(doctrines)).not.toContain(id);
   });
 });
 

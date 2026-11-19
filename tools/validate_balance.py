@@ -506,6 +506,29 @@ def fit_curve(samples):
     return a, b
 
 
+def load_units(units_dir, also=()):
+    """The (path, unit) rows the curve is fitted on: every JSON under `units_dir` and each `also`
+    dir, sorted, civilians and `wounded` left out. Also called by tools/doctrine_balance.py
+    (GH-1383), so both scripts fit the same roster."""
+    found = glob.glob(os.path.join(units_dir, "**", "*.json"), recursive=True)
+    for extra in also:
+        found += glob.glob(os.path.join(extra, "**", "*.json"), recursive=True)
+    # A dir named twice (--also overlapping --units) must not put a unit on the curve twice.
+    paths = sorted({os.path.normpath(p) for p in found})
+    units = []
+    for p in paths:
+        with open(p) as fh:
+            u = json.load(fh)
+        if u.get("faction") == "civilian":
+            continue
+        # GH-707: a `wounded` man is shed by a squad, never bought or built -- he has no
+        # price and no gun, so he would be a zero on both axes of the curve.
+        if u.get("role") == "wounded":
+            continue
+        units.append((p, u))
+    return units
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--units", default="data/units")
@@ -547,22 +570,7 @@ def main():
     if args.max_tier and args.upgrade_cost_factor is None:
         ap.error("--max-tier requires --upgrade-cost-factor K")
 
-    found = glob.glob(os.path.join(args.units, "**", "*.json"), recursive=True)
-    for extra in args.also:
-        found += glob.glob(os.path.join(extra, "**", "*.json"), recursive=True)
-    # A dir named twice (--also overlapping --units) must not put a unit on the curve twice.
-    paths = sorted({os.path.normpath(p) for p in found})
-    units = []
-    for p in paths:
-        with open(p) as fh:
-            u = json.load(fh)
-        if u.get("faction") == "civilian":
-            continue
-        # GH-707: a `wounded` man is shed by a squad, never bought or built -- he has no
-        # price and no gun, so he would be a zero on both axes of the curve.
-        if u.get("role") == "wounded":
-            continue
-        units.append((p, u))
+    units = load_units(args.units, args.also)
 
     if len(units) < MIN_ROSTER_FOR_FIT:
         print(f"roster has {len(units)} units, need {MIN_ROSTER_FOR_FIT} to fit a curve -- skipping")
