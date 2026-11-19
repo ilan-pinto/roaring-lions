@@ -10,18 +10,24 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { nextVersion } from './next_version.mjs';
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+
+/** The glob a release tag matches (`git describe --match`). A tag outside it, such as a branch-cut tag
+ *  `cut/vX.Y.Z` (tools/ci/cut-tag.mjs), is never read as a release. */
+export const RELEASE_TAG_MATCH = 'v*';
 
 /** The most recent release tag, or null on a repo that has never cut one.
  *
  *  git writes "No names found" to stderr in that case, which reads as an
  *  error in a run log when it is the ordinary first-run state — so the child's
  *  stderr is dropped and the absence is reported by the caller instead. */
-function lastTag() {
+export function lastTag(cwd = process.cwd()) {
   try {
-    return execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*'], {
+    return execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', RELEASE_TAG_MATCH], {
+      cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
@@ -55,20 +61,24 @@ function lastReleaseCommit() {
   }
 }
 
-const tag = lastTag();
-const boundary = tag ?? lastReleaseCommit();
-// With neither a tag nor a release commit the range is the whole history —
-// which is correct exactly once, on a repo that has never cut a release.
-const range = boundary ? `${boundary}..HEAD` : 'HEAD';
-const subjects = git('log', '--no-merges', '--format=%s', range).split('\n').filter(Boolean);
+function main() {
+  const tag = lastTag();
+  const boundary = tag ?? lastReleaseCommit();
+  // With neither a tag nor a release commit the range is the whole history —
+  // which is correct exactly once, on a repo that has never cut a release.
+  const range = boundary ? `${boundary}..HEAD` : 'HEAD';
+  const subjects = git('log', '--no-merges', '--format=%s', range).split('\n').filter(Boolean);
 
-const current = JSON.parse(readFileSync('package.json', 'utf8')).version;
-const next = nextVersion(current, subjects);
+  const current = JSON.parse(readFileSync('package.json', 'utf8')).version;
+  const next = nextVersion(current, subjects);
 
-// Stderr so it lands in the run log without polluting GITHUB_OUTPUT.
-console.error(
-  `boundary: ${tag ? `tag ${tag}` : boundary ? `release commit ${boundary.slice(0, 7)}` : '(whole history)'}` +
-    ` · commits in range: ${subjects.length} · current: ${current} · next: ${next ?? '(no release)'}`
-);
+  // Stderr so it lands in the run log without polluting GITHUB_OUTPUT.
+  console.error(
+    `boundary: ${tag ? `tag ${tag}` : boundary ? `release commit ${boundary.slice(0, 7)}` : '(whole history)'}` +
+      ` · commits in range: ${subjects.length} · current: ${current} · next: ${next ?? '(no release)'}`
+  );
 
-process.stdout.write(`next=${next ?? ''}\n`);
+  process.stdout.write(`next=${next ?? ''}\n`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
