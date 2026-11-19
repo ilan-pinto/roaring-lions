@@ -9,10 +9,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { matchCapTicksOf } from '@lions/net';
+import { MATCHUPS, VERSUS_FAIR_MAPS, WIN_MODES, factionsOfMatchup, matchCapTicksOf, type Matchup, type WinMode } from '@lions/net';
 import { fx, type Command } from '@lions/sim';
-import { computerLevels, withholdOf, type ComputerLevelCatalogue, type ComputerLevelId } from '@lions/data';
-import { VERSUS_KDF, versusForceOf } from '../../../packages/app/src/net/versus-force';
+import { computerLevels, withholdOf, type ComputerFaction, type ComputerLevelCatalogue, type ComputerLevelId } from '@lions/data';
+import { versusForceOf } from '../../../packages/app/src/net/versus-force';
 import { levelBoosts } from '../../validate_computer_levels.mjs';
 import { LADDER_LEVELS, type LadderCells, type LevelStatement } from './computer-ladder-gate';
 import { offlineMatch, HUMAN_SEAT, COMPUTER_SEAT, type OfflineRequest } from '../../../packages/app/src/net/offline-match';
@@ -87,8 +87,22 @@ class PlanSeat {
 
 export type MatchVerdict = 'computer' | 'player' | 'draw';
 
+/**
+ * A ladder CELL beyond the ground (GH-1389, Sarim withholds): the human's pairing (the computer plays the other faction, at
+ * seat 1) and the win mode (`null` is annihilation). The default, `{ matchup: 'mirror', winMode: null }`, is the ladder as
+ * it always ran: KDF v KDF on every open map.
+ */
+export interface LadderCellMode { matchup: Matchup; winMode: WinMode | null }
+export const DEFAULT_CELL_MODE: LadderCellMode = { matchup: 'mirror', winMode: null };
+export interface LadderCell extends LadderCellMode { map: string }
+
+const isDefaultMode = (c: Partial<LadderCellMode>): boolean => (c.matchup ?? 'mirror') === 'mirror' && (c.winMode ?? null) === null;
+
 export interface MatchRun {
   map: string;
+  /** Present only off the default cell (mirror, annihilation), so a default run's record is the one it always was. */
+  matchup?: Matchup;
+  winMode?: WinMode | null;
   level: ComputerLevelId | null;
   plan: PlanId;
   seed: number;
@@ -97,9 +111,43 @@ export interface MatchRun {
   ticks: number;
 }
 
-/** One match: the player on `plan` against the computer at `level` (null: no level, today's computer), on `map`. */
-export function playMatch(map: string, level: ComputerLevelId | null, plan: PlanId, seed: number): MatchRun {
-  const req: OfflineRequest = { map, matchup: 'mirror', callsign: 'Plan', computerName: 'Computer', build: 'ladder+0', seed, ...(level === null ? {} : { level }) };
+/** The faction the computer seat plays in a cell: the other side of the human's pairing. */
+export function computerFactionOf(mode: Pick<LadderCellMode, 'matchup'>): ComputerFaction {
+  return factionsOfMatchup(mode.matchup)[COMPUTER_SEAT];
+}
+
+/** The key a run is tallied under: the map alone for the default cell (so the default table is unchanged), else the map, the
+ *  pairing and the win mode. */
+export function cellKey(c: { map: string; matchup?: Matchup; winMode?: WinMode | null }): string {
+  return isDefaultMode(c) ? c.map : `${c.map} ${c.matchup ?? 'mirror'} ${c.winMode ?? 'annihilation'}`;
+}
+
+/** The offline request a ladder match arms, exactly as the lobby would: no `winMode` key for annihilation, no `level` key for no level. */
+export function ladderRequest(map: string, level: ComputerLevelId | null, seed: number, mode: LadderCellMode = DEFAULT_CELL_MODE): OfflineRequest {
+  return { map, matchup: mode.matchup, ...(mode.winMode === null ? {} : { winMode: mode.winMode }), callsign: 'Plan', computerName: 'Computer', build: 'ladder+0', seed, ...(level === null ? {} : { level }) };
+}
+
+/**
+ * The cells a ladder run plays. `--cells=map:matchup[:winMode],...` (winMode `annihilation` or absent is annihilation) names
+ * them; else `--maps=a,b` plays the default cell on those maps; else the default cell on every open versus map
+ * (`VERSUS_FAIR_MAPS`), which is the ladder as it always ran. Both at once is refused.
+ */
+export function ladderCells(opts: { maps?: string; cells?: string }): LadderCell[] {
+  if (opts.maps !== undefined && opts.cells !== undefined) throw new Error('computer ladder: give --maps or --cells, not both');
+  if (opts.cells === undefined) return (opts.maps ?? VERSUS_FAIR_MAPS.join(',')).split(',').filter(Boolean).map((map) => ({ map, ...DEFAULT_CELL_MODE }));
+  return opts.cells.split(',').filter(Boolean).map((spec) => {
+    const [map, matchup = 'mirror', mode = 'annihilation', ...rest] = spec.split(':');
+    if (rest.length > 0 || map === '') throw new Error(`computer ladder: bad cell "${spec}" (map:matchup[:winMode])`);
+    if (!(MATCHUPS as readonly string[]).includes(matchup)) throw new Error(`computer ladder: bad matchup "${matchup}" in "${spec}" (${MATCHUPS.join(', ')})`);
+    if (mode !== 'annihilation' && !(WIN_MODES as readonly string[]).includes(mode)) throw new Error(`computer ladder: bad win mode "${mode}" in "${spec}" (annihilation, ${WIN_MODES.join(', ')})`);
+    return { map, matchup: matchup as Matchup, winMode: mode === 'annihilation' ? null : (mode as WinMode) };
+  });
+}
+
+/** One match: the player on `plan` against the computer at `level` (null: no level, today's computer), on `map`, in the cell
+ *  `mode` (default: the mirror in annihilation, as the ladder always ran). */
+export function playMatch(map: string, level: ComputerLevelId | null, plan: PlanId, seed: number, mode: LadderCellMode = DEFAULT_CELL_MODE): MatchRun {
+  const req = ladderRequest(map, level, seed, mode);
   const { transport, config } = offlineMatch(req);
   const world = buildMatchWorld(config);
   transport.attach(world);
@@ -127,7 +175,7 @@ export function playMatch(map: string, level: ComputerLevelId | null, plan: Plan
     by = String(d.result.by);
     if (d.result.kind !== 'draw' && 'side' in d.result) verdict = d.result.side === computerSide ? 'computer' : 'player';
   }
-  return { map, level, plan, seed, verdict, by, ticks: world.sim.tickCount };
+  return { map, ...(isDefaultMode(mode) ? {} : { matchup: mode.matchup, winMode: mode.winMode }), level, plan, seed, verdict, by, ticks: world.sim.tickCount };
 }
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
@@ -142,16 +190,17 @@ function unitCosts(): Map<string, number> {
   return out;
 }
 
-/** What each level states, derived from its data: the force share it fields (by value, from the placed force it really
- *  spawns), what it leaves at home, and `levelBoosts`' reading of its keys. */
-export function levelStatements(catalogue: ComputerLevelCatalogue = computerLevels): LevelStatement[] {
+/** What each level states for a computer playing `faction`, derived from its data: the force share it fields (by value,
+ *  from the placed force it really spawns, `VERSUS_KDF` or `VERSUS_SARIM`), what it leaves at home, and `levelBoosts`'
+ *  reading of its keys. */
+export function levelStatements(faction: ComputerFaction, catalogue: ComputerLevelCatalogue = computerLevels): LevelStatement[] {
   const cost = unitCosts();
   const value = (force: readonly (readonly [string, number, number])[]): number => force.reduce((v, [id]) => v + (cost.get(id) ?? 0), 0);
-  const whole = value(VERSUS_KDF);
+  const whole = value(versusForceOf(faction));
   return catalogue.levels.map((l) => {
-    const w = withholdOf(l);
+    const w = withholdOf(l, faction);
     const b = levelBoosts(l);
-    const fielded = value(versusForceOf('kdf', w));
+    const fielded = value(versusForceOf(faction, w));
     const withheld = Object.entries(w).map(([id, n]) => `${n} ${id}`).join(', ');
     return { level: l.id, forceShare: fielded / whole, withheld: withheld === '' ? 'nothing' : withheld, income: b.income, vision: b.vision };
   });
@@ -161,9 +210,10 @@ export function tally(runs: readonly MatchRun[]): LadderCells {
   const cells: LadderCells = {};
   for (const r of runs) {
     const level = r.level as (typeof LADDER_LEVELS)[number];
-    cells[r.map] ??= {};
-    cells[r.map][r.plan] ??= { easy: { computer: 0, player: 0, draw: 0 }, medium: { computer: 0, player: 0, draw: 0 }, hard: { computer: 0, player: 0, draw: 0 } };
-    cells[r.map][r.plan][level][r.verdict]++;
+    const key = cellKey(r);
+    cells[key] ??= {};
+    cells[key][r.plan] ??= { easy: { computer: 0, player: 0, draw: 0 }, medium: { computer: 0, player: 0, draw: 0 }, hard: { computer: 0, player: 0, draw: 0 } };
+    cells[key][r.plan][level][r.verdict]++;
   }
   return cells;
 }

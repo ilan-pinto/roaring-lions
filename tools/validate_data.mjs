@@ -16,7 +16,7 @@
 //   data/doctrines/picks/** against data/schemas/doctrine_pick.schema.json (GH-1383), plus P1-P10 in
 //                    tools/validate_doctrine.mjs and the cost-curve bar in tools/doctrine_balance.py (python3)
 //   data/computer/levels.json against data/schemas/computer_levels.schema.json (GH-1389), plus the
-//                    order, unit and no-boost rules in tools/validate_computer_levels.mjs
+//                    order, per-faction placed-force, superset and no-boost rules in tools/validate_computer_levels.mjs
 //   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
 //                    anchor rules in tools/validate_versus_modes.mjs
 //   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
@@ -56,7 +56,7 @@ import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures, doctrinePickFailures } from './validate_doctrine.mjs';
 import { spawnSync } from 'node:child_process';
-import { computerLevelFailures } from './validate_computer_levels.mjs';
+import { computerLevelFailures, placedForcesFromSource, PLACED_FORCE_SOURCES } from './validate_computer_levels.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
@@ -1449,9 +1449,16 @@ const garrisonableSymbols = new Set(
     }
     for (const f of balance.failures) failures.push(`doctrine cost curve (T4): ${f}`);
   }
-  // GH-1389: the computer levels -- KDF units, strictly ordered by the force they field, no income or vision key.
+  // GH-1389: the computer levels -- per faction, units of that faction's placed force and no more than it fields, each level
+  // withholding at least what the one above does, strictly ordered by the force they field; no income or vision key.
   const levelsFile = join(ROOT, 'data/computer/levels.json');
-  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits));
+  let placed = null;
+  try {
+    placed = placedForcesFromSource(PLACED_FORCE_SOURCES.map((p) => readFileSync(join(ROOT, p), 'utf8')));
+  } catch (e) {
+    failures.push(`${rel(levelsFile)}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits, placed));
 }
 
 // --- versus rules files (N3 Task 1) -------------------------------------------
