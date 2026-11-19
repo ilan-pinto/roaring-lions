@@ -8070,8 +8070,10 @@ describe('E12: counts_rescued, a rescued civilian counts as saved', () => {
     const w = rcWorld({ counts_rescued: true, seconds: 1 });
     w.step(25);
     expect(status(w)).toBe('failed');
+    // Still running: `hold` keeps the mission open past `save` failing, so the rule decides and not the end (an ended
+    // mission's step returns [] and would pass the evacs check below whatever the rule said).
+    expect(w.runtime.result).toBe('ongoing');
     const out = run(w, [admitted(VILLAGER)]);
-    expect(out.some((e) => e.kind === 'missionEnd')).toBe(false); // still running: the rule, not the end, decides
     expect(evacs(out)).toEqual([]);
   });
 

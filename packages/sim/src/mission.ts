@@ -232,7 +232,10 @@ export interface ObjectiveJson {
    *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues -- admitted to an aid post or
    *  evacuated by a carrier (`woundAdmitted` / `woundEvacuated` with side 0) -- while this objective is active is counted
    *  out exactly as one who walked into the zone: latched into the same tally, once, with the same `evacuated` event.
-   *  Absent or false: a rescued civilian counts toward nothing but Conduct, as before. */
+   *  Absent or false: a rescued civilian counts toward nothing but Conduct, as before. The tally is shared, as an
+   *  arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one
+   *  without the flag. And a civilian counted at `woundAdmitted` stays counted even if the aid post later falls and he
+   *  is lost (`woundLost`): nothing takes a man out of the latch. Both pending a lead ruling. */
   counts_rescued?: boolean;
   text?: string;
   target?: string;
