@@ -13,6 +13,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { encodeSim, type MissionRuntime, type Sim } from '@lions/sim';
 import { run, setSweep } from './backtest/playtest-run';
+import { shippedContentDigest } from '../../packages/app/src/net/content-digest';
 import { MISSION_SAVE_MAX_COMPRESSED_BYTES, cutMission, parseSuspended, prepareResume, restoreMission, sealMission, serializeSuspended, type SuspendedMission } from '../../packages/app/src/mission-save';
 
 const SECONDS_BEFORE = 90;   // the cut, in mission seconds
@@ -45,7 +46,7 @@ async function witness(id: string): Promise<{ record: SuspendedMission; a: Probe
   // Run A: the mission, an idle player; cut at SECONDS_BEFORE, then probe every second.
   run(id as never, (sim, rt, _ids, at) => {
     at(SECONDS_BEFORE, () => {
-      const c = cutMission({ sim, runtime: rt, missionId: id, seed: 424242, build: 'test', savedAt: 1, campaign: { ledger: {}, tiers: {}, unlocks: [], deploy: null } });
+      const c = cutMission({ sim, runtime: rt, contentDigest: shippedContentDigest(), missionId: id, seed: 424242, build: 'test', savedAt: 1, campaign: { ledger: {}, tiers: {}, unlocks: [], deploy: null } });
       if (!c.ok) { cutError = c.detail; return; }
       pending = sealMission(c.cut).then((r) => { if (r.ok) record = r.record; else cutError = `${r.reason}: ${r.detail}`; });
     });
@@ -55,7 +56,7 @@ async function witness(id: string): Promise<{ record: SuspendedMission; a: Probe
   if (record === null) throw new Error(`${id}: no record was cut (${cutError})`);
   const rec: SuspendedMission = record;
   // Run B: a fresh world, the record restored before the first tick, probed every second after the cut.
-  const prepared = await prepareResume(parseOk(rec));
+  const prepared = await prepareResume(parseOk(rec), { contentDigest: shippedContentDigest() });
   if (!prepared.ok) throw new Error(`${id}: ${prepared.reason}`);
   const b: Probe[] = [];
   let restored = '';

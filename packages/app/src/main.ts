@@ -4373,18 +4373,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * the battlefield is gone (torn down mid-save: no menu is left to read a line, and nothing is written or navigated).
    */
   const saveAndQuit = async (): Promise<SaveOutcome> => {
+    // The save belongs to the pause it was asked from. Resume and Escape stay live while a chunk loads (the content digest's first load
+    // fetches every map's JSON), so once THAT menu is gone, or the mission is decided, the sim may have ticked: nothing is cut, written or
+    // navigated, and null leaves no line (a closed menu reads nothing; an open one just clears its busy line). A new pause is a new menu.
+    const menu = pauseHandle;
+    const stale = (): boolean => !paused || pauseHandle !== menu || runtime?.result !== 'ongoing';
     const kit = await saveKit().catch(() => null);
-    if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
+    if (disposed || stale()) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
+    const { cutMission, loadContentDigest, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
     if (!(await confirmReplaceOther(other, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name))) return { declined: true };
-    if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    if (disposed || stale()) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    // The content digest (every map's JSON) loads at the save, not with the kit, which rides every mission boot (`loadContentDigest`).
+    const contentDigest = await loadContentDigest().catch(() => null);
+    if (disposed || stale()) return null; // left, resumed or ended while the digest loaded: nothing to cut, write or leave
+    if (contentDigest === null) return saveFailureText('encode_failed');
     const cut = cutMission({
       sim,
       runtime,
+      contentDigest,
       missionId: resolvedMission.id,
       seed: SIM_SEED,
       build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
@@ -4394,7 +4404,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
     if (!cut.ok) return saveFailureText('encode_failed');
     const sealed = await sealMission(cut.cut);
-    if (disposed) return null; // left mid-gzip: no save of a mission the player left, and no navigation off where they went
+    if (disposed || stale()) return null; // left or resumed mid-gzip: no save of a mission the player left or went back to, and no navigation
     if (!sealed.ok) return saveFailureText(sealed.reason);
     const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
     if (!wrote.ok) return saveFailureText(wrote.reason);
