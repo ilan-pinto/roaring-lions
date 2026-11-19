@@ -1,11 +1,11 @@
-# Roaring Lions: Roadmap (DRAFT, HOLD FOR LEAD)
+# Roaring Lions: Roadmap (DRAFT)
 
-> **Status: draft for the lead. Not published, not linked from the game or the site.**
-> Nothing here is posted until the lead publishes it. Three things need the lead's eye before it goes out:
-> the grouping of work under the two dated milestones (see "Notes for the lead" at the end), the wording in
+> **Status: approved as a draft by the lead, 19 Nov 2026. Not published: publishing is the lead's call.**
+> It is not linked from the game or the site. Nothing here is posted until the lead publishes it. Three things need the lead's eye before it goes out:
+> the grouping of work under the two dated milestones (see "Judgement calls to confirm" at the end), the wording in
 > "What we are not planning", and the choice of community channel.
 
-Roaring Lions is a real-time strategy game about the Kedem Defence Force (KDF) and the Sarim militias,
+Roaring Lions is a real-time strategy game about the Kedem Defense Forces (KDF) and the Sarim Brigades,
 inspired by modern Middle East conflicts. This page says what we are working on and what we are not. We
 promise only what is written here, and only the two dates given.
 
@@ -28,8 +28,8 @@ Play a match against the computer without needing a friend.
 - **Three difficulty levels for the computer.** Each level is shown to you as what it is (for example, a
   handicap on starting money or force size). The computer never gets extra sight.
 - **The computer can play either side** (KDF or Sarim) on every open versus map and in every win mode.
-- **Sarim on every versus map and in free play.** Today some maps and win modes are KDF-versus-Sarim only
-  in a limited form. The goal is to open them all. One part of this (the points and flag modes for a
+- **Sarim on every versus map and in free play.** Today a KDF-versus-Sarim match is played on three versus
+  maps only, and not in every win mode. The goal is to open them all. One part of this (the points and flag modes for a
   KDF-versus-Sarim match) depends on a fairness check and may stay closed if it fails.
 
 ## Toward Play with a friend (16 April 2027)
@@ -44,7 +44,7 @@ Play a match against the computer without needing a friend.
 ### Campaign: missions that make you spend and choose
 
 - **Income and production on at least half the missions.** Holding ground earns money and builds units on
-  at least 15 of the 30 missions. The work is under way; the count is rising batch by batch.
+  18 of the 40 missions today.
 - **Objectives where saving everything stops working.** On the economy missions, hoarding money and doing
   nothing should lose, and calling in fire support should be worth the cost.
 - **A few missions where the enemy has a camp of its own** and builds against you. Only in missions that
@@ -79,8 +79,8 @@ Play a match against the computer without needing a friend.
 ### Language, sound and look
 
 - **Launch languages:** English plus Simplified Chinese, Russian, German, French and Spanish (Spain).
-  Brazilian Portuguese follows right after launch. Unit names and mission text are being moved into the
-  language files first.
+  Brazilian Portuguese follows right after launch. Unit names and mission text are already in the language
+  files, and draft German, French and Spanish translations exist; today the game can be played in English only.
 - **Spoken briefings and radio lines** with captions.
 - **Ambience.** The ambience beds have been off since 9 October. They return only after a redesign and a
   mix pass, and only if the lead approves them by ear.
@@ -98,8 +98,8 @@ Play a match against the computer without needing a friend.
 - **Roar coins buy units.** Coins can buy units and their upgrade tiers, as the credits you earn in play
   can. Everything coins buy can also be earned by playing: the intended pace is about twelve full campaigns
   to own every unit and tier with earned credits. A unit bought with coins is yours in versus too: in a
-  room whose host turns on "Bring your brigade", each KDF player fields the units they own, however they
-  got them. A room on standard kit stays equal: it fields nobody's owned kit.
+  room whose host turns on "Bring your brigade", each KDF player fields the upgrades and Store special units
+  they own, however they got them. A room on standard kit stays equal: it fields nobody's owned kit.
 - **A first shelf of cosmetics**, such as emblems, colour sets and banners. A cosmetic changes only how
   something looks.
 - **Crash reporting**, with an opt-out, and clearer terms and privacy pages.
@@ -184,8 +184,8 @@ report feature, the draft sign-in age) were read from the repository.
   contributor documents and a contributor licence agreement, but no code of conduct, and one would need to
   be added to give moderation something to point at.
 - **Privacy and age.** Posts are public and indexed, tied to a GitHub account. GitHub's terms set a minimum
-  age (13 in most places **[verify]**). Players of this game sign in with Google or Steam, not GitHub, so
-  most players do not already have an account there. Reports about personal data must not go here, for the
+  age (13 in most places **[verify]**). Players of this game sign in with Google (Steam sign-in is built but
+  switched off), not GitHub, so most players do not already have an account there. Reports about personal data must not go here, for the
   same reason the privacy-contact proposal gives for issues.
 - **Fit for a small team.** Lowest overhead, same place as the code and the issues, good for patch notes,
   bug reports and a public roadmap thread. Smallest gaming audience.
@@ -194,8 +194,9 @@ report feature, the draft sign-in age) were read from the repository.
 
 - All are free at the scale of a small project **[verify]**.
 - None can serve as the private support or privacy contact. That should be a private address either way.
-- The game has no in-game report, mute or block feature for chat (read from the draft terms), so a community
-  space will see problems the game cannot yet help with.
+- The game's versus chat has a per-match mute, a setting that turns chat off and a word filter, but no report
+  or block feature (read from the game's chat settings; the draft terms, written 15 Nov, predate the mute and
+  the filter), so a community space will see problems the game cannot yet help with.
 - The channels are not exclusive. The facts above support choosing one, or combining a threaded one for patch
   notes and support with a live one for chat. This page does not choose.
 
@@ -284,3 +285,30 @@ GitHub milestone.
    fields nobody's owned kit, coins or credits alike. The lead ruled the matched-room question the same day
    (relayed by the PM): "standard-kit rooms stay EQUAL (no owned kit, coins or credits); coin-bought units
    reach PvP only through 'Bring your brigade' rooms. No code change." Nothing about it is open.
+
+### Fact-check against dev, 19 Nov 2026
+
+Read from `origin/dev` on 19 Nov (and `origin/main`, which the live site deploys from, where it says "live"). Fixed in the page
+text above: the faction names (`README.md` line 3 and its front table: "Kedem Defense Forces", "Sarim Brigades"); the KDF-versus-Sarim
+sentence (three maps, `FACTION_MATCHUP_MAPS` and `WIN_MODE_FAIR_FACTION_CELLS` in `packages/net/src/config.ts`, where `points` and `flag`
+are empty); the income count (GH-1386 closed on 18 Nov; 18 of the 40 mission files author `resources.income_zones`); the language
+line (`data/locales/en/units.json` and `missions.json` exist, `de`, `fr` and `es-ES` are staged, `LOCALES` is English only); what
+"Bring your brigade" fields (`versus.lobby.kit.hint`: upgrades and Store special units); sign-in (Steam is off, `flags.steam`); and
+chat (`net.chat.mute`, `settings.chat.enabled`, `settings.chat.mask`; no report or block key).
+
+Not changed, because where an item sits on the page is the lead's call. These "later" or dated items are already in the game, in
+whole or in part, so the page as written undersells them:
+
+| Page item | Where it stands on 19 Nov |
+|---|---|
+| A computer opponent in the versus lobby | Live: "Play a basic computer opponent", mirror pairing only, builds nothing (GH-1388, PR 1466). The three levels are data on dev with no lobby control yet (PR 1549) |
+| Sarim in free play | On dev, not yet live: a side pick on `/free-play` (PR 1582) |
+| Beit Sahwan II asks something of you | Live: passive play loses (PR 1483) |
+| A second campaign arc of about ten missions | On dev, not yet live: Qasr Liwan and Bir Tarsha, five missions each, "The Long Ground"; GH-1396 is still open |
+| Three campaign difficulty settings | Engine live; the board and deploy-screen choice is on dev, not yet live (PR 1504, PR 1548); GH-1394 is still open |
+| Save and resume in the middle of a mission | Live: "Save and quit" and the Resume card (PR 1478) |
+| Why did that unit die? | Live: the debrief and card line (PR 1435) |
+| Performance: the Low-preset suggestion | Live for slow frames (PR 1430); the software-renderer suggestion is on dev (PR 1523) |
+| Roar coins buy units | Live: "Coins buy what credits buy" (`stores.lede`); paid packs stay off (`PURCHASES_OPEN` false) |
+| Crash reporting, with an opt-out | The web build already sends crash reports with an opt-out ("Anonymous usage and crash reports" in Settings); GH-1414 is the packaged build's |
+| Either/or upgrade branches | Built and shipped off on dev (PR 1584, PR 1608; `BRANCHES_OPEN`) |
