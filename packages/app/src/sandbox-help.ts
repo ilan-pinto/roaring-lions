@@ -222,6 +222,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
   },
   {
+    name: 'duskread',
+    // GH-1403, held for the lead: OFF by default (`dusk-read-flag.ts`). Not a SANDBOX_FLAGS entry: like `envlight` it
+    // works on a mission too (a dusk mission is where it matters) and it is presentation only.
+    blurb: '=1 lifts every infantry figure at dusk so posture and uniform read (GH-1403; off by default); no effect on a day or dawn map',
+  },
+  {
     name: 'grade',
     // Look uplift L2 (GH-943), ON by default since 2 Nov 2026; `=0` is the A/B switch. A value flag like `tod`, not a
     // SANDBOX_FLAGS boolean, and a SANDBOX flag like it: a mission never reads it (N-23). `time-of-day.ts`'s `gradeOf`

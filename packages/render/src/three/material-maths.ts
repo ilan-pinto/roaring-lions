@@ -54,7 +54,7 @@ import { insigniaCoordOps, insigniaOps } from './units/insignia';
 import { RG_MAX_WHEELS, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps } from './units/running-gear';
 import { RG_TRACK_GEOMETRY_ATTR, RG_WHEEL_GEOMETRY_ATTR, runningGearUniformsOf } from './units/running-gear-material';
 import { sootOps } from './world-materials';
-import { rimOps, rimUniforms } from './units/rain-rim';
+import { rimFlavourOf, rimOps, rimUniforms } from './units/rain-rim';
 import { floorOps, woundedUniforms } from './units/wounded-read';
 import { outlineExpandOps, SILHOUETTE_DEPTH_BIAS_UNIFORM_KEY, SILHOUETTE_EXPAND_ATTRIBUTE, SILHOUETTE_OUTLINE_UNIFORM_KEY, SILHOUETTE_PX_PER_WORLD_UNIT } from './units/silhouette';
 import { zoneHatchOps } from './units/zone-band';
@@ -117,7 +117,7 @@ export const MATERIAL_MATHS: MaterialMaths = {
       trackAttribute: RG_TRACK_GEOMETRY_ATTR,
     },
     soot: { sootOps },
-    rim: { rimOps, rimUniforms },
+    rim: { rimOps, rimUniforms, rimFlavourOf },
     floor: { floorOps, woundedUniforms },
   },
   // GH-943 P3 (T1): every other P3 slot, null until its task fills it.

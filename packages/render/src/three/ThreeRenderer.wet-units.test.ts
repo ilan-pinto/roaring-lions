@@ -330,3 +330,28 @@ describe('the moving-vehicle spray', () => {
     expect(sprayColours(RAIN, [vehicleDust])).toEqual([]);
   });
 });
+
+describe('the dusk figure read reaches the table only on an opted-in, dry, dusk renderer (GH-1403)', () => {
+  // The CPU-side argument that day and the gated `graded` frame (a dusk sandbox with no `&duskread`) do not move: every row
+  // but the opted-in dry dusk ones returns the table it always returned, BY IDENTITY, so no clone, key or program differs.
+  const ROWS: ReadonlyArray<readonly [string, Partial<RendererOptions>, 'dusk' | 'shipped' | 'wet']> = [
+    ['dusk, opted in', { timeOfDay: 'dusk', duskRead: true }, 'dusk'],
+    ['night (is dusk, D10), opted in', { timeOfDay: 'night', duskRead: true }, 'dusk'],
+    ['dusk, not opted in (graded)', { timeOfDay: 'dusk' }, 'shipped'],
+    ['dusk, opted out', { timeOfDay: 'dusk', duskRead: false }, 'shipped'],
+    ['day, opted in', { timeOfDay: 'day', duskRead: true }, 'shipped'],
+    ['absent (day), opted in', { duskRead: true }, 'shipped'],
+    ['dawn, opted in', { timeOfDay: 'dawn', duskRead: true }, 'shipped'],
+    ['rain at dusk, opted in (rain wins)', { weather: 'rain', timeOfDay: 'dusk', duskRead: true }, 'wet'],
+  ];
+  it.each(ROWS)('%s', (_name, extra, want) => {
+    const { r } = setUp(extra);
+    const table = priv(r).surfaceTable as SurfaceTable;
+    const expected = surfaceTableFor(want === 'wet' ? 'rain' : undefined, true, want === 'dusk');
+    expect(table).toBe(expected);
+    expect(table.duskRead).toBe(want === 'dusk' ? true : undefined);
+    if (want === 'shipped') expect(table).toBe(surfaceTableFor(undefined, true));
+    expect(r.debugDuskRead().built).toBe(false);
+    r.dispose();
+  });
+});

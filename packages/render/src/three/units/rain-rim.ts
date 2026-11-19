@@ -51,11 +51,20 @@
  * today's. `userData.rlRainRim` marks a rim material (`Material.clone` copies
  * `userData`, so a wounded copy keeps the mark; its own `onBeforeCompile`
  * chains this one, see `wounded-read.ts`).
+ *
+ * ## Two flavours (GH-1403)
+ *
+ * The same program draws the DUSK figure read (`../dusk-read.ts`): one GLSL, one program key, one node term, but its OWN
+ * set of shared uniforms (`rimUniforms('dusk')`), so a dusk value never reaches a rain figure or the other way round. A
+ * clone carries its flavour in `userData.rlRimFlavour` (`rimFlavourOf`; absent is `'rain'`, so every rain clone is
+ * built exactly as before), and the node twin reads its uniforms through it. The `unit-surface` debug layer turns both
+ * flavours neutral and back; `setDuskRead` / `duskReadNow` are the dusk set's capture door.
  */
 import * as THREE from 'three';
 import { paletteHex } from '../palette-hex';
 import { NUMBER_OPS, type Ops } from '../fog-ops';
 import { RAIN_KDF_CONTRAST, RAIN_KDF_EXPOSURE, RAIN_KDF_RIM_GAIN, RAIN_KDF_RIM_KEY, RAIN_KDF_RIM_POWER } from '../weather';
+import { DUSK_READ_CONTRAST, DUSK_READ_EXPOSURE, DUSK_READ_RIM_GAIN, DUSK_READ_RIM_KEY, DUSK_READ_RIM_POWER } from '../dusk-read';
 
 /** The program cache key of a rim clone (a constant: every figure shares one program). */
 export const RAIN_RIM_PROGRAM_KEY = 'rl-unit-rain-rim';
@@ -173,50 +182,83 @@ export interface RainRead {
   contrast: number;
 }
 
-/** The gains the knob wants (the shipped defaults until `setRainRead` / `setRainRimGain`), and whether the
- *  `unit-surface` debug layer has the pass on. The uniforms read `passOn ? wanted : neutral`. */
-let wanted = RAIN_KDF_RIM_GAIN;
-let wantedExposure = RAIN_KDF_EXPOSURE;
-let wantedContrast = RAIN_KDF_CONTRAST;
-let passOn = true;
-let shared: RimUniforms | null = null;
+/** Which shared uniform set a rim material reads: the KDF rain read, or the dusk figure read (GH-1403). */
+export type RimFlavour = 'rain' | 'dusk';
+/** The `userData` key carrying a rim material's flavour (absent: `'rain'`). */
+export const RIM_FLAVOUR_USERDATA_KEY = 'rlRimFlavour';
 
-/** The one set of uniform objects. Built on first use (the palette read is not a module-load cost). */
-export function rimUniforms(): RimUniforms {
-  if (!shared) {
-    shared = {
-      colour: { value: new THREE.Color(paletteHex(RAIN_KDF_RIM_KEY)) },
-      gain: { value: passOn ? wanted : 0 },
-      power: { value: RAIN_KDF_RIM_POWER },
-      exposure: { value: passOn ? wantedExposure : 1 },
-      contrast: { value: passOn ? wantedContrast : 1 },
+interface Wanted {
+  gain: number;
+  power: number;
+  exposure: number;
+  contrast: number;
+}
+
+/** The gains each flavour's knob wants (the shipped defaults until `setRainRead` / `setDuskRead` / `setRainRimGain`), and
+ *  whether the `unit-surface` debug layer has the pass on. The uniforms read `passOn ? wanted : neutral`. */
+const wanted: Record<RimFlavour, Wanted> = {
+  rain: { gain: RAIN_KDF_RIM_GAIN, power: RAIN_KDF_RIM_POWER, exposure: RAIN_KDF_EXPOSURE, contrast: RAIN_KDF_CONTRAST },
+  dusk: { gain: DUSK_READ_RIM_GAIN, power: DUSK_READ_RIM_POWER, exposure: DUSK_READ_EXPOSURE, contrast: DUSK_READ_CONTRAST },
+};
+const RIM_KEY: Readonly<Record<RimFlavour, string>> = { rain: RAIN_KDF_RIM_KEY, dusk: DUSK_READ_RIM_KEY };
+let passOn = true;
+const shared: Partial<Record<RimFlavour, RimUniforms>> = {};
+
+/** One set of uniform objects per flavour. Built on first use (the palette read is not a module-load cost). */
+export function rimUniforms(flavour: RimFlavour = 'rain'): RimUniforms {
+  let u = shared[flavour];
+  if (!u) {
+    const w = wanted[flavour];
+    u = {
+      colour: { value: new THREE.Color(paletteHex(RIM_KEY[flavour])) },
+      gain: { value: passOn ? w.gain : 0 },
+      power: { value: w.power },
+      exposure: { value: passOn ? w.exposure : 1 },
+      contrast: { value: passOn ? w.contrast : 1 },
     };
+    shared[flavour] = u;
   }
-  return shared;
+  return u;
 }
 
 function sync(): void {
-  if (!shared) return;
-  shared.gain.value = passOn ? wanted : 0;
-  shared.exposure.value = passOn ? wantedExposure : 1;
-  shared.contrast.value = passOn ? wantedContrast : 1;
+  for (const flavour of ['rain', 'dusk'] as const) {
+    const u = shared[flavour];
+    if (!u) continue;
+    const w = wanted[flavour];
+    u.gain.value = passOn ? w.gain : 0;
+    u.power.value = w.power;
+    u.exposure.value = passOn ? w.exposure : 1;
+    u.contrast.value = passOn ? w.contrast : 1;
+  }
 }
 
-/** Writes every treatment knob (the capture tool's sweep). Throws on a non-finite or out-of-range value. */
-export function setRainRead(p: RainRead): void {
+function setRead(flavour: RimFlavour, p: RainRead): void {
   const bad = (n: string, v: number, ok: boolean): void => {
-    if (!Number.isFinite(v) || !ok) throw new Error(`rain read: ${n} is out of range: ${String(v)}`);
+    if (!Number.isFinite(v) || !ok) throw new Error(`${flavour} read: ${n} is out of range: ${String(v)}`);
   };
   bad('rimGain', p.rimGain, p.rimGain >= 0);
   bad('rimPower', p.rimPower, p.rimPower > 0);
   bad('exposure', p.exposure, p.exposure >= 0.25 && p.exposure <= 16);
   bad('contrast', p.contrast, p.contrast > 0 && p.contrast <= 3);
-  const u = rimUniforms();
-  wanted = p.rimGain;
-  wantedExposure = p.exposure;
-  wantedContrast = p.contrast;
-  u.power.value = p.rimPower;
+  rimUniforms(flavour);
+  wanted[flavour] = { gain: p.rimGain, power: p.rimPower, exposure: p.exposure, contrast: p.contrast };
   sync();
+}
+
+function readNow(flavour: RimFlavour): RainRead {
+  const u = rimUniforms(flavour);
+  return { rimGain: u.gain.value, rimPower: u.power.value, exposure: u.exposure.value, contrast: u.contrast.value };
+}
+
+/** Writes every treatment knob of the RAIN read (the capture tool's sweep). Throws on a non-finite or out-of-range value. */
+export function setRainRead(p: RainRead): void {
+  setRead('rain', p);
+}
+
+/** GH-1403: writes every knob of the DUSK figure read (`debugSetDuskRead`, the capture tool's sweep). Same ranges. */
+export function setDuskRead(p: RainRead): void {
+  setRead('dusk', p);
 }
 
 /** The `unit-surface` debug layer: the rim off (gain 0) or on (the stashed gain). Idempotent both ways. */
@@ -230,34 +272,40 @@ export function setRainRimGain(gain: number): void {
   if (!Number.isFinite(gain) || gain < 0) {
     throw new Error(`rain rim: the gain must be a finite number >= 0, got ${String(gain)}`);
   }
-  wanted = gain;
+  rimUniforms('rain');
+  wanted.rain = { ...wanted.rain, gain };
   sync();
 }
 
 /** Every treatment knob as the shaders read it now (effective: the `unit-surface` layer off reads gain 0, exposure and contrast 1). */
 export function rainReadNow(): RainRead {
-  const u = rimUniforms();
-  return { rimGain: u.gain.value, rimPower: u.power.value, exposure: u.exposure.value, contrast: u.contrast.value };
+  return readNow('rain');
+}
+
+/** GH-1403: the DUSK read's knobs as the shaders read them now (effective, like `rainReadNow`). */
+export function duskReadNow(): RainRead {
+  return readNow('dusk');
 }
 
 /** What the shaders read now: the effective `gain` (0 while the `unit-surface` debug layer has the pass off),
  *  the `power`, and the `wanted` gain the knob holds (what the effective gain returns to when the layer is on). */
 export function rainRimNow(): { gain: number; power: number; wanted: number } {
   const u = rimUniforms();
-  return { gain: u.gain.value, power: u.power.value, wanted };
+  return { gain: u.gain.value, power: u.power.value, wanted: wanted.rain.gain };
 }
 
 /**
  * Makes `mat` a rim material: its fragment shader gains the rim lines, its program its own cache key, and
  * the compile hook it already has (if any) still runs first. `mat` must be a standard / physical material.
+ * `flavour` picks the shared uniform set it reads (GH-1403); the default `'rain'` builds exactly what it always built.
  */
-export function applyRainRim(mat: THREE.MeshStandardMaterial): void {
+export function applyRainRim(mat: THREE.MeshStandardMaterial, flavour: RimFlavour = 'rain'): void {
   const prior = mat.onBeforeCompile;
   const baseKey = mat.customProgramCacheKey();
   mat.customProgramCacheKey = () => `${baseKey}|${RAIN_RIM_PROGRAM_KEY}`;
   mat.onBeforeCompile = (shader, renderer) => {
     prior.call(mat, shader, renderer);
-    const u = rimUniforms();
+    const u = rimUniforms(flavour);
     shader.uniforms.uRimColor = u.colour;
     shader.uniforms.uRimGain = u.gain;
     shader.uniforms.uRimPower = u.power;
@@ -265,7 +313,16 @@ export function applyRainRim(mat: THREE.MeshStandardMaterial): void {
     shader.uniforms.uRainContrast = u.contrast;
     shader.fragmentShader = patchRainRim(shader.fragmentShader);
   };
-  mat.userData = { ...mat.userData, [RAIN_RIM_USERDATA_KEY]: true };
+  mat.userData = {
+    ...mat.userData,
+    [RAIN_RIM_USERDATA_KEY]: true,
+    ...(flavour === 'rain' ? {} : { [RIM_FLAVOUR_USERDATA_KEY]: flavour }),
+  };
+}
+
+/** The shared uniform set a rim material reads (`userData.rlRimFlavour`; absent, and any non-rim material, is `'rain'`). */
+export function rimFlavourOf(mat: { readonly userData: Record<string, unknown> }): RimFlavour {
+  return mat.userData[RIM_FLAVOUR_USERDATA_KEY] === 'dusk' ? 'dusk' : 'rain';
 }
 
 /** True for a material `applyRainRim` made (or a clone of one). */

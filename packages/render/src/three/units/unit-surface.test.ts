@@ -130,7 +130,8 @@ describe('the wet surface table (GH-871 P4 T5)', () => {
   });
 
   it('keeps the 0.45 metalness cap (no environment map)', () => {
-    const { kdfRim, ...classes } = WET_SURFACE_PARAMS;
+    const { kdfRim, duskRead, ...classes } = WET_SURFACE_PARAMS;
+    expect(duskRead).toBeUndefined();
     expect(kdfRim).toBe(true);
     expect(Object.keys(classes)).toHaveLength(10);
     for (const p of Object.values(classes)) expect(p.metalness).toBeLessThanOrEqual(0.45);
@@ -182,7 +183,7 @@ describe('the rain rim (GH-871 P4 PR 914)', () => {
   it('the shipped table has no rim switch, and only a KDF figure asks for the wet one', () => {
     expect('kdfRim' in SURFACE_PARAMS).toBe(false);
     expect(figureRimFor(SURFACE_PARAMS, 'kdf')).toBe(false);
-    expect(figureRimFor(WET_SURFACE_PARAMS, 'kdf')).toBe(true);
+    expect(figureRimFor(WET_SURFACE_PARAMS, 'kdf')).toBe('rain');
     expect(figureRimFor(WET_SURFACE_PARAMS, 'enemy')).toBe(false);
     expect(figureRimFor(WET_SURFACE_PARAMS, 'civilian')).toBe(false);
   });

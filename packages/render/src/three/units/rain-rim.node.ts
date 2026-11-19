@@ -7,20 +7,22 @@
  *  - the maths, `rimOps` (one body the number tests run), over the twin's colour taps;
  *  - the view vector `v` of the rim, a GRAPH choice on the camera type: `(0, 0, 1)` under an orthographic camera (the game's, the
  *    legacy `isOrthographic` branch), the position's view direction under a perspective one;
- *  - the five shared uniforms, `rimUniforms()`'s own objects re-read every render (`uRimColor`, `uRimGain`, `uRimPower`,
+ *  - the five shared uniforms, `rimUniforms(flavour)`'s own objects re-read every render (`uRimColor`, `uRimGain`, `uRimPower`,
  *    `uRainExposure`, `uRainContrast`), so the `unit-surface` debug layer and `debugSetRainRead` move every figure with one write.
  *
  * Imports TYPES of the legacy file only: the maths arrives as values (`RimMaths`).
  *
  * Presentation only. Nothing here is read by the sim.
  */
-import type { rimOps, rimUniforms } from './rain-rim';
+import type { rimFlavourOf, rimOps, rimUniforms } from './rain-rim';
 import type { UN, UnitTerm, UnitTermContext } from './unit-material.node';
 
 /** The rim's shared maths, injected (`MATERIAL_MATHS.unit.rim`). */
 export interface RimMaths {
   readonly rimOps: typeof rimOps;
   readonly rimUniforms: typeof rimUniforms;
+  /** GH-1403: which shared set a legacy rim material reads (the dusk figure read has its own). */
+  readonly rimFlavourOf: typeof rimFlavourOf;
 }
 
 export const RAIN_RIM_SEGMENT = 'rl-unit-rain-rim';
@@ -31,7 +33,9 @@ export function rimTerms(maths: RimMaths): readonly UnitTerm[] {
       segment: RAIN_RIM_SEGMENT,
       apply(ctx: UnitTermContext): void {
         const { T, o } = ctx;
-        const u = maths.rimUniforms();
+        // GH-1403: the legacy material's own flavour (rain, or the dusk figure read), read at BUILD time. A renderer is rain or
+        // dusk, never both, so the twin adoption shares (one per base and segments) never mixes the two sets.
+        const u = maths.rimUniforms(maths.rimFlavourOf(ctx.legacy));
         const colour = ctx.renderUniform(() => u.colour.value, 'uRimColor');
         const gain = ctx.renderUniform(() => u.gain.value, 'uRimGain');
         const power = ctx.renderUniform(() => u.power.value, 'uRimPower');

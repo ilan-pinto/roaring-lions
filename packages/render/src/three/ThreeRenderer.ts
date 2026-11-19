@@ -113,8 +113,8 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
-import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
-import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
+import { duskReadCloneCount, rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { duskReadNow, rainReadNow, rainRimNow, setDuskRead, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
@@ -1677,6 +1677,8 @@ export class ThreeRenderer implements Renderer {
    *  to both mesh template loaders; assigned in the constructor, beside
    *  `groundMat`, because a field initialiser runs before the options are seen. */
   private readonly surfaceTable: SurfaceTable;
+  /** GH-1403: this renderer opted into the dusk figure read and is lit at dusk (`dusk-read.ts`). */
+  private readonly duskRead: boolean;
   /**
    * Look uplift L1 (GH-943): the scene's environment and the registry that hands it to
    * the material classes allowed to see it. Built unless `opts.environmentLight === false`
@@ -3322,7 +3324,10 @@ export class ThreeRenderer implements Renderer {
       this.windDirX = w.dirX;
       this.windDirZ = w.dirZ;
     }
-    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false);
+    // GH-1403: the dusk figure read, only when the app opted in AND the light resolves to dusk (`night` is dusk, D10);
+    // rain wins inside `surfaceTableFor`. Off, this is the table it always was, by identity.
+    this.duskRead = opts.duskRead === true && resolveTimeOfDay(opts.timeOfDay) === 'dusk';
+    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false, this.duskRead);
     // L2 (GH-943): `low` builds no grade until the GPU-timer read spec section 3 asks for (`RenderQuality.grade`).
     this.gradeAllowed = (opts.quality ?? QUALITY_PRESETS.high).grade;
     this.viewer = opts.viewerSide ?? 0;
@@ -14877,6 +14882,21 @@ export class ThreeRenderer implements Renderer {
   /** The knobs the KDF figure shaders read now (the EFFECTIVE values: gain 0, exposure and contrast 1 while the `unit-surface` layer is off), and whether a rim material exists. */
   debugRainRead(): RainRead & { built: boolean } {
     return { ...rainReadNow(), built: this.opts.weather === 'rain' && rainRimCloneCount() > 0 };
+  }
+
+  /**
+   * GH-1403: the dusk figure read's sweep door (`dusk-read.ts`): writes every knob into the dusk flavour's ONE shared
+   * uniform set, so one call moves every figure on screen. Concrete class only, like `debugSetRainRead`;
+   * `tools/src/perf/dusk-read-captures.ts` calls it. A renderer that did not opt in has no dusk material, and the write
+   * reaches nothing (`debugDuskRead().built` says so).
+   */
+  debugSetDuskRead(p: RainRead): void {
+    setDuskRead(p);
+  }
+
+  /** The knobs the dusk figure shaders read now (effective, like `debugRainRead`), and whether a dusk read material exists. */
+  debugDuskRead(): RainRead & { built: boolean } {
+    return { ...duskReadNow(), built: this.duskRead && duskReadCloneCount() > 0 };
   }
 
   /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off), the
