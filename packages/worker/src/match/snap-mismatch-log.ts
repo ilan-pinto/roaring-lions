@@ -11,7 +11,7 @@
  * deleted after `RETENTION_MS` by the daily cron (`index.ts`'s `scheduled`).
  */
 import type { D1Like } from '../d1';
-import { RETENTION_MS } from '../feedback-triage';
+import { RETENTION_MS } from '../retention';
 
 export interface SnapMismatchRecord {
   code: string;

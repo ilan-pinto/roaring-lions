@@ -803,7 +803,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Dead Ground",
-    "briefing": "The farm in this hollow is the winter road's staging post, and his drone crates sit in its barn waiting for the rain to stop. The crests either side stand four levels over it, and nothing off the north downs is in sight until it tops them. Hold the hollow for five minutes and burn the barn inside the same five. The engineers' charges are clean and slow under fire; the mortar and the Namer are quick, and every round near that yard is billed. A family is in the yard between the house and the barn, two tiles from the cell inside it. There is a truck in the north saddle, and identified today it is a known gun over the causeway head, not a first shot. You have the logistics for one outpost. Dig it into the hollow and it sees nothing; put it on the crest and it sees them coming, from outside the ground you have to hold. Every wheel from the east comes through one two-tile gap in the dyke. From the north it is the saddle for wheels and the crest for feet. The barn is the order; the house and the family beside it are on the rating.",
+    "briefing": "The farm in this hollow is the winter road's staging post, and his drone crates sit in its barn waiting for the rain to stop. The crests either side stand four levels over it, and nothing off the north downs is in sight until it tops them. Hold the hollow for five minutes and burn the barn inside the same five. The engineers' charges are clean and slow under fire; the mortar and the Namer are quick, and every round near that yard is billed. A family is in the yard between the house and the barn, two tiles from the cell inside it. There is a truck in the north saddle, and identified today it is a known gun over the causeway head, not a first shot. You have the logistics for one outpost. Dig it into the hollow and it sees nothing; put it on the crest and it sees them coming, from outside the ground you have to hold. Every wheel from the east comes through one two-tile gap in the basalt ridge. From the north it is the saddle for wheels and the crest for feet. The barn is the order; the house and the family beside it are on the rating.",
     "debrief": {
       "victory": "The farm is ours and the barn is ash. Whatever comes over those crests now comes down into us, and we see it on the skyline first.",
       "defeat": "We are off the farm and they are back in the hollow. From the crest you cannot see what they are putting in it."
@@ -823,11 +823,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "Saddle truck comes down to the farm",
-      "riders_come_through_the_dyke_gap": "Riders come through the dyke gap"
+      "riders_come_through_the_dyke_gap": "Riders come through the ridge gap"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "The truck in the saddle has started down the north track for the farm. If it is going to be identified on this ground, it is now.",
-      "riders_come_through_the_dyke_gap": "Riders through the dyke gap, one at a time, because that is all it is wide. It is the only door on that side."
+      "riders_come_through_the_dyke_gap": "Riders through the ridge gap, one at a time, because that is all it is wide. It is the only door on that side."
     },
     "wave_say": {
       "1": "Two cells walking over the north crest on foot. From the farm they are not there until they are on the skyline.",
@@ -835,12 +835,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -848,7 +848,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }

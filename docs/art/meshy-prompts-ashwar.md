@@ -254,7 +254,7 @@ the silhouette and it sits on the ground beside the man, so it reads as
 
 ## Prompt 3 — Heavy-rig fighter (`charge_squad`)
 
-`charge_squad` is "Suicide Squad" in the data — `abilities: ["kamikaze"]`, and
+`charge_squad` is "Charge Squad" in the data ("Suicide Squad" until the naming review, GH-1594; the prompts below are the historical record) — `abilities: ["kamikaze"]`, and
 a `vest` weapon of type `demolition` at 1.1 tiles with 420 damage and 0.85
 collateral risk. So the thing being modelled is a suicide vest, and `charge`
 sits in the closed ten-role vocabulary for exactly this.

@@ -13,6 +13,8 @@
 //   data/tutorial/** against data/schemas/tutorial.schema.json
 //   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
 //                    menu and budget rules in tools/validate_doctrine.mjs
+//   data/computer/levels.json against data/schemas/computer_levels.schema.json (GH-1389), plus the
+//                    order, unit and no-boost rules in tools/validate_computer_levels.mjs
 //   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
 //                    anchor rules in tools/validate_versus_modes.mjs
 //   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
@@ -42,11 +44,13 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
+import { computerLevelFailures } from './validate_computer_levels.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
@@ -210,6 +214,7 @@ const schemas = {
   avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
   difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
+  computerLevels: loadJson(join(ROOT, 'data/schemas/computer_levels.schema.json')),
   amendments: loadJson(join(ROOT, 'data/schemas/amendments.schema.json')),
   challenge: loadJson(join(ROOT, 'data/schemas/challenge.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
@@ -225,7 +230,7 @@ const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -250,6 +255,7 @@ if (
     avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
     difficulty: ajv.compile(schemas.difficulty),
+    computerLevels: ajv.compile(schemas.computerLevels),
     amendments: ajv.compile(schemas.amendments),
     challenge: ajv.compile(schemas.challenge),
     arenaResults: ajv.compile(schemas.arenaResults),
@@ -285,6 +291,7 @@ if (
   checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
   checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
+  checked += validateFile(join(ROOT, 'data/computer/levels.json'), validators.computerLevels, 'computer_levels.schema');
   // GH-1395: the amendment library, and the per-mission challenge files beside it.
   checked += validateFile(join(ROOT, 'data/challenges/amendments.json'), validators.amendments, 'amendments.schema');
   checked += validateDir(join(ROOT, 'data/challenges'), validators.challenge, 'challenge.schema', [], ['amendments.json']);
@@ -997,6 +1004,8 @@ const garrisonableSymbols = new Set(
     failures.push(...triggerLabelFailures(mi, rel(file)));
     // #540: the time limit, twice the target and clear of every primary deadline.
     failures.push(...timeLimitFailures(mi, rel(file)));
+    // GH-1438 E10: at most 160 authored entities, so the sim's 256 lifetime slots keep 96 for runtime spawns.
+    failures.push(...entityBudgetFailures(mi, rel(file)));
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
@@ -1392,6 +1401,9 @@ const garrisonableSymbols = new Set(
   }
   const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...doctrineFailures(doctrines, doctrineUnits));
+  // GH-1389: the computer levels -- KDF units, strictly ordered by the force they field, no income or vision key.
+  const levelsFile = join(ROOT, 'data/computer/levels.json');
+  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits));
 }
 
 // --- versus rules files (N3 Task 1) -------------------------------------------

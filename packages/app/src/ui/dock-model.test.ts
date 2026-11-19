@@ -118,10 +118,10 @@ describe('doctrineTags', () => {
   });
 
   // `kamikaze` is a bucket, not an ability tag — an entry for it in the table
-  // would make the shipped attack_drone read `kamikaze · one-way`.
+  // would make the shipped attack_drone read `one-way · one-way` (the bucket's label is `one-way` since the naming review, GH-1594).
   it('does not repeat the bucket back as an ability', () => {
     expect(doctrineTags('kamikaze', units.attack_drone.abilities)).toEqual([
-      'kamikaze',
+      'one-way',
       'spots',
     ]);
   });

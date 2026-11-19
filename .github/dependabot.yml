@@ -9,12 +9,19 @@
 #
 # Also on, in repository settings (not configurable here): Dependabot alerts
 # and Dependabot security updates.
+#
+# Both updaters target `dev` (B5-1, 17 Nov 2026): every PR merges there, and
+# `main` moves only by the weekly promotion. Two limits GitHub sets: Dependabot
+# reads THIS file from the default branch, so the target takes effect once a
+# promotion carries it to main; and SECURITY updates ignore `target-branch` and
+# always open against main, so retarget one to dev by hand (Edit, base branch).
 version: 2
 updates:
   - package-ecosystem: npm
     # The pnpm workspace root; Dependabot reads pnpm-workspace.yaml and
     # pnpm-lock.yaml and covers every package under it.
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 2
@@ -62,6 +69,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 2

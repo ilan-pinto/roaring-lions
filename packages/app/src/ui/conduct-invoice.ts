@@ -37,7 +37,7 @@ export interface Deduction {
 }
 
 export interface InvoiceLine {
-  /** Already worded: "Clinic struck", "Civilians killed". */
+  /** Already worded: "Clinic struck", "Civilians lost". */
   label: string;
   cause: ConductCause;
   count: number;

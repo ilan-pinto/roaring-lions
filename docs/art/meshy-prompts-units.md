@@ -684,7 +684,7 @@ shoulder mass, so it does not read as `atgm_cell`'s quilted jacket. It sits on
 the torso cut, which the kneel moves as one piece — nothing below the belt, so
 the kneel cannot tear it.
 
-## 14. `charge_squad` — Suicide Squad (enemy, crew 2, 2 drawn)
+## 14. `charge_squad` — Charge Squad (enemy, crew 2, 2 drawn; "Suicide Squad" until the naming review, GH-1594)
 
 Today: `art/meshes/charge_squad.glb`, kit-built, **8,244 glTF tris, 828 KB**,
 bounds 2.72 × 0.78 m and 1.55 m high (leaned), clips `idle, move, fire, down,
