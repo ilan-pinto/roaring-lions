@@ -116,7 +116,36 @@ describe('the body size bound', () => {
     expect(fits.body.slots).toHaveLength(1);
     expect(over.body.slots).toHaveLength(0);
     expect(over.damaged.map((d) => d.reason)).toEqual(['size']);
-    // The accepted body is under the limit, and by no more than the one separator byte the estimate adds.
+    // The accepted body is under the limit, and by no more than one byte. A single slot puts no separator into `slots`, so the
+    // estimate's `+ 1` is a spare byte here: this test pins `- 1` and `+ 2` but cannot see the `+ 1` removed (the estimate is
+    // then exact for one slot). The two-slot test below is what pins the separator byte.
+    const real = bytes(fits.body);
+    expect(real).toBeLessThanOrEqual(CLAIM_BODY_MAX);
+    expect(CLAIM_BODY_MAX - real).toBeLessThanOrEqual(1);
+  });
+
+  /** Two slots: `s1`, newer and so packed first, with a fixed short name; `s2`, older, its name padded by `pad` characters. */
+  const two = (pad: number) => {
+    const s1 = { ...slotOf('s1', 'first', 2), build: 'b' };
+    const s2 = { ...slotOf('s2', 'x'.repeat(pad), 1), build: 'b' };
+    return buildClaim(memoryLedgerStore({ [SAVES_KEY]: JSON.stringify({ s1, s2 }) }), DEV, CTX);
+  };
+
+  it('packs a second slot up to the byte, counting the separator between them: never over the Worker\'s limit', () => {
+    let lo = 0;
+    let hi = CLAIM_BODY_MAX;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (two(mid).body.slots.length === 2) lo = mid;
+      else hi = mid - 1;
+    }
+    const fits = two(lo);
+    const over = two(lo + 1);
+    expect(fits.body.slots.map((s) => s.id)).toEqual(['s1', 's2']);
+    expect(over.body.slots.map((s) => s.id)).toEqual(['s1']);
+    expect(over.damaged.map((d) => [d.id, d.reason])).toEqual([['claim:slot:s2', 'size']]);
+    // Two slots put one comma into `slots`. An estimate without the per-slot `+ 1` packs this body one byte OVER the limit; with
+    // it the body is one byte under (the first slot's `+ 1` is spare), so the range is exactly [MAX - 1, MAX].
     const real = bytes(fits.body);
     expect(real).toBeLessThanOrEqual(CLAIM_BODY_MAX);
     expect(CLAIM_BODY_MAX - real).toBeLessThanOrEqual(1);
