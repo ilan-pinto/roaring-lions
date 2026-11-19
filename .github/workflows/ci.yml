@@ -19,8 +19,8 @@ permissions:
 
 # A new push to a pull request cancels that PR's older, unfinished runs: a
 # superseded commit's 40-minute suite only queues ahead of the commit that
-# matters (the queue reached 46 runs with 2 running on 8 Nov). Pushes to main
-# keep a group of their own per run, so no main run (or its release bump) is
+# matters (the queue reached 46 runs with 2 running on 8 Nov). Pushes (to main
+# or dev) keep a group of their own per run, so no main run (or its release bump) is
 # ever cancelled.
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
@@ -322,7 +322,7 @@ jobs:
               echo "past it: erasing every decor object fails all four gated scenarios against a"
               echo "baseline (relief 37183 px / 2.7229) and exits 3 here."
               echo ""
-              echo "Fix: run the **visual-baseline-bless** workflow; it commits the baseline straight to main."
+              echo "Fix: run the **visual-baseline-bless** workflow on \`dev\`; it opens a review PR against dev with the new baseline."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
