@@ -54,12 +54,26 @@ describe('G-S1: lions.roar has exactly one owner', () => {
   });
 
   it('nothing reads the retired lions.roar.test key but the one-time migration', () => {
-    const legacy = /lions\.roar\.test/;
-    const readers = files.filter((f) => legacy.test(readFileSync(f, 'utf8'))).map((f) => f.slice(srcRoot.length + 1));
-    // roar-wallet.ts (the migration); the rest are prose in comments naming the
-    // retired key, and none of them may carry it as a string (checked above).
-    expect(readers).toContain(join('app', 'src', 'roar-wallet.ts'));
+    // GH-1385 F7: the old body counted files that SPELL the key, which the scan above already pins, so
+    // a second reader that imported the constant (and never spelled the key) passed. Count the
+    // identifier's users instead: the exported constant is read by roar-wallet.ts alone.
+    const users = files.filter((f) => /\bLEGACY_TEST_KEY\b/.test(readFileSync(f, 'utf8'))).map((f) => f.slice(srcRoot.length + 1));
+    expect(users).toEqual([join('app', 'src', 'roar-wallet.ts')]);
+    // And the migration really is the reader: it takes the retired key's value and removes it.
     expect(LEGACY_TEST_KEY).toBe('lions.roar.test');
+    const store = new Map<string, string>([[LEGACY_TEST_KEY, JSON.stringify({ coins: { free: 5, paid: 0 } })]]);
+    const reads: string[] = [];
+    const spy = {
+      getItem: (k: string): string | null => {
+        reads.push(k);
+        return store.get(k) ?? null;
+      },
+      setItem: (k: string, v: string): void => void store.set(k, v),
+      removeItem: (k: string): void => void store.delete(k),
+    };
+    loadRoar(spy);
+    expect(reads).toContain(LEGACY_TEST_KEY);
+    expect(store.has(LEGACY_TEST_KEY)).toBe(false);
   });
 });
 
