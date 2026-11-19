@@ -36,9 +36,10 @@ and never approves it.
    REQUIRED after every release, and it must come before any drafting. The release step empties `next.json` on
    `main` only, and the promotion's merge base stays at the last promoted `dev` tip. So ANY edit to `dev`'s
    `next.json` made before the back-merge collides with `main`'s emptied file at the next promotion. Dropping the
-   shipped entries by hand does not help: the conflict is on the file, not on the entries. If `dev` has not moved
-   since the promotion, the back-merge is a fast-forward. Either the steward opens a main to dev PR, or the lead
-   fast-forwards `dev`. It is their step, not yours. If it has not happened, stop and say so. The promotion PR's line
+   shipped entries by hand does not help: the conflict is on the file, not on the entries. **The route: after each
+   release, the steward opens a main to dev PR and merges it with a merge commit (`merge_method: merge`), never a
+   squash**, because a squash would not move the merge base, so the conflict would remain. The alternative: the lead
+   fast-forwards `dev`, which works when `dev` has not moved since the promotion. It is their step, not yours. If it has not happened, stop and say so. The promotion PR's line
    reports both failures: an entry that is word for word one from a released file on `main` ("N of them already
    shipped"), and `next.json` conflicting between `main` and `dev` (a read-only `git merge-tree` check).
 2. **List what is going out:** `git log --first-parent --format='%h %s' origin/main..origin/dev`. That is one line per

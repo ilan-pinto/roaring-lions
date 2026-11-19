@@ -310,8 +310,9 @@ describe('mergeConflicts and the conflict sentence', () => {
     expect(notesLine(DRAFT, [], true)).toBe(
       '**Release notes:** `data/release-notes/next.json` holds 0 new units, 1 rule or feature, 0 fixes. ' +
         "The lead approves the wording in this PR's diff before merging. **It conflicts between `main` and `dev`**: " +
-        "`main`'s release emptied it after `dev` last merged `main`. Fix: merge `main` back into `dev` " +
-        '(a main to dev PR, or a fast-forward of dev), keep only the new entries, then promote.',
+        "`main`'s release emptied it after `dev` last merged `main`. Fix: back-merge `main` into `dev` with a merge commit " +
+        "(the steward's main to dev PR, merged with a merge commit and never a squash, which would not move the merge base; " +
+        'or the lead fast-forwards dev), keep only the new entries, then promote.',
     );
     expect(notesLine(DRAFT, [], false)).not.toContain('conflicts');
     expect(notesLine(DRAFT)).not.toContain('conflicts');

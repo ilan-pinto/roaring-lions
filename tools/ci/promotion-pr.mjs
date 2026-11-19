@@ -197,7 +197,8 @@ export function notesLine(raw, shipped = [], conflict = false) {
   if (!conflict) return state;
   return (
     `${state} **It conflicts between \`main\` and \`dev\`**: \`main\`'s release emptied it after \`dev\` last merged \`main\`. ` +
-    `Fix: merge \`main\` back into \`dev\` (a main to dev PR, or a fast-forward of dev), keep only the new entries, then promote.`
+    'Fix: back-merge `main` into `dev` with a merge commit (the steward\'s main to dev PR, merged with a merge commit and ' +
+    'never a squash, which would not move the merge base; or the lead fast-forwards dev), keep only the new entries, then promote.'
   );
 }
 
