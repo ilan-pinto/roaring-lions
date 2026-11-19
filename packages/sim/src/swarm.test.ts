@@ -109,6 +109,8 @@ describe('E6 swarm: the dive', () => {
     expect(sim.state.alive[s]).toBe(0);
     const d = ev.find((e) => e.kind === 'destroyed' && e.entity === s);
     expect(d && d.kind === 'destroyed' ? d.by : 0).toBe(-1);
+    // GH-1380: the event says how -- spent on its own last dive, with the dive's weapon.
+    expect(d && d.kind === 'destroyed' ? [d.cause, d.weaponId] : []).toEqual(['spent', 'bomblet_dive']);
     expect(ev.filter((e) => e.kind === 'fire' && e.shooter === s)).toHaveLength(12);
   });
 });

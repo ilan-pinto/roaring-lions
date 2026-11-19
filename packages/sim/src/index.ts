@@ -112,6 +112,7 @@ export {
   type Command,
   type RuntimeCommand,
   type SimEvent,
+  type DeathCause,
   type UnitTypeJson,
   type WeaponJson,
   type BeamJson,
