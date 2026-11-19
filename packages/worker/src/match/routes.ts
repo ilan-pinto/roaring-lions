@@ -13,7 +13,7 @@ import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { botModelField, ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
+import { botModelField, ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, fieldWorksRequest, matchupAllowed, matchupField, versusMapAllowed, winModeRequest, type AdvisorScope } from '@lions/net';
 import { seatMemberOf } from '../account/seat-member';
 import { callsignField, kitField, mapField, paceField, picksOpen, seatKindField, seatPicksField, seatSpecialsField, seatTiersField, textField } from './room-fields';
 
@@ -23,7 +23,7 @@ export const MATCH_BODY_MAX_BYTES = 4096;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; picks?: unknown; specials?: unknown; winMode?: unknown; ticket?: unknown; scope?: unknown; botModel?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; picks?: unknown; specials?: unknown; winMode?: unknown; fieldWorks?: unknown; ticket?: unknown; scope?: unknown; botModel?: unknown }
 
 /** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
  *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
@@ -118,6 +118,9 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // GH-976 P2: a win mode other than annihilation, only one read fair on this map, in the mirror (the room asks again).
     const winMode = winModeRequest(body.winMode, { mode, map, matchup });
     if (winMode.refused !== undefined) return new Response(winMode.refused, { status: 400 });
+    // Versus field works (the lead, 18 Nov 2026): only an annihilation KDF-v-KDF room may carry it (the room asks again).
+    const fieldWorks = fieldWorksRequest(body.fieldWorks, { mode, matchup, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) });
+    if (fieldWorks.refused !== undefined) return new Response(fieldWorks.refused, { status: 400 });
     const callsign = callsignField(body.callsign);
     // N4a: the host's seat kind and the pace, cleaned and clamped (D5) here and again by the room.
     const kind = seatKindField(body.kind);
@@ -140,7 +143,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, ...picks, specials, member, ...(botModel === null ? {} : { botModel }), ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers, ...picks, specials, member, ...(botModel === null ? {} : { botModel }), ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }), ...(fieldWorks.on === true ? { fieldWorks: true } : {}) }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });

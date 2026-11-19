@@ -248,8 +248,9 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
 export type RoomRequest =
   /** `matchup`: the host's pick -- KDF or Sarim for itself, or the mirror.
    *  `kit`: the host's "Bring your brigade" toggle (per-seat kit); absent is `matched`.
-   *  `winMode` (GH-976 P2): the host's win mode; absent is annihilation and the body says nothing of it. */
-  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup; kit?: LobbyKit; winMode?: WinMode }
+   *  `winMode` (GH-976 P2): the host's win mode; absent is annihilation and the body says nothing of it.
+   *  `fieldWorks` (versus field works): the host's toggle, offered for an annihilation KDF-v-KDF room only; absent is off. */
+  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup; kit?: LobbyKit; winMode?: WinMode; fieldWorks?: true }
   | { kind: 'join'; code: string; callsign: string };
 
 /** The room as its first `lobby` message described it. */
@@ -262,6 +263,8 @@ export interface LobbyState {
   kit: LobbyKit;
   /** The room's win mode when the lobby names one (GH-976 P2); absent is annihilation. */
   winMode?: WinMode;
+  /** Versus field works: the host opened the room with them; absent is off. */
+  fieldWorks?: true;
 }
 
 /** An open room: its code, this tab's seat, the live transport (nothing said
@@ -358,7 +361,7 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   const kit = creating ? req.kit ?? 'matched' : null;
   const claim = roomClaim(kit, deps);
   const body = creating
-    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...(req.winMode === undefined ? {} : { winMode: req.winMode }), ...claim }
+    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...(req.winMode === undefined ? {} : { winMode: req.winMode }), ...(req.fieldWorks === true ? { fieldWorks: true } : {}), ...claim }
     : { player, callsign: callsignOrDefault(req.callsign), build, ...claim };
   let res: Response;
   try {
@@ -406,11 +409,11 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
     };
     const onAbort = (): void => fail(aborted());
     const transport: WsTransport = new WsTransport(() => deps.openSocket(wsUrl), ticket, build, {
-      onLobby: (seats, _you, map, factions, kit, winMode) => {
+      onLobby: (seats, _you, map, factions, kit, winMode, fieldWorks) => {
         if (settled) return;
         settled = true;
         deps.signal?.removeEventListener('abort', onAbort);
-        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'], kit: kit ?? 'matched', ...(winMode === undefined ? {} : { winMode }) } });
+        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'], kit: kit ?? 'matched', ...(winMode === undefined ? {} : { winMode }), ...(fieldWorks === true ? { fieldWorks } : {}) } });
       },
       onStart: (config) => fail(new RoomStarted(config.map, code), false),
       onError: (c) => {

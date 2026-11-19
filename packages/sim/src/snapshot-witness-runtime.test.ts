@@ -6,6 +6,7 @@ import { props } from './runtime-snapshot-schema.test-helper';
 import {
   ECONOMY_WORLD,
   FORWARD_WORLD,
+  VERSUS_WORKS_WORLD,
   RELIEF_WORLD,
   SINK_WINDOW_WORLD,
   SINK_WORLD,
@@ -140,6 +141,7 @@ const POISON_CUTS: readonly { spec: RuntimeWorldSpec; Ts: readonly number[] }[] 
   { spec: SINK_WORLD, Ts: [20, 250] },
   { spec: SINK_WINDOW_WORLD, Ts: [5] },
   { spec: FORWARD_WORLD, Ts: [20, 100, 136, 300] },
+  { spec: VERSUS_WORKS_WORLD, Ts: [3, 100, 150, 200, 330] },
 ];
 
 /** The value of a scratch unit (`MissionRuntime.<row>` or `RowSet.<row>` inside a state record) in a runtime. */
@@ -242,6 +244,7 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
       [SINK_WORLD, 100],
       [SINK_WINDOW_WORLD, 5],
       [FORWARD_WORLD, 300],
+      [VERSUS_WORKS_WORLD, 200],
     ] as const) {
       const w = spec.hooks.build();
       for (let t = 0; t < T; t++) {
@@ -269,7 +272,9 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
         'WorksStructure.typeId',
       ].sort()
     );
-    expect(seen.size, 'state rows poisoned').toBe(97); // 95 + ObjectiveState.completeTick (GH-976 P2) + MissionRuntime.appendedAnchors (GH-277 forward camp)
+    // 95 + ObjectiveState.completeTick (GH-976 P2) + MissionRuntime.appendedAnchors (GH-277 forward camp) + the four side-1 works
+    // rows of a works-only runtime (versus field works: worksOfferList1, worksPending1, worksSites1, appendedAnchors1).
+    expect(seen.size, 'state rows poisoned').toBe(101);
   }, 60_000);
 
   it('a mid-run runtime changes at every top-level state row that has a value, in some cut of some world', () => {

@@ -123,8 +123,10 @@ export type ServerMsg =
    *  `kit`: the room's kit rule (per-seat kit); the room names it only when it
    *  is `brigade`, so absent is `matched`, which every older room was.
    *  `winMode` (GH-976 P2): the win mode the host picked; the room names it only when there is one, so absent is
-   *  annihilation, which every older room was. */
-  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction]; kit?: LobbyKit; winMode?: WinMode }
+   *  annihilation, which every older room was.
+   *  `fieldWorks` (versus field works, the lead's ruling 18 Nov 2026): the host opened the room with field works on; named
+   *  only when true, so absent is off, which every older room was. Both seats and every spectator are told it. */
+  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction]; kit?: LobbyKit; winMode?: WinMode; fieldWorks?: true }
   | { t: 'start'; config: MatchConfig }
   | { t: 'frame'; tick: number; cmds: Stamped[] }
   | { t: 'stall'; reason: StallReason; seat: Seat }
@@ -474,8 +476,9 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       if (m.kit !== undefined && m.kit !== 'matched' && m.kit !== 'brigade') return null;
       if (m.winMode !== undefined && winModeField(m.winMode) === undefined) return null;
       const winMode = winModeField(m.winMode);
+      if (m.fieldWorks !== undefined && m.fieldWorks !== true) return null;
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats.map(cleanLobbySeat), you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}) } : null;
+        ? { t: 'lobby', config: c, seats: m.seats.map(cleanLobbySeat), you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}), ...(winMode !== undefined ? { winMode } : {}), ...(m.fieldWorks === true ? { fieldWorks: true as const } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;

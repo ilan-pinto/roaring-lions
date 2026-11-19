@@ -52,8 +52,9 @@ const TICKS_PER_SECOND = 20;
 
 /** Whether the room plays the skirmish economy: it has a runtime AND is not a win-mode room, whose runtime (GH-976)
  *  runs goals only -- no purse, no camp line, nothing to build. */
-export function hasEconomy(w: Pick<MatchWorld, 'runtime' | 'winMode'>): boolean {
-  return w.runtime !== null && w.winMode === null;
+export function hasEconomy(w: Pick<MatchWorld, 'runtime' | 'winMode'> & Partial<Pick<MatchWorld, 'fieldWorks'>>): boolean {
+  // Versus field works: a works-only runtime has a purse but nothing to build an army from: no economy either.
+  return w.runtime !== null && w.winMode === null && w.fieldWorks !== true;
 }
 
 /** The seat's economy, or null when the room has none (a mirror room, a win-mode room). */

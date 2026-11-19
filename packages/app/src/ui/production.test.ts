@@ -1440,3 +1440,16 @@ describe('the Field works group', () => {
     expect(r.tip().textContent).toContain('<b>x</b>');
   });
 });
+
+describe('versus field works: a field-works room\'s dock (works and purse only, no unit, no support)', () => {
+  it('draws the works group alone, the seat\'s own offers, and arms a ready tile', () => {
+    const offers = OFFERS.map((o) => ({ ...o }));
+    const rt = { ...fakeRuntime({ worksOffers: () => offers, constructReason: () => null }), production: [], canBuild: () => false };
+    const r = rig([], rt, undefined, { side: 1, support: false });
+    expect(r.host.querySelectorAll('[data-unit]')).toHaveLength(0);
+    expect(r.host.querySelectorAll('[data-support]')).toHaveLength(0);
+    expect(r.host.querySelectorAll('[data-works]')).toHaveLength(2);
+    r.host.querySelector<HTMLButtonElement>('[data-works="kdf_workshop"]')!.click();
+    expect(r.arms).toEqual([{ works: 'kdf_workshop' }]);
+  });
+});

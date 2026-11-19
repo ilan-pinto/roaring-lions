@@ -1,11 +1,10 @@
 import { FlowField } from './flowfield';
 import { HASH_SEED, hashWord } from './hash';
 import type { MissionRuntime } from './mission';
-import { FIXED_COUNT_PATHS, IN_PLACE, encodeRuntimeSection, parseRuntimeSection } from './runtime-snapshot';
+import { FIXED_COUNT_PATHS, IN_PLACE, encodeRuntimeSection, parseRuntimeSection, runtimeRowsFor } from './runtime-snapshot';
 import {
   RUNTIME_ROW_SETS,
   RUNTIME_SNAPSHOT_SCHEMA,
-  runtimeRowsOf,
   type RuntimeKind,
   type RuntimeRow,
 } from './runtime-snapshot-schema';
@@ -531,7 +530,7 @@ function poisonStateSlot(h: Slot, key: string | number, kind: RuntimeKind, path:
 export function poisonRuntimeState(rt: MissionRuntime): string[] {
   const sim = (rt as unknown as { sim: Sim }).sim;
   const out = new Set<string>();
-  for (const row of runtimeRowsOf('state')) {
+  for (const row of runtimeRowsFor(rt, 'state')) {
     if (row.kind.t === 'ref') continue;
     poisonStateSlot(rt as unknown as Slot, row.name, row.kind, `MissionRuntime.${row.name}`, sim, out);
   }
@@ -637,7 +636,7 @@ function runtimeSectionOf(rt: MissionRuntime): Record<string, unknown> {
 export function firstRuntimeDifference(a: MissionRuntime, b: MissionRuntime): string | null {
   const sa = runtimeSectionOf(a);
   const sb = runtimeSectionOf(b);
-  for (const row of runtimeRowsOf('state')) {
+  for (const row of runtimeRowsFor(a, 'state')) {
     if (canonicalJson(sa[row.name]) !== canonicalJson(sb[row.name])) return `runtime.${row.name}`;
   }
   return null;
@@ -647,7 +646,7 @@ export function firstRuntimeDifference(a: MissionRuntime, b: MissionRuntime): st
 function runtimeRowsMoved(base: MissionRuntime, now: MissionRuntime): string[] {
   const sa = runtimeSectionOf(base);
   const sb = runtimeSectionOf(now);
-  return runtimeRowsOf('state')
+  return runtimeRowsFor(base, 'state')
     .filter((row) => canonicalJson(sa[row.name]) !== canonicalJson(sb[row.name]))
     .map((row) => `runtime.${row.name}`);
 }
