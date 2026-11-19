@@ -2983,6 +2983,22 @@ export class MissionRuntime {
         if (caps.length === 0 || caps.some((id) => this.sim.state.side[id] !== 2)) {
           throw new Error(`mission ${this.mission.id}: abduct "${name}" captives "${t.do.captives}" is not a civilian group`);
         }
+        // The escort is an ENEMY group: only a side-1 member leads (`stepAbductions`), so one that names a player or
+        // civilian placement would fire, latch and hold nobody. Every member standing now must be side 1; an escort that
+        // a later `spawn` or wave raises is empty here and passes (validate:data checks the placements by side).
+        const escort = this.groups.get(t.do.group) ?? [];
+        if (escort.some((id) => this.sim.state.side[id] !== 1)) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" escort group "${t.do.group}" is not an enemy group`);
+        }
+        // Mirrors the refuge rule (evacuate_before, below): the escort stops at `to`, so a `to` outside the exit zone
+        // parks the column beside the zone with the captives held round it, and nobody is ever taken.
+        const exit = this.zone(t.do.zone);
+        const [ax, ay] = this.markerPos(t.do.to);
+        const tx = ax >> 16;
+        const ty = ay >> 16;
+        if (exit && !(tx >= exit[0] && tx < exit[0] + exit[2] && ty >= exit[1] && ty < exit[1] + exit[3])) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" marker "${t.do.to}" is outside zone "${t.do.zone}"`);
+        }
       }
     }
     for (const o of this.objectives) {
@@ -4871,8 +4887,10 @@ export class MissionRuntime {
    * has fired, in authored order:
    *   - the LEADER is the lowest-id living, surface, standing side-1 member of the escort `group`. With none (dead, down,
    *     removed or buried) nobody is held: the abduction is over;
-   *   - a CAPTIVE is a living, standing, surface, uncarried civilian of `captives` who has not fled (the shepherd rule: a
-   *     KDF ground soldier within four tiles frees him, `civFlight.hasFled`, for good; nothing holds him against it);
+   *   - a CAPTIVE is a living, standing, surface, uncarried civilian of `captives` who has not fled (`civFlight.hasFled`,
+   *     for good; nothing holds him against it). Fleeing needs a `civilians.refuge`: fire landing close frees him in any
+   *     such mission, and a KDF ground soldier within four tiles (the shepherd rule) only in one that also declares an
+   *     `evacuate_before` (`missionShepherds`);
    *   - a captive more than six tiles from the leader is not held (no order, never taken): he is the flight rule's;
    *   - a captive standing in `zone` while the leader lives is TAKEN: `removeFromPlay`, and the same `removed` event a
    *     `remove` trigger raises (no harm, no other effect: D18);
