@@ -248,6 +248,16 @@ export {
   FAIL_BELOW_CEILING,
 } from './overlays';
 
+/** GH-1389: the versus computer seat's three levels, each a stated handicap on its force size. */
+export {
+  computerLevels,
+  computerLevelOf,
+  withholdOf,
+  COMPUTER_LEVEL_IDS,
+  type ComputerLevelId,
+  type ComputerLevelJson,
+  type ComputerLevelCatalogue,
+} from './computer-levels';
 /** GH-1395: amendments to the orders and the named challenge (slice 1, no UI): the library, the six-mission pilot,
  *  the challenge index the coin rules share, and the pure predicate. */
 export {

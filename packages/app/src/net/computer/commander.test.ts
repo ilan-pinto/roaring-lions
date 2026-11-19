@@ -22,8 +22,8 @@ const createCommander = (o: CommanderOptions = {}) => createSlice2({ scout: fals
 const CAMP: [number, number] = [10, 40];
 const ENEMY_CAMP: [number, number] = [40, 8];
 
-const unit = (id: number, tile: [number, number], o: { flags?: string[]; type?: string } = {}): UnitLine => ({ id, type: o.type ?? 'inf_squad', tile, hp: 100, flags: o.flags ?? ['idle'], stance: 'free' });
-const contact = (id: number, tile: [number, number], type = 'rifle'): ContactLine => ({ id, type, tile, hp: 100, inSight: true, seenTick: 0 });
+const unit = (id: number, tile: [number, number], o: { flags?: string[]; type?: string; hp?: number } = {}): UnitLine => ({ id, type: o.type ?? 'inf_squad', tile, hp: o.hp ?? 100, flags: o.flags ?? ['idle'], stance: 'free' });
+const contact = (id: number, tile: [number, number], type = 'rifle', hp = 100): ContactLine => ({ id, type, tile, hp, inSight: true, seenTick: 0 });
 const menu = (unit: string, cost: number, blocked?: string): MenuLine => ({ unit, cost, population: 1, buildSeconds: 30, ...(blocked !== undefined ? { blocked } : {}) });
 const eco = (o: Partial<EconomyView> = {}): EconomyView => ({
   purse: 1000, perMin: 0, population: null,
@@ -514,5 +514,199 @@ describe('counter: build against what has been seen', () => {
     const slice1 = slice2({ ...o, counter: false })(view({ units: start, economy: menuTwo }), ctx());
     const out = c(view({ units: start, contacts: sees(['recon_drone', 'recon_drone', 'heli_peten']), economy: menuTwo }), ctx());
     expect(buildsOf(out.commands)).toEqual(buildsOf(slice1.commands));
+  });
+});
+
+// ---- slice 3: retreat ---------------------------------------------------------------------------------------------------------------
+
+describe('retreat: a losing group walks home, regroups, and is let go again', () => {
+  const retreat = (o: CommanderOptions = {}) => createSlice2({ scout: false, counter: false, retreat: true, zones: false, produce: false, ...o });
+  const away = (id: number, o: { hp?: number; flags?: string[]; type?: string } = {}) => unit(id, [20, 30], { flags: ['moving'], ...o });
+  /** Squads far from the fight, on the move: they are what the group would be joined by, and nothing is ordered of them. */
+  const reserve = (n: number): UnitLine[] => Array.from({ length: n }, (_, i) => unit(60 + i, [40 + i, 40], { flags: ['moving'] }));
+  /** The same unit a decision later, a step nearer home. */
+  const onWay = (id: number, o: { type?: string; flags?: string[] } = {}) => unit(id, [18, 32], { flags: ['moving'], ...o });
+  const tanks = (n: number, hp = 100): ContactLine[] => Array.from({ length: n }, (_, i) => contact(90 + i, [22, 30 + (i % 3)], 'mbt_lavi', hp));
+
+  it('an engaged group worth less than the foe in its face is sent home with a move (not an attack-move), and kept out of the march and the sweep', () => {
+    const squad = [away(1), away(2)];
+    const out = retreat()(view({ units: [...squad, ...reserve(5)], contacts: tanks(2) }), ctx());
+    const m = moves(out.commands);
+    expect(m).toHaveLength(1);
+    expect([...m[0].ids].sort()).toEqual([1, 2]);
+    expect(mkMove(m[0])).toEqual(CAMP);
+    expect(marches(out.commands)).toHaveLength(0);
+    expect([...out.keep].sort()).toEqual([1, 2]);
+  });
+
+  it('a group with nothing to join fights on: walking home to the same strength only gives up its shots', () => {
+    const out = retreat()(view({ units: [away(1), away(2)], contacts: tanks(2) }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+  });
+
+  it('units standing at home are what a retreating group joins: the same group retreats with squads waiting at the camp', () => {
+    const waiting = [unit(70, [10, 41], { flags: ['idle'] }), unit(71, [11, 40], { flags: ['idle'] }), unit(72, [9, 39], { flags: ['idle'] })];
+    const out = retreat({ defend: false })(view({ units: [away(1), away(2), ...waiting], contacts: tanks(1) }), ctx());
+    expect(moves(out.commands).flatMap(ids).sort()).toEqual([1, 2]);
+  });
+
+  it('what the camps are building counts as joining: the same group retreats when a unit is queued and enough is in the line, not when it is not enough', () => {
+    const line = (queued: string[], building: string | null = null) => eco({ lines: [{ line: 0, alive: true, tile: [10, 40], building, progress: 0, secondsLeft: 10, contested: false, queued, rally: null }] });
+    const squad = [away(1), away(2)];
+    // foe: 1 tank = 906 x 100; own = 2 squads = 584 x 100; a queued mbt_lavi (906) joins, a queued squad (292) does not tip it
+    expect(moves(retreat()(view({ units: squad, contacts: tanks(1), economy: line(['inf_squad']) }), ctx()).commands)).toHaveLength(0);
+    expect(moves(retreat()(view({ units: squad, contacts: tanks(1), economy: line(['inf_squad'], 'inf_squad') }), ctx()).commands)).toHaveLength(1);
+  });
+
+  it('a group worth at least the foe fights on: nothing is sent home (a tie is not a loss)', () => {
+    const squad = [away(1), away(2), away(3)];
+    const out = retreat()(view({ units: [...squad, ...reserve(2)], contacts: [contact(90, [22, 30], 'inf_squad'), contact(91, [22, 31], 'inf_squad'), contact(92, [22, 32], 'inf_squad')] }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+  });
+
+  it('is weighed by hp on both sides: the same two squads at 20% lose to two squads at 100%, and win against two at 10%', () => {
+    const hurt = [away(1, { hp: 20 }), away(2, { hp: 20 })];
+    const two = (hp: number) => [contact(90, [22, 30], 'inf_squad', hp), contact(91, [22, 31], 'inf_squad', hp)];
+    expect(moves(retreat()(view({ units: [...hurt, ...reserve(5)], contacts: two(100) }), ctx()).commands)).toHaveLength(1);
+    expect(moves(retreat()(view({ units: hurt, contacts: two(10) }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('only units away from home that have a contact near them are engaged: a unit at home, and one with no contact within the radius, are not sent', () => {
+    const units = [away(1), unit(2, [11, 40], { flags: ['idle'] }), unit(3, [40, 40], { flags: ['moving'] })];
+    const out = retreat()(view({ units: [...units, ...reserve(5)], contacts: tanks(2) }), ctx());
+    expect(moves(out.commands).flatMap(ids)).toEqual([1]);
+  });
+
+  it('a fight at the camp is not retreated from: units at home are never engaged, whatever stands before them', () => {
+    const atCamp = [unit(1, [11, 40], { flags: ['moving'] }), unit(2, [12, 41], { flags: ['moving'] })];
+    const out = retreat()(view({ units: [...atCamp, ...reserve(9)], contacts: [contact(90, [15, 40], 'mbt_lavi'), contact(91, [15, 41], 'mbt_lavi'), contact(92, [15, 42], 'mbt_lavi')] }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+  });
+
+  it('only the foe in the face of the group counts: tanks seen far away do not make a winning fight a losing one', () => {
+    const squad = [away(1), away(2), away(3)];
+    const near = [contact(90, [22, 30], 'inf_squad'), contact(91, [22, 31], 'inf_squad')];
+    const far = [contact(95, [45, 5], 'mbt_lavi'), contact(96, [45, 6], 'mbt_lavi'), contact(97, [45, 7], 'mbt_lavi')];
+    expect(moves(retreat()(view({ units: [...squad, ...reserve(9)], contacts: [...near, ...far] }), ctx()).commands)).toHaveLength(0);
+  });
+
+  it('a contact beyond the radius of every unit is no fight', () => {
+    const out = retreat()(view({ units: [away(1), away(2)], contacts: [contact(90, [20 + RUSH_HOME_TILES + 3, 30], 'mbt_lavi')] }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+  });
+
+  it('the scout is never pulled back by it', () => {
+    const scouting = createSlice2({ scout: true, counter: false, retreat: true, zones: false, produce: false, defend: false });
+    const home3 = [unit(1, [10, 41], { type: 'at_team' }), unit(2, [11, 40]), unit(3, [9, 39], { type: 'mortar_team' })];
+    scouting(view({ units: home3 }), ctx()); // chooses unit 1
+    const out = scouting(view({ units: [away(1, { type: 'at_team' }), away(2), ...reserve(5)], contacts: tanks(2) }), ctx());
+    expect(moves(out.commands).flatMap(ids)).toEqual([2]);
+  });
+
+  it('retreating units are held out of the march while on their way and at home, and released when what stands at home is worth the foe that beat them', () => {
+    const c = retreat();
+    const squad = [away(1), away(2), unit(3, [40, 40], { flags: ['moving'] }), unit(4, [41, 40], { flags: ['moving'] })]; // 3 and 4 are far from the fight
+    c(view({ units: squad, contacts: tanks(1) }), ctx()); // beaten by one tank (906 x 100 > 2 x 292 x 100)
+    // on their way: kept
+    const way = c(view({ units: [onWay(1), onWay(2), squad[2], squad[3]] }), ctx());
+    expect([...way.keep].sort()).toEqual([1, 2]);
+    // home, with too little standing there and a purse coming (queue pending): held
+    const economy = eco({ lines: [{ line: 0, alive: true, tile: [10, 40], building: 'inf_squad', progress: 0, secondsLeft: 10, contested: false, queued: [], rally: null }] });
+    const homeTwo = [unit(1, [10, 41], { flags: ['idle'] }), unit(2, [11, 40], { flags: ['idle'] })];
+    const held = c(view({ units: homeTwo, economy }), ctx());
+    expect([...held.keep].sort()).toEqual([1, 2]);
+    expect(marches(held.commands)).toHaveLength(0);
+    // a third and a fourth arrive (4 x 292 > 906): released, and the march takes them all
+    const homeFour = [...homeTwo, unit(3, [9, 40], { flags: ['idle'] }), unit(4, [10, 42], { flags: ['idle'] })];
+    const freed = c(view({ units: homeFour, economy }), ctx());
+    expect(freed.keep.size).toBe(0);
+    expect(marches(freed.commands).flatMap(ids).sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('a retreating unit still moving inside the home radius has not arrived: it stays held', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [unit(1, [12, 38], { flags: ['moving'] }), unit(2, [13, 38], { flags: ['moving'] })] }), ctx());
+    expect([...out.keep].sort()).toEqual([1, 2]);
+  });
+
+  it('a contact within DEFEND_TILES of the camp releases them to defend it', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const economy = eco({ lines: [{ line: 0, alive: true, tile: [10, 40], building: 'inf_squad', progress: 0, secondsLeft: 10, contested: false, queued: [], rally: null }] });
+    const homeTwo = [unit(1, [10, 41], { flags: ['idle'] }), unit(2, [11, 40], { flags: ['idle'] })];
+    const out = c(view({ units: homeTwo, contacts: [contact(90, [14, 40], 'mbt_lavi')], economy }), ctx());
+    expect(out.keep.size).toBe(0);
+    expect(marches(out.commands).flatMap(ids).sort()).toEqual([1, 2]);
+  });
+
+  it('with nothing queued or building that could add to them (a room with no economy) they are released the moment they are home', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const homeTwo = [unit(1, [10, 41], { flags: ['idle'] }), unit(2, [11, 40], { flags: ['idle'] })];
+    const out = c(view({ units: homeTwo }), ctx());
+    expect(out.keep.size).toBe(0);
+  });
+
+  it('one that stopped short of home is given back to the march, not held for ever', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [unit(1, [18, 33], { flags: ['idle'] }), onWay(2)] }), ctx());
+    expect(out.keep.has(1)).toBe(false);
+    expect(out.keep.has(2)).toBe(true);
+  });
+
+  it('one that has not moved a tile since the last decision is stuck and is let go; the others stay held', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [away(1), onWay(2)] }), ctx()); // 1 is on the same tile, 2 has moved
+    expect([...out.keep]).toEqual([2]);
+  });
+
+  it('a cripple on the way (immobile) is let go at once, so the others reach home and are released', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), away(3), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const home2 = [unit(1, [10, 41], { flags: ['idle'] }), unit(2, [11, 40], { flags: ['idle'] })];
+    const out = c(view({ units: [...home2, unit(3, [18, 33], { flags: ['moving', 'immobile'] })] }), ctx());
+    expect(out.keep.has(3)).toBe(false);
+    expect(out.keep.has(1) || out.keep.has(2)).toBe(false);
+  });
+
+  it('a carried, garrisoned, routed or underground unit is never engaged, and one that becomes so is let go', () => {
+    const held = (id: number, h: 'carried' | 'garrisoned' | 'routed' | 'tunnel' | 'immobilised') => ({ ...away(id), held: h });
+    for (const h of ['carried', 'garrisoned', 'routed', 'tunnel', 'immobilised'] as const) {
+      const out = retreat()(view({ units: [held(1, h), held(2, h), ...reserve(5)], contacts: tanks(2) }), ctx());
+      expect(moves(out.commands), h).toHaveLength(0);
+      const c = retreat();
+      c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+      const after = c(view({ units: [{ ...onWay(1), held: h }, onWay(2)] }), ctx());
+      expect([...after.keep], h).toEqual([2]);
+    }
+  });
+
+  it('a unit that is idle and away when it is ordered is held for the walk, not released in the same decision', () => {
+    const c = retreat();
+    const out = c(view({ units: [unit(1, [20, 30], { flags: ['idle'] }), unit(2, [20, 31], { flags: ['idle'] }), ...reserve(5)], contacts: tanks(1) }), ctx());
+    expect(moves(out.commands)).toHaveLength(1);
+    expect([...out.keep].sort()).toEqual([1, 2]);
+  });
+
+  it('a threat at the camp lets go of the walkers still on the road as well as those home', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [unit(1, [10, 41], { flags: ['idle'] }), onWay(2)], contacts: [contact(90, [14, 40], 'mbt_lavi')] }), ctx());
+    expect(out.keep.size).toBe(0);
+  });
+
+  it('is off by default: the same view sends nobody home', () => {
+    const out = createSlice2({ scout: false, counter: false, zones: false, produce: false })(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(2) }), ctx());
+    expect(moves(out.commands)).toHaveLength(0);
+  });
+
+  it('a unit that dies while retreating is forgotten', () => {
+    const c = retreat();
+    c(view({ units: [away(1), away(2), ...reserve(5)], contacts: tanks(1) }), ctx());
+    const out = c(view({ units: [onWay(2)] }), ctx());
+    expect([...out.keep]).toEqual([2]);
   });
 });

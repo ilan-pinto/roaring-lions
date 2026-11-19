@@ -269,3 +269,44 @@ Paired by seed, scout + counter against slice 1, wins gained / lost, two-sided s
 - **The counter does what it says.** Against the soft-heavy Sarim force a KDF commander builds 1.2 infantry a game instead of 0.5 (counter alone) and fewer of the rest; a Sarim commander against KDF armour (5 hulls, 7 soft, at once) sees 5 / 3 and its anti-armour builds fall 3.6 -> 2.9 a game while the infantry builds rise, because the slice 1 mix rule already built the anti-armour units and parity is reached sooner. Wins: 15 -> 15 (KDF), 59 -> 55 (Sarim).
 - **Why the counter cannot be judged here.** The heuristics are right in shape, but whether an infantry squad is a better answer to a squad than a mortar team, or an ATGM team a better answer to an APC than a rifle squad, is a balance question: `pnpm balance` and `tuning.ts` decide it, and the issue holds armour counters until sim balance is unparked. HOLD FOR LEAD.
 - **Instrument limits.** `classOf` rests on thin margins: `scout_shachaf` (front 130) is armour only because the ceiling is 120, set by the Namer's and the Peten's autocannon alike; a unit with a heavier non-anti-armour round moves the class line with no code change. First contact is read at 100-tick decision boundaries.
+
+## 5. Slice 3 of the commander: retreat (GH-1391)
+
+The commander already DEFENDS (slice 1: a contact within `DEFEND_TILES` of the camp sends the idle units at home out on it, and a guard of built units stays to meet it). Slice 3 adds the other half, **RETREAT**, **off unless `CommanderOptions.retreat` is set**: the probe below says it loses games.
+
+- **Engaged group.** Every able unit away from home (beyond `RUSH_HOME_TILES` of the camp) with a contact within `RUSH_HOME_TILES` of it. The scout is never in it.
+- **Losing.** Each side is valued as the sum of `cost x hp` (unit-data cost; hp is the view's percent; a contact at the hp it shows); the foe is the contacts within that radius of any engaged unit. Strictly more foe than group is losing (a tie is not).
+- **Worth walking home** (version 2) only if the group could win once joined: `own + joins > foe`, where `joins` is every other able unit plus whatever the camps are queuing or building (valued at full hp). A group with nothing to join fights on.
+- **Retreat.** The whole engaged group gets a `move` (not an attack-move) to the camp and is kept out of every other task, the straggler sweep included. One that stops idle short of home is given back to the march.
+- **Regroup and re-engage.** At home they are released to the other tasks (so the march sends them out again) when what stands at home is worth at least the foe that beat them, when a contact comes within `DEFEND_TILES` (they defend), or when nothing is queued or building that could add to them (a room with no economy).
+- No new tuned number: the two radii are the script's own `RUSH_HOME_TILES` and slice 1's `DEFEND_TILES`; the rest are strict whole-number comparisons.
+
+### What was measured (the same 992 games; slice 1 is the baseline, the commander with only `retreat` added)
+
+| version | wins / losses | retreat orders (`move`) | notes |
+|---|---|---|---|
+| slice 1 | 665 / 327 | 0 | |
+| retreat, version 1 (no join test) | 598 / 394 | 8787 in 913 games | a walk-back-and-return loop: the group leaves its shots and comes back |
+| retreat, version 2 (must be able to win once joined) | 620 / 372 | 7162 in 848 games | a unit that could not reach home held its whole group; a stale idle flag released it the same decision |
+| retreat, version 3 (reviewed: stuck, crippled, carried, garrisoned and idle-away units are let go; a close contact ends the retreat at once) | **613 / 379** | 7847 in 848 games (9.3 per retreating game) | the code this PR ships |
+
+Version 3 by group, wins slice 1 -> retreat (gained / lost, two-sided sign test on the paired seeds):
+
+| group | vs | games | wins | gained / lost | p |
+|---|---|---|---|---|---|
+| mirror | passive | 336 | 234 -> 203 | 19 / 50 | < 0.01 |
+| mirror | rush | 336 | 197 -> 180 | 39 / 56 | 0.10 |
+| economy, KDF | rush | 80 | 15 -> 23 | 13 / 5 | 0.10 |
+| economy, Sarim | rush | 80 | 59 -> 55 | 16 / 20 | 0.62 |
+| economy, KDF | passive | 80 | 80 -> 80 | 0 / 0 | 1.0 |
+| economy, Sarim | passive | 80 | 80 -> 72 | 0 / 8 | 0.01 |
+
+Six cells, none corrected for it: one p below 0.05 in six is what chance alone gives about a quarter of the time, so only the two losing cells (mirror vs passive, Sarim economy vs passive) are worth reading, and both lose.
+
+Of the 992 games, those that show the literal 60 s stall reading fall 842 -> 668 (a seat that retreats issues orders), those that show the idle-unit reading rise 109 -> 179 (retreated units standing at home), and idle-away stays 0. Orders a minute, **median of the per-game figure**: 1.06 -> 2.61 (the retreat is not quiet: 9.3 `move` orders per retreating game, which is a lot of commands for a policy that wins less). 299 of the 992 games are identical to slice 1.
+
+### Reading it
+
+- **As a heuristic over this view it does not pay.** Net -52 wins of 992 (665 -> 613). The loss is concentrated in the mirror rooms against a passive opponent (-31) and in the Sarim economy room against a passive opponent (-8): a group that backs away from a defender's guns gives up its shots and the clock decides (median game 301 s -> 387 s in the mirror vs passive rooms). The KDF economy cell against a rushing Sarim moves the other way (15 -> 23, 13 / 5, p = 0.10, not distinguishable from noise), and the matching Sarim economy cell against the same rush does not (59 -> 55), so "there is something to regroup with" does not explain it: both seats have an economy there.
+- **What the heuristic cannot see** from a `SideView`: the terrain between the group and home, the foe's reach and speed (a group on foot cannot outrun a wheeled foe by walking), whether the contacts are the whole of the foe, and which of its own units are the dangerous ones. Whether a retreat should be a stand at a cover tile, a fall back to a garrison, or nothing, is HOLD FOR LEAD together with any retreat-radius or "how long to regroup" number; none is written here.
+- Three versions are reported because the first was measured, found to loop, and changed, and the second was reviewed and changed; none is tuned to a result. The option stays off.

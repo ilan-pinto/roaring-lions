@@ -222,6 +222,12 @@ export interface ObjectiveJson {
   /** This evacuation brings back people the enemy TOOK (spec §4.4). On completion its
    *  `count` is written to `civ.hostages_recovered` for this mission. */
   hostages?: boolean;
+  /** `evacuate_before` only (E3, GH-1438, the civilian drama design §10.2 and §11.3): the civilian groups this evacuation
+   *  counts, one name or several. Each is a `group` on a `civilians.groups` placement (`start()` refuses any other). The
+   *  objective then counts only those people, and its zone collects only them while it is active, so a person of another
+   *  group who walks in is neither counted nor taken off the map by it (N32). Absent is today's evacuation, byte for byte:
+   *  every civilian, one shared tally. */
+  group?: string | readonly string[];
   text?: string;
   target?: string;
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
@@ -1227,6 +1233,16 @@ export class MissionRuntime {
         throw new Error(
           `mission ${mission.id}: objective type "${def.type}" is not supported by the runtime yet`
         );
+      }
+      // E3: `group` belongs to evacuate_before alone, like `hostages`; an empty scope would count nobody and never complete.
+      if (def.group !== undefined) {
+        if (def.type !== 'evacuate_before') {
+          throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no group (only evacuate_before does)`);
+        }
+        const names = typeof def.group === 'string' ? [def.group] : def.group;
+        if (names.length === 0 || names.some((n) => typeof n !== 'string' || n.length === 0)) {
+          throw new Error(`mission ${mission.id}: evacuate_before "${def.id}" needs a group of one or more non-empty names`);
+        }
       }
       if (def.threshold !== undefined && def.type !== 'no_collateral_above') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no threshold (only no_collateral_above does)`);
@@ -2856,6 +2872,15 @@ export class MissionRuntime {
             `mission ${this.mission.id}: evacuate_before "${o.def.id}" refuge marker "${refuge}" ` +
               `is outside zone "${o.def.target}"`
           );
+        }
+        // E3: a scope names civilians. A name no civilian placement carries would count nobody, so the objective could
+        // never complete (a soldier sharing the name is never collected: `CivilianFlight.collect` takes side 2 only).
+        // Civilians spawn here alone (`civIds` is config), so the groups are final by now.
+        const g = o.def.group;
+        for (const name of g === undefined ? [] : typeof g === 'string' ? [g] : g) {
+          if (!(this.groups.get(name) ?? []).some((id) => this.sim.state.side[id] === 2)) {
+            throw new Error(`mission ${this.mission.id}: evacuate_before "${o.def.id}" names group "${name}", which no civilian placement declares`);
+          }
         }
       }
       if (o.def.type === 'raze') {
@@ -4699,6 +4724,41 @@ export class MissionRuntime {
     this.stepObjectivePass(tick, out, 2);
   }
 
+  /** `evacuate_before`'s arrivals from `ids` (E3: the whole civilian list, or one group's), announced. */
+  private collectEvacuees(ids: readonly number[] | undefined, z: readonly number[], tick: number, out: MissionEvent[]): void {
+    if (ids === undefined) return;
+    for (const civ of this.civFlight.collect(this.sim, ids, z)) {
+      out.push({ kind: 'evacuated', tick, entity: civ });
+    }
+  }
+
+  /** How many an evacuation has to its name (E3): the one shared tally when it is unscoped, else the people of its groups
+   *  who got out. Groups do not overlap (a placement carries one name), so the per-group counts add. No allocation. */
+  private evacuatedFor(group: string | readonly string[] | undefined): number {
+    if (group === undefined) return this.civFlight.evacuatedCount;
+    if (typeof group === 'string') return this.civFlight.evacuatedCountIn(this.groups.get(group) ?? []);
+    let n = 0;
+    for (const name of group) n += this.civFlight.evacuatedCountIn(this.groups.get(name) ?? []);
+    return n;
+  }
+
+  /** `civ.settlements_evacuated` (E3, the design §11.3): the people of the PRIMARY evacuations' groups who got out, when
+   *  the mission has a primary evacuation and every one is scoped; otherwise (no primary evacuation, or an unscoped one)
+   *  the whole tally, as every shipped mission writes it. Read once, at the end. */
+  private settlementsEvacuated(): number {
+    const primaries = this.objectives.filter((o) => o.def.primary && o.def.type === 'evacuate_before');
+    if (primaries.length === 0 || primaries.some((o) => o.def.group === undefined)) return this.civFlight.evacuatedCount;
+    const names = new Set<string>();
+    for (const o of primaries) {
+      const g = o.def.group;
+      if (typeof g === 'string') names.add(g);
+      else if (g !== undefined) for (const name of g) names.add(name);
+    }
+    let n = 0;
+    for (const name of names) n += this.civFlight.evacuatedCountIn(this.groups.get(name) ?? []);
+    return n;
+  }
+
   private stepObjectivePass(tick: number, out: MissionEvent[], pass: 0 | 1 | 2): void {
     for (const o of this.objectives) {
       if (o.status !== 'active') continue;
@@ -4835,12 +4895,16 @@ export class MissionRuntime {
         // rescue from a killing, and drew the death pose for both. The ids
         // come back from the same branch that latched them, so the two cannot
         // disagree: exactly once per civilian, never for one who died.
+        //
+        // E3: a scoped evacuation collects its own groups and nobody else, and only while it is active (this pass skips
+        // every other objective), so once it is complete a late arrival of its group stands in the zone uncounted (N32).
         if (z !== undefined) {
-          for (const civ of this.civFlight.collect(this.sim, this.civIds, z)) {
-            out.push({ kind: 'evacuated', tick, entity: civ });
-          }
+          const g = d.group;
+          if (g === undefined) this.collectEvacuees(this.civIds, z, tick, out);
+          else if (typeof g === 'string') this.collectEvacuees(this.groups.get(g), z, tick, out);
+          else for (const name of g) this.collectEvacuees(this.groups.get(name), z, tick, out);
         }
-        complete = this.civFlight.evacuatedCount >= (d.count ?? 1);
+        complete = this.evacuatedFor(d.group) >= (d.count ?? 1);
         // The deadline is the whole point: a clock the player cannot see expire
         // is a hidden model (GDD §5.8), which is why this latches a status the
         // HUD already draws rather than failing silently.
@@ -5016,7 +5080,7 @@ export class MissionRuntime {
         if (this.resultValue === 'victory' && !done.includes(this.mission.id)) done.push(this.mission.id);
         produced[key] = done;
       }
-      else if (key === 'civ.settlements_evacuated') produced[key] = this.civFlight.evacuatedCount;
+      else if (key === 'civ.settlements_evacuated') produced[key] = this.settlementsEvacuated();
       else if (key === 'intel.marked_positions') {
         // Union with what came in: intel accumulates across a campaign rather than
         // being replaced, so a later mission cannot un-know what an earlier one saw.

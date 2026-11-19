@@ -90,3 +90,14 @@ describe('slice 2: the counter', () => {
     expect(on.builtKinds.inf).toBeGreaterThan(off.builtKinds.inf);
   }, 240_000);
 });
+
+describe('slice 3: retreat', () => {
+  it('with it on, a commander that is losing sends units home with move orders in a real room; with it off it sends none, on two seeds', () => {
+    for (const n of [0, 1]) {
+      const on = playGame(underAttack, seedOf(n), { commander: 'slice3', capTicks: CAP });
+      const off = playGame(underAttack, seedOf(n), { commander: 'slice1', capTicks: CAP });
+      expect(off.moveOrders, `seed ${n}`).toBe(0);
+      expect(on.moveOrders, `seed ${n}`).toBeGreaterThanOrEqual(1);
+    }
+  }, 240_000);
+});

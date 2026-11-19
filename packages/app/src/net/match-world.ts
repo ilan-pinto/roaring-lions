@@ -168,7 +168,9 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   for (const f of formations) sim.addFormationType(f);
 
   const anchors = versusAnchors(mapJson);
-  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
+  // GH-1389: a computer level's stated force handicap is the seat's own `withhold`, read here and nowhere else: the sim
+  // only ever sees the units that were spawned. No seat carries one outside an offline match against a level.
+  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide, [seats[0]?.withhold, seats[1]?.withhold]);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
   // GH-976: a win-mode room (never an economy room, `economyRoom`) plays a goals-only runtime instead.
@@ -465,10 +467,12 @@ export function seatKitTiers(seat: SeatConfig | undefined, roster: readonly Rost
 
 /**
  * GH-1384 slice 1: the branch a seat fields on each branched track its CLEANED tiers hold at the
- * branched tier. The room claim carries no picks yet (`SeatConfig.picks` is the net slice), and
- * every account this build can make holds branch 1 there (the migration's legacy default, the lead's
- * Q8, and the Garage's one Buy, `GARAGE_BRANCH`), so this is branch 1, derived from the config alone:
- * both machines compute the same table, and a matched seat (`{}` tiers) fields none.
+ * branched tier. The room claim carries no picks yet (`SeatConfig.picks` is the net slice), so this
+ * is branch 1 (the migration's legacy default, the lead's Q8), derived from the config alone: both
+ * machines compute the same table, and a matched seat (`{}` tiers) fields none. Since slice 2 the
+ * Garage's fork can buy branch 2, so an OPEN build would field a branch-2 owner's tier 3 as branch 1
+ * in a brigade room until the net slice carries the claim's picks: one more reason the switch stays
+ * closed until that slice lands.
  */
 export function seatKitPicks(tiers: Readonly<Record<string, Readonly<Record<string, number>>>>, roster: readonly RosterUnit[]): Record<string, Record<string, BranchPick>> {
   const out: Record<string, Record<string, BranchPick>> = {};

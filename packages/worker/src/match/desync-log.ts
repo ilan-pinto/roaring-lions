@@ -8,7 +8,7 @@
  */
 import type { Frame } from '@lions/net';
 import type { D1Like } from '../d1';
-import { RETENTION_MS } from '../feedback-triage';
+import { RETENTION_MS } from '../retention';
 
 export interface DesyncRecord {
   code: string; tick: number; hashA: number; hashB: number;

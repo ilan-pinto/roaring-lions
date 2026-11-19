@@ -43,11 +43,11 @@ describe('shipped held-ground income (GH-1386)', () => {
     }
   });
 
-  it('no other mission authors zones: the census line is exactly the landed set (18 of 39: batches 2 and 3, plus Qasr Liwan II and III and Bir Tarsha II)', () => {
+  it('no other mission authors zones: the census line is exactly the landed set (18 of 40: batches 2 and 3, plus Qasr Liwan II and III and Bir Tarsha II)', () => {
     const authors = all.filter((m) => zonesOf(m).length > 0).map((m) => m.id).sort();
     expect(authors).toEqual(Object.keys(LANDED).sort());
     expect(authors.length).toBe(18);
-    expect(all.length).toBe(39);
+    expect(all.length).toBe(40);
   });
 
   it("each landed batch-1, -2 and -3 row is the census plan's candidate row, verbatim", () => {
