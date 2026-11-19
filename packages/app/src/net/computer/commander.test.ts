@@ -773,10 +773,23 @@ describe('mass: the march waits for a strength edge it has seen, and masses agai
 
   it('but a room with no economy that has SEEN a stronger foe holds: there is nothing coming to tip it', () => {
     const c = mass({ defend: false });
-    c(view({ units: squads(3), contacts: [lavi(90)] }), ctx()); // first decision: commits (the foe is in sight only after, in this fixture it is seen with the first look)
-    // massing again after the lost engagement below; here the point is the hold after a commit and a sighting
+    // First decision: the Lavi is already in sight (906 x 100 beats 3 x 292 x 100), so it never commits: it holds from the first look.
+    expect(marches(c(view({ units: squads(3), contacts: [lavi(90)] }), ctx()).commands)).toHaveLength(0);
+    // And it goes on holding while what it sees grows: still massing, it was never committed, so this is not a re-plan.
     const out = c(view({ units: [unit(1, [20, 30], { flags: ['moving'] }), ...squads(2, 2)], contacts: [lavi(90, [22, 30]), lavi(91, [22, 31])] }), ctx());
     expect(marches(out.commands)).toHaveLength(0);
+  });
+
+  it('a sighting alone is not a re-plan: committed with nothing seen, it sees a stronger foe away from any fight and stays committed; it holds only once it loses an engagement', () => {
+    const c = mass({ defend: false });
+    expect(marches(c(view({ units: squads(3) }), ctx()).commands)).toHaveLength(1); // no economy, nothing seen: commits
+    // Two tanks seen far from every unit of its own (no unit away from home has them in reach): no engagement, so a squad home again is marched.
+    const seen = c(view({ units: [unit(1, [10, 41]), unit(2, [40, 40], { flags: ['moving'] })], contacts: [lavi(90, [30, 10]), lavi(91, [31, 10])] }), ctx());
+    expect(marches(seen.commands)).toHaveLength(1);
+    // Now the squad out meets them: a lost engagement, and the squad at home is held.
+    const lost = c(view({ units: [unit(7, [10, 41]), unit(2, [30, 12], { flags: ['moving'] })], contacts: [lavi(90, [30, 10]), lavi(91, [31, 10])] }), ctx());
+    expect(marches(lost.commands)).toHaveLength(0);
+    expect([...lost.keep]).toEqual([7]);
   });
 
   it('a lost engagement sends it back to massing: the units out are not recalled, and what is at home is held', () => {
@@ -803,6 +816,53 @@ describe('mass: the march waits for a strength edge it has seen, and masses agai
     c(view({ units: [unit(1, [20, 30], { flags: ['moving'] }), unit(7, [10, 41])], contacts: [lavi(90, [22, 30]), lavi(91, [22, 31])] }), ctx()); // lost; saw 2 tanks (1812)
     expect(marches(c(view({ units: [...squads(6, 1)] }), ctx()).commands)).toHaveLength(0); // 6 x 292 = 1752 < 1812
     expect(marches(c(view({ units: [...squads(7, 1)] }), ctx()).commands)).toHaveLength(1); // 7 x 292 = 2044 > 1812
+  });
+
+  /** Economy room: held on 3 squads (the first force, 87600), committed on 4. */
+  const committed = () => {
+    const c = mass({ defend: false });
+    c(view({ units: squads(3), economy: ECO }), ctx());
+    expect(marches(c(view({ units: squads(4), economy: ECO }), ctx()).commands)).toHaveLength(1);
+    return c;
+  };
+  /** One squad out at (20, 30), with `at` idle squads at home (ids 2..). */
+  const outAndHome = (atHome: number): UnitLine[] => [unit(1, [20, 30], { flags: ['moving'] }), ...squads(atHome, 2)];
+  const squadsAt = (n: number, hp: number, from = 90): ContactLine[] => Array.from({ length: n }, (_, i) => contact(from + i, [22, 30 + i], 'inf_squad', hp));
+
+  it('it re-masses against the same floor it commits on: above what it has seen but not above its own first force, a lost engagement holds what is at home', () => {
+    const c = committed();
+    // Two squads at 60% on the squad out: 2 x 292 x 60 = 35040 > 29200, a loss. Strength 2 x 29200 = 58400: above the seen 35040, below the first force 87600.
+    const out = c(view({ units: outAndHome(1), contacts: squadsAt(2, 60), economy: ECO }), ctx());
+    expect(marches(out.commands)).toHaveLength(0);
+    expect([...out.keep]).toEqual([2]);
+  });
+
+  it('the re-mass gate at an exact tie masses again (a tie is not an edge), against the first force and against what it has seen', () => {
+    // Strength 3 x 29200 = 87600 = the first force; seen 35040.
+    const floor = committed()(view({ units: outAndHome(2), contacts: squadsAt(2, 60), economy: ECO }), ctx());
+    expect(marches(floor.commands)).toHaveLength(0);
+    expect([...floor.keep].sort()).toEqual([2, 3]);
+    // Strength 4 x 29200 = 116800 = four squads seen at full strength around the squad out (above the first force).
+    const seen = committed()(view({ units: outAndHome(3), contacts: squadsAt(4, 100), economy: ECO }), ctx());
+    expect(marches(seen.commands)).toHaveLength(0);
+    expect([...seen.keep].sort()).toEqual([2, 3, 4]);
+  });
+
+  it('an engagement at an exact tie is not a loss: it stays committed and marches what is at home', () => {
+    // The squad out (29200) faces one squad at full strength (29200): equal. Strength 87600 is not above the floor, so only "not a loss" keeps it committed.
+    const out = committed()(view({ units: outAndHome(2), contacts: squadsAt(1, 100), economy: ECO }), ctx());
+    expect(marches(out.commands)).toHaveLength(1);
+    expect(out.keep.size).toBe(0);
+  });
+
+  it('a unit that is not able (disarmed, immobile, routed) adds nothing to its strength: a fourth squad that cannot fight is still a tie with the first force', () => {
+    for (const flag of ['disarmed', 'immobile', 'routed']) {
+      const c = mass();
+      c(view({ units: squads(3), economy: ECO }), ctx());
+      const four = [...squads(3), unit(4, [11, 41], { flags: ['idle', flag] })];
+      expect(marches(c(view({ units: four, economy: ECO }), ctx()).commands), flag).toHaveLength(0);
+      expect(marches(c(view({ units: squads(4), economy: ECO }), ctx()).commands), flag).toHaveLength(1); // the same squad able: an edge
+    }
   });
 
   it('is off by default: the same economy room marches at once', () => {
