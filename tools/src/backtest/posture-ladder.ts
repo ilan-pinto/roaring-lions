@@ -14,7 +14,8 @@
 // with `applyOverlays` where it resolves upgrades, so the world a posture run builds is the one the app builds.
 // This module holds only the pure judgements, so each can be falsified on literals.
 
-import { applyOverlays, missions, POSTURE_IDS, type OverlayMission, type PostureId } from '@lions/data';
+import { applyOverlays, POSTURE_IDS, type OverlayMission, type PostureId } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { timeLimitFailures } from '../../validate_time_limit.mjs';
 
 /** The two postures the ladder adds; Standard is the existing ladder. */

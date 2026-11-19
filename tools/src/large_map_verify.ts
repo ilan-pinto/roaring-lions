@@ -33,7 +33,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyTerrain, doctrines, maps, parseMap, structures, units, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
+import { applyTerrain, doctrines, parseMap, structures, units, versusRules, type MapJson, type VersusRulesJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import type { Faction } from '@lions/net';
 import { FlowField } from '../../packages/sim/src/flowfield';
 import { Sim } from '../../packages/sim/src/sim';

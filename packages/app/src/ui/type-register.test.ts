@@ -162,6 +162,7 @@ describe('the type register: theme.css', () => {
       '.rl-aar__mark',
       '.rl-loading__count',
       '.rl-world__stars',
+      '.rl-world__challenge', // the board's challenge mark (GH-1395 slice 2): "1/5" beside the stars, the same numerals
       '.rl-garage__wallet-n',
       '.rl-menu--garage .rl-stores__wallet-n',
       '.rl-profile__coins-n', // the account page's coin balance (GH-1370 C3): the same numeral as the Stores' wallet

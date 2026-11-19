@@ -25,8 +25,9 @@
  */
 import { gunzipCapped, gzipBytes, fnv1a32, readSnapshotHeader } from '@lions/net';
 import { encodeSim, restoreSim, SIM_EPOCH, SNAPSHOT_FORMAT, SnapshotRefused, type MissionRuntime, type Sim } from '@lions/sim';
-import { missions } from '@lions/data';
-import { canonicalJson, shippedContentDigest } from './net/content-digest';
+import { missionManifest } from '@lions/data';
+import { canonicalJson } from './net/canonical-json';
+import { importWithRetry } from './shell/chunk';
 
 /** The record format. Bump it when the record's own shape changes; a different value is refused as `older_version`. */
 export const MISSION_SAVE_VERSION = 1;
@@ -61,13 +62,14 @@ export interface MissionSaveInput {
   /** The app's own bookkeeping no snapshot can hold (the mission log and so on). Opaque here. */
   shell?: JsonValue;
   /**
-   * The ids of the mission amendments (the challenge) this run was started with, when it was (GH-1395, the lead's ruling of 16 Nov: D10 is
-   * not yet ruled, so the field exists and is ABSENT today: nothing sets it). A resumed run must be graded as the amended run it is,
-   * and a save must not become a way to shed a restriction.
+   * The ids of the mission amendments (the challenge) this run was started with, when it was (GH-1395, the lead's ruling D10: a save
+   * stores them). Set by main.ts's Save and quit from the same list it writes into `campaign` (`startInputsJson`), and absent for an
+   * unamended run; `loadResume` refuses a record whose two disagree. A resumed run must be graded as the amended run it is, and a
+   * save must not become a way to shed a restriction.
    */
   amendments?: readonly string[];
-  /** Default `shippedContentDigest()`. */
-  contentDigest?: number;
+  /** The shipped content digest, from `loadContentDigest()` (or `shippedContentDigest()` where the content is already loaded, as in Node). */
+  contentDigest: number;
   /** Default `MISSION_SAVE_MAX_COMPRESSED_BYTES`; a test lowers it. */
   maxCompressedBytes?: number;
 }
@@ -86,7 +88,7 @@ export interface SuspendedMission {
   campaignDigest: number;
   shell: JsonValue | null;
   shellDigest: number;
-  /** Optional, absent today (see `MissionSaveInput.amendments`). */
+  /** Absent for an unamended run (see `MissionSaveInput.amendments`). */
   amendments?: string[];
   hashAtSave: { sim: number; runtime: number };
   /** Raw (ungzipped) snapshot size, for the size census. */
@@ -100,6 +102,18 @@ export type ResumeRefusal = 'unreadable' | 'older_version' | 'mission_unknown' |
 
 export type SuspendResult = { ok: true; record: SuspendedMission } | { ok: false; reason: SaveRefusal; detail: string };
 export type ParseResult = { ok: true; record: SuspendedMission } | { ok: false; reason: ResumeRefusal };
+
+/**
+ * The shipped content digest (`net/content-digest.ts`'s `shippedContentDigest`), loaded ON DEMAND: at a save and at a resume, never with
+ * this module. The digest reads `@lions/data/content`, every map and mission JSON, and this module rides in the save kit, which loads at
+ * every mission boot and on the board. A JS module once evaluated stays in the realm for its life, so a static import here put the whole
+ * eager registry into every heap after the first mission or the board (about 1 MiB on CI's `perf:memory` walk, growing with each map and
+ * mission added). `content-wiring.test.ts` pins the kit's static graph clear of it. Rejects with `ChunkLoadError` when the chunk will not load.
+ */
+export async function loadContentDigest(): Promise<number> {
+  const m = await importWithRetry(() => import('./net/content-digest'));
+  return m.shippedContentDigest();
+}
 
 /** The digest the record keeps of frozen inputs; the caller compares it with `digestOf(liveCampaign)` to see whether the campaign moved. */
 export function digestOf(value: JsonValue): number {
@@ -149,7 +163,7 @@ export type CutResult = { ok: true; cut: MissionCut } | { ok: false; reason: 'en
  */
 export function cutMission(input: MissionSaveInput): CutResult {
   const { sim, runtime, ...rest } = input;
-  const contentDigest = (input.contentDigest ?? shippedContentDigest()) >>> 0;
+  const contentDigest = input.contentDigest >>> 0;
   try {
     const campaignDigest = digestOf(input.campaign);
     const shellDigest = digestOf(input.shell ?? null);
@@ -211,7 +225,7 @@ export function serializeSuspended(record: SuspendedMission): string {
 
 // ---- read ------------------------------------------------------------------
 
-/** A mission amendment id: plain, lower-case, short (`tight_clock`). */
+/** A mission amendment id: plain, lower-case, short (`light_order`). */
 const AMENDMENT_ID = /^[a-z][a-z0-9_]{0,39}$/;
 const MAX_AMENDMENTS = 16;
 const isAmendmentId = (v: unknown): v is string => typeof v === 'string' && AMENDMENT_ID.test(v);
@@ -237,7 +251,7 @@ export interface ParseOptions {
   knownMission?: (id: string) => boolean;
 }
 
-const shippedMission = (id: string): boolean => Object.hasOwn(missions, id);
+const shippedMission = (id: string): boolean => Object.hasOwn(missionManifest, id);
 
 export function parseSuspended(text: string, opts: ParseOptions = {}): ParseResult {
   let o: unknown;
@@ -282,7 +296,7 @@ export type PrepareResult = ({ ok: true } & PreparedResume) | { ok: false; reaso
  * Inflates the snapshot and checks its header against the record, still without a world: a snapshot whose own header disagrees with the
  * record (another format, another tick) is `damaged` or `older_version` before a world is built for it.
  */
-export async function prepareResume(record: SuspendedMission, opts: { contentDigest?: number } = {}): Promise<PrepareResult> {
+export async function prepareResume(record: SuspendedMission, opts: { contentDigest: number }): Promise<PrepareResult> {
   const gz = fromBase64(record.snapshot);
   if (gz === null) return { ok: false, reason: 'damaged' };
   const out = await gunzipCapped(gz, MAX_RAW_BYTES);
@@ -291,7 +305,7 @@ export async function prepareResume(record: SuspendedMission, opts: { contentDig
   if (header === null) return { ok: false, reason: 'damaged' };
   if (header.format !== SNAPSHOT_FORMAT) return { ok: false, reason: 'older_version' };
   if (out.bytes.byteLength !== record.rawBytes || header.frameTick !== record.simTick) return { ok: false, reason: 'damaged' };
-  const contentChanged = ((opts.contentDigest ?? shippedContentDigest()) >>> 0) !== record.contentDigest;
+  const contentChanged = (opts.contentDigest >>> 0) !== record.contentDigest;
   return { ok: true, record, raw: out.bytes, contentChanged };
 }
 

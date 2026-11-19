@@ -54,6 +54,72 @@ Every entry therefore carries a `src` block, written by the English generator an
 `units.json` carries the same block, `"src": { "name": "…", "blurb": "…" }` per unit, with the same rules, and
 `unitOverlayFailures` also refuses a `blurb` for a unit that has none.
 
+## `de` is staged, not shipped (GH-1406, GH-1407)
+
+`data/locales/de/missions.json`, `data/locales/de/units.json` and the chrome catalogue `packages/app/src/i18n/de.json` are the first
+launch-language translation, German. **They are machine translation by Claude, in-house, with no paid service (the lead's ruling on
+PR 1474), and no human has proofread them.** `de` is NOT in `LOCALES` (`packages/app/src/i18n/locales.ts`): until the lead adds it,
+`?lang=de` is ignored, nothing fetches these files, and every player sees English. Adding it is the shipping step, and it should wait for a
+native proofreading pass and a `ui:shots` read of the longer German strings.
+
+How it was made, so the next language can repeat it: the English text was flattened to `path -> text`, split into slices, translated
+against one brief (register: military, terse, neutral; KDF/Sarim, place names and real equipment designations unchanged; no real
+places, people, operations or faiths) with one shared glossary, and merged back into the English structure with the `src` hashes
+carried over untouched, so `pnpm validate:data` proves no entry is stale, missing or over a cap (trigger label 48, radio line,
+dispatch and aftermath 240, hostages place 40). The chrome catalogue is checked by `tools/validate_chrome_catalogue.mjs`: exactly
+`en.json`'s keys, and the same `{placeholders}` and ICU `plural`/`select` shape in every value. **Chrome strings carry their source hash in a
+sidecar**, `data/locales/<id>/chrome.src.json` (`{ "<key>": "<8 hex of the English it was translated from>" }`, the same `sourceHash` the
+mission and unit overlays use): an English chrome edit after translation goes red in `validate:data` with both hashes, until the string is
+re-translated and the hash set. The sidecar is never served or read at runtime. `pnpm locales:chrome-src -- <lang>` lists what is missing or
+stale; `--write` adds hashes for keys that have none (a new language runs it once, from the English it read) and keeps a stale entry stale on
+purpose; `--rebless=key,key` refreshes named keys and is for use AFTER re-translating them.
+
+Terms the glossary fixed, for a proofreader: Conduct is "Verhalten", a mission is an "Einsatz", a map tile is a "Feld", a squad or team
+is a "Trupp", the Store is the "Depot", a garrisoned building is "besetzt".
+
+## `fr` is staged too (GH-1406, GH-1407)
+
+Same pattern as `de`, stacked on it: `data/locales/fr/missions.json`, `units.json`, `chrome.src.json` and `packages/app/src/i18n/fr.json`.
+Machine translation by Claude, in-house, no paid service, **not proofread by a human**; `fr` is not in `LOCALES`. Register: military, terse,
+neutral, formal "vous" for the player and the infinitive for UI and orders, French typography. **Terminology calls for a proofreader:**
+Conduct = "Conduite" (the restraint score), rules of engagement = "règles d'engagement", mission = "mission", objective = "objectif",
+tile = "case", squad = "groupe" (a rifle "section" in prose), team = "équipe", Store = "Intendance", garrisoned = "occupé", medic =
+"infirmier", fire support = "appui-feu", suppression = "neutralisation par le feu", Loitering Munition = "munition rôdeuse", Charge Squad = "groupe de charge" (formerly "groupe kamikaze"; mission prose says "charge squad" for the same unit, rendered the same way), "technical" kept as a loanword in prose
+and "pick-up armé" as the unit name, civic hall = "salle communale", Roar coin = "pièce Roar", brigade pack names Patrouille / Compagnie /
+Brigade / Division, Bug = "bogue", Balance = "équilibrage", Praise = "éloge", Advise / Assist = "Conseiller" / "Assister", dock = "barre du
+bas" in prose and "dock" on chips, field works = "ouvrages de campagne", checkpoint = "point de contrôle" ("pc" on chips), tiles per second
+= "c/s". Three select-based messages were reworded for gender agreement (`intel.note.ready`, `alert.supply.open`, `main.note.supportCalled`):
+check them in play. Both languages share one limit for a proofreader: the hostage count words (`world.hostages.n0` to `n20`) are capitalised
+because the same word starts a sentence and sits mid-sentence ("Noch Zwei draußen"), which the catalogue cannot express without a second set.
+
+## `es-ES` is staged too (GH-1406, GH-1407)
+
+Spanish as written in Spain, stacked on `fr`: `data/locales/es-ES/missions.json`, `units.json`, `chrome.src.json` and
+`packages/app/src/i18n/es-ES.json`. Machine translation by Claude, in-house, no paid service, **not proofread by a human**; `es-ES` is not in
+`LOCALES`. Register: military, terse, neutral, formal "usted" for the player, the infinitive for UI and orders, «comillas angulares» and the
+inverted marks. **Terminology calls for a proofreader:** Conduct = "Conducta", rules of engagement = "reglas de enfrentamiento", mission =
+"misión", objective = "objetivo", tile = "casilla", squad = "escuadra" (a rifle "section" in prose = "sección"), team = "equipo", Store =
+"Intendencia", garrison (verb) = "guarnecer", medic = "sanitario", fire support = "apoyo de fuego", suppression = "supresión", Loitering
+Munition = "munición merodeadora", Charge Squad = "escuadra de cargas" (formerly "escuadra suicida"; mission prose says "charge squad" for the same unit, rendered the same way), "technical" kept as a loanword in prose and "pick-up armada" as the unit name, civic hall = "sala comunal", dock = "muelle" (the
+reinforcements panel), checkpoint = "punto de control" ("pc" on chips), tiles per second = "c/s", Roar coin = "moneda Roar", brigade packs
+Patrulla / Compañía / Brigada / División, Bug = "Error", Balance = "Equilibrio", Praise = "Elogio", Advise / Assist = "Aconsejar" /
+"Asistir", Desync's Report button = "Notificar" (not "Denunciar", which is the chat report). "Old Town" and "Main Street" are rendered "casco
+antiguo" and "calle Mayor" (the English uses both capitalised and lowercase forms). The slices disagreed on a few terms and were normalised
+("wadi" kept, never "uadi"). Check in play: the hostage count words (`world.hostages.n0` to `n20`: "Ningún", "Un", "Dos"...) are written without
+verb agreement because the same word starts a sentence and sits mid-sentence; the Delete key label stays "Del" where a Spanish keyboard shows
+"Supr"; the damaged-save file name `damaged-save-{n}.txt` was translated and should probably stay as the English file name.
+
+## Staged versus shipped: lag is reported, wrong is red (GH-1406)
+
+A language is **shipped** when it is in `LOCALES` (`packages/app/src/i18n/locales.ts`): a player can choose it. Anything with files here and not in `LOCALES` is **staged**.
+
+- A **shipped** language is held strictly: every chrome key present and current, every translated mission and unit string carrying the hash of the English it was read from.
+- A **staged** language may **lag** the English. A chrome key main added, an English line main edited (a hash that no longer matches), a translated string with no hash yet, or a section the English gained are **reported** by `pnpm validate:data` (a `locale <id> (staged ...) lags the English by N item(s)` block, never a failure). The worklist for a translator is `pnpm locales:pending -- <id>`.
+- A staged language still **fails** on what is wrong rather than stale: a key `en` does not have, a changed `{placeholder}` or ICU shape, a value that is not a string, a malformed source hash (not 8 hex characters), a hash for a string it does not translate, a mission or unit that does not exist, a trigger label over 48 characters.
+- `en` is the source and is always strict. The strict gate applies the day a language ships; that is the text freeze in practice.
+
+`tools/locale_staging.mjs` decides which is which (`shippedLocaleIds`, `isStaged`); `tools/src/locale_staging.test.ts` builds one input that is green staged and red shipped, and the staged failures that stay red.
+
 ## Shape
 
 One directory per shipped locale other than `en`, id-matched to

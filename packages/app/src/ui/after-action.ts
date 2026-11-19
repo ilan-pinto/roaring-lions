@@ -98,6 +98,9 @@ export interface AfterActionInputs {
   marked?: number;
   /** A unit type's display name. */
   typeName(type: string): string;
+  /** GH-1395 slice 2: the challenge rung, already worded by the lazy challenge code (`challengeRung`); present only on a
+   *  run played with amendments on. Drawn after the three stars, on a win only. Not a star (D2). */
+  challenge?: ChallengeRung | null;
 }
 
 /** One Roar-coin payout as the report words it. A function, never a table resolved at
@@ -114,6 +117,8 @@ export function coinAwardText(a: EarnAward): string {
       return t('debrief.coins.campaign');
     case 'backfill':
       return t('debrief.coins.backfill');
+    case 'challenge':
+      return t('debrief.coins.challenge');
   }
 }
 
@@ -138,9 +143,17 @@ export interface LadderRung {
   text: string;
 }
 
+/** GH-1395 slice 2: the challenge's rung, beside the ladder and never in it: `LadderRung.stars` stays 1 to 3. */
+export interface ChallengeRung {
+  met: boolean;
+  text: string;
+}
+
 export interface AfterAction {
   reason: string[];
   ladder: LadderRung[];
+  /** The challenge rung (a win played with amendments on), else absent. */
+  challenge?: ChallengeRung;
   well: AfterActionItem[];
   poor: AfterActionItem[];
   changed: AfterActionItem[];
@@ -349,7 +362,7 @@ export function afterAction(i: AfterActionInputs): AfterAction {
     pins.push({ kind: 'deduction', x: d.x, y: d.y, label: t('aar.pin.deduction', { n: d.penalty, at: mmss(d.tick) }) });
   }
 
-  return { reason, ladder, well, poor, changed, pins };
+  return { reason, ladder, ...(won && i.challenge ? { challenge: i.challenge } : {}), well, poor, changed, pins };
 }
 
 /**

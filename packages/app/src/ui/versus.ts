@@ -41,11 +41,12 @@
  */
 import { flagBlockOf, versusModes } from '@lions/data';
 import { labelsOf, nameFrom, seatLabel, type SeatLabel } from '../net/seat-label';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, flagSetupFor, flagSetupRoom, specialRefusal, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
+import { ADVISOR_SCOPES, FIELD_WORKS_LOGISTICS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, factionsOfMatchup, fieldWorksAllowed, flagSetupFor, flagSetupRoom, specialRefusal, winModesOffered, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WinMode, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { pointsExplainer } from './points-explainer';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
+import { computerSeatOpen } from '../net/computer/open-cells';
 import { isTextEntry } from '../shell/escape-back';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -55,6 +56,7 @@ import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
 import { inboxOf } from './chat-inbox';
+import { chatFilterNow, loadChatFilter } from './chat-filter-gate';
 import { quickChatText } from './quick-chat';
 import { symbolLabel } from './symbol';
 import { unitName } from '../unit-text';
@@ -105,7 +107,7 @@ export interface VersusDeps {
   advisorTicket(code: string, scope: AdvisorScope): Promise<string>;
   /** GH-1388: arms an OFFLINE match against the computer seat for the map and side picked here, and resolves to the `?net=` value that
    *  opens it. No room and no request. Absent: the lobby offers no computer seat. */
-  playComputer?(req: { map: string; matchup: Matchup; callsign: string }): Promise<string>;
+  playComputer?(req: { map: string; matchup: Matchup; winMode?: WinMode; callsign: string }): Promise<string>;
   /** Drops a match `playComputer` armed that nobody took (this screen was left while it armed). */
   discardComputer?(): void;
   /** The menu's still plate (`${BASE}${menuDiorama.plate}`), drawn behind
@@ -115,6 +117,9 @@ export interface VersusDeps {
   saveData?: () => boolean;
   /** Whether the player has chat on (Settings, Chat; GH-1417 S1), read at every line. Absent is on. */
   chatEnabled?: () => boolean;
+  /** Whether the word filter masks swear words (Settings, Chat; GH-1417 S2), read at every line. Absent is on. The hide tier has no
+   *  switch. */
+  chatMask?: () => boolean;
 }
 
 /** Where the lobby tells a player to save the copied advisor ticket: a private
@@ -171,6 +176,8 @@ interface Room {
   kit: LobbyKit;
   /** The room's win mode (GH-976 P2), shown to both seats; null is annihilation. */
   winMode: WinMode | null;
+  /** Versus field works: the host opened the room with them, shown to both seats. */
+  fieldWorks: boolean;
   /** `closed`: this tab left (and said `bye`). `ended`: the room ended under it. */
   phase: 'lobby' | 'started' | 'ended' | 'closed';
   /** An i18n key for a refusal the room sent after the lobby opened. */
@@ -233,10 +240,11 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
     seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions, kit: o.lobby.kit, winMode: o.lobby.winMode ?? null,
+    fieldWorks: o.lobby.fieldWorks === true,
     phase: 'lobby', error: null, repaint: null, chat: null, advisors: [null, null], labels: labelsOf(o.lobby.seats),
   };
   o.transport.setHooks({
-    onLobby: (seats, _you, map, factions, kit, winMode) => {
+    onLobby: (seats, _you, map, factions, kit, winMode, fieldWorks) => {
       room.seats = seats;
       room.labels = labelsOf(seats);
       room.map = map;
@@ -245,6 +253,8 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
       room.kit = kit ?? 'matched';
       // Likewise a win mode: silence is annihilation.
       room.winMode = winMode ?? null;
+      // And field works: silence is off.
+      room.fieldWorks = fieldWorks === true;
       room.repaint?.();
     },
     onStart: (config) => {
@@ -270,15 +280,28 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     },
     // The room echoes every line to both seats, this one's own included. A line reaches the log only through the room's inbox
     // (`chat-inbox.ts`): what is off or muted is never drawn, here or in the match's feed.
-    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
+    onChat: (seat, text) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), deps.chatMask, room.seat).deliver(seat, text, (shown) => room.chat?.receive(seat, shown)),
     // A preset phrase arrives as an id and is drawn in THIS client's language, through the same inbox.
-    onQuick: (seat, id) => inboxOf(room.transport, deps.chatEnabled ?? (() => true)).deliver(seat, quickChatText(id), (shown) => room.chat?.receive(seat, shown)),
+    onQuick: (seat, id) => inboxOf(room.transport, deps.chatEnabled ?? (() => true), deps.chatMask, room.seat).deliver(seat, quickChatText(id), (shown) => room.chat?.receive(seat, shown)),
     // The badges: the transport clears them on a reconnect, before the room's next say.
     onAdvisors: (present) => {
       room.advisors = present;
       room.repaint?.();
     },
   });
+  // GH-1417 S2: the word filter loads on demand (`chat-filter-gate.ts`). Until it is in, every typed name reads as the fallback name
+  // and every received line is held by the inbox; once it is, the lobby is relabelled so the names read as typed (or filtered).
+  // IN PLACE, whatever the phase: a match that started while the filter loaded holds this very tuple (`handOver`) and reads it at
+  // every name (`nameFrom`), so it reads the names as typed from then on instead of the fallback name for the whole match (CR5).
+  if (chatFilterNow() === null) {
+    void loadChatFilter().then((ok) => {
+      if (!ok) return;
+      const fresh = labelsOf(room.seats);
+      room.labels[0] = fresh[0];
+      room.labels[1] = fresh[1];
+      if (room.phase === 'lobby') room.repaint?.();
+    });
+  }
   return room;
 }
 
@@ -751,6 +774,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     matchupNote.hidden = !narrowed || winMode !== null;
     placedNote.hidden = !narrowed || winMode === null;
     describeFaction();
+    // GH-1390: the computer seat is offered on every ground, side and mode the coverage probe read clean (`computerSeatOpen`); a closed cell hides it.
+    if (cpuSection !== null) cpuSection.hidden = !computerSeatOpen(map, side, winMode);
     const target = winMode === 'points' ? versusModes[map]?.modes.points?.target ?? 0 : 0;
     // GH-976 R0.22: through the one reader, for the rules a room on this map would play (the Worker mints `flagSetup` from the same list).
     const flagFile = winMode === 'flag' ? versusModes[map] : undefined;
@@ -758,6 +783,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     const pointsRules = winMode === 'points' ? versusModes[map]?.modes.points : undefined;
     // GH-1103: a points race explains its own scoring, from the map's mode data.
     winHint.textContent = pointsRules !== undefined ? pointsExplainer(pointsRules) : t(`versus.win.${winMode ?? 'annihilation'}.hint`, { target, hold });
+    syncWorks();
   }
 
   // --- bring your brigade: a switch, and its one-line hint ------------------
@@ -792,6 +818,41 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   });
   paintKit();
   kitRow.append(kitSwitch, kitHint);
+
+  // --- versus field works (the lead's ruling, 18 Nov 2026): a switch, HOST only, off by default, and in the DOM's
+  // flow only for an annihilation room of the KDF mirror (`fieldWorksAllowed`, the predicate the room itself asks).
+  let fieldWorks = false;
+  const worksRow = document.createElement('div');
+  worksRow.className = 'rl-versus__kit rl-versus__works';
+  const worksSwitch = document.createElement('button');
+  worksSwitch.type = 'button';
+  worksSwitch.className = 'rl-versus__kit-toggle';
+  worksSwitch.setAttribute('role', 'switch');
+  const worksKnob = document.createElement('span');
+  worksKnob.className = 'rl-versus__knob';
+  worksKnob.setAttribute('aria-hidden', 'true');
+  const worksName = document.createElement('span');
+  worksName.className = 'rl-versus__kit-label';
+  worksName.textContent = t('versus.host.fieldWorks');
+  worksSwitch.append(worksKnob, worksName);
+  const worksHint = document.createElement('span');
+  worksHint.className = 'rl-versus__kit-hint';
+  worksHint.id = nextId('works-hint');
+  worksSwitch.setAttribute('aria-describedby', worksHint.id);
+  const worksAllowed = (): boolean => fieldWorksAllowed({ mode: 'versus', winMode, factions: factionsOfMatchup(side) });
+  function syncWorks(): void {
+    const allowed = worksAllowed();
+    // A pick that takes the room out of annihilation or off the mirror turns the switch off, not just hides it.
+    if (!allowed) fieldWorks = false;
+    worksRow.hidden = !allowed;
+    worksSwitch.setAttribute('aria-checked', String(fieldWorks));
+    worksHint.textContent = t('versus.host.fieldWorks.hint', { on: String(fieldWorks), logistics: FIELD_WORKS_LOGISTICS });
+  }
+  worksSwitch.addEventListener('click', () => {
+    fieldWorks = !fieldWorks;
+    syncWorks();
+  });
+  worksRow.append(worksSwitch, worksHint);
   const openBtn = stamp(t('versus.host.open'), 'rl-versus__open');
   // Open a room says its own failure here, beside the stamp, on a line
   // reserved like the join bar's -- never under the join cells.
@@ -799,12 +860,12 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   const openCol = document.createElement('div');
   openCol.className = 'rl-versus__open-col';
   openCol.append(openBtn, openMsg);
-  act.append(kitRow, openCol);
+  act.append(kitRow, worksRow, openCol);
   body.appendChild(act);
 
   // --- GH-1388: a basic computer opponent, offline ---------------------------
-  // The arena's `rush` script as a seat. It needs no room, so it is offered whatever the map, on the mirror pairing only (it builds nothing); the plain description says what
-  // it is, because nothing here may claim more than it does (it attacks with the force it starts with and builds nothing).
+  // The commander as a seat (GH-1388, GH-1390). It needs no room, so it is offered on every map, side and win mode the coverage probe read clean (`computerSeatOpen`, net/computer/open-cells.ts);
+  // a closed cell hides this section. The plain description's copy is HOLD FOR LEAD: it still says the opponent builds nothing.
   let cpuBtn: HTMLButtonElement | null = null;
   let cpuSection: HTMLElement | null = null;
   const cpuMsg = messageLine('rl-versus__cpu-msg');
@@ -840,8 +901,6 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       else delete tile.label.dataset.off;
       tile.sub.textContent = off ? t('versus.lobby.map.offReason') : t('versus.lobby.map.pairing', { both: String(pairsBoth(tile.id)) });
     }
-    // The computer does not build, so it is offered on the mirror pairing only (an economy pairing could never end).
-    if (cpuSection !== null) cpuSection.hidden = narrowed;
     sideNote.hidden = !narrowed;
     matchupNote.hidden = !narrowed;
     paintCard(youCard, hostSide(side), youName);
@@ -942,16 +1001,16 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       },
     );
   };
-  openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }, false));
+  openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', ...(winMode === null ? {} : { winMode }), ...(fieldWorks && worksAllowed() ? { fieldWorks: true as const } : {}), callsign: callsignOrDefault(callsign.input.value) }, false));
   const playComputer = deps.playComputer;
   cpuBtn?.addEventListener('click', () => {
-    if (busy || playComputer === undefined || side !== 'mirror') return;
+    if (busy || playComputer === undefined || !computerSeatOpen(map, side, winMode)) return;
     busy = true;
     sync();
     cpuMsg.textContent = '';
     delete cpuMsg.dataset.tone;
     const picked = map;
-    playComputer({ map: picked, matchup: side, callsign: callsignOrDefault(callsign.input.value) }).then(
+    playComputer({ map: picked, matchup: side, ...(winMode === null ? {} : { winMode }), callsign: callsignOrDefault(callsign.input.value) }).then(
       (net) => {
         // Left while it armed: nobody will take it, so it is dropped here (the disposer contract).
         if (disposed) { deps.discardComputer?.(); return; }
@@ -1114,6 +1173,15 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     const winValue = document.createElement('span');
     winValue.className = 'rl-versus__kit-name';
     winLine.append(winLabel, winValue);
+    // Versus field works: the host's choice, the same line for both seats (shown only when on).
+    const worksLine = document.createElement('p');
+    worksLine.className = 'rl-versus__room-kit rl-versus__room-works';
+    const worksLabel = document.createElement('span');
+    worksLabel.className = 'rl-versus__label';
+    worksLabel.textContent = t('versus.room.fieldWorks');
+    const worksValue = document.createElement('span');
+    worksValue.className = 'rl-versus__kit-name';
+    worksLine.append(worksLabel, worksValue);
     const status = messageLine('rl-versus__status');
     const ready = stamp(t('versus.room.ready'), 'rl-versus__ready');
     ready.setAttribute('aria-pressed', 'false');
@@ -1124,7 +1192,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       r.transport.ready();
       paint();
     });
-    side.append(kitLine, winLine, ready, status);
+    side.append(kitLine, winLine, worksLine, ready, status);
     lower.append(mapSlot, side);
     // The lobby chat (N1b task 9, R-B10): docked, so its input is always there.
     const chat = document.createElement('div');
@@ -1136,7 +1204,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       send: (text) => r.transport.chat(text),
       nameOf: (seat) => nameFrom(r.labels, seat, r.seats.find((x) => x.seat === seat)?.callsign ?? ''),
       sendQuick: (id) => r.transport.quick(id),
-      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true)),
+      inbox: inboxOf(r.transport, deps.chatEnabled ?? (() => true), deps.chatMask, r.seat),
       peer: r.seat === 0 ? 1 : 0,
     }, { docked: true });
 
@@ -1253,6 +1321,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       kitValue.textContent = t('versus.room.kit.value', { kit: r.kit });
       winLine.dataset.win = r.winMode ?? 'annihilation';
       winValue.textContent = t('versus.room.win.value', { mode: r.winMode ?? 'annihilation' });
+      worksLine.hidden = !r.fieldWorks;
+      worksValue.textContent = t('versus.room.fieldWorks.value', { logistics: FIELD_WORKS_LOGISTICS });
       const me = r.seats.find((x) => x.seat === r.seat);
       const pressed = readySent || me?.ready === true;
       ready.setAttribute('aria-pressed', pressed ? 'true' : 'false');

@@ -1,0 +1,60 @@
+{
+	// GH-1397: the match relay, its own Worker. It exports the MatchRoom Durable
+	// Object and nothing else; the game Worker (wrangler.jsonc) keeps every
+	// /api/match* route and reaches the class through a DO binding with
+	// script_name "roaring-lions-relay". Design (the lead's rulings D-R1 to D-R7):
+	// docs/superpowers/specs/2026-11-15-relay-worker-split-design.md.
+	// Runbook (deploy order, secrets, the cut, rollback, the staging pair):
+	// docs/agent-notes/relay-split.md. No agent deploys this file.
+	"name": "roaring-lions-relay",
+	"main": "packages/worker/src/relay.ts",
+	"compatibility_date": "2026-09-01",
+	// D-R3: no public URL. No *.workers.dev name, no preview URLs, and no
+	// "routes": nothing on the internet reaches this Worker. Pinned by
+	// relay-config.test.ts (F2).
+	"workers_dev": false,
+	"preview_urls": false,
+	// The relay's own namespace. The game Worker keeps net-v1 and its MatchRoom
+	// export as the ROOMS_NEW=0 rollback lever (ROOMS_LEGACY).
+	"migrations": [
+		{
+			"tag": "relay-v1",
+			"new_sqlite_classes": ["MatchRoom"]
+		}
+	],
+	// The room's reads (match-room.ts): DB (desync and snapshot-mismatch rows),
+	// ACCOUNTS (the match record) and the secret TICKET_SECRET, which the lead
+	// puts with the SAME value as the game Worker's. The same databases as the
+	// game Worker, and deliberately no migrations_dir: wrangler.jsonc stays the
+	// one place D1 migrations are applied from. Pinned by relay-config.test.ts (F3).
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "roaring-lions-telemetry",
+			"database_id": "d23ceb15-6f89-4bcb-bb81-559eeba98e07"
+		},
+		{
+			"binding": "ACCOUNTS",
+			"database_name": "roaring-lions-accounts",
+			"database_id": "ea793ff8-1491-4982-95a4-8b9c36962998"
+		}
+	],
+	// The game Worker's block, verbatim: without it the relay's logs and traces
+	// are off.
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1,
+		"redact_query_string": false,
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": false,
+			"persist": true
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"persist": true
+		}
+	}
+}

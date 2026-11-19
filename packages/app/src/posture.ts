@@ -12,6 +12,10 @@
 import { applyOverlays, postureOf, postures, reliefTriggerIndices, type OverlayMission } from '@lions/data';
 import { reinforceKey } from '@lions/sim';
 
+// GH-1394 slice 2: the deploy line and the defeat suggestion, for the battlefield, which already holds this module (one lazy
+// load, not two). The campaign board loads `./ui/posture-ui` itself.
+export { defeatSuggestion, deployPostureDeps, posturePicker, showsPosture } from './ui/posture-ui';
+
 /** `mission` as the campaign ledger's posture plays it. Standard (and the tutorial under any posture): `mission`
  *  itself, by reference. `label` resolves the relief trigger's `label_key` (the app passes `t`). */
 export function campaignMission<T extends OverlayMission>(
@@ -42,3 +46,9 @@ export function withReliefOnLoan(
   }
   return out;
 }
+
+/** GH-1395: the challenge code rides this same lazy chunk (main.ts loads `./posture` once, through importWithRetry), so
+ *  nothing campaign-only reaches the entry chunk. */
+export { amended, amendmentsForRun, settleVictory, victoryMark, victoryRung, withChallengeMark } from './challenge';
+/** GH-1395 slice 2: the deploy screen's "Amendments to the orders" panel, in the same lazy chunk. */
+export { amendmentPanel } from './ui/amendments-ui';

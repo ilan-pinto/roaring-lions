@@ -19,7 +19,7 @@ import { ROOT, makeWorld, read } from './walk_world';
 import { join } from 'node:path';
 import { readdirSync } from 'node:fs';
 
-interface Obj { id: string; type: string; target?: string; seconds?: number; primary?: boolean }
+interface Obj { id: string; type: string; target?: string; seconds?: number; primary?: boolean; by_order?: boolean }
 interface MissionJson { id: string; map: { file: string; player_start: [number, number] }; objectives: Obj[] }
 
 const CASES: { mission: string; obj: Obj }[] = [];
@@ -49,7 +49,13 @@ describe('a raze primary is reachable by a demolish order from the start line', 
         for (let i = 0; i < sim.state.alive.length; i++) if (sim.state.alive[i] === 1 && sim.state.side[i] === 1) sim.debugKill(i);
       };
       const [sx, sy] = m.map.player_start;
-      const demo = sim.spawn(typeOf.get('demo_squad') ?? -1, 0, fx.from(sx + 0.5), fx.from(sy + 0.5));
+      // A zone razed `by_order` (GH-1438, Bir Tarsha IV: 13 berm tiles, the T-wall and the works, 31 structures in 390 s) is the job of the four
+      // dozers the mission loans, not of one engineer: they split the standing works between them, each re-clicking the nearest one nobody has claimed.
+      // Every other raze keeps the single engineer it has always had.
+      const byOrder = obj.by_order === true;
+      const crew = byOrder ? ['dozer_d9', 'dozer_d9', 'dozer_d9', 'dozer_d9'] : ['demo_squad'];
+      const demos = crew.map((u, k) => sim.spawn(typeOf.get(u) ?? -1, 0, fx.from(sx + 0.5 + k * 1.25), fx.from(sy + 0.5)));
+      const demo = demos[0];
       const inZone = (s: number) => {
         const x = fx.toNumber(sim.structures.cx[s]);
         const y = fx.toNumber(sim.structures.cy[s]);
@@ -82,22 +88,24 @@ describe('a raze primary is reachable by a demolish order from the start line', 
       const limit = (obj.seconds ?? 0) * TICKS_PER_SECOND;
       for (let t = 0; t < limit; t++) {
         clear(); // waves too
-        if (sim.state.moving[demo] === 0 && sim.state.demoTarget[demo] < 0) {
-          // Re-issue toward the nearest standing structure in the zone, as a
+        for (const d of demos) {
+          if (sim.state.moving[d] !== 0 || sim.state.demoTarget[d] >= 0) continue;
+          // Re-issue toward the nearest standing structure in the zone that no other demolisher is already working, as a
           // player re-clicks the next building.
+          const claimed = new Set(demos.filter((o) => o !== d).map((o) => sim.state.demoTarget[o]));
           let best = -1;
           let bestD = Infinity;
           for (let s = 0; s < sim.structures.alive.length; s++) {
-            if (sim.structures.alive[s] !== 1 || !inZone(s)) continue;
-            const d = (fx.toNumber(sim.structures.cx[s]) - fx.toNumber(sim.state.posX[demo])) ** 2 + (fx.toNumber(sim.structures.cy[s]) - fx.toNumber(sim.state.posY[demo])) ** 2;
-            if (d < bestD) {
-              bestD = d;
+            if (sim.structures.alive[s] !== 1 || !inZone(s) || claimed.has(s)) continue;
+            const dd = (fx.toNumber(sim.structures.cx[s]) - fx.toNumber(sim.state.posX[d])) ** 2 + (fx.toNumber(sim.structures.cy[s]) - fx.toNumber(sim.state.posY[d])) ** 2;
+            if (dd < bestD) {
+              bestD = dd;
               best = s;
             }
           }
           if (best >= 0) {
-            if (firstLeg < 0) firstLeg = shortestTo(best);
-            sim.queueCommand({ kind: 'demolish', ids: [demo], structure: best });
+            if (d === demo && firstLeg < 0) firstLeg = shortestTo(best);
+            sim.queueCommand({ kind: 'demolish', ids: [d], structure: best });
           }
         }
         const px = fx.toNumber(sim.state.posX[demo]);
@@ -112,9 +120,10 @@ describe('a raze primary is reachable by a demolish order from the start line', 
           break;
         }
       }
-      expect(sim.state.alive[demo], 'the engineers live (nothing shoots them here)').toBe(1);
+      for (const d of demos) expect(sim.state.alive[d], 'the engineers live (nothing shoots them here)').toBe(1);
       expect(doneAt, `${obj.id} complete inside ${obj.seconds}s`).toBeGreaterThanOrEqual(0);
-      expect(walked, 'the first leg walks the shortest foot route, give or take three tiles').toBeLessThanOrEqual(firstLeg + 3);
+      // The first-leg route check is about a man on foot; a dozer is tracked and takes the lane, so the by-order case keeps only the clock.
+      if (!byOrder) expect(walked, 'the first leg walks the shortest foot route, give or take three tiles').toBeLessThanOrEqual(firstLeg + 3);
     });
   }
 });

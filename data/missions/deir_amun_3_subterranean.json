@@ -30,7 +30,7 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 4] },
     { "unit": "inf_medic_squad", "count": 1, "at": [23, 3] }
   ],
-  "resources": { "logistics_start": 500, "logistics_rate_per_min": 90 },
+  "resources": { "logistics_start": 500, "logistics_rate_per_min": 90, "income_zones": [{ "zone": "hamlet", "rate_per_min": 20 }, { "zone": "spoil_field", "rate_per_min": 12 }] },
   "objectives": [
     { "id": "all_four", "type": "collapse", "primary": true, "target": "hamlet", "seconds": 300,
       "text": "Collapse all four routes under the village inside five minutes",
@@ -95,5 +95,5 @@
     "victory": { "speaker": "idit", "text": "All four, and the file on this district closes tonight. Taking the man never stopped any of it — the ground was the thing he was, and there is none of it left under here now." },
     "defeat": { "speaker": "shai", "text": "The village is standing on four open routes and we are going home. This district works tomorrow exactly the way it worked yesterday." }
   },
-  "aftermath": "Six routes under the junction, and by morning none of them went anywhere. Brigade put a third star on the slip and said nothing else about it. The Marj is quiet. Sur is not."
+  "aftermath": "Six routes under the junction, and by morning none of them went anywhere. The brigades went home in the spring, and one battalion stayed on the Cut. The Marj was quiet until the autumn."
 }

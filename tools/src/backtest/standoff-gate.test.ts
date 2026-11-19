@@ -35,7 +35,7 @@ const GATE: StandoffArm = { cells: 3, cover: 2 };
 function both(arm: StandoffArm) {
   return {
     base: standoffReading(arm, SEEDS),
-    max: withRoster(unitsAtMaxTier, () => standoffReading(arm, SEEDS)),
+    max: withRoster(unitsAtMaxTier(1), () => standoffReading(arm, SEEDS)),
   };
 }
 
@@ -55,7 +55,8 @@ describe('Standoff section gate (GH-865)', () => {
 
   it('the shipped target row reads PASS at both tiers', () => {
     expect(standoff(SEEDS).pass).toBe(true);
-    expect(withRoster(unitsAtMaxTier, () => standoff(SEEDS)).pass).toBe(true);
+    // GH-1384: the PASS row at both uniform branch vectors (the readings run branch 1).
+    for (const pick of [1, 2] as const) expect(withRoster(unitsAtMaxTier(pick), () => standoff(SEEDS)).pass, `branch ${pick}`).toBe(true);
   }, 60_000);
 
   it('goes red with the cover removed (both tiers, both bars)', () => {

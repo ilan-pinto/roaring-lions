@@ -20,7 +20,8 @@
 // cannot print a number. Timing lives here, in tools/, never in the sim.
 import { loadavg } from 'node:os';
 import { Sim, fx } from '@lions/sim';
-import { units, maps, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { units, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 const MAX_FLOW_FIELDS = 128; // sim.ts; asserted below against flowFieldCount
 

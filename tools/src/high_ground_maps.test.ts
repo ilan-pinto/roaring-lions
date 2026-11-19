@@ -97,7 +97,7 @@ describe('shipped maps: high ground', () => {
     const relief = ids.filter((id) => results.get(id)?.relief);
     const flat = ids.filter((id) => !results.get(id)?.relief);
     expect(relief.length).toBe(30); // Was 29: Milh Flats (large), GH-920 B3 (28: Wadi Tarfan (large))
-    expect(flat.length).toBe(11);
+    expect(flat.length).toBe(21); // Was 16: the five Bir Tarsha maps, flat by design (docs/campaign/bir_tarsha/design.md section 3); 11 before the five Qasr Liwan maps
   });
 
   it('every flat map reports 0 rises', () => {

@@ -1,0 +1,20 @@
+{
+  "id": "kdf_airmobile",
+  "extends": "kdf",
+  "status": "proposed",
+  "label": "doctrine.kdf_airmobile.name",
+  "blurb": "doctrine.kdf_airmobile.blurb",
+  "gives_up": "doctrine.kdf_airmobile.gives_up",
+  "signature": {
+    "formation": "kdf_airmobile_cover"
+  },
+  "ops": [
+    {"op": "menu_remove", "units": ["mbt_lavi", "dozer_d9"]},
+    {"op": "menu_add", "units": ["scout_shachaf", "sniper_team"]},
+    {"op": "set_pop_cap", "value": 35},
+    {"op": "set_price", "unit": "apc_eitan", "logistics": 525},
+    {"op": "set_price", "unit": "heli_peten", "logistics": 375},
+    {"op": "set_price", "unit": "ifv_namer", "logistics": 665},
+    {"op": "set_price", "unit": "jeep_shoded", "logistics": 300}
+  ]
+}

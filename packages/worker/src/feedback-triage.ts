@@ -19,6 +19,7 @@ import type { D1Like, Env } from './d1';
 import { feedbackRef, FEEDBACK_CATEGORIES, TEXT_MAX } from './feedback-meta';
 import { buildIssueLink, type IssueLink } from './feedback-issue';
 import { feedbackOpen } from './feedback-ingest';
+import { RETENTION_MS } from './retention';
 
 export const FEEDBACK_STATUSES = ['new', 'triaged', 'filed', 'dismissed'] as const;
 export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
@@ -398,7 +399,7 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
  *  the contact and the ids that tie the note to a person (player, session, tester) go;
  *  the note and context stay.
  *  Run daily by the Cron Trigger in wrangler.jsonc. Returns rows purged. */
-export const RETENTION_MS = 180 * 86_400_000;
+export { RETENTION_MS } from './retention';
 /** Notes a slice, and slices a run: still 1,000 notes a day, twice the 500 a day feedback ingest admits (`feedback-ingest.ts`). */
 export const PURGE_EXPIRED_SLICE = 500;
 export const PURGE_EXPIRED_BATCHES = 2;

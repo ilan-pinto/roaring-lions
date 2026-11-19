@@ -27,13 +27,16 @@ import { fileURLToPath } from 'node:url';
 import { outcomeName, runLog, type RunRecord } from './playtest-run';
 import { isPinnedOnly } from './pinned-only';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { missions, minWinSeconds, world } from '@lions/data';
+import { minWinSeconds, world } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { worldMissionIds } from '../../../packages/economy/src';
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { fastestWins, limitHeadroom, MIN_WIN_DIVISOR, type WinTime } from './time-limit';
 import { POSTURE_SEEDS, SWEEP_SEEDS } from './passive-sweep';
 import type { PostureId } from '@lions/data';
 import { LADDER_VARIANTS, monotoneFailure, postureClockFailures, postureLimit, readingOf, wrongWay, type Rate, type Variant } from './posture-ladder';
+import { challengeMissionIds } from '@lions/data';
+import { challengeLine, challengePlanVerdict, GATED_CHALLENGE_PLANS, isChallengePlan, tallyChallenge } from './challenge-reading';
 
 /** True inside a seed's child process. */
 export const PLAN_CHILD = process.env.PT_PLAN_CHILD === '1';
@@ -52,6 +55,8 @@ interface ChildReply {
   /** GH-1394: the posture the child played (`PT_POSTURE`), and whether its plans used the relief (`PT_RELIEF_JOIN`). */
   posture: PostureId;
   relief: boolean;
+  /** GH-1395: the child played the pilot missions with their challenge amendments on (`PT_CHALLENGE`). */
+  challenge: boolean;
   runs: RunRecord[];
   gates: GateRecord[];
 }
@@ -61,6 +66,8 @@ interface Job {
   seed: number;
   posture: PostureId;
   relief: boolean;
+  /** GH-1395: the report-only challenge reading (Standard, pilot missions amended). */
+  challenge: boolean;
 }
 
 const replies = new Map<number, ChildReply>();
@@ -68,6 +75,9 @@ const failedSeeds = new Map<number, string>();
 /** GH-1394: the posture children's replies and failures, keyed `posture:seed`. Standard's stay in the two above. */
 const postureReplies = new Map<string, ChildReply>();
 const postureFailed = new Map<string, string>();
+/** GH-1395: the challenge children's replies and failures, keyed by seed. */
+const challengeReplies = new Map<number, ChildReply>();
+const challengeFailed = new Map<number, string>();
 const variantKey = (posture: PostureId, relief: boolean): string => `${posture}${relief ? '+relief' : ''}`;
 const jobKey = (j: Job): string => `${variantKey(j.posture, j.relief)}:${j.seed}`;
 let pending = 0;
@@ -80,13 +90,13 @@ function poolSize(): number {
 }
 
 function launch(job: Job, queue: Job[]): void {
-  const { seed, posture, relief } = job;
+  const { seed, posture, relief, challenge } = job;
   const path = fileURLToPath(new URL('./playtest.ts', import.meta.url));
   // `silent`: a child's own lines (run lines, the pinned 424242 numbers it does not meet) are not
   // this report. What it ran comes back as a message; its stderr is kept for a crash.
   const child: ChildProcess = fork(path, [], {
     execArgv: process.execArgv,
-    env: { ...process.env, PT_SEED: String(seed), PT_PLAN_CHILD: '1', PT_SWEEP_WORKERS: '0', PT_POSTURE: posture, PT_RELIEF_JOIN: relief ? '1' : '0' },
+    env: { ...process.env, PT_SEED: String(seed), PT_PLAN_CHILD: '1', PT_SWEEP_WORKERS: '0', PT_POSTURE: posture, PT_RELIEF_JOIN: relief ? '1' : '0', PT_CHALLENGE: challenge ? '1' : '0' },
     serialization: 'advanced',
     silent: true,
   });
@@ -94,18 +104,20 @@ function launch(job: Job, queue: Job[]): void {
   child.stderr?.on('data', (d: Buffer) => (err = (err + d.toString()).slice(-2000)));
   child.stdout?.resume();
   child.on('message', (msg: ChildReply) => {
-    if (msg.posture === 'standard') replies.set(msg.seed, msg);
+    if (msg.challenge) challengeReplies.set(msg.seed, msg);
+    else if (msg.posture === 'standard') replies.set(msg.seed, msg);
     else postureReplies.set(jobKey(msg), msg);
   });
   // `close`, not `exit`: it comes after the IPC channel and stdio are drained, so a report the
   // child sent just before exiting has already arrived.
   child.on('close', (code) => {
-    if (posture === 'standard' ? !replies.has(seed) : !postureReplies.has(jobKey(job))) {
+    if (challenge ? !challengeReplies.has(seed) : posture === 'standard' ? !replies.has(seed) : !postureReplies.has(jobKey(job))) {
       // Node's own trailer ("Node.js v25...") is the last stderr line; the error is the line naming it.
       const lines = err.trim().split('\n');
       const why = lines.find((l) => /Error|FAILED/.test(l)) ?? lines.pop() ?? '';
       const text = `child exited (code ${code}) without a report${why ? `: ${why.trim()}` : ''}`;
-      if (posture === 'standard') failedSeeds.set(seed, text);
+      if (challenge) challengeFailed.set(seed, text);
+      else if (posture === 'standard') failedSeeds.set(seed, text);
       else postureFailed.set(jobKey(job), text);
     }
     pending--;
@@ -122,9 +134,11 @@ export function startPlanSweep(seeds: readonly number[] = SWEEP_SEEDS): void {
   if (PLAN_CHILD || process.env.PT_PLAN_SWEEP === '0') return;
   // GH-1394: Easier and Harder run as children too, on every posture seed (424242 included: this process plays
   // Standard), after the Standard seeds in the queue.
+  // GH-1395: then the report-only challenge reading, at Standard, on the posture seeds.
   const queue: Job[] = [
-    ...seeds.slice(1).map((seed) => ({ seed, posture: 'standard' as const, relief: false })),
-    ...LADDER_VARIANTS.flatMap((v) => POSTURE_SEEDS.map((seed) => ({ seed, posture: v.posture, relief: v.relief }))),
+    ...seeds.slice(1).map((seed) => ({ seed, posture: 'standard' as const, relief: false, challenge: false })),
+    ...LADDER_VARIANTS.flatMap((v) => POSTURE_SEEDS.map((seed) => ({ seed, posture: v.posture, relief: v.relief, challenge: false }))),
+    ...POSTURE_SEEDS.map((seed) => ({ seed, posture: 'standard' as const, relief: false, challenge: true })),
   ];
   for (let w = 0; w < poolSize() && queue.length > 0; w++) {
     const job = queue.shift() as Job;
@@ -137,7 +151,7 @@ export function startPlanSweep(seeds: readonly number[] = SWEEP_SEEDS): void {
 export function reportToParent(gates: GateRecord[]): void {
   if (!PLAN_CHILD || !process.send) return;
   const posture = (process.env.PT_POSTURE || 'standard') as PostureId;
-  process.send({ seed: Number(process.env.PT_SEED), posture, relief: process.env.PT_RELIEF_JOIN === '1', runs: runLog, gates } satisfies ChildReply);
+  process.send({ seed: Number(process.env.PT_SEED), posture, relief: process.env.PT_RELIEF_JOIN === '1', challenge: process.env.PT_CHALLENGE === '1', runs: runLog, gates } satisfies ChildReply);
 }
 
 /** #540: one line per mission with a winning plan, and exit 1 if a limit sits too close to a win. */
@@ -226,7 +240,10 @@ export async function drainPlanSweeps(
   if (process.env.PT_PLAN_SWEEP === '0') {
     reportLimitHeadroom([runLog]);
     reportMinWin([runLog], 1);
-    return new Map([[seeds[0], runLog.slice()]]);
+    const only = new Map([[seeds[0], runLog.slice()]]);
+    // GH-1395 slice 2: on the one seed, the challenge plans must still beat their challenge.
+    reportChallengePlans([seeds[0]], only, runLog.filter((r) => r.expect === 'victory').map((r) => r.label));
+    return only;
   }
   if (pending > 0) await new Promise<void>((resolve) => (onIdle = resolve));
   const bySeed = new Map<number, RunRecord[]>([[seeds[0], runLog.slice()]]);
@@ -254,6 +271,7 @@ export async function drainPlanSweeps(
     if (missed.length) console.error(`${label}: FAILED — the plan does not win on every seed`);
   }
   console.log(`plan sweep: ${held} of ${labels.length} winning plans win on all ${seeds.length} seeds`);
+  reportChallengePlans(seeds, bySeed, labels);
   for (const g of gates424242) {
     let open = 0;
     let closed = 0;
@@ -270,8 +288,59 @@ export async function drainPlanSweeps(
   }
   reportLimitHeadroom(bySeed.values());
   reportMinWin(bySeed.values(), seeds.length);
-  reportPostures(seeds, bySeed, labels);
+  // GH-1395 slice 2: a challenge plan is judged on its challenge's own terms at Standard (above), not on the posture
+  // ladder or the report-only reading, whose children never play it.
+  const plain = labels.filter((l) => !isChallengePlan(l));
+  reportPostures(seeds, bySeed, plain);
+  reportChallenges(plain);
   return bySeed;
+}
+
+/**
+ * GH-1395 slice 2 (C6/C7, design §8), GATED: every challenge plan (`challenge-reading.ts`) must win AND beat its challenge
+ * on every sweep seed. The list is pinned (`GATED_CHALLENGE_PLANS`), so a plan that stops running is a miss on every seed,
+ * never a loop over nothing; a challenge-plan label the list does not name is refused.
+ */
+function reportChallengePlans(seeds: readonly number[], bySeed: ReadonlyMap<number, readonly RunRecord[]>, labels: readonly string[]): void {
+  const found = labels.filter(isChallengePlan);
+  for (const label of found) {
+    if (!GATED_CHALLENGE_PLANS.includes(label)) {
+      console.error(`challenge plan ${label}: FAILED — not in GATED_CHALLENGE_PLANS (challenge-reading.ts)`);
+      process.exitCode = 1;
+    }
+  }
+  let held = 0;
+  for (const label of GATED_CHALLENGE_PLANS) {
+    const v = challengePlanVerdict(seeds.map((seed) => ({ seed, run: bySeed.get(seed)?.find((x) => x.label === label) })));
+    console.log(`${label}: challenge BEATEN on ${v.beaten}/${seeds.length} seeds` + (v.missed.length ? ` -- missed on ${v.missed.join(', ')}` : ''));
+    if (v.beaten === seeds.length) held++;
+    else {
+      console.error(`${label}: FAILED — the challenge plan does not beat its challenge on every seed`);
+      process.exitCode = 1;
+    }
+  }
+  console.log(`challenge plans: ${held} of ${GATED_CHALLENGE_PLANS.length} beat their challenge on all ${seeds.length} seeds`);
+}
+
+/**
+ * GH-1395 slice 1, REPORT-ONLY (`challenge-reading.ts`): on every pilot mission, how the existing winning plan fares with
+ * the challenge's amendments on, and how often its win beats the challenge. Sets no exit code.
+ */
+function reportChallenges(labels: readonly string[]): void {
+  if (POSTURE_SEEDS.length === 0) {
+    console.log('challenge reading: off (PT_POSTURE_SEEDS=0)');
+    return;
+  }
+  let lines = 0;
+  for (const label of labels) {
+    const id = runLog.find((r) => r.label === label)?.id;
+    if (id === undefined || !challengeMissionIds.includes(id)) continue;
+    const runs = POSTURE_SEEDS.map((seed) => challengeReplies.get(seed)?.runs.find((x) => x.label === label));
+    console.log(challengeLine(label, id, tallyChallenge(runs), POSTURE_SEEDS.length));
+    lines++;
+  }
+  for (const [seed, why] of challengeFailed) console.log(`challenge reading: seed ${seed} ${why} (report only)`);
+  console.log(`challenge reading: ${lines} winning plan(s) on the ${challengeMissionIds.length} pilot missions, ${POSTURE_SEEDS.length} seeds, report only`);
 }
 
 /**

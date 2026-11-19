@@ -72,7 +72,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode, type BotModel } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, fieldWorksAllowed, fieldWorksRequest, flagSetupFor, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, winModeField, winModeRequest, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, specialRefusal, type AdvisorScope, type ClientMsg, type Faction, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg, type WinMode, type BotModel } from '@lions/net';
 import { botModelField } from '@lions/net';
 import { seatMemberShape, type SeatMemberInfo } from '../account/seat-member';
 import type { Env } from '../d1';
@@ -84,7 +84,7 @@ import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, recordOf, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { writeMatchRecord, type RecordSeat } from './record';
 import { verifyTicket } from './ticket';
-import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatSpecials, type SeatTiers } from './room-fields';
+import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, picksOpen, seatKindField, seatPicksField, seatSpecialsField, seatTiersField, textField, type Kit, type SeatKind, type SeatPicks, type SeatSpecials, type SeatTiers } from './room-fields';
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
@@ -149,12 +149,20 @@ interface RoomMeta {
    *  (`seatTiersField`). Recorded whatever the kit rule; `mintConfig` reads it only for a KDF
    *  seat in a `brigade` room. */
   claims: [SeatTiers, SeatTiers];
+  /** GH-1384: each seat's branch picks, from `/create` and `/join`, cleaned against the branched tracks and that
+   *  seat's own `claims` (`seatPicksField`). Recorded whatever the kit rule, like `claims`, and read by `mintConfig`
+   *  under the same KDF-seat-in-a-brigade-room rule. Present only while branching is open (`picksOpen`): a closed
+   *  room's stored meta has no such key, which is dev's bytes. */
+  picks?: [SeatPicks, SeatPicks];
   /** GH-1102: the Store specials each seat claims to own, from `/create` and `/join`, cleaned
    *  against the shipped table (`seatSpecialsField`). Recorded whatever the kit rule, like
    *  `claims`; `seatSpecials` reads it only for a human KDF seat in a `brigade` versus room. */
   owned: [SeatSpecials, SeatSpecials];
   /** The win mode `/create` asked for (GH-976 P2); absent is annihilation. Versus rooms only. */
   winMode?: WinMode;
+  /** Versus field works (the lead's ruling, 18 Nov 2026): `/create` asked for it, in an annihilation KDF-v-KDF room
+   *  (`fieldWorksRequest`). Absent is off. */
+  fieldWorks?: true;
   /** GH-1075 A3: each seat's member, from the Worker's own room request (never a client field); null is a guest, a bot or a human with no session. */
   members: [SeatMemberInfo | null, SeatMemberInfo | null];
   /** GH-1075 A3 (§0.16): a bot seat's declared model, a label only, kept out of `MatchConfig`. */
@@ -188,14 +196,26 @@ function legacyMeta(m: Partial<RoomMeta>, st: RoomState | null): RoomMeta {
     // so what a revived room mints is never more than `seatTiersField` lets through.
     kit: m.mode === 'versus' ? kitField(m.kit) : 'matched',
     claims: Array.isArray(m.claims) && m.claims.length === 2 ? [seatTiersField(m.claims[0]), seatTiersField(m.claims[1])] : [seatTiersField(null), seatTiersField(null)],
+    // GH-1384: open only. A room from before the picks (or one a closed build stored) has none; stored picks are cleaned
+    // again, against the claims cleaned just above, as the tiers are.
+    ...(picksOpen() ? { picks: storedPicks(m) } : {}),
     // A room from before GH-1102 owns no specials; a stored claim is cleaned again, as the tiers are.
     owned: Array.isArray(m.owned) && m.owned.length === 2 ? [seatSpecialsField(m.owned[0]), seatSpecialsField(m.owned[1])] : [[], []],
     // A room from before win modes is annihilation; a stored mode is read through the same field as a client's.
     ...(m.mode === 'versus' && winModeField(m.winMode) !== undefined ? { winMode: winModeField(m.winMode) } : {}),
+    // A room from before field works has none; a stored flag is strictly `true` (`mintConfig` checks the room allows it).
+    ...(m.mode === 'versus' && m.fieldWorks === true ? { fieldWorks: true as const } : {}),
     // A room from before A3 has no members and no declared models.
     members: Array.isArray(m.members) && m.members.length === 2 ? [seatMemberShape(m.members[0]), seatMemberShape(m.members[1])] : [null, null],
     botModels: Array.isArray(m.botModels) && m.botModels.length === 2 ? [storedBotModel(m.botModels[0]), storedBotModel(m.botModels[1])] : [null, null],
   };
+}
+/** GH-1384: a stored pair of picks, cleaned again against the stored claims (each cleaned as `legacyMeta` cleans it). */
+function storedPicks(m: Partial<RoomMeta>): [SeatPicks, SeatPicks] {
+  const claims = Array.isArray(m.claims) && m.claims.length === 2 ? [seatTiersField(m.claims[0]), seatTiersField(m.claims[1])] : [seatTiersField(null), seatTiersField(null)];
+  const pair: unknown = m.picks;
+  const at = (i: 0 | 1): unknown => (Array.isArray(pair) && pair.length === 2 ? pair[i] : null);
+  return [seatPicksField(at(0), claims[0]), seatPicksField(at(1), claims[1])];
 }
 /** The room trusts nothing it is sent or stored: a declared model is parsed again, and a malformed one is null. */
 function storedBotModel(v: unknown): BotModel | null {
@@ -507,6 +527,9 @@ export class MatchRoom {
       const s = st.seats[seat];
       const faction = mode === 'versus' ? st.factions[seat] : 'kdf';
       const tiers: SeatTiers = kit === 'brigade' && faction === 'kdf' ? this.meta?.claims[seat] ?? {} : {};
+      // GH-1384: the seat's branch picks under the SAME rule as its tiers (the lead's Q10: a friends' brigade room carries
+      // them, a matched room neither), minted only while branching is open and then always, `{}` where the tiers are `{}`.
+      const picks = picksOpen() ? { picks: kit === 'brigade' && faction === 'kdf' ? this.meta?.picks?.[seat] ?? {} : {} } : {};
       // GH-1102: the seat's Store specials, less the ones a versus room cannot field. A refused one is
       // logged here, at the one mint, and both seats were shown it in the lobby (`lobbyFor`).
       const unlocks: string[] = [];
@@ -515,7 +538,7 @@ export class MatchRoom {
         if (why === null) unlocks.push(id);
         else console.log('MatchRoom: brigade special refused', st.code, seat, id, why);
       }
-      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks, player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
+      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, ...picks, unlocks, player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
     // `dataDigest: 0` stays in the wire format, but no client folds it (L4):
     // each folds the digest of its own content.
@@ -528,6 +551,8 @@ export class MatchRoom {
       // GH-976 v2: minted from the room's own map and win mode against `FLAG_SETUP_MAPS` -- never from a client value (`/create` reads no
       // `flagSetup`, and `validateConfig` refuses one without a flag room). Empty list, no key: every room plays as before.
       ...(mode === 'versus' && flagSetupFor(this.meta?.map ?? DEFAULT_MAP, this.meta?.winMode) !== undefined ? { flagSetup: true } : {}),
+      // Versus field works: what `/create` asked for, minted only where the room allows it (`validateConfig` refuses it elsewhere).
+      ...(this.meta?.fieldWorks === true && fieldWorksAllowed({ mode, winMode: this.meta.winMode, factions: st.factions }) ? { fieldWorks: true } : {}),
     });
     if (config === null) throw new Error('MatchRoom minted a config its own validator refuses');
     return config;
@@ -574,7 +599,11 @@ export class MatchRoom {
         ...(model !== null ? { botModel: model } : {}),
       };
     });
-    return { ...msg, seats, you: seat, ...(brigade ? { kit: 'brigade' as const } : {}), ...(this.meta?.mode === 'versus' && this.meta.winMode !== undefined ? { winMode: this.meta.winMode } : {}) };
+    return {
+      ...msg, seats, you: seat, ...(brigade ? { kit: 'brigade' as const } : {}), ...(this.meta?.mode === 'versus' && this.meta.winMode !== undefined ? { winMode: this.meta.winMode } : {}),
+      // Versus field works: both seats see the host's choice before Ready.
+      ...(this.meta?.mode === 'versus' && this.meta.fieldWorks === true ? { fieldWorks: true as const } : {}),
+    };
   }
   /** `'all'` reaches every seated socket, advisors included, each `lobby` naming
    *  the socket's own seat; a seat-targeted message reaches that seat's own
@@ -867,11 +896,16 @@ export class MatchRoom {
       // GH-976 P2: the route refuses an unknown or unfair win mode before it asks the room; the room asks again.
       const winMode = winModeRequest(body.winMode, { mode, map, matchup });
       if (winMode.refused !== undefined) return new Response(winMode.refused, { status: 400 });
+      // Versus field works: refused here as the route refuses it, outside an annihilation KDF-v-KDF room.
+      const fieldWorks = fieldWorksRequest(body.fieldWorks, { mode, matchup, ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }) });
+      if (fieldWorks.refused !== undefined) return new Response(fieldWorks.refused, { status: 400 });
       const factions = factionsOfMatchup(matchup);
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens(), kinds: [seatKindField(body.kind), 'human'], pace: paceField(body.pace),
         kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)], owned: [seatSpecialsField(body.specials), []],
+        ...(picksOpen() ? { picks: [seatPicksField(body.picks, seatTiersField(body.tiers)), seatPicksField(null, seatTiersField(null))] as [SeatPicks, SeatPicks] } : {}),
         ...(winMode.mode === undefined ? {} : { winMode: winMode.mode }),
+        ...(fieldWorks.on === true ? { fieldWorks: true as const } : {}),
         members: [seatMemberShape(body.member), null], botModels: [seatBotModel(seatKindField(body.kind), seatMemberShape(body.member), body.botModel), null] };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);
@@ -917,6 +951,7 @@ export class MatchRoom {
         return Response.json({ error: 'build_mismatch', build: meta.build }, { status: 412 });
       }
       this.meta = { ...meta, callsigns: [meta.callsigns[0], callsignField(body.callsign)], seat1Reserved: true, kinds: [meta.kinds[0], seatKindField(body.kind)], claims: [meta.claims[0], seatTiersField(body.tiers)], owned: [meta.owned[0], seatSpecialsField(body.specials)],
+        ...(picksOpen() ? { picks: [meta.picks?.[0] ?? seatPicksField(null, meta.claims[0]), seatPicksField(body.picks, seatTiersField(body.tiers))] as [SeatPicks, SeatPicks] } : {}),
         members: [meta.members[0], seatMemberShape(body.member)], botModels: [meta.botModels[0], seatBotModel(seatKindField(body.kind), seatMemberShape(body.member), body.botModel)] };
       await this.ctx.storage.put('meta', this.meta);
       return Response.json({ seat: 1 });

@@ -21,7 +21,7 @@
     },
     "defeat": {
       "speaker": "shai",
-      "text": "He is east with his cell and the bunds are theirs again. We spent the only quiet week of the war on it."
+      "text": "He is east with his cell and the bunds are theirs again. We spent the one quiet week Naharin gave us on it."
     }
   },
   "map": {
@@ -101,7 +101,10 @@
   ],
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 150
+    "logistics_rate_per_min": 150,
+    "income_zones": [
+      { "zone": "pasture", "rate_per_min": 80 }
+    ]
   },
   "structures": [
     { "type": "camp", "at": [3, 20], "size": [2, 2] },

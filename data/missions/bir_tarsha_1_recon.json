@@ -1,0 +1,317 @@
+{
+  "id": "bir_tarsha_1_recon",
+  "name": "Bir Tarsha I — The Gate Road",
+  "town": "bir_tarsha",
+  "phase": "recon",
+  "target_minutes": 6,
+  "time_limit_s": 720,
+  "start_layout": "assembly",
+  "start_front": "S",
+  "map": {
+    "file": "bir_tarsha",
+    "time_of_day": "dawn",
+    "player_start": [
+      24,
+      3
+    ]
+  },
+  "ledger": {
+    "requires": [
+      "roster.surviving_units"
+    ],
+    "produces": [
+      "roster.surviving_units",
+      "roe.mission_ratings",
+      "campaign.completed_missions",
+      "campaign.mission_results",
+      "intel.marked_positions",
+      "civ.settlements_evacuated"
+    ]
+  },
+  "briefing": "Bir Tarsha has one road, and the road ends at a gate in the Fence. I can read the garrison at that gate from here, and I cannot read who mans the works that run east along the Fence Road. Identify the garrison at the gate. Then walk six of the eight residents in the west quarter out to the refuge in the north-west. They walk once one of ours is within four tiles of them, or once a round lands near them, and the second way is the one I would not choose. The east works are the other way, and the crew on them is not a thing I can see. Shepherd first, look east second. Five minutes for the residents, six for the picture. South of the gate is the Fence, and past it are the Badlands. The edge of them is a flagged line, and a round that lands over it is the costliest one you can fire this morning. Six out and the gate named. A crew you did not find is a crew the next fight finds for you.",
+  "dispatch": "The brigades went home in the spring and came back in the autumn. The last stronghold of the Marj stands at its southern end, against a fence that nobody fires across.",
+  "debrief": {
+    "victory": {
+      "speaker": "idit",
+      "text": "The gate has a name and six are out of the west quarter. The works along the Fence Road are still half a picture, and half is what you gave me."
+    },
+    "defeat": {
+      "speaker": "shai",
+      "text": "Not this morning. The gate is awake now, and the west quarter is where it was left."
+    }
+  },
+  "starting_force": [
+    {
+      "unit": "recon_zikit",
+      "count": 1,
+      "at": [
+        22.5,
+        2.5
+      ]
+    },
+    {
+      "unit": "sniper_team",
+      "count": 1,
+      "at": [
+        21.5,
+        3.5
+      ]
+    },
+    {
+      "unit": "ugv_recon_dog",
+      "count": 1,
+      "at": [
+        26.5,
+        2.5
+      ]
+    },
+    {
+      "unit": "inf_squad",
+      "count": 2,
+      "at": [
+        24.5,
+        1.5
+      ],
+      "from_ledger": true
+    },
+    {
+      "unit": "inf_medic_squad",
+      "count": 1,
+      "at": [
+        23.5,
+        3.5
+      ]
+    }
+  ],
+  "structures": [
+    {
+      "type": "militia_firing_position",
+      "at": [
+        38,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_firing_position",
+      "at": [
+        43,
+        31
+      ],
+      "size": [
+        2,
+        2
+      ]
+    },
+    {
+      "type": "militia_observation_post",
+      "at": [
+        46,
+        32
+      ],
+      "size": [
+        1,
+        1
+      ]
+    }
+  ],
+  "objectives": [
+    {
+      "id": "identify_the_gate",
+      "type": "locate",
+      "primary": true,
+      "target": "bt_gate_garrison",
+      "text": "Identify the garrison at the gate",
+      "say": {
+        "speaker": "idit",
+        "text": "That is the garrison on the road: a rifle cell, a missile team and a rocket team. The blocks behind them hold more, and I cannot read what."
+      }
+    },
+    {
+      "id": "six_out",
+      "type": "evacuate_before",
+      "primary": true,
+      "target": "gate_refuge",
+      "count": 6,
+      "seconds": 300,
+      "text": "Walk six residents out to the refuge",
+      "say": {
+        "speaker": "shai",
+        "text": "Six out. The west quarter is quiet, and it has one less reason to be a target."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "The quarter is closed to us now. There is no second morning for a walk like that, and the people in it know it."
+      }
+    },
+    {
+      "id": "find_the_crew",
+      "type": "locate",
+      "primary": false,
+      "target": "bt_works_crew",
+      "carries": true,
+      "text": "Identify the crew on the east works",
+      "say": {
+        "speaker": "idit",
+        "text": "Marked. That is the crew on the east works, and the next time we come down this road I can tell you which posts are theirs."
+      }
+    }
+  ],
+  "roe": {
+    "enabled": true,
+    "flagged_zones": [
+      "west_quarter",
+      "badlands_edge"
+    ],
+    "flagged_structure_penalty": 12,
+    "fail_below": 55
+  },
+  "civilians": {
+    "refuge": "gate_refuge_point",
+    "groups": [
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          6.5,
+          26.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 3,
+        "at": [
+          12.5,
+          26.5
+        ]
+      },
+      {
+        "unit": "civilians",
+        "count": 2,
+        "at": [
+          10.5,
+          30.5
+        ]
+      }
+    ]
+  },
+  "enemy": {
+    "faction": "ashwar",
+    "garrison": [
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          20.5,
+          36.5
+        ],
+        "stance": {
+          "kind": "garrison",
+          "building": [
+            20,
+            36
+          ]
+        },
+        "group": "terminal"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 1,
+        "at": [
+          21.5,
+          33.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "bt_gate_garrison",
+        "group": "terminal"
+      },
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "at": [
+          26.5,
+          32.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "bt_gate_garrison",
+        "group": "terminal"
+      },
+      {
+        "unit": "rpg_team",
+        "count": 1,
+        "at": [
+          22.5,
+          32.5
+        ],
+        "stance": {
+          "kind": "ambush",
+          "tiles": 4
+        },
+        "tag": "bt_gate_garrison",
+        "group": "terminal"
+      },
+      {
+        "unit": "digger_crew",
+        "count": 1,
+        "at": [
+          41.5,
+          34.5
+        ],
+        "stance": {
+          "kind": "hold_position"
+        },
+        "tag": "bt_works_crew",
+        "group": "crew"
+      },
+      {
+        "unit": "militia_cell",
+        "count": 2,
+        "at": [
+          40.5,
+          33.5
+        ],
+        "stance": {
+          "kind": "patrol",
+          "waypoints": [
+            [
+              37.5,
+              33.5
+            ],
+            [
+              45.5,
+              33.5
+            ]
+          ]
+        },
+        "tag": "bt_works_crew",
+        "group": "crew"
+      }
+    ]
+  },
+  "triggers": [
+    {
+      "id": "bt1_works_stir",
+      "label": "The east works are stirring",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "gate_approach"
+      },
+      "do": {
+        "kind": "commit",
+        "group": "crew",
+        "to": "gate_road_south"
+      },
+      "say": {
+        "speaker": "idit",
+        "text": "Movement on the east works. Whoever is on them has heard the gate, and from here on they are looking west."
+      }
+    }
+  ]
+}

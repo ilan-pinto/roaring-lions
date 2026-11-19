@@ -14,7 +14,7 @@
 // cannot disagree -- and since GH-238 (kitted vehicles) a fourth: the tiers
 // themselves, handed to the renderer, which merges the bought parts into
 // each mesh vehicle at load.
-import { applyUpgrades, type KitLevel, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, type BranchPicks, type KitLevel, type UpgradableUnit } from '@lions/data';
 import { kitSummary, type KitSummary } from './ui/kit-sign';
 
 export interface UpgradePrepass<T> {
@@ -44,7 +44,10 @@ export interface UpgradePrepass<T> {
 
 export function upgradePrepass<T extends UpgradableUnit & { readonly faction: string }>(
   roster: readonly T[],
-  ownedTiers: Readonly<Record<string, Readonly<Record<string, number>>>>
+  ownedTiers: Readonly<Record<string, Readonly<Record<string, number>>>>,
+  /** GH-1384: per type, the branch owned on each branched track held at its last tier. Read
+   *  from the SAME view as `ownedTiers`; a branched tier with no pick resolves to the tier below. */
+  ownedPicks: Readonly<Record<string, BranchPicks>>
 ): UpgradePrepass<T> {
   const registered: T[] = [];
   const kitByType = new Map<string, KitSummary>();
@@ -56,8 +59,9 @@ export function upgradePrepass<T extends UpgradableUnit & { readonly faction: st
       continue;
     }
     const tiers = ownedTiers[u.id] ?? {};
-    registered.push(applyUpgrades(u, tiers));
-    const summary = kitSummary(u, tiers);
+    const picks = ownedPicks[u.id] ?? {};
+    registered.push(applyUpgrades(u, tiers, picks));
+    const summary = kitSummary(u, tiers, picks);
     kitByType.set(u.id, summary);
     unitKit[u.id] = summary.level;
     unitKitTiers[u.id] = Object.freeze(effectiveKitTiers(u, tiers));

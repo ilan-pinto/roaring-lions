@@ -53,6 +53,17 @@ describe('NetPoints (GH-976 P2)', () => {
     expect(document.querySelector('.rl-net-points')).toBeNull();
   });
 
+  it('GH-1417 S2 (CR9): the other seat\'s name moving from the fallback to its label repaints the same points', () => {
+    // main.ts hands a getter: the name reads as the fallback while the word filter loads, and as typed once it is in.
+    let theirs = 'Lion';
+    const p = new NetPoints(document.body, { get theirs(): string { return theirs; } });
+    p.update(VIEW);
+    expect(text(document.body, '[data-row=theirs] .rl-net-points__who')).toBe('Lion');
+    theirs = 'Raven';
+    p.update({ ...VIEW });
+    expect(text(document.body, '[data-row=theirs] .rl-net-points__who')).toBe('Raven');
+  });
+
   it('draws the other seat\'s callsign as text, never as markup', () => {
     const p = new NetPoints(document.body, { theirs: '<img src=x onerror=alert(1)>' });
     p.update(VIEW);

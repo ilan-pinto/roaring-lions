@@ -11,7 +11,8 @@ import { gunzipCapped, gzipBytes } from '@lions/net';
 import { economyStreamConfig, economyStreamFrames } from './net/economy-stream.test-helper';
 import { runFrames, seatWorldFor } from './net/frame-step';
 import { buildMatchWorld, matchTick, type MatchWorld } from './net/match-world';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
+import { shippedContentDigest } from './net/content-digest';
 import { restoreSim } from '@lions/sim';
 import {
   MISSION_SAVE_VERSION,
@@ -66,7 +67,7 @@ const encoding = (c: Client) => Buffer.from(encodeSim(c.w.sim, {}, c.w.runtime))
 
 async function save(c: Client, over: { campaign?: JsonValue; shell?: JsonValue; maxCompressedBytes?: number } = {}) {
   const r = await suspendMission({
-    sim: c.w.sim, runtime: c.w.runtime, missionId: 'wadi_tarfan_room', seed: config.seed, build: '0.130.9', savedAt: 1_790_000_000_000,
+    sim: c.w.sim, runtime: c.w.runtime, contentDigest: shippedContentDigest(), missionId: 'wadi_tarfan_room', seed: config.seed, build: '0.130.9', savedAt: 1_790_000_000_000,
     campaign: over.campaign ?? CAMPAIGN, shell: over.shell ?? SHELL, ...(over.maxCompressedBytes === undefined ? {} : { maxCompressedBytes: over.maxCompressedBytes }),
   });
   if (!r.ok) throw new Error(`suspend refused: ${r.reason} ${r.detail}`);
@@ -79,7 +80,7 @@ const stored = (rec: SuspendedMission): SuspendedMission => {
   return p.record;
 };
 async function resumeOnto(rec: SuspendedMission, c: Client = client()) {
-  const prep = await prepareResume(rec);
+  const prep = await prepareResume(rec, { contentDigest: shippedContentDigest() });
   if (!prep.ok) return { ok: false as const, reason: prep.reason, c };
   const r = restoreMission(prep, c.w);
   return r.ok ? { ok: true as const, c, contentChanged: prep.contentChanged } : { ok: false as const, reason: r.reason, c };
@@ -221,7 +222,7 @@ describe('the version stamp: refused only when the sim or the format version cha
     const rec = await record();
     const prep = await prepareResume(stored(rec), { contentDigest: (rec.contentDigest + 1) >>> 0 });
     expect(prep.ok && prep.contentChanged).toBe(true);
-    const same = await prepareResume(stored(rec));
+    const same = await prepareResume(stored(rec), { contentDigest: shippedContentDigest() });
     expect(same.ok && same.contentChanged).toBe(false);
   });
 
@@ -256,13 +257,13 @@ describe('saving', () => {
   it('a snapshot over the size cap is too_large, never a truncated record', async () => {
     const a = client();
     advance(a, 200);
-    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, maxCompressedBytes: 100 });
+    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, contentDigest: shippedContentDigest(), missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, maxCompressedBytes: 100 });
     expect(r).toMatchObject({ ok: false, reason: 'too_large' });
   });
 
   it('inputs that are not JSON are encode_failed, never thrown', async () => {
     const a = client();
-    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: { n: Number.NaN } });
+    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, contentDigest: shippedContentDigest(), missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: { n: Number.NaN } });
     expect(r).toMatchObject({ ok: false, reason: 'encode_failed' });
   });
 
@@ -380,19 +381,19 @@ describe('the challenge amendments are stored, optional, and absent today (PR 14
   it('ids given at save time come back as they were, in order', async () => {
     const a = client();
     advance(a, 40);
-    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['tight_clock', 'clean_hands'] });
+    const r = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, contentDigest: shippedContentDigest(), missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['light_order', 'clean_hands'] });
     if (!r.ok) throw new Error(r.reason);
     const back = parse(serializeSuspended(r.record));
-    expect(back.ok && back.record.amendments).toEqual(['tight_clock', 'clean_hands']);
+    expect(back.ok && back.record.amendments).toEqual(['light_order', 'clean_hands']);
   });
 
   it('an id that is not a plain lower-case id is not saved, and a record carrying one is unreadable', async () => {
     const a = client();
     advance(a, 40);
-    const bad = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['Tight Clock'] });
+    const bad = await suspendMission({ sim: a.w.sim, runtime: a.w.runtime, contentDigest: shippedContentDigest(), missionId: 'm', seed: 1, build: 'b', savedAt: 1, campaign: CAMPAIGN, amendments: ['Light Order'] });
     expect(bad).toMatchObject({ ok: false, reason: 'encode_failed' });
     const rec = await save(a);
-    for (const amendments of ['tight_clock', [1], ['A'], ['x'.repeat(41)], Array.from({ length: 17 }, (_, i) => `a${i}`)]) {
+    for (const amendments of ['light_order', [1], ['A'], ['x'.repeat(41)], Array.from({ length: 17 }, (_, i) => `a${i}`)]) {
       expect(parse(JSON.stringify({ ...rec, amendments })), JSON.stringify(amendments)).toEqual({ ok: false, reason: 'unreadable' });
     }
   });

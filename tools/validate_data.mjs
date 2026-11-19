@@ -11,8 +11,12 @@
 //   data/maps/**     against data/schemas/map.schema.json, plus grid
 //                    dimensions and marker/zone bounds
 //   data/tutorial/** against data/schemas/tutorial.schema.json
-//   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
-//                    menu and budget rules in tools/validate_doctrine.mjs
+//   data/doctrines/*.json against data/schemas/doctrine.schema.json, plus the
+//                    menu and budget rules in tools/validate_doctrine.mjs (picks/ skipped: it is not a base)
+//   data/doctrines/picks/** against data/schemas/doctrine_pick.schema.json (GH-1383), plus P1-P10 in
+//                    tools/validate_doctrine.mjs and the cost-curve bar in tools/doctrine_balance.py (python3)
+//   data/computer/levels.json against data/schemas/computer_levels.schema.json (GH-1389), plus the
+//                    order, unit and no-boost rules in tools/validate_computer_levels.mjs
 //   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
 //                    anchor rules in tools/validate_versus_modes.mjs
 //   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
@@ -20,6 +24,13 @@
 //   data/grades/**   against data/schemas/grade.schema.json, plus the palette-key rules (GH-943 L2)
 //   data/formations/** against data/schemas/formation.schema.json, plus the
 //                    cross-file rules in tools/validate_formations.mjs (GH-859)
+//   data/units/** branched upgrade tiers: B1-B7 and the C1 cap in tools/validate_branches.mjs (GH-1384)
+//   data/challenges/** against data/schemas/challenge.schema.json, and amendments.json against
+//                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
+//   data/chat/filter.*.json against data/schemas/chat_filter.schema.json, plus the provenance,
+//                    licence and tier rules in tools/validate_chat_filters.mjs (GH-1417 S2)
+//   data/release-notes/*.json against data/schemas/release_notes.schema.json, plus the filename and
+//                    filter rules (no internal words, refs, hashes or ids) in tools/validate_release_notes.mjs (GH-1622)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -37,16 +48,26 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
+import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
-import { objectiveFailures } from './validate_objectives.mjs';
+import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
-import { doctrineFailures } from './validate_doctrine.mjs';
+import { doctrineFailures, doctrinePickFailures } from './validate_doctrine.mjs';
+import { spawnSync } from 'node:child_process';
+import { computerLevelFailures } from './validate_computer_levels.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
+import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
+import { chatFilterFailures } from './validate_chat_filters.mjs';
+import { releaseNotesFailures } from './validate_release_notes.mjs';
+import { challengeFailures } from './validate_challenges.mjs';
+import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
+import { gateFailures } from './validate_gate.mjs';
 import {
   buildableOwnerFailures,
   fieldWorksCarrierReport,
@@ -66,6 +87,8 @@ import {
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
+import { chromeCatalogueFailures, chromeSourceFailures } from './validate_chrome_catalogue.mjs';
+import { shippedLocaleIds, stagingOpts } from './locale_staging.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -104,29 +127,6 @@ function unitHasPath(unit, path) {
     }
   }
   return cur !== undefined;
-}
-
-// Compares tier `curr` against the tier immediately before it (`prev`) and
-// returns one description string per field that regressed — a lower price,
-// a lower delta on a path both tiers touch, or a path `prev` patched that
-// `curr` drops entirely (which the brief's rule (c) counts as lower, since
-// dropping it is indistinguishable from patching it back to zero).
-function tierRegressions(prev, curr) {
-  const whats = [];
-  if (curr.price < prev.price) {
-    whats.push(`price ${curr.price} < ${prev.price}`);
-  }
-  const prevPatch = prev.patch ?? {};
-  const currPatch = curr.patch ?? {};
-  for (const path of Object.keys(prevPatch)) {
-    const prevVal = prevPatch[path];
-    if (!(path in currPatch)) {
-      whats.push(`${path} missing (was ${prevVal})`);
-    } else if (currPatch[path] < prevVal) {
-      whats.push(`${path} ${currPatch[path]} < ${prevVal}`);
-    }
-  }
-  return whats;
 }
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
@@ -214,6 +214,7 @@ const schemas = {
   // was a comment.
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
+  doctrinePick: loadJson(join(ROOT, 'data/schemas/doctrine_pick.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
   versusMode: loadJson(join(ROOT, 'data/schemas/versus_mode.schema.json')),
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
@@ -222,15 +223,24 @@ const schemas = {
   avatarPresets: loadJson(join(ROOT, 'data/schemas/avatar_presets.schema.json')),
   minWin: loadJson(join(ROOT, 'data/schemas/min_win_seconds.schema.json')),
   difficulty: loadJson(join(ROOT, 'data/schemas/difficulty.schema.json')),
+  computerLevels: loadJson(join(ROOT, 'data/schemas/computer_levels.schema.json')),
+  amendments: loadJson(join(ROOT, 'data/schemas/amendments.schema.json')),
+  challenge: loadJson(join(ROOT, 'data/schemas/challenge.schema.json')),
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
+  chatFilter: loadJson(join(ROOT, 'data/schemas/chat_filter.schema.json')),
+  releaseNotes: loadJson(join(ROOT, 'data/schemas/release_notes.schema.json')),
 };
 
 let checked = 0;
+// GH-1406: a STAGED language (not in LOCALES) may lag the English; its lag is collected here per language and REPORTED at the end, never a failure.
+const shippedLocales = shippedLocaleIds(ROOT);
+const localeLag = new Map();
+const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.arenaResults && schemas.arenaPlayers
+  schemas.structure && schemas.doctrine && schemas.doctrinePick && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter && schemas.releaseNotes
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -247,6 +257,7 @@ if (
     hints: ajv.compile(schemas.hints),
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
+    doctrinePick: ajv.compile(schemas.doctrinePick),
     versus: ajv.compile(schemas.versus),
     versusMode: ajv.compile(schemas.versusMode),
     formation: ajv.compile(schemas.formation),
@@ -255,8 +266,13 @@ if (
     avatarPresets: ajv.compile(schemas.avatarPresets),
     minWin: ajv.compile(schemas.minWin),
     difficulty: ajv.compile(schemas.difficulty),
+    computerLevels: ajv.compile(schemas.computerLevels),
+    amendments: ajv.compile(schemas.amendments),
+    challenge: ajv.compile(schemas.challenge),
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
+    chatFilter: ajv.compile(schemas.chatFilter),
+    releaseNotes: ajv.compile(schemas.releaseNotes),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -264,13 +280,20 @@ if (
   checked += validateFile(join(ROOT, 'data/vfx/munitions.json'), validators.vfxMunitions, 'vfx_munitions.schema');
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
-  checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
+  // GH-1383: data/doctrines/picks/ holds the doctrine PICKS, a second kind of document under the base files' directory, with
+  // its own schema. Walked into the base schema, each pick would read as an extra base doctrine.
+  checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema', ['picks']);
+  checked += validateDir(join(ROOT, 'data/doctrines/picks'), validators.doctrinePick, 'doctrine_pick.schema');
   checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema', ['modes']);
   checked += validateDir(join(ROOT, 'data/versus/modes'), validators.versusMode, 'versus_mode.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
   // GH-1360 S3a: starting layouts share the schema; their cross-file rules (HUD keys, picker ids) do not apply, they are never registered.
   checked += validateDir(join(ROOT, 'data/layouts'), validators.formation, 'formation.schema');
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
+  // GH-1417 S2: the chat word lists. The pristine upstream copies under data/chat/third_party/ are not JSON and are not walked.
+  checked += validateDir(join(ROOT, 'data/chat'), validators.chatFilter, 'chat_filter.schema');
+  // GH-1622: the player-facing release notes, next.json and every released v<X.Y.Z>.json.
+  checked += validateDir(join(ROOT, 'data/release-notes'), validators.releaseNotes, 'release_notes.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -285,6 +308,10 @@ if (
   checked += validateFile(join(ROOT, 'data/avatars/presets.json'), validators.avatarPresets, 'avatar_presets.schema');
   checked += validateFile(join(ROOT, 'data/accounts/min_win_seconds.json'), validators.minWin, 'min_win_seconds.schema');
   checked += validateFile(join(ROOT, 'data/difficulty/postures.json'), validators.difficulty, 'difficulty.schema');
+  checked += validateFile(join(ROOT, 'data/computer/levels.json'), validators.computerLevels, 'computer_levels.schema');
+  // GH-1395: the amendment library, and the per-mission challenge files beside it.
+  checked += validateFile(join(ROOT, 'data/challenges/amendments.json'), validators.amendments, 'amendments.schema');
+  checked += validateDir(join(ROOT, 'data/challenges'), validators.challenge, 'challenge.schema', [], ['amendments.json']);
   // GH-954 public-arena P2: the publisher's allow-list is always there; results.json exists only once the lead has
   // published (P4), and when it does it must pass its closed schema, its deny scan and its digest (G2, G3, G14).
   checked += validateFile(join(ROOT, 'data/arena/public-players.json'), validators.arenaPlayers, 'arena-public-players.schema');
@@ -407,27 +434,7 @@ const garrisonableSymbols = new Set(
           `${rel(file)}: upgrades are only valid on faction 'kdf' units`
         );
       }
-      for (const [trackName, track] of Object.entries(u.upgrades)) {
-        const tiers = track.tiers ?? [];
-        tiers.forEach((tier, i) => {
-          for (const path of Object.keys(tier.patch ?? {})) {
-            if (!unitHasPath(u, path)) {
-              failures.push(
-                `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
-                  `which this unit does not have`
-              );
-            }
-          }
-        });
-        for (let i = 1; i < tiers.length; i++) {
-          for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
-            failures.push(
-              `${rel(file)}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
-                `tier ${i} (${what})`
-            );
-          }
-        }
-      }
+      failures.push(...upgradeTierFailures(rel(file), u, unitHasPath));
     }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
@@ -773,71 +780,7 @@ const garrisonableSymbols = new Set(
               `leaving the mission unwinnable and unlosable at once.`
           );
         }
-        const rect = map.zones?.[o.target];
-        if (!rect) {
-          failures.push(
-            `${rel(file)}: raze "${o.id}" names zone "${o.target}", which map "${mi.map.file}" does not declare`
-          );
-        } else {
-          const [zx, zy, zw, zh] = rect;
-          // Keyed by "typeId:reason" so a type that trips more than one reason (today
-          // only `wall`, which is both low_profile and per_tile) gets a message for
-          // each reason instead of the first reason found silently winning.
-          const bad = new Map();
-          // One check for both sources of a structure inside the zone. `via`
-          // names where the structure came from, because the fix differs: a
-          // map symbol is edited in the map, a placed body in the mission.
-          const flag = (typeId, x, y, via) => {
-            const spec = structureCatalogue.types[typeId];
-            if (spec.low_profile && !bad.has(`${typeId}:low_profile`)) {
-              bad.set(
-                `${typeId}:low_profile`,
-                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- low_profile ` +
-                  `at (${x},${y})${via}. A demolisher will not level it unattended.`
-              );
-            }
-            if ((spec.roe_penalty ?? 0) >= PROTECTED_ROE && !bad.has(`${typeId}:protected`)) {
-              bad.set(
-                `${typeId}:protected`,
-                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- protected ` +
-                  `(roe_penalty ${spec.roe_penalty}) at (${x},${y})${via}. A demolisher will not level it unattended.`
-              );
-            }
-            if (spec.per_tile && !bad.has(`${typeId}:per_tile`)) {
-              bad.set(
-                `${typeId}:per_tile`,
-                `${rel(file)}: raze "${o.id}" zone "${o.target}" contains "${typeId}" -- per_tile ` +
-                  `at (${x},${y})${via}: every tile is its own structure, so this raze zone is N separate ` +
-                  `demolish orders, not one.`
-              );
-            }
-          };
-          for (let y = zy; y < zy + zh; y++) {
-            for (let x = zx; x < zx + zw; x++) {
-              const sym = map.rows?.[y]?.[x];
-              const typeId = structureSymbols.get(sym);
-              if (!typeId) continue;
-              flag(typeId, x, y, '');
-            }
-          }
-          // Mission-placed bodies too (2026-09-07, Qarn Hadid design G1): the
-          // runtime raises `structures[]` BEFORE the objective snapshot
-          // (`MissionRuntime.raiseMissionStructures`), so a wall or fence a
-          // mission drops inside its own raze zone is exactly as unrazeable as
-          // one drawn in the map rows -- and until this loop the gate never saw
-          // it. `at` is the top-left tile, `size` the footprint (default 1x1).
-          for (const placed of mi.structures ?? []) {
-            if (!placed?.type || !Array.isArray(placed.at)) continue;
-            const [px, py] = placed.at;
-            const [pw, ph] = placed.size ?? [1, 1];
-            const ox = Math.max(px, zx);
-            const oy = Math.max(py, zy);
-            if (ox >= Math.min(px + pw, zx + zw) || oy >= Math.min(py + ph, zy + zh)) continue;
-            if (!structureCatalogue.types[placed.type]) continue; // the schema check reports that
-            flag(placed.type, ox, oy, ', placed by the mission\'s "structures"');
-          }
-          for (const msg of bad.values()) failures.push(msg);
-        }
+        failures.push(...razeZoneFailures(o, mi, map, structureCatalogue, structureSymbols, PROTECTED_ROE, rel(file)));
       }
       if (o.type === 'collapse') {
         // A primary collapse needs a deadline for the same reason a primary
@@ -1078,6 +1021,8 @@ const garrisonableSymbols = new Set(
     failures.push(...triggerLabelFailures(mi, rel(file)));
     // #540: the time limit, twice the target and clear of every primary deadline.
     failures.push(...timeLimitFailures(mi, rel(file)));
+    // GH-1438 E10: at most 160 authored entities, so the sim's 256 lifetime slots keep 96 for runtime spawns.
+    failures.push(...entityBudgetFailures(mi, rel(file)));
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
@@ -1086,6 +1031,9 @@ const garrisonableSymbols = new Set(
     failures.push(...productionFailures(mi, map, structureCatalogue, enemyUnitsById, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
+    // GH-1438 E13 (b): no ground side-0 unit starts within 4.5 tiles of a civilian, a muster marker or a gate
+    // centre. This is the AUTHORED spread; the laid-out reading is tools/src/validate_force_to_gate.test.ts.
+    failures.push(...authoredForceToGateFailures(mi, map, structureCatalogue?.types, unitsById, rel(file)));
     // Field works (#277 Task 8): rules 2-4.
     failures.push(...fieldWorksKeyFailures(mi, structureCatalogue, rel(file)));
     {
@@ -1220,7 +1168,10 @@ const garrisonableSymbols = new Set(
     if (!file.endsWith('missions.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    {
+      const lang = basename(dirname(file));
+      failures.push(...overlayFailures(rel(file), overlay, missionsById, stagingOf(lang)));
+    }
     // GH-1406 part 2: the `en` file is the GENERATED template, so it must match the mission files exactly.
     if (basename(dirname(file)) === 'en') failures.push(...englishCatalogueFailures(rel(file), overlay, [...missionsById.values()]));
     checked += 1;
@@ -1244,12 +1195,38 @@ const garrisonableSymbols = new Set(
     if (!file.endsWith('units.json')) continue;
     const overlay = loadJson(file);
     if (!overlay) continue;
-    failures.push(...unitOverlayFailures(rel(file), overlay, unitsById));
+    {
+      const lang = basename(dirname(file));
+      failures.push(...unitOverlayFailures(rel(file), overlay, unitsById, stagingOf(lang)));
+    }
     if (basename(dirname(file)) === 'en') failures.push(...englishUnitFailures(rel(file), overlay, [...unitsById.values()]));
     checked += 1;
   }
   if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
     failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
+  }
+}
+
+// --- chrome catalogues (GH-1406) --------------------------------------------
+// packages/app/src/i18n/<id>.json beside en.json: every key of en.json and nothing else, the same {placeholders} and ICU shape in every
+// value (`chromeCatalogueFailures`). A locale with no file ships none and plays in English.
+{
+  const i18nDir = join(ROOT, 'packages/app/src/i18n');
+  const en = loadJson(join(i18nDir, 'en.json'));
+  if (en) {
+    for (const entry of readdirSync(i18nDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'en.json') continue;
+      const file = join(i18nDir, entry.name);
+      const tr = loadJson(file);
+      if (!tr) continue;
+      const id = entry.name.slice(0, -'.json'.length);
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(id)));
+      // The stale-translation guard: data/locales/<id>/chrome.src.json carries the hash of the English each string was translated from.
+      const srcFile = join(ROOT, 'data/locales', id, 'chrome.src.json');
+      if (!existsSync(srcFile)) failures.push(`${rel(file)}: has no source-hash sidecar ${rel(srcFile)} (run \`pnpm locales:chrome-src -- ${id} --write\`)`);
+      else failures.push(...chromeSourceFailures(rel(srcFile), en, tr, loadJson(srcFile), stagingOf(id)));
+      checked += 1;
+    }
   }
 }
 
@@ -1442,8 +1419,39 @@ const garrisonableSymbols = new Set(
     const u = loadJson(file);
     if (u?.id) doctrineUnits.set(u.id, u);
   }
-  const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  // `picks` skipped: a pick is not a base doctrine, and the base rules ("a doctrine's id IS its faction, exactly one per
+  // faction") would refuse every one of them (GH-1383).
+  const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines'), ['picks']).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...doctrineFailures(doctrines, doctrineUnits));
+  // GH-1383 slice 1: the doctrine picks, P1-P10 (tools/validate_doctrine.mjs).
+  const picks = jsonFilesIn(join(ROOT, 'data/doctrines/picks')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  const pickEn = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const formationIds = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => loadJson(file)?.id).filter((id) => typeof id === 'string');
+  failures.push(...doctrinePickFailures(picks, doctrines, doctrineUnits, pickEn, formationIds));
+  // ...and the cost-curve half of the bar (the lead's Q6): |delta| <= 0.005 on the frozen base fit and every priced unit
+  // inside +/-18%, KDF picks again at max tier per branch. Python, because the curve is validate_balance.py's and is
+  // called, not copied. K = 0.02 is the value docs/campaign/economy/upgrades.md section 5 records, as ci.yml passes it.
+  const bal = spawnSync('python3', ['tools/doctrine_balance.py', '--upgrade-cost-factor', '0.02', '--json'], { cwd: ROOT, encoding: 'utf8' });
+  let balance;
+  try {
+    balance = JSON.parse(bal.stdout);
+  } catch {
+    balance = null;
+  }
+  if (bal.error || balance === null || !Array.isArray(balance.failures)) {
+    failures.push(
+      `tools/doctrine_balance.py: did not run (${bal.error?.message ?? `exit ${bal.status}: ${(bal.stderr || '').trim().split('\n').pop()}`}) -- ` +
+        'the doctrine cost-curve gate needs python3 on PATH'
+    );
+  } else {
+    if (balance.picks.length !== picks.length) {
+      failures.push(`tools/doctrine_balance.py: scored ${balance.picks.length} picks of ${picks.length} in data/doctrines/picks`);
+    }
+    for (const f of balance.failures) failures.push(`doctrine cost curve (T4): ${f}`);
+  }
+  // GH-1389: the computer levels -- KDF units, strictly ordered by the force they field, no income or vision key.
+  const levelsFile = join(ROOT, 'data/computer/levels.json');
+  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits));
 }
 
 // --- versus rules files (N3 Task 1) -------------------------------------------
@@ -1463,12 +1471,59 @@ const garrisonableSymbols = new Set(
   failures.push(...versusModeFailures(modeFiles, mapsById));
 }
 
+// --- challenges (GH-1395): the rules amendments.schema.json and challenge.schema.json cannot see ---
+{
+  const missionsById = {};
+  for (const f of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const m = loadJson(f);
+    if (m && typeof m.id === 'string') missionsById[m.id] = m;
+  }
+  const files = jsonFilesIn(join(ROOT, 'data/challenges'))
+    .filter((f) => basename(f) !== 'amendments.json')
+    .map((file) => ({ file: rel(file), doc: loadJson(file) }))
+    .filter((x) => x.doc !== null);
+  failures.push(...challengeFailures({ library: loadJson(join(ROOT, 'data/challenges/amendments.json')), files, missions: missionsById }));
+}
+
 // --- formations (GH-859): the rules formation.schema.json cannot see ---------
 {
   const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
   const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...formationFailures(formationFiles, en));
 }
+
+// --- branched upgrade tiers (GH-1384): B1-B7 per branched track, and the C1 cap ------------
+{
+  const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const unitFiles = jsonFilesIn(join(ROOT, 'data/units')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...validateBranches(unitFiles, { en }));
+}
+
+// --- chat word lists (GH-1417 S2): provenance, licence record and tiers -------
+// The schema sees one file; these rules read the pristine upstream copy beside it. A language whose hide tier waits for a native
+// reader is a WARNING, printed every run, so the gate never reads as full coverage.
+{
+  const chatDir = join(ROOT, 'data/chat');
+  const chatFiles = jsonFilesIn(chatDir).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  if (chatFiles.length === 0) failures.push('data/chat: no filter.<lang>.json, and the English list is required (GH-1417 S2)');
+  const chat = chatFilterFailures(chatFiles, chatDir);
+  failures.push(...chat.failures);
+  warnings.push(...chat.warnings);
+}
+
+// --- release notes (GH-1622): the filename rule and the filter gate -----------
+// Shown to players and published as the GitHub release, so every entry is plain player English: no internal word, no
+// PR or issue ref, no git hash, no snake_case id. Drafting guide: docs/agent-notes/release-notes.md.
+{
+  const notesFiles = jsonFilesIn(join(ROOT, 'data/release-notes')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...releaseNotesFailures(notesFiles));
+}
+
+// --- the synchronous content manifest (B6-6) ----------------------------------
+// packages/data/src/content-manifest.ts is GENERATED from the map and mission files (tools/content_manifest.mjs): the
+// app's entry chunk reads it instead of the JSON. Regenerated here and compared byte for byte, so a map or a mission
+// edited without `pnpm content:manifest -- --write` fails, and so does a hand-edit of the manifest.
+failures.push(...contentManifestFailures(ROOT));
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 //
@@ -1524,6 +1579,20 @@ failures.push(
     structureCatalogue,
     jsonFilesIn(join(ROOT, 'data/maps')).map((file) => ({ file: rel(file), rows: loadJson(file)?.rows ?? [] })),
     TERRAIN_SYMBOLS
+  )
+);
+
+// GH-1438 E1: the compound gate. One structure, 2x1 or 1x2, never on a map with a versus rules file
+// (validate_gate.mjs). Nothing ships a gate type yet, so today this checks nothing; it is the gate's own fence.
+failures.push(
+  ...gateFailures(
+    structureCatalogue,
+    jsonFilesIn(join(ROOT, 'data/maps')).map((file) => {
+      const m = loadJson(file);
+      return { id: m?.id, file: rel(file), rows: m?.rows ?? [] };
+    }),
+    jsonFilesIn(join(ROOT, 'data/missions')).map((file) => ({ file: rel(file), mission: loadJson(file) })),
+    new Set(jsonFilesIn(join(ROOT, 'data/versus'), ['modes']).map((file) => loadJson(file)?.map ?? basename(file, '.json')))
   )
 );
 
@@ -1740,5 +1809,12 @@ if (failures.length > 0) {
   console.error(`\nDATA GATE FAILED — ${failures.length} issue(s):\n`);
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
+}
+// A staged language that lags the English is REPORTED (the translator's worklist is `pnpm locales:pending -- <lang>`), and passes.
+for (const [lang, lines] of localeLag) {
+  if (lines.length === 0) continue;
+  console.log(`locale ${lang} (staged, not in LOCALES) lags the English by ${lines.length} item(s); report only, nothing here fails. Worklist: pnpm locales:pending -- ${lang}`);
+  for (const l of lines.slice(0, 10)) console.log(`    ${l}`);
+  if (lines.length > 10) console.log(`    ... and ${lines.length - 10} more`);
 }
 console.log(`data gate passed: ${checked} file(s) validated, palette keys resolved`);

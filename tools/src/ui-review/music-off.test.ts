@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseSettings, DEFAULT_SETTINGS } from '../../../packages/app/src/settings';
+import { qualityHintAllowed } from '../../../packages/app/src/ui/quality-hint';
+import { softwareHintWanted } from '../../../packages/app/src/ui/software-hint';
 import { SILENT_AUDIO, musicOffInitScript, musicOffJson, musicOffSettings } from './music-off';
 
 /** Run an init script against a one-key fake store and hand back what it wrote. */
@@ -58,6 +60,37 @@ describe('music-off settings seed', () => {
     expect(parseSettings(written.get('lions.settings') ?? null).intro.seen).toBe(true);
     // A video override does not undo it.
     expect(parseSettings(musicOffJson({}, { quality: 'low' })).intro.seen).toBe(true);
+  });
+
+  it('a capture boot never shows the software-rendering line (GH-1413), even on SwiftShader with the gate forced open', () => {
+    // CI and every capture tool draw on SwiftShader. The gate is forced OPEN here (a production build on a real host), so the seed
+    // alone has to keep the line away, through the real parser and the app's own decision.
+    const swift = 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)';
+    const allowed = qualityHintAllowed({ prod: true, hostname: 'roaring-lions.example.workers.dev', query: new URLSearchParams() });
+    expect(allowed).toBe(true);
+    // Without the seed the line WOULD show here -- otherwise the assertions below prove nothing.
+    expect(softwareHintWanted({ allowed, renderer: swift, settings: parseSettings(null) })).toBe(true);
+    const written = runInitScript(musicOffInitScript());
+    expect(softwareHintWanted({ allowed, renderer: swift, settings: parseSettings(written.get('lions.settings') ?? null) })).toBe(false);
+    // Every override a tool passes keeps it answered (the `medium`/`high` presets the captures run at included).
+    for (const quality of ['medium', 'high'] as const) {
+      const s = parseSettings(musicOffJson(SILENT_AUDIO, { quality }));
+      expect(s.hints.software).toBe(true);
+      expect(softwareHintWanted({ allowed, renderer: swift, settings: s })).toBe(false);
+    }
+  });
+
+  it('a capture boot is also on an origin where the gate is closed: every tool serves the app from localhost', () => {
+    // The first lock: the tools load http://localhost:<port>, a local host, and the line's gate (like the no-graphics card's)
+    // admits only a production build on a real host or `?qualityhint`, which no tool passes.
+    expect(qualityHintAllowed({ prod: true, hostname: 'localhost', query: new URLSearchParams() })).toBe(false);
+    expect(qualityHintAllowed({ prod: false, hostname: 'localhost', query: new URLSearchParams() })).toBe(false);
+    const root = join(__dirname, '..');
+    for (const f of ['ci/three-baseline-gate.ts', 'ui-review/shoot.ts', 'ui-review/routes-check.ts', 'golden-diff/screens-check.ts']) {
+      const src = readFileSync(join(root, f), 'utf8');
+      expect(src, f).not.toContain('qualityhint');
+      expect(src, f).toContain('musicOffInitScript(');
+    }
   });
 
   it('the init script swallows a blocked store', () => {
@@ -129,10 +162,13 @@ describe('every browser a tool opens starts with music off', () => {
     // hooks and the audio gains; music is read by audio.ts alone. So a frame
     // (the golden gate included) is identical when parse(seed) and parse(null)
     // agree everywhere except audio.music, and `intro.seen`, which only the
-    // opening cinematic reads (it draws nothing while no intro ships).
+    // opening cinematic reads (it draws nothing while no intro ships), and
+    // `hints.software`, which only the software-rendering line reads (and that
+    // line's gate is closed on every tool's localhost origin, so it draws
+    // nothing there either way).
     const seeded = parseSettings(musicOffJson());
     const bare = parseSettings(null);
-    expect({ ...seeded, audio: { ...seeded.audio, music: 1 }, intro: bare.intro }).toEqual(bare);
+    expect({ ...seeded, audio: { ...seeded.audio, music: 1 }, intro: bare.intro, hints: bare.hints }).toEqual(bare);
     expect(seeded.audio.music).not.toBe(bare.audio.music);
   });
 });

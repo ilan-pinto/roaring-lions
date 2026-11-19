@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim, fx } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units } from '@lions/data';
+import { applyTerrain, parseMap, units } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { standMapStructures } from '../map-sim';
 import { resolvePointer } from './intents';
 import { simIntentWorld } from './pointer';

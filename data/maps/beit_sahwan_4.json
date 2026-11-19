@@ -120,6 +120,22 @@
     "wounded_evac": [
       26,
       37
+    ],
+    "civ_muster_yard": [
+      12,
+      39
+    ],
+    "civ_muster_souk": [
+      10,
+      21
+    ],
+    "civ_muster_clinic": [
+      36,
+      35
+    ],
+    "civ_muster_market": [
+      24,
+      20
     ]
   },
   "zones": {

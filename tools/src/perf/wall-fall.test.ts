@@ -1,7 +1,8 @@
 // The wall-fall tick probe's own checks (GH-974). A timing tool that levels nothing, or levels into an empty
 // flow-field pool, prints a small number and means nothing; these pin that it does the work it times.
 import { describe, expect, it } from 'vitest';
-import { maps, parseMap } from '@lions/data';
+import { parseMap } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { pct, wallFall } from './wall-fall';
 
 describe('wallFall on Rujm Sawda', () => {

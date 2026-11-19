@@ -212,6 +212,7 @@ export function showArenaReplay(host: HTMLElement, deps: ArenaReplayDeps): Dispo
         waiting: false,
         verdict: ended ? { outcome: replay.end.outcome, by: replay.end.by } : null,
         view,
+        fieldWorks: config.fieldWorks === true,
       }));
       pauseBtn.textContent = tr.paused ? t('arena.replay.play') : t('arena.replay.pause');
       pauseBtn.setAttribute('aria-pressed', String(tr.paused));
