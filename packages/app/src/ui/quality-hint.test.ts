@@ -251,6 +251,39 @@ describe('watchQualityHint: when it stays quiet', () => {
     expect(card()).toBeNull();
   });
 
+  it('a deep link to a shell screen: the route is not known on the first frames, and the card still appears once it is', () => {
+    let route: string | null = null; // `router.current()?.name` before the mount resolves
+    const shell = (): boolean => ['menu', 'campaign', 'brigade', 'free-play'].includes(route ?? '');
+    const { src } = setup({ inShell: shell, routePending: () => route === null });
+    src.play(5, 60); // the first frames of /campaign: nothing mounted yet
+    expect(card()).toBeNull();
+    route = 'campaign';
+    src.fullSample(60);
+    expect(card()).not.toBeNull();
+  });
+
+  it('without the pending signal the same deep link voids the sample on the first frame and nothing is ever asked', () => {
+    let route: string | null = null;
+    const shell = (): boolean => ['menu', 'campaign', 'brigade', 'free-play'].includes(route ?? '');
+    const { src } = setup({ inShell: shell });
+    src.play(5, 60);
+    route = 'campaign';
+    src.fullSample(60);
+    expect(card()).toBeNull();
+  });
+
+  it('a click into a mission while the route is pending is not interrupted either', () => {
+    let route: string | null = 'menu';
+    const shell = (): boolean => ['menu', 'campaign', 'brigade', 'free-play'].includes(route ?? '');
+    const { src } = setup({ inShell: shell, routePending: () => route === null });
+    src.play(40, 60);
+    route = null; // the leave animation
+    src.play(20, 60);
+    route = 'mission';
+    src.play(200, 60);
+    expect(card()).toBeNull();
+  });
+
   it('a hidden tab voids the sample: no card', () => {
     const { src } = setup();
     src.play(20, 60);

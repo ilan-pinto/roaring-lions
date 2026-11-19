@@ -155,6 +155,103 @@ describe('sampleFrames', () => {
     h.frame(16);
     expect(h.results).toEqual([{ kind: 'void', why: 'left' }]);
   });
+  describe('a route that is not known yet (GH-1413 follow-up: a deep link, or a click during the leave animation)', () => {
+    it('is not "left the shell": the frames are skipped, nothing is voided, and a slow sample is still found once the route is known', () => {
+      // A deep link: `steady` is false (no route yet) and `pending` is true for 50 frames, then the shell route mounts.
+      let known = false;
+      const h = harness({ steady: () => known, pending: () => !known });
+      for (let i = 0; i < 50; i++) h.frame(i * 16);
+      expect(h.results).toEqual([]);
+      known = true;
+      const t0 = 50 * 16;
+      for (let i = 0; i <= PROBE_WARMUP_FRAMES + PROBE_SAMPLE_FRAMES; i++) h.frame(t0 + i * 40);
+      expect(h.results).toHaveLength(1);
+      const r = h.results[0];
+      expect(r.kind).toBe('sample');
+      if (r.kind === 'sample') expect(r.stats.medianMs).toBe(40);
+    });
+    it('the frames of the pending window are not part of the sample', () => {
+      let known = false;
+      const h = harness({ pending: () => !known });
+      for (let i = 0; i < 40; i++) h.frame(i * 400, 0); // slow, and pending: none of it counts (the give-up clock is held at 0)
+      known = true;
+      const t0 = 40 * 400;
+      for (let i = 0; i <= PROBE_WARMUP_FRAMES + PROBE_SAMPLE_FRAMES; i++) h.frame(t0 + i * 16.7, 0);
+      const r = h.results[0];
+      expect(r.kind === 'sample' && r.stats.medianMs).toBeCloseTo(16.7, 5);
+    });
+    it('a pending interval of 2 s or more is not a stall', () => {
+      let known = false;
+      const h = harness({ pending: () => !known });
+      h.frame(0);
+      h.frame(3000);
+      h.frame(6000);
+      expect(h.results).toEqual([]);
+      known = true;
+      h.frame(6016);
+      h.frame(6032);
+      expect(h.results).toEqual([]);
+    });
+    it('the warm-up starts over when the route becomes known', () => {
+      // 25 fast frames, then 10 pending ones, then the route is known: 60 slow frames, 90 fast. With a warm-up that restarted, 30 of the
+      // slow frames are warm-up and the sample holds 30 slow + 60 fast (a fast median); a warm-up that did not restart would count 55 slow.
+      let pending = false;
+      const h = harness({ pending: () => pending });
+      let ts = 0;
+      for (let i = 0; i < 25; i++) h.frame((ts += 16.7), 0);
+      pending = true;
+      for (let i = 0; i < 10; i++) h.frame((ts += 16.7), 0);
+      pending = false;
+      h.frame((ts += 200), 0); // sets the clock again
+      for (let i = 0; i < 60; i++) h.frame((ts += 200), 0);
+      for (let i = 0; i < 90; i++) h.frame((ts += 16.7), 0);
+      const r = h.results[0];
+      expect(r.kind === 'sample' && r.stats.medianMs).toBeCloseTo(16.7, 5);
+    });
+    it('a pending window in the middle of a sample throws away what was gathered, and its gap is not a stall', () => {
+      // 100 slow frames (30 of warm-up, 70 counted), then 3 s pending, then the route is known again: fast frames. The 70 old slow
+      // intervals must not sit in the new sample (they would make 70 slow against 20 fast), and the 3 s gap must not void it.
+      let pending = false;
+      const h = harness({ pending: () => pending });
+      let ts = 0;
+      for (let i = 0; i < 100; i++) h.frame((ts += 100), 0);
+      pending = true;
+      h.frame((ts += 3000), 0);
+      pending = false;
+      for (let i = 0; i <= PROBE_WARMUP_FRAMES + PROBE_SAMPLE_FRAMES; i++) h.frame((ts += 16.7), 0);
+      const r = h.results[0];
+      expect(r.kind).toBe('sample');
+      expect(r.kind === 'sample' && r.stats.medianMs).toBeCloseTo(16.7, 5);
+    });
+    it('a mission that mounts next still voids the sample', () => {
+      let pending = true;
+      let steady = false;
+      const h = harness({ pending: () => pending, steady: () => steady });
+      for (let i = 0; i < 20; i++) h.frame(i * 16);
+      expect(h.results).toEqual([]);
+      pending = false; // the route mounted, and it is a battlefield: `steady` stays false
+      h.frame(21 * 16);
+      expect(h.results).toEqual([{ kind: 'void', why: 'left' }]);
+      steady = true;
+    });
+    it('a hidden tab still voids a pending probe, and a route that never resolves ends it at the give-up', () => {
+      let hidden = false;
+      const a = harness({ pending: () => true, visible: () => !hidden });
+      a.frame(0);
+      hidden = true;
+      a.frame(16);
+      expect(a.results).toEqual([{ kind: 'void', why: 'hidden' }]);
+      const b = harness({ pending: () => true, steady: () => false });
+      b.frame(0, 0);
+      b.frame(1000, 12001);
+      expect(b.results).toEqual([{ kind: 'void', why: 'gave-up' }]);
+    });
+    it('no pending function at all behaves as before (a false steady voids at once)', () => {
+      const h = harness({ steady: () => false });
+      h.frame(0);
+      expect(h.results).toEqual([{ kind: 'void', why: 'left' }]);
+    });
+  });
   it('gives up after 12 s without a full sample', () => {
     const h = harness();
     h.frame(0, 0);
