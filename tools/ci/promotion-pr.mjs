@@ -20,7 +20,7 @@
 // Why "PR NNN" and never a hash: the squash subjects carry "(PR 1547)" or GitHub's "(#1544)", and the UI palette gate
 // reads a hash and digits as a colour (CLAUDE.md, house rules), so the body is written without one anywhere.
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -162,6 +162,111 @@ export function ciLine(headSha, ci) {
   return `**Latest dev CI:** unknown. No \`ci\` push run on dev was found for \`${short}\` or before it.`;
 }
 
+/** The release notes the next release publishes (GH-1622), as it stands on dev. */
+export const NOTES_PATH = 'data/release-notes/next.json';
+/** The drafting guide the notes line points to. */
+export const NOTES_GUIDE = 'docs/agent-notes/release-notes.md';
+
+/** The sections of a notes file, with the singular and plural the line counts them in. */
+const NOTES_SECTIONS = /** @type {const} */ ([
+  ['units', 'new unit', 'new units'],
+  ['rules', 'rule or feature', 'rules and features'],
+  ['fixes', 'fix', 'fixes'],
+]);
+
+/**
+ * The "Release notes" line (GH-1622): whether dev's next.json exists, and how many entries it holds per section, or
+ * that it is empty and must be drafted before promoting. Only counts, never an entry's text: the lead reads the wording
+ * in this PR's diff. When an entry is word for word one that a release on main already shipped, it says so: main was
+ * not merged back into dev after that release, so the entry would ship twice.
+ *
+ * @param {string | null} raw next.json's text on dev, or null when the file is not there
+ * And when next.json would CONFLICT in this merge (`conflict` true, from mergeConflicts), it says so first and names the
+ * fix: the release step empties next.json on main, and the merge base stays at the last promoted dev tip, so ANY dev
+ * edit to next.json after a release collides with it unless main was merged back into dev before the drafting.
+ * `conflict` null means the check could not run, and the line says that too.
+ *
+ * @param {string | null} raw next.json's text on dev, or null when the file is not there
+ * @param {readonly { version: string, raw: string }[]} [shipped] main's released v<X.Y.Z>.json files
+ * @param {boolean | null} [conflict] whether next.json is among this merge's conflicts; null: unknown
+ * @returns {string}
+ */
+export function notesLine(raw, shipped = [], conflict = false) {
+  const state = notesState(raw, shipped);
+  if (conflict === null) return `${state} (Could not check whether \`${NOTES_PATH}\` conflicts with \`main\`: \`git merge-tree\` failed.)`;
+  if (!conflict) return state;
+  return (
+    `${state} **It conflicts between \`main\` and \`dev\`**: \`main\`'s release emptied it after \`dev\` last merged \`main\`. ` +
+    'Fix: back-merge `main` into `dev` with a merge commit (the steward\'s main to dev PR, merged with a merge commit and ' +
+    'never a squash, which would not move the merge base; or the lead fast-forwards dev), keep only the new entries, then promote.'
+  );
+}
+
+/**
+ * The conflicted paths from `git merge-tree --write-tree --name-only --no-messages <base> <head>`: exit status 0 is a
+ * clean merge (none), 1 is a merge with conflicts (the names after the tree id on the first line), anything else is a
+ * failure (null: unknown, never "clean").
+ *
+ * @param {string} stdout
+ * @param {number | null} status
+ * @returns {string[] | null}
+ */
+export function mergeConflicts(stdout, status) {
+  if (status === 0) return [];
+  if (status !== 1) return null;
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  for (const l of lines.slice(1)) {
+    if (l.trim() === '') break;
+    out.push(l.trim());
+  }
+  return out;
+}
+
+/**
+ * @param {string | null} raw
+ * @param {readonly { version: string, raw: string }[]} shipped
+ * @returns {string}
+ */
+function notesState(raw, shipped) {
+  const head = `**Release notes:** \`${NOTES_PATH}\``;
+  const guide = `(guide: \`${NOTES_GUIDE}\`)`;
+  if (raw === null) return `${head} does not exist on \`dev\`: create and draft it before promoting ${guide}.`;
+  /** @type {unknown} */
+  let doc;
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    return `${head} on \`dev\` is not valid JSON: fix it before promoting ${guide}.`;
+  }
+  const rec = typeof doc === 'object' && doc !== null ? /** @type {Record<string, unknown>} */ (doc) : {};
+  const lists = NOTES_SECTIONS.map(([key]) => (Array.isArray(rec[key]) ? rec[key].filter((e) => typeof e === 'string') : []));
+  const total = lists.reduce((n, l) => n + l.length, 0);
+  if (total === 0) {
+    return `${head} is empty: draft it before promoting ${guide}. A release cut from it says "No player-facing changes".`;
+  }
+  const counts = NOTES_SECTIONS.map(([, one, many], i) => `${lists[i].length} ${lists[i].length === 1 ? one : many}`);
+  let line = `${head} holds ${counts.join(', ')}. The lead approves the wording in this PR's diff before merging.`;
+  /** @type {Map<string, string>} */
+  const seen = new Map();
+  for (const f of [...shipped].sort((a, b) => a.version.localeCompare(b.version, 'en', { numeric: true }))) {
+    try {
+      const d = JSON.parse(f.raw);
+      for (const [key] of NOTES_SECTIONS) for (const e of Array.isArray(d?.[key]) ? d[key] : []) if (!seen.has(e)) seen.set(e, f.version);
+    } catch {
+      // A released file that does not parse is validate:data's to report, not this line's.
+    }
+  }
+  const stale = lists.flat().filter((e) => seen.has(e));
+  if (stale.length > 0) {
+    const versions = [...new Set(stale.map((e) => `v${seen.get(e)}`))].join(', ');
+    line +=
+      ` **${stale.length} of them already shipped** (${versions} on \`main\`): merge \`main\` into \`dev\` and drop` +
+      ` ${stale.length === 1 ? 'it' : 'them'} before promoting.`;
+  }
+  return line;
+}
+
 /**
  * The PR title. It depends only on the content, never on a date, so an unchanged dev writes an unchanged title.
  *
@@ -178,12 +283,13 @@ export function titleOf(entries) {
 
 /**
  * The PR body. Deterministic in its inputs (no clock), which is what lets "already current" be a string comparison.
+ * `notes` is notesLine's output; the CLI always passes it, and a caller that leaves it out gets the body without it.
  *
  * @param {{ entries: readonly Entry[], headSha: string, baseSha: string, ci: { tip?: Run | null, latest?: Run | null } | null,
- *           compareUrl?: string | null, limit?: number }} input
+ *           compareUrl?: string | null, notes?: string | null, limit?: number }} input
  * @returns {string}
  */
-export function renderBody({ entries, headSha, baseSha, ci, compareUrl = null, limit = BODY_LIMIT }) {
+export function renderBody({ entries, headSha, baseSha, ci, compareUrl = null, notes = null, limit = BODY_LIMIT }) {
   const prs = entries.filter((e) => e.pr !== null);
   const direct = entries.filter((e) => e.pr === null);
 
@@ -197,6 +303,7 @@ export function renderBody({ entries, headSha, baseSha, ci, compareUrl = null, l
     '',
     ciLine(headSha, ci),
     '',
+    ...(notes ? [notes, ''] : []),
     '**This PR has no `ci` run of its own.** A PR opened or edited with `GITHUB_TOKEN` starts no workflow (GitHub\'s guard',
     'against loops), so its checks stay empty or pending. The dev CI line above is the push run of the same tip. To get a',
     'run on the PR itself, a person closes and reopens it; the next merge into `dev` by a person also starts one.',
@@ -349,8 +456,31 @@ function main(argv) {
   const server = args.server ?? 'https://github.com';
   const compareUrl = args.repo ? `${server}/${args.repo}/compare/${baseSha.slice(0, 12)}...${headSha.slice(0, 12)}` : null;
 
+  // GH-1622: dev's next.json, and main's released notes (an entry already in one of those was not cleared after it shipped).
+  // A path that is not there (before the first promotion carries the directory to main) reads as null, never a throw.
+  const quiet = (/** @type {string[]} */ ...a) => {
+    try {
+      return execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch {
+      return null;
+    }
+  };
+  const show = (/** @type {string} */ ref, /** @type {string} */ p) => quiet('show', `${ref}:${p}`);
+  const notesDir = NOTES_PATH.slice(0, NOTES_PATH.lastIndexOf('/'));
+  const shipped = (quiet('ls-tree', '--name-only', `${base}:${notesDir}`) ?? '')
+    .split('\n')
+    .map((name) => /^v(\d+\.\d+\.\d+)\.json$/.exec(name.trim()))
+    .flatMap((m) => {
+      const raw = m ? show(base, `${notesDir}/${m[0]}`) : null;
+      return m && raw !== null ? [{ version: m[1], raw }] : [];
+    });
+  // Read-only: merge-tree writes the would-be tree into the object store and touches no ref, index or working tree.
+  const tree = spawnSync('git', ['merge-tree', '--write-tree', '--name-only', '--no-messages', base, head], { encoding: 'utf8' });
+  const conflicts = mergeConflicts(tree.stdout ?? '', tree.status);
+  const notes = notesLine(show(head, NOTES_PATH), shipped, conflicts === null ? null : conflicts.includes(NOTES_PATH));
+
   const title = titleOf(entries);
-  const body = renderBody({ entries, headSha, baseSha, ci, compareUrl });
+  const body = renderBody({ entries, headSha, baseSha, ci, compareUrl, notes });
   const { action, number } = decide({ entries, title, body, open });
   // An update keeps what another writer appended after END; a create writes ours alone.
   const target = action === 'update' ? open.find((/** @type {{ number: number }} */ p) => p.number === number) : null;

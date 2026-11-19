@@ -29,6 +29,8 @@
 //                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   data/chat/filter.*.json against data/schemas/chat_filter.schema.json, plus the provenance,
 //                    licence and tier rules in tools/validate_chat_filters.mjs (GH-1417 S2)
+//   data/release-notes/*.json against data/schemas/release_notes.schema.json, plus the filename and
+//                    filter rules (no internal words, refs, hashes or ids) in tools/validate_release_notes.mjs (GH-1622)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -60,6 +62,7 @@ import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
 import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
 import { chatFilterFailures } from './validate_chat_filters.mjs';
+import { releaseNotesFailures } from './validate_release_notes.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
@@ -226,6 +229,7 @@ const schemas = {
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
   chatFilter: loadJson(join(ROOT, 'data/schemas/chat_filter.schema.json')),
+  releaseNotes: loadJson(join(ROOT, 'data/schemas/release_notes.schema.json')),
 };
 
 let checked = 0;
@@ -236,7 +240,7 @@ const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.doctrinePick && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
+  schemas.structure && schemas.doctrine && schemas.doctrinePick && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter && schemas.releaseNotes
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -268,6 +272,7 @@ if (
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
     chatFilter: ajv.compile(schemas.chatFilter),
+    releaseNotes: ajv.compile(schemas.releaseNotes),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -287,6 +292,8 @@ if (
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   // GH-1417 S2: the chat word lists. The pristine upstream copies under data/chat/third_party/ are not JSON and are not walked.
   checked += validateDir(join(ROOT, 'data/chat'), validators.chatFilter, 'chat_filter.schema');
+  // GH-1622: the player-facing release notes, next.json and every released v<X.Y.Z>.json.
+  checked += validateDir(join(ROOT, 'data/release-notes'), validators.releaseNotes, 'release_notes.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1509,6 +1516,14 @@ const garrisonableSymbols = new Set(
   const chat = chatFilterFailures(chatFiles, chatDir);
   failures.push(...chat.failures);
   warnings.push(...chat.warnings);
+}
+
+// --- release notes (GH-1622): the filename rule and the filter gate -----------
+// Shown to players and published as the GitHub release, so every entry is plain player English: no internal word, no
+// PR or issue ref, no git hash, no snake_case id. Drafting guide: docs/agent-notes/release-notes.md.
+{
+  const notesFiles = jsonFilesIn(join(ROOT, 'data/release-notes')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...releaseNotesFailures(notesFiles));
 }
 
 // --- the synchronous content manifest (B6-6) ----------------------------------

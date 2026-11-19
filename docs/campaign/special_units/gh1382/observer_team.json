@@ -1,0 +1,35 @@
+{
+  "id": "observer_team",
+  "name": "Observer Team",
+  "blurb": "Sees fourteen tiles from cover so the rockets and mortars can fire. Barely armed.",
+  "faction": "sarim",
+  "role": "recon",
+  "cost": { "logistics": 255, "build_time_s": 14, "population": 1 },
+  "hull": {
+    "hp": 300,
+    "armor": { "front": 10, "side": 10, "rear": 10 },
+    "crew": 2,
+    "suppression_resistance": 0.6,
+    "figures": 2,
+    "can_embark": true,
+    "wounds": { "wound_chance": 0.6, "bleed_s": 60, "type": "wounded_sarim" }
+  },
+  "mobility": { "speed_tiles_s": 0.8, "wheeled": false },
+  "sensors": { "optics": 1.5, "sight_tiles": 14, "signature": 0.35, "firing_signature_mult": 3.0 },
+  "abilities": ["mark_target", "garrison"],
+  "weapons": [
+    {
+      "id": "carbines",
+      "type": "small_arms",
+      "range_tiles": 6,
+      "effective_range_tiles": 5,
+      "accuracy": 0.55,
+      "penetration": 8,
+      "damage": 12,
+      "suppression": 20,
+      "rof_per_min": 160,
+      "can_target": ["ground", "air"],
+      "collateral_risk": 0.1
+    }
+  ]
+}
