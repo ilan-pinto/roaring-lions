@@ -183,11 +183,11 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Subterranean",
-    "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning. The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
+    "briefing": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning. Fifteen people are still in the district. Four are with him, two more are on the quarry floor, and nine are sheltering in the south yards, the souk, the market block and the clinic block; those nine stay where they are until a soldier gets close enough to walk them out. Nine at the collection point inside four minutes, twelve if you can, the four with Sahim if you can reach them, and anyone still in the streets when the clock is out is taken. The collection point is three tiles from your start line, and they are counted the moment they reach it. Five minutes for the routes; the second does not wait for the first. Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team and a charge squad sit on the lane the market people must come down, a rifle cell holds the souk, and what is fired at your squads lands on the ground the people stand on. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have. Get the people out, take the ground he stands on, then bring all four down.",
     "sections": {
       "situation": "The town is ours and the fighting has not stopped. Rounds come from empty ground, the shooters are gone before the echo, and the reason is under your feet. Nadir Sahim mined this district years before we reached it and he has not left it. He holds the north shaft head on the floor of the old limestone quarry, with four people beside him who have been out of reach since the first morning.",
-      "mission": "The collection point is three tiles from your start line, and they are counted the moment they reach it. Four minutes for the people and five for the routes; the second does not wait for the first.",
-      "execution": "Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
+      "mission": "Fifteen people are still in the district. Four are with him, two more are on the quarry floor, and nine are sheltering in the south yards, the souk, the market block and the clinic block; those nine stay where they are until a soldier gets close enough to walk them out. Nine at the collection point inside four minutes, twelve if you can, the four with Sahim if you can reach them, and anyone still in the streets when the clock is out is taken. The collection point is three tiles from your start line, and they are counted the moment they reach it. Five minutes for the routes; the second does not wait for the first.",
+      "execution": "Idit has four routes under the town, and one is being reopened right now: spoil creeping west along the main road. Rubble stops the Namer and the Eitan everywhere but the main road, the scree down the quarry's south side is foot-only, and the haul ramp in its east wall is the only way in for wheels. The pit cannot see up over its own rim, and you can see down into it. Disturbed earth is something any soldier can read. A rocket team and a charge squad sit on the lane the market people must come down, a rifle cell holds the souk, and what is fired at your squads lands on the ground the people stand on. A rocket team stands over the four; the Namer's cannon answers that and loses you the mission. Nothing heavy inside two tiles of them. Only the drone or the engineers can tell you where the other three run, and only while somebody is looking. Yahalom must stand still in the open beside a route to set the charge, so whether they live is a decision you make with everything else you have.",
       "notes": "Get the people out, take the ground he stands on, then bring all four down."
     },
     "aftermath": "Four routes under Beit Sahwan, and the man who dug them came up out of the last one with his hands empty. Brigade took the file and said nothing else about it. The perimeter is ours. The enclave is not.",
@@ -199,43 +199,67 @@
     "objectives": {
       "bring_it_down": "Collapse every route under the district",
       "read_the_ground": "Find the crew reopening Sahim's western route",
-      "get_them_out": "Get five people out to the collection point before the routes come down",
+      "get_them_out": "Get nine people out to the collection point inside four minutes",
+      "most_of_them": "Get twelve of the fifteen out to the collection point inside four minutes",
+      "bring_back_the_four": "Bring the four held at the shaft head out to the collection point",
       "take_the_shaft_head": "Hold the shaft head until Sahim is out of it",
       "find_spade": "Find Nadir Sahim at the shaft head"
     },
     "objective_say": {
       "read_the_ground": "That is the crew on the west route. He keeps his diggers close to the work, which is how we found him.",
-      "get_them_out": "Five at the collection point. That is the first time this district has given anybody back.",
+      "get_them_out": "Nine at the collection point. That is the first time this district has given anybody back.",
+      "most_of_them": "Twelve at the collection point. Keep the lane open for whoever is still coming.",
+      "bring_back_the_four": "The four from the shaft head are at the collection point. All four.",
       "take_the_shaft_head": "The shaft head is yours and he is standing on the wrong side of it. Four years of digging and he is above ground."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Clock is out and there is still ground under this town that is not ours.",
-      "get_them_out": "Clock is out on the people. Nothing under this town is worth what we just did not do."
+      "get_them_out": "Clock is out on the people. Nothing under this town is worth what we just did not do.",
+      "most_of_them": "Clock is out on the twelve. Whoever is still in the streets is taken, and that number is the cost."
+    },
+    "triggers": {
+      "yard_families_shelter": "Yard families keep to the yard",
+      "souk_families_shelter": "Souk families fall back to the west alley",
+      "market_families_shelter": "Market families keep to the alley",
+      "clinic_families_shelter": "Clinic families fall back to the rubble"
+    },
+    "trigger_say": {
+      "the_streets_are_cleared": "Clock is out. Whoever is still in the streets has been moved across his line."
     },
     "wave_say": {
       "1": "Last of what the mortar line can send. After this he is spending the ones underground."
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "8ce1b9df",
+      "briefing": "2b6d54c3",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
-      "objectives.get_them_out": "132b3d66",
+      "objectives.get_them_out": "4ce3c7c6",
+      "objectives.most_of_them": "053aa740",
+      "objectives.bring_back_the_four": "235dacf1",
       "objectives.take_the_shaft_head": "a7d2e8b7",
       "objectives.find_spade": "da8ec255",
+      "triggers.yard_families_shelter": "dd03b9f1",
+      "triggers.souk_families_shelter": "6c21d359",
+      "triggers.market_families_shelter": "a5940c9f",
+      "triggers.clinic_families_shelter": "8a8ab1c5",
       "aftermath": "f882c5da",
       "hostages_place": "83b376f3",
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "3f2accd6",
-      "sections.execution": "d5a8f0e2",
+      "sections.mission": "09bb6a00",
+      "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
-      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.get_them_out": "d2fd78e3",
+      "objective_say.most_of_them": "6ec2fd04",
+      "objective_say.bring_back_the_four": "0ce0f960",
       "objective_say.take_the_shaft_head": "72ea9cfa",
       "objective_say_on_fail.bring_it_down": "68b7b2f2",
       "objective_say_on_fail.get_them_out": "232994e9",
+      "objective_say_on_fail.most_of_them": "9fa99b11",
+      "trigger_say.the_streets_are_cleared": "ca259384",
       "wave_say.1": "c220fa50"
     }
   },
