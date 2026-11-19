@@ -253,6 +253,8 @@ export {
   computerLevels,
   computerLevelOf,
   withholdOf,
+  COMPUTER_FACTIONS,
+  type ComputerFaction,
   COMPUTER_LEVEL_IDS,
   type ComputerLevelId,
   type ComputerLevelJson,
