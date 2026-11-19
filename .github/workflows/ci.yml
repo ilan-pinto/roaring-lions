@@ -19,12 +19,15 @@ permissions:
 
 # A new push to a pull request cancels that PR's older, unfinished runs: a
 # superseded commit's 40-minute suite only queues ahead of the commit that
-# matters (the queue reached 46 runs with 2 running on 8 Nov). Pushes (to main
-# or dev) keep a group of their own per run, so no main run (or its release bump) is
-# ever cancelled.
+# matters (the queue reached 46 runs with 2 running on 8 Nov). A push to dev
+# likewise cancels the older dev push runs (one shared `dev-push` group): only
+# dev's tip needs a full run, and on 19 Nov 30 dev push runs queued from 00:53Z
+# with none started. Every other push (main, which runs the release bump, and
+# any other branch) keeps a group of its own per run, so it is never cancelled.
+# Pinned by tools/src/ci/concurrency.test.ts.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.ref == 'refs/heads/dev' && 'dev-push') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/dev' }}
 
 jobs:
   gates:
