@@ -11,7 +11,14 @@
 //   - a git hash: 7 to 40 hex characters holding at least one digit, as one word ("defaced" is hex and passes; so a
 //     long plain number must be written with separators: "1,500,000", never "1500000");
 //   - an internal id: a word with an underscore in it ("mbt_lavi", "time_limit_s");
-//   - an @ (a handle would notify someone from the GitHub release; an address is never player English).
+//   - an @ (a handle would notify someone from the GitHub release; an address is never player English);
+//   - a URL (http:// or https://) and a path-like token (a slash between letters or digits: "data/units/x.json",
+//     and so also "CI/CD" and "and/or": write "and or" or reword);
+//   - a FORMAT character (Unicode Cf: a zero-width space, a soft hyphen, a direction mark), which a reader cannot see.
+//
+// Before matching, the entry is NFKC-normalised and its format characters are removed, so fullwidth "ＣＩ", "D１",
+// "C<zero-width space>loudflare" and "Dep<soft hyphen>loy" are read as the words they display as. KNOWN GAP: a
+// look-alike letter from another script (a Cyrillic "С" for the Latin "C") is not folded; there is no script check.
 //
 // And per file: the name is next.json (version "next") or v<X.Y.Z>.json (version "X.Y.Z"), and next.json exists.
 //
@@ -21,7 +28,10 @@
 /** The three sections, in the order the panel and the release show them. */
 export const SECTIONS = /** @type {const} */ (['units', 'rules', 'fixes']);
 
-/** Words no entry may hold (the lead's list, GH-1622). Matched whole-word, case-insensitive, plus an "s" or "es" plural. */
+/**
+ * Words no entry may hold (the lead's list, GH-1622; "license", the US spelling of "licence", is the one addition).
+ * Matched whole-word, case-insensitive, plus an "s" or "es" plural. Pinned by a literal copy in the test.
+ */
 export const DENYLIST = [
   'worker',
   'telemetry',
@@ -59,22 +69,44 @@ export const PATTERNS = /** @type {const} */ ([
   ['a git hash', /(?<![\p{L}\p{N}])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}(?![\p{L}\p{N}])/iu],
   ['an internal id (snake_case)', /[\p{L}\p{N}]*_[\p{L}\p{N}_]*/u],
   ['an @ (a handle or an address)', /\S*@\S*/u],
+  ['a URL', /https?:\/\/\S*/iu],
+  ['a path', /\S*[\p{L}\p{N}]\/[\p{L}\p{N}]\S*/u],
 ]);
 
+const FORMAT = /\p{Cf}/gu;
+
 /**
- * Every reason one entry is refused, as `what "text"` strings, in a fixed order (denylist first, then PATTERNS).
+ * The text the rules read: NFKC-normalised (fullwidth and compatibility forms folded to plain ones), with every format
+ * character removed.
+ *
+ * @param {string} entry
+ * @returns {string}
+ */
+export function foldEntry(entry) {
+  return entry.normalize('NFKC').replace(FORMAT, '');
+}
+
+/**
+ * Every reason one entry is refused, as `what "text"` strings, in a fixed order (a format character, then the denylist,
+ * then PATTERNS), the denylist and PATTERNS read over foldEntry's text.
  *
  * @param {string} entry
  * @returns {string[]}
  */
 export function entryHits(entry) {
   const out = [];
+  const format = entry.match(FORMAT);
+  if (format) {
+    const codes = [...new Set(format.map((c) => `U+${c.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0')}`))];
+    out.push(`a format character (zero-width, soft hyphen or similar) ${codes.join(', ')}`);
+  }
+  const text = foldEntry(entry);
   for (const [word, re] of DENY_RES) {
-    const m = re.exec(entry);
+    const m = re.exec(text);
     if (m) out.push(`the denylisted word "${m[1]}" (${word})`);
   }
   for (const [what, re] of PATTERNS) {
-    const m = re.exec(entry);
+    const m = re.exec(text);
     if (m) out.push(`${what} "${m[0]}"`);
   }
   return out;

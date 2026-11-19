@@ -103,6 +103,12 @@ describe('the CLI', () => {
     run('render', '--version=0.135.1', `--out=${out}`);
     expect(readFileSync(out, 'utf8')).toBe('No player-facing changes\n');
   });
+  it('creates the directory when it is missing', () => {
+    const fresh = path.join(dir, 'not-there-yet');
+    execFileSync('node', [SCRIPT, 'cut', '--version=2.0.0', `--dir=${fresh}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    expect(readFileSync(path.join(fresh, 'v2.0.0.json'), 'utf8')).toBe(emptyNotes('2.0.0'));
+    expect(readFileSync(path.join(fresh, 'next.json'), 'utf8')).toBe(emptyNotes('next'));
+  });
   it('refuses to cut while next.json is still in place, and a bad version', () => {
     expect(() => run('cut', '--version=0.135.2')).toThrow(/still there/);
     expect(() => run('cut', '--version=v0.135.2')).toThrow(/X\.Y\.Z/);

@@ -25,14 +25,22 @@ and never approves it.
 - You only ever edit `next.json`. The release step on `main` renames it to `v<X.Y.Z>.json`, rewrites its `"version"`,
   writes a fresh empty `next.json` in the same bump commit, and publishes the GitHub release from it
   (`tools/ci/release-notes-md.mjs`). Never hand-edit a released `v<X.Y.Z>.json`.
+- If `gh release create` fails after the tag push, a re-run of the job skips the release: main's tip is now the bump
+  commit, so the job's "release only from main's tip" step stands aside. The release is then made by hand with the same command:
+  `gh release create v<X.Y.Z> --verify-tag --title v<X.Y.Z> --notes-file <the rendered file>`, where the file comes
+  from `node tools/ci/release-notes-md.mjs render --version=<X.Y.Z> --out=<file>`.
 
 ## How to draft it
 
-1. **Start from a `dev` that has `main` merged back in.** The release step empties `next.json` on `main`, not on
-   `dev`. If `main` has released since `dev` last merged it, `dev`'s `next.json` still holds the entries that already
-   shipped. The promotion PR's line flags any entry that is word for word one from a released file on `main`
-   ("N of them already shipped"). Merging `main` into `dev` is the lead's or the steward's step, not yours: if it has
-   not happened, say so and draft only what is new.
+1. **Do not draft until `main` has been merged back into `dev` after the last release.** This back-merge is
+   REQUIRED after every release, and it must come before any drafting. The release step empties `next.json` on
+   `main` only, and the promotion's merge base stays at the last promoted `dev` tip. So ANY edit to `dev`'s
+   `next.json` made before the back-merge collides with `main`'s emptied file at the next promotion. Dropping the
+   shipped entries by hand does not help: the conflict is on the file, not on the entries. If `dev` has not moved
+   since the promotion, the back-merge is a fast-forward. Either the steward opens a main to dev PR, or the lead
+   fast-forwards `dev`. It is their step, not yours. If it has not happened, stop and say so. The promotion PR's line
+   reports both failures: an entry that is word for word one from a released file on `main` ("N of them already
+   shipped"), and `next.json` conflicting between `main` and `dev` (a read-only `git merge-tree` check).
 2. **List what is going out:** `git log --first-parent --format='%h %s' origin/main..origin/dev`. That is one line per
    merged PR, the same range the promotion PR's changelog reads.
 3. **Keep only what a player can see or feel:** a new unit, a new or changed rule, a screen or an option, a balance
@@ -79,7 +87,13 @@ mortars", "unit stats" becomes "unit figures" or "the unit card", and a "secret 
 
 It also refuses "PR" or "GH" followed by digits, a hash sign followed by digits, a run of 7 to 40 hex characters with
 at least one digit in it (a git hash; "defaced" is hex but has no digit and passes, while "1500000" is refused, so
-write "1,500,000"), any underscore, and any "@".
+write "1,500,000"), any underscore, any "@", a URL (`http://` or `https://`), and a path-like token (a slash between
+letters or digits: `data/units/x.json`, but also "CI/CD", "and/or" and "24/7": reword them).
+
+Before it matches, the gate folds the entry to NFKC and removes format characters, so fullwidth "ＣＩ" and "D１" read as
+"CI" and "D1". A zero-width space or a soft hyphen hidden inside a word ("C<zero-width space>loudflare") is refused for
+itself, and the word it hid is refused too. **Known gap:** a look-alike letter from another script (a Cyrillic "С" in
+place of a Latin "C") is not folded, and there is no script check. The lead's review is the net for that.
 
 ## Good and bad
 

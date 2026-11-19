@@ -16,6 +16,7 @@ import {
   entriesOf,
   entryOf,
   groupOf,
+  mergeConflicts,
   neutralise,
   notesLine,
   parseLog,
@@ -292,6 +293,34 @@ describe('notesLine', () => {
   });
 });
 
+describe('mergeConflicts and the conflict sentence', () => {
+  it('read git merge-tree --name-only --no-messages: 0 clean, 1 the names after the tree id, else unknown', () => {
+    expect(mergeConflicts('224a11843926feba06ab4d93d5e154bcd5dbdd74\n', 0)).toEqual([]);
+    expect(mergeConflicts('224a11843926feba06ab4d93d5e154bcd5dbdd74\ndata/release-notes/next.json\npackage.json\n', 1)).toEqual([
+      'data/release-notes/next.json',
+      'package.json',
+    ]);
+    // Without --no-messages, the messages follow a blank line; they are not paths.
+    expect(mergeConflicts('224a118\nn.json\n\nAuto-merging n.json\nCONFLICT (content): Merge conflict in n.json\n', 1)).toEqual(['n.json']);
+    expect(mergeConflicts('', 128)).toBeNull();
+    expect(mergeConflicts('', null)).toBeNull();
+  });
+  const DRAFT = '{"version":"next","units":[],"rules":["B."],"fixes":[]}';
+  it('names the conflict and the back-merge as its fix', () => {
+    expect(notesLine(DRAFT, [], true)).toBe(
+      '**Release notes:** `data/release-notes/next.json` holds 0 new units, 1 rule or feature, 0 fixes. ' +
+        "The lead approves the wording in this PR's diff before merging. **It conflicts between `main` and `dev`**: " +
+        "`main`'s release emptied it after `dev` last merged `main`. Fix: merge `main` back into `dev` " +
+        '(a main to dev PR, or a fast-forward of dev), keep only the new entries, then promote.',
+    );
+    expect(notesLine(DRAFT, [], false)).not.toContain('conflicts');
+    expect(notesLine(DRAFT)).not.toContain('conflicts');
+  });
+  it('says when the check could not run, never that it is clean', () => {
+    expect(notesLine(DRAFT, [], null)).toContain('(Could not check whether `data/release-notes/next.json` conflicts with `main`: `git merge-tree` failed.)');
+  });
+});
+
 describe('decide', () => {
   const entries = entriesOf(REAL);
   const title = 'promote: dev to main (7 PRs)';
@@ -430,5 +459,57 @@ describe('the CLI on a real repository', () => {
     const updated = readFileSync(out, 'utf8');
     expect(updated.startsWith(body.trimEnd())).toBe(true);
     expect(updated.endsWith(`${END}\n\nbot summary\n`)).toBe(true);
+  });
+});
+
+// GH-1622: the conflict every promotion after a release hits unless main was merged back into dev first. main's release
+// emptied next.json; dev drafted new entries on the old base. The line names it; after the back-merge it is gone.
+describe('the CLI: next.json conflicting after a release', () => {
+  it('reports the conflict, and nothing once main is merged back into dev', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'promotion-pr-conflict-'));
+    const git = (...a: string[]) =>
+      execFileSync('git', a, {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
+      });
+    const notes = path.join(dir, 'data', 'release-notes');
+    const write = (name: string, text: string) => {
+      writeFileSync(path.join(notes, name), text);
+      git('add', `data/release-notes/${name}`);
+    };
+    git('init', '-q', '-b', 'main');
+    mkdirSync(notes, { recursive: true });
+    write('next.json', '{\n  "version": "next",\n  "units": [],\n  "rules": ["A."],\n  "fixes": []\n}\n');
+    git('commit', '-q', '-m', 'promote (#1)');
+    git('branch', 'dev');
+    // The release on main: next.json shipped as v1.0.0.json and emptied.
+    write('v1.0.0.json', '{\n  "version": "1.0.0",\n  "units": [],\n  "rules": ["A."],\n  "fixes": []\n}\n');
+    write('next.json', '{\n  "version": "next",\n  "units": [],\n  "rules": [],\n  "fixes": []\n}\n');
+    git('commit', '-q', '-m', 'chore(release): v1.0.0 [skip ci]');
+    // dev drafts the next release WITHOUT the back-merge, dropping the shipped entry as the guide says.
+    git('checkout', '-q', 'dev');
+    write('next.json', '{\n  "version": "next",\n  "units": [],\n  "rules": ["B."],\n  "fixes": []\n}\n');
+    git('commit', '-q', '-m', 'data: notes (#2)');
+
+    const out = path.join(mkdtempSync(path.join(os.tmpdir(), 'promotion-pr-body-')), 'body.md');
+    execFileSync('node', [SCRIPT, '--base=main', '--head=dev', `--out=${out}`], { cwd: dir, encoding: 'utf8' });
+    expect(readFileSync(out, 'utf8')).toContain('**It conflicts between `main` and `dev`**');
+
+    // The fix: main merged back into dev (resolved to dev's draft), and the line no longer reports a conflict.
+    try {
+      git('merge', '-q', '--no-ff', 'main', '-m', "Merge branch 'main' into dev");
+    } catch {
+      write('next.json', '{\n  "version": "next",\n  "units": [],\n  "rules": ["B."],\n  "fixes": []\n}\n');
+      git('commit', '-q', '--no-edit');
+    }
+    execFileSync('node', [SCRIPT, '--base=main', '--head=dev', `--out=${out}`], { cwd: dir, encoding: 'utf8' });
+    const after = readFileSync(out, 'utf8');
+    expect(after).toContain('holds 0 new units, 1 rule or feature, 0 fixes.');
+    expect(after).not.toContain('conflicts');
+    expect(after).not.toContain('already shipped');
+    // Read-only: the check moved no ref and left the working tree clean.
+    expect(git('status', '--porcelain')).toBe('');
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('dev');
   });
 });

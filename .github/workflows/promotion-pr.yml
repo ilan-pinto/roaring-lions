@@ -11,6 +11,8 @@
 # has no ci run of its own: a PR opened or edited with GITHUB_TOKEN triggers no workflow. A "Release notes" line
 # (GH-1622) states how many entries dev's data/release-notes/next.json holds per section, or that it is empty and must
 # be drafted before promoting (docs/agent-notes/release-notes.md); the lead approves the wording in the PR's diff.
+# It also runs a read-only `git merge-tree --write-tree` of main and dev (no ref, index or working-tree change) and says
+# so when next.json would conflict: main was not merged back into dev after the last release.
 #
 # A dev -> main PR that a person opened (no marker line in its body) is left alone.
 #

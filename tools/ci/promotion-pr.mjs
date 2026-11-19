@@ -20,7 +20,7 @@
 // Why "PR NNN" and never a hash: the squash subjects carry "(PR 1547)" or GitHub's "(#1544)", and the UI palette gate
 // reads a hash and digits as a colour (CLAUDE.md, house rules), so the body is written without one anywhere.
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -181,10 +181,53 @@ const NOTES_SECTIONS = /** @type {const} */ ([
  * not merged back into dev after that release, so the entry would ship twice.
  *
  * @param {string | null} raw next.json's text on dev, or null when the file is not there
+ * And when next.json would CONFLICT in this merge (`conflict` true, from mergeConflicts), it says so first and names the
+ * fix: the release step empties next.json on main, and the merge base stays at the last promoted dev tip, so ANY dev
+ * edit to next.json after a release collides with it unless main was merged back into dev before the drafting.
+ * `conflict` null means the check could not run, and the line says that too.
+ *
+ * @param {string | null} raw next.json's text on dev, or null when the file is not there
  * @param {readonly { version: string, raw: string }[]} [shipped] main's released v<X.Y.Z>.json files
+ * @param {boolean | null} [conflict] whether next.json is among this merge's conflicts; null: unknown
  * @returns {string}
  */
-export function notesLine(raw, shipped = []) {
+export function notesLine(raw, shipped = [], conflict = false) {
+  const state = notesState(raw, shipped);
+  if (conflict === null) return `${state} (Could not check whether \`${NOTES_PATH}\` conflicts with \`main\`: \`git merge-tree\` failed.)`;
+  if (!conflict) return state;
+  return (
+    `${state} **It conflicts between \`main\` and \`dev\`**: \`main\`'s release emptied it after \`dev\` last merged \`main\`. ` +
+    `Fix: merge \`main\` back into \`dev\` (a main to dev PR, or a fast-forward of dev), keep only the new entries, then promote.`
+  );
+}
+
+/**
+ * The conflicted paths from `git merge-tree --write-tree --name-only --no-messages <base> <head>`: exit status 0 is a
+ * clean merge (none), 1 is a merge with conflicts (the names after the tree id on the first line), anything else is a
+ * failure (null: unknown, never "clean").
+ *
+ * @param {string} stdout
+ * @param {number | null} status
+ * @returns {string[] | null}
+ */
+export function mergeConflicts(stdout, status) {
+  if (status === 0) return [];
+  if (status !== 1) return null;
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  for (const l of lines.slice(1)) {
+    if (l.trim() === '') break;
+    out.push(l.trim());
+  }
+  return out;
+}
+
+/**
+ * @param {string | null} raw
+ * @param {readonly { version: string, raw: string }[]} shipped
+ * @returns {string}
+ */
+function notesState(raw, shipped) {
   const head = `**Release notes:** \`${NOTES_PATH}\``;
   const guide = `(guide: \`${NOTES_GUIDE}\`)`;
   if (raw === null) return `${head} does not exist on \`dev\`: create and draft it before promoting ${guide}.`;
@@ -430,7 +473,10 @@ function main(argv) {
       const raw = m ? show(base, `${notesDir}/${m[0]}`) : null;
       return m && raw !== null ? [{ version: m[1], raw }] : [];
     });
-  const notes = notesLine(show(head, NOTES_PATH), shipped);
+  // Read-only: merge-tree writes the would-be tree into the object store and touches no ref, index or working tree.
+  const tree = spawnSync('git', ['merge-tree', '--write-tree', '--name-only', '--no-messages', base, head], { encoding: 'utf8' });
+  const conflicts = mergeConflicts(tree.stdout ?? '', tree.status);
+  const notes = notesLine(show(head, NOTES_PATH), shipped, conflicts === null ? null : conflicts.includes(NOTES_PATH));
 
   const title = titleOf(entries);
   const body = renderBody({ entries, headSha, baseSha, ci, compareUrl, notes });

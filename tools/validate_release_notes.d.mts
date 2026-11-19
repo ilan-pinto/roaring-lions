@@ -3,5 +3,6 @@
 export const SECTIONS: readonly ['units', 'rules', 'fixes'];
 export const DENYLIST: readonly string[];
 export const PATTERNS: readonly (readonly [string, RegExp])[];
+export function foldEntry(entry: string): string;
 export function entryHits(entry: string): string[];
 export function releaseNotesFailures(files: readonly { file: string; doc: unknown }[]): string[];

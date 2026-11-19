@@ -3,8 +3,8 @@
 //   node tools/ci/release-notes-md.mjs cut --version=<X.Y.Z>
 //       In the release bump commit, AFTER the workflow's `git mv data/release-notes/next.json data/release-notes/vX.json`:
 //       rewrites that file's `"version": "next"` line to X (that one line: the lead approved the rest word for word)
-//       and writes a fresh empty next.json. A missing vX.json (no next.json was there to move) is written empty, so a
-//       release never waits on its notes.
+//       and writes a fresh empty next.json. A missing vX.json (no next.json was there to move) is written empty, and a
+//       missing data/release-notes/ directory is created, so a release never waits on its notes.
 //
 //   node tools/ci/release-notes-md.mjs render --version=<X.Y.Z> --out=<file>
 //       After the tag is pushed: the markdown body for `gh release create vX --notes-file <file>`.
@@ -13,7 +13,7 @@
 // `main` touches the filesystem. The entries were already held to the schema and the filter gate
 // (tools/validate_release_notes.mjs) by `validate:data` in the `gates` job this job needs.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -114,6 +114,7 @@ function main(argv) {
   const next = join(dir, 'next.json');
 
   if (mode === 'cut') {
+    mkdirSync(dir, { recursive: true });
     if (existsSync(next)) throw new Error(`release-notes: ${next} is still there; git mv it to ${released} first`);
     if (existsSync(released)) {
       writeFileSync(released, releasedText(readFileSync(released, 'utf8'), version));
