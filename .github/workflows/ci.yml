@@ -468,6 +468,27 @@ jobs:
           path: visual-baseline-output
           if-no-files-found: ignore
           retention-days: 3
+      # GH-1409 (b): the contact sheet. `tools/ci/ui-shots-index.mjs` writes ONE page (thumbnails embedded, each linking to its full-size PNG by relative
+      # path) into the capture directory, so the `ui-shots` zip is browsable once unzipped, and prints a count table into this run's summary. The copy
+      # uploaded below with `archive: false` is a single file GitHub opens in the browser straight from the run page, with no download; its full-size
+      # links point at nothing (the originals are only in the zip), and the page says so. Report-only like the walk it indexes: it writes a page even
+      # when the walk wrote nothing, and a PNG it cannot decode becomes a placeholder tile.
+      - name: Index the shell captures (report-only)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          node tools/ci/ui-shots-index.mjs ui-shots-output --out=ui-shots-output/index.html --summary >> "$GITHUB_STEP_SUMMARY"
+          cp ui-shots-output/index.html ui-shots-index.html
+      - name: Upload the contact sheet (opens in the browser)
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ui-shots-index.html
+          archive: false
+          if-no-files-found: ignore
+          retention-days: 3
       # GH-1409: the shell captures. Same three-day retention and same `continue-on-error` as the upload above, for the same reason (the
       # private repository's artifact quota); PNGs are already compressed, so the level is 0 rather than spending time re-deflating them.
       - name: Upload the shell captures
