@@ -413,7 +413,8 @@ export interface MissionJson {
      *  `zone` when given) leaves play via `sim.removeFromPlay` — the enemy's
      *  act, not a kill; `to`/`units` are meaningless for it and the schema
      *  refuses them. Anyone riding in a removed carrier leaves with it, whether
-     *  or not he is in the group or the zone. */
+     *  or not he is in the group or the zone. commit/withdraw_to: a `zone`
+     *  orders only the members whose tile is inside it (GH-1438 E5). */
     do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string };
     /** Fires as a `MissionEvent` the tick this trigger fires, right after the
      *  `trigger` event it annotates. */
@@ -2957,6 +2958,13 @@ export class MissionRuntime {
         this.assertGroundClear(u.unit, wx, wy, u.count);
       }
     }
+    // GH-1438 E5: a trigger's `do.zone` filters who it acts on (`remove`, `commit`, `withdraw_to`). A name the map
+    // lacks resolved to no zone, and no zone means the WHOLE group: a typo would take or move everyone. Refuse it.
+    for (const [i, t] of (this.mission.triggers ?? []).entries()) {
+      if (t.do.zone !== undefined && !this.zone(t.do.zone)) {
+        throw new Error(`mission ${this.mission.id}: trigger "${t.id ?? `trigger_${i}`}" do.zone names unknown zone "${t.do.zone}"`);
+      }
+    }
     for (const o of this.objectives) {
       if (o.def.type === 'eliminate_hvt') {
         const tag = o.def.target;
@@ -4725,8 +4733,16 @@ export class MissionRuntime {
         // a patroller must not lose its beat on the strength of an order it
         // never received. A fully buried group consumes the trigger and
         // commands nothing, which the mission log already records.
+        //
+        // GH-1438 E5: a `zone` narrows the order to the members standing in it, by the same tile rule `remove`
+        // uses below, so a take ordered at 120 s walks only the captives still in the pen and never one a soldier
+        // has already freed. Absent, the whole group moves, as before. `start()` refuses a zone the map lacks.
+        const zone = t.do.zone !== undefined ? this.zone(t.do.zone) : undefined;
         const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
-          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+          (id) =>
+            this.sim.state.alive[id] === 1 &&
+            this.sim.state.tunnelIn[id] < 0 &&
+            (zone === undefined || zoneContains(zone, this.sim.state.posX[id] >> 16, this.sim.state.posY[id] >> 16)),
         );
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);

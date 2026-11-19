@@ -785,7 +785,7 @@
               },
               "zone": {
                 "type": "string",
-                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group. A removed carrier's riders go with it wherever they are listed."
+                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group. A removed carrier's riders go with it wherever they are listed. commit/withdraw_to: order only the living group members whose tile lies inside this zone, when the trigger fires; omit to order the whole group (GH-1438 E5). Refused on any other kind, and on a name the map lacks (validate:data, and the runtime at start)."
               }
             },
             "if": {

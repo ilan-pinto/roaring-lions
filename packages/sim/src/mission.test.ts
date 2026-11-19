@@ -5955,6 +5955,84 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
     expect(w.sim.state.removed[1]).toBe(0);
   });
 
+  // GH-1438 E5: `zone` on `commit` and `withdraw_to`. One member stands inside the pen, one outside; the order goes to
+  // the one inside only. The zone is read when the trigger FIRES, by the tile rule `remove` uses.
+  describe('E5: a zone on commit and withdraw_to orders only the members inside it', () => {
+    function zonedWorld(kind: 'commit' | 'withdraw_to', zone: string | undefined) {
+      return makeWorld(
+        baseMission({
+          objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+          enemy: {
+            garrison: [
+              { unit: 'm_tech', count: 1, at: [4, 2], group: 'taken' }, // inside the pen [0,0,10,10]
+              { unit: 'm_tech', count: 1, at: [20, 2], group: 'taken' }, // outside it
+            ],
+          },
+          triggers: [
+            { id: 'walk_them', label: 'They are walked out', on: { kind: 'timer_s', value: 1 }, do: { kind, group: 'taken', to: 'exit', ...(zone === undefined ? {} : { zone }) } },
+          ],
+        }),
+        { zones: { pen: [0, 0, 10, 10] }, markers: { exit: [14, 10] } }
+      );
+    }
+    /** The ids of every order the trigger queued, per command kind. */
+    function ordered(w: World): { kind: string; ids: number[] }[] {
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      w.step(25); // past the 1 s trigger
+      const out = spy.mock.calls.map(([c]) => ({ kind: c.kind, ids: 'ids' in c ? [...c.ids] : [] }));
+      spy.mockRestore();
+      return out;
+    }
+
+    it('withdraw_to with a zone moves the member inside and leaves the one outside', () => {
+      expect(ordered(zonedWorld('withdraw_to', 'pen'))).toEqual([{ kind: 'move', ids: [0] }]);
+    });
+
+    it('commit with a zone attack-moves only the member inside', () => {
+      expect(ordered(zonedWorld('commit', 'pen'))).toEqual([{ kind: 'attackMove', ids: [0] }]);
+    });
+
+    it('with no zone, both are ordered, as before E5', () => {
+      expect(ordered(zonedWorld('withdraw_to', undefined))).toEqual([{ kind: 'move', ids: [0, 1] }]);
+      expect(ordered(zonedWorld('commit', undefined))).toEqual([{ kind: 'attackMove', ids: [0, 1] }]);
+    });
+
+    it('the one outside the pen stays where it stood; the one inside walks to the marker', () => {
+      const w = zonedWorld('withdraw_to', 'pen');
+      const x1 = w.sim.state.posX[1];
+      const y1 = w.sim.state.posY[1];
+      w.step(30 * TICKS_PER_SECOND);
+      expect(Math.abs(fx.toNumber(w.sim.state.posX[0]) - 14.5)).toBeLessThan(2.0);
+      expect(Math.abs(fx.toNumber(w.sim.state.posY[0]) - 10.5)).toBeLessThan(2.0);
+      expect([w.sim.state.posX[1], w.sim.state.posY[1]]).toEqual([x1, y1]);
+    });
+
+    it('nobody left in the zone: the trigger fires and orders nobody', () => {
+      const w = zonedWorld('withdraw_to', 'pen');
+      w.sim.debugKill(0);
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      const { mission } = w.step(25);
+      expect(mission.some((e) => e.kind === 'trigger' && e.id === 'walk_them')).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('a do.zone the map lacks throws at start, on every kind that reads it', () => {
+      for (const kind of ['commit', 'withdraw_to'] as const) {
+        expect(() => zonedWorld(kind, 'no_such_pen')).toThrow(/do\.zone names unknown zone "no_such_pen"/);
+      }
+      expect(() =>
+        makeWorld(
+          baseMission({
+            enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [4, 2], group: 'squad' }] },
+            triggers: [{ id: 'take', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'squad', zone: 'cgae' } }],
+          }),
+          { zones: { cage: [0, 0, 10, 10] } }
+        )
+      ).toThrow(/trigger "take" do\.zone names unknown zone "cgae"/);
+    });
+  });
+
   it('a removed player unit is absent from roster.surviving_units', () => {
     const w = makeWorld(
       baseMission({
