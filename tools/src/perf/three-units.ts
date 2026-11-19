@@ -64,6 +64,11 @@ import { maps } from '@lions/data/content';
 // of.
 import type { Renderer, RendererOptions, TerrainTones } from '../../../packages/render/src/api';
 import type { EmitterSpec } from '../../../packages/render/src/vfx';
+import { QUALITY_PRESETS } from '../../../packages/render/src/quality';
+
+/** A shipped quality preset by name (`packages/render/src/quality.ts`). */
+export type BenchQuality = keyof typeof QUALITY_PRESETS;
+export const BENCH_QUALITIES: readonly BenchQuality[] = ['high', 'medium', 'low'];
 
 // ============================================================================
 // World construction -- pure enough to run in Node, reused by the browser.
@@ -114,7 +119,11 @@ export function buildWorld(capacity: number, mapId: keyof typeof maps = MAP_ID):
   const typeOf = new Map<string, number>();
   // `PERF_NO_WOUNDS=1` registers every type without `hull.wounds`/`hull.figures` (GH-707 P3): the
   // wounds-off arm of the tick-cost comparison in docs/PERFORMANCE.md. Unset, the shipped data.
-  const noWounds = process.env.PERF_NO_WOUNDS === '1';
+  // Read through `globalThis`: this function also runs in the browser (`runBackendCurve`), where there is no `process`.
+  // A bare `process.env` here threw `ReferenceError: process is not defined` in the page from GH-707 P3 (d2c73e9c0,
+  // 22 Oct) until GH-1411, so the browser curve could not run at all in that time.
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  const noWounds = env?.PERF_NO_WOUNDS === '1';
   for (const u of Object.values(units) as UnitTypeJson[]) {
     let reg = u;
     if (noWounds && (u.hull.wounds !== undefined || u.hull.figures !== undefined)) {
@@ -291,6 +300,8 @@ export function livingCount(sim: Sim): number {
 export interface SampleStats {
   samples: number;
   avgMs: number;
+  /** The median (GH-1411: the 10-13 Nov ABBA figures are medians, the curve's are p95s; print both so neither is compared with the other by accident). */
+  medianMs: number;
   p95Ms: number;
   maxMs: number;
   totalMs: number;
@@ -303,6 +314,7 @@ export function summarize(samples: readonly number[]): SampleStats {
   return {
     samples: samples.length,
     avgMs: samples.length > 0 ? totalMs / samples.length : 0,
+    medianMs: sorted.length > 0 ? sorted[Math.floor((sorted.length - 1) / 2)] : 0,
     p95Ms: sorted.length > 0 ? sorted[p95Idx] : 0,
     maxMs: sorted.length > 0 ? sorted[sorted.length - 1] : 0,
     totalMs,
@@ -371,6 +383,11 @@ export function measureTicks(sim: Sim, ticks: number): SampleStats {
 //     than this task's "wire an entry point" scope. Until then the render
 //     comparison stays a manual browser gate, the same debt shape CLAUDE.md
 //     already records for `playtest.ts`.
+//   - GH-1411 (2026-11-19): the browser half now has a CI gate, but on a
+//     COUNT, not a time: `pnpm perf:census` (`draw-census.ts`) runs this
+//     file's `measureThreeMesh` in census mode on SwiftShader and gates the
+//     300-unit draw calls per living unit. Frame TIME stays a manual Metal
+//     reading (`backend-curve-gate.ts`; docs/PERFORMANCE.md, R1).
 // ============================================================================
 
 const CHECKPOINTS: readonly number[] = [65, 150, 300, 400];
@@ -485,8 +502,12 @@ function aridTerrainTones(): TerrainTones {
   };
 }
 
-export function buildRendererOptions(): RendererOptions {
+/** `quality` is passed EXPLICITLY, as `main.ts` does from the player's settings (default `high`, `settings.ts`). Before
+ *  GH-1411 this passed none, which every read site maps to `high` except one: `opts.quality?.physics?.ragdolls ?? 0`
+ *  reads 0 ragdolls with no preset, where `high` asks for some. A bench that leaves it out measures a frame no player draws. */
+export function buildRendererOptions(quality: BenchQuality = 'high'): RendererOptions {
   return {
+    quality: QUALITY_PRESETS[quality],
     background: paletteColor('shadow.1'),
     teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor(CIVILIAN_COLOR_KEY)],
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
@@ -584,8 +605,44 @@ export async function loadAllMeshes(renderer: Renderer, map: ParsedMap): Promise
 export interface CheckpointReport {
   target: number;
   livingAtMeasure: number;
+  /** `sim.tickCount` when the frames below were drawn (GH-1411: every figure states its tick). */
+  tickCount: number;
   tick: SampleStats;
-  render: SampleStats;
+  /** `frame()` alone, no GPU sync: the time to SUBMIT a frame. The figure every curve in docs/PERFORMANCE.md before
+   *  GH-1411 quotes. Null in a census-only run, which draws no timed frames (SwiftShader takes seconds a frame). */
+  render: SampleStats | null;
+  /** `frame()` then a 1x1 `readPixels`, which cannot return before every command writing the default framebuffer has
+   *  run (`fx-cost.ts`: `gl.finish()` does not wait on ANGLE/Metal). Serialised CPU + GPU wall of one frame: the figure
+   *  to read against a 16.7 ms frame. Added by GH-1411; null in a census-only run. */
+  synced: SampleStats | null;
+  /** The draw-call census of `CENSUS_FRAMES` consecutive frames, read by hand (`readCensus`). */
+  census: DrawCensus;
+}
+
+/** One frame's submissions: `renderer.info.render` summed over every pass of one `frame()` (shadow, AO pre-pass, scene,
+ *  post), with `autoReset` off -- the method `low-end.ts` and `fx-cost.ts` use. three's default auto-reset zeroes the
+ *  counter at every `render()` call, so the default reading is the LAST pass alone (a post quad). */
+export interface DrawCensus {
+  /** Calls a frame, one entry per census frame (they must agree: a census that moves with no tick is a defect). */
+  calls: number[];
+  triangles: number[];
+}
+
+/** What the canvas really was, read from the WebGLRenderer, not assumed from the host's CSS size. */
+export interface CanvasConditions {
+  cssWidth: number;
+  cssHeight: number;
+  pixelRatio: number;
+  bufferWidth: number;
+  bufferHeight: number;
+}
+
+export interface BenchOptions {
+  quality?: BenchQuality;
+  /** Draw `CENSUS_FRAMES` frames a checkpoint and no timed ones: the CI gate's mode (`backend-curve-gate.ts --only=census`). */
+  censusOnly?: boolean;
+  /** Override both timed frame counts (default 180 submit, 90 synced): a smoke run on SwiftShader, `--frames=`. */
+  timedFrames?: number;
 }
 
 const SETTLE_WARMUP_TICKS = 5;
@@ -597,14 +654,72 @@ const SETTLE_WARMUP_TICKS = 5;
 const SETTLE_TIMED_TICKS = 40;
 const RENDER_WARMUP_FRAMES = 10;
 const RENDER_TIMED_FRAMES = 180; // 3 seconds at 60 fps
+const SYNCED_TIMED_FRAMES = 90;
+/** Census frames a checkpoint, drawn after the warm-up frames: three, so a count that moves frame to frame shows. */
+export const CENSUS_FRAMES = 3;
+
+interface InfoLike {
+  autoReset: boolean;
+  reset(): void;
+  render: { calls: number; triangles: number };
+}
+interface GlRendererLike {
+  info: InfoLike;
+  getPixelRatio(): number;
+  /** The canvas: its `width`/`height` are the drawing buffer, in device pixels. */
+  domElement: { width: number; height: number; getContext(kind: 'webgl2'): WebGL2RenderingContext | null };
+}
+
+/** The legacy `WebGLRenderer` behind a `ThreeRenderer` (a private getter there; a perf tool may reach it, `low-end.ts`
+ *  does the same). Null on a node (WebGPU) boot, which this bench never asks for. */
+function glRendererOf(renderer: Renderer): GlRendererLike | null {
+  const r = (renderer as unknown as { renderer?: GlRendererLike }).renderer;
+  return r !== undefined && r !== null && typeof r.info === 'object' ? r : null;
+}
+
+function readCanvas(renderer: Renderer, host: HTMLElement): CanvasConditions {
+  const gl = glRendererOf(renderer);
+  return {
+    cssWidth: host.clientWidth,
+    cssHeight: host.clientHeight,
+    pixelRatio: gl?.getPixelRatio() ?? Number.NaN,
+    bufferWidth: gl?.domElement.width ?? 0,
+    bufferHeight: gl?.domElement.height ?? 0,
+  };
+}
+
+/** `frames` frames, each counted on its own with the auto-reset off and put back after. */
+function readCensus(renderer: Renderer, frames: number, dtMs: number): DrawCensus {
+  const gl = glRendererOf(renderer);
+  if (gl === null) throw new Error('three-units: no WebGLRenderer behind this renderer, so no draw census');
+  const info = gl.info;
+  const census: DrawCensus = { calls: [], triangles: [] };
+  for (let i = 0; i < frames; i++) {
+    const auto = info.autoReset;
+    info.autoReset = false;
+    info.reset();
+    renderer.frame(1, dtMs);
+    census.calls.push(info.render.calls);
+    census.triangles.push(info.render.triangles);
+    info.autoReset = auto;
+  }
+  return census;
+}
 
 /** One checkpoint: settle (timed ticks, sim state advances -- this is the
  *  in-browser cross-check of `measureTicks`'s Node numbers) then render
  *  (timed frames, sim state held FIXED). The two phases never overlap, so
  *  "render cost" cannot include a tick and "tick cost" cannot include a
  *  frame -- the brief's "separate the two clocks" requirement, structurally
- *  rather than by convention. */
-async function measureCheckpoint(renderer: Renderer, sim: Sim, target: number): Promise<CheckpointReport> {
+ *  rather than by convention. The census frames come after the warm-up
+ *  frames and before the timed ones, so they never land inside a timed sample. */
+async function measureCheckpoint(
+  renderer: Renderer,
+  sim: Sim,
+  target: number,
+  censusOnly: boolean,
+  timedFrames: number | undefined
+): Promise<CheckpointReport> {
   for (let i = 0; i < SETTLE_WARMUP_TICKS; i++) {
     const events = sim.tick();
     renderer.snapshot();
@@ -621,24 +736,52 @@ async function measureCheckpoint(renderer: Renderer, sim: Sim, target: number): 
 
   const livingAtMeasure = livingCount(sim);
   const dtMs = 1000 / 60;
-  for (let i = 0; i < RENDER_WARMUP_FRAMES; i++) renderer.frame(1, dtMs);
-  const renderSamples: number[] = new Array<number>(RENDER_TIMED_FRAMES);
-  for (let i = 0; i < RENDER_TIMED_FRAMES; i++) {
-    const t0 = performance.now();
-    renderer.frame(1, dtMs);
-    renderSamples[i] = performance.now() - t0;
+  const warmup = censusOnly ? 2 : RENDER_WARMUP_FRAMES;
+  for (let i = 0; i < warmup; i++) renderer.frame(1, dtMs);
+  const census = readCensus(renderer, CENSUS_FRAMES, dtMs);
+  let render: SampleStats | null = null;
+  let synced: SampleStats | null = null;
+  if (!censusOnly) {
+    const renderFrames = timedFrames ?? RENDER_TIMED_FRAMES;
+    const syncedFrames = timedFrames ?? SYNCED_TIMED_FRAMES;
+    const renderSamples: number[] = new Array<number>(renderFrames);
+    for (let i = 0; i < renderFrames; i++) {
+      const t0 = performance.now();
+      renderer.frame(1, dtMs);
+      renderSamples[i] = performance.now() - t0;
+    }
+    render = summarize(renderSamples);
+    const gl = glRendererOf(renderer)?.domElement.getContext('webgl2') ?? null;
+    if (gl === null) throw new Error('three-units: no webgl2 context to sync on');
+    const px = new Uint8Array(4);
+    const syncedSamples: number[] = new Array<number>(syncedFrames);
+    for (let i = 0; i < syncedFrames; i++) {
+      const t0 = performance.now();
+      renderer.frame(1, dtMs);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      syncedSamples[i] = performance.now() - t0;
+    }
+    synced = summarize(syncedSamples);
   }
 
   return {
     target,
     livingAtMeasure,
+    tickCount: sim.tickCount,
     tick: summarize(tickSamples),
-    render: summarize(renderSamples),
+    render,
+    synced,
+    census,
   };
 }
 
 export interface BackendReport {
   backend: 'three';
+  quality: BenchQuality;
+  canvas: CanvasConditions;
+  /** The census of the loaded, EMPTY scene (no unit spawned, no tick): the control every checkpoint's census is read
+   *  against, so the gate's per-unit figure is the units' own submissions, not the map's. */
+  emptyCensus: DrawCensus;
   checkpoints: CheckpointReport[];
 }
 
@@ -649,20 +792,26 @@ export interface BackendReport {
  *  does (reinforcement, not reset-and-replay). `capacity` is sized for the
  *  top checkpoint plus headroom for whatever combat attrition costs between
  *  checkpoints (`spawn` never reuses a dead slot, so a top-up after losses
- *  consumes fresh capacity). */
+ *  consumes fresh capacity).
+ *
+ *  GH-1411: the empty-scene census is drawn BEFORE the first spawn and ticks nothing, so the world every checkpoint
+ *  reads is the same one the curves in docs/PERFORMANCE.md read. */
 export async function runBackendCurve(
   makeRenderer: (sim: Sim, opts: RendererOptions) => Renderer,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  bench: BenchOptions = {}
 ): Promise<BackendReport> {
   const backend = 'three' as const;
+  const quality = bench.quality ?? 'high';
+  const censusOnly = bench.censusOnly === true;
   const capacity = CHECKPOINTS[CHECKPOINTS.length - 1] + 150;
   const { sim, map, typeOf } = buildWorld(capacity);
-  const opts = buildRendererOptions();
+  const opts = buildRendererOptions(quality);
   const renderer = makeRenderer(sim, opts);
   renderer.setDecor(map.decor);
   renderer.setElevation(map.elevation);
   const host = createHost();
-  onProgress?.(`[${backend}] init()`);
+  onProgress?.(`[${backend}] init() quality=${quality}${censusOnly ? ' census-only' : ''}`);
   await renderer.init(host);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
@@ -674,18 +823,24 @@ export async function runBackendCurve(
   renderer.camera.x = (anchors.friendly[0] + anchors.hostile[0]) / 2;
   renderer.camera.y = (anchors.friendly[1] + anchors.hostile[1]) / 2;
 
+  const dtMs = 1000 / 60;
+  renderer.snapshot();
+  for (let i = 0; i < 2; i++) renderer.frame(1, dtMs);
+  const emptyCensus = readCensus(renderer, CENSUS_FRAMES, dtMs);
+  const canvas = readCanvas(renderer, host);
+
   const checkpoints: CheckpointReport[] = [];
   for (const target of CHECKPOINTS) {
     spawnUpTo(sim, spawner, target);
     onProgress?.(`[${backend}] measuring at target=${target} living=${livingCount(sim)}...`);
-    const report = await measureCheckpoint(renderer, sim, target);
+    const report = await measureCheckpoint(renderer, sim, target, censusOnly, bench.timedFrames);
     checkpoints.push(report);
   }
 
   (renderer as unknown as { dispose(): void }).dispose();
   host.remove();
 
-  return { backend, checkpoints };
+  return { backend, quality, canvas, emptyCensus, checkpoints };
 }
 
 /** Convenience entry point for the browser console: dynamically import this
@@ -704,9 +859,9 @@ export async function runBackendCurve(
  *  curve (`measurePixi`) stood beside it (WP-A3.3 deleted both). Their
  *  numbers, and the finding that Pixi's render/tick cost was strongly
  *  load-sensitive where three's was not, stay in `docs/PERFORMANCE.md`. */
-export async function measureThreeMesh(onProgress?: (msg: string) => void): Promise<BackendReport> {
+export async function measureThreeMesh(onProgress?: (msg: string) => void, bench: BenchOptions = {}): Promise<BackendReport> {
   const { ThreeRenderer } = await import('../../../packages/render/src/three/ThreeRenderer');
-  return runBackendCurve((sim, opts) => new ThreeRenderer(sim, opts), onProgress);
+  return runBackendCurve((sim, opts) => new ThreeRenderer(sim, opts), onProgress, bench);
 }
 
 // ============================================================================
