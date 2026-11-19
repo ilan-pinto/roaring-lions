@@ -4,7 +4,7 @@
  * entry chunk's static graph. `webgpu:bundle`'s MAIN CHUNK GUARD went red when slice 2 imported them statically; the wiring test
  * (`mission-resume-wiring.test.ts`) fails if `main.ts` names any of these modules in a static import again.
  */
-export { cutMission, restoreMission, sealMission } from './mission-save';
+export { cutMission, loadContentDigest, restoreMission, sealMission } from './mission-save';
 export { discardSuspended, openSuspendStore, readSuspended, savedMissionOtherThan, writeSuspended } from './mission-save-store';
 export { captureShell, shellJson } from './mission-shell';
 export { clearResumeProblem, loadResume, noteResumeProblem, peekResumeMoved, peekResumePosture, peekResumeProblem, startInputsJson, type ResumeLoaded } from './mission-resume';
