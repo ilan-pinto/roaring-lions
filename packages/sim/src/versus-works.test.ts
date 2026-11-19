@@ -173,8 +173,8 @@ describe('versus field works: the snapshot carries side 1 only for a works-only 
 
   it('the digest of every other runtime is the table\'s before the rows existed (pinned), and a works-only one differs', () => {
     // Pinned from the table at 93448908f (before the side-1 rows): a mission save or a snapshot an earlier build wrote restores.
-    // Re-pinned for GH-1438 E8 pacing (`abductPace`, a row EVERY runtime carries, so it moves this digest on purpose and
-    // refuses every older save, as the E1 and E6 sim rows do); the side-1 rows still do not enter it.
+    // GH-1438 E8 pacing's `abductPace` is a `when: 'abduct'` row (abduct missions only), so it does not enter this digest
+    // either: `runtimeSchemaDigest(false, true)` is the one that moves.
     expect(runtimeSchemaDigest()).toBe(RUNTIME_DIGEST_BEFORE_ROWS);
     expect(runtimeSchemaDigest(true)).not.toBe(runtimeSchemaDigest());
   });
@@ -197,7 +197,7 @@ describe('versus field works: the snapshot carries side 1 only for a works-only 
   });
 });
 
-/** `runtimeSchemaDigest()` with the table as it stood at 93448908f (measured by restoring that file and reading it): 65675699.
- *  Then 170229527 from GH-1438 E8 pacing, which appends `abductPace` (measured: the table at 697a04fcf reads 65675699, with
- *  the one row appended 170229527). */
-const RUNTIME_DIGEST_BEFORE_ROWS = 170229527;
+/** `runtimeSchemaDigest()` with the table as it stood at 93448908f (measured by restoring that file and reading it). Unmoved by
+ *  GH-1438 E8 pacing: an unconditional `abductPace` row moved it to 170229527 (PR 1663's first head, 12faf7407), the
+ *  `when: 'abduct'` form leaves it here (the PM ruling, option (b), 19 Nov 2026). */
+const RUNTIME_DIGEST_BEFORE_ROWS = 65675699;

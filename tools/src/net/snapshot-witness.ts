@@ -1018,8 +1018,9 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ),
   ...rows(
     'runtime.abductPace',
-    'an abduct\'s escort pacing (GH-1438 E8): no witness world has a trigger, let alone an abduct, and no shipped mission authors one. Its restore mid-halt ' +
-      'is proved in the sim package (`abduct-pace.test.ts`, a snapshot cut while the escort waits, restored and run on byte for byte). Covered by a mission replay whose script abducts'
+    'an abduct\'s escort pacing (GH-1438 E8), a `when: \'abduct\'` row: only a runtime whose mission has an abduct carries it, no witness world here has a trigger, ' +
+      'let alone an abduct, and no shipped mission authors one. Its restore is forked in the sim package (`ABDUCT_WORLD` in `snapshot-witness-runtime.test.ts`: poisoned, cut ' +
+      'mid-halt and at OFF, and a self-check) and cut mid-halt in `abduct-pace.test.ts`. Covered by a mission replay whose script abducts'
   ),
 ];
 

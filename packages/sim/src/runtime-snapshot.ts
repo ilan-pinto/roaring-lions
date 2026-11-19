@@ -83,6 +83,19 @@ export function worksOnlyRuntime(rt: unknown): boolean {
   return props(props(rt).ctx).worksOnly === true;
 }
 
+/** Does `rt`'s mission have an `abduct` trigger (GH-1438 E8)? Its `when: 'abduct'` rows (the escort's pacing word) are written,
+ *  read and folded into the schema digest; every other runtime's are not. A pure function of the mission, which a restore's
+ *  target shares with its source. */
+export function abductRuntime(rt: unknown): boolean {
+  const triggers = props(props(rt).mission).triggers;
+  return Array.isArray(triggers) && triggers.some((t) => props(props(t).do).kind === 'abduct');
+}
+
+/** Is `row` one of the runtime's, for a runtime of these kinds? */
+function rowIsOn(row: RuntimeRow, worksOnly: boolean, abduct: boolean): boolean {
+  return row.when === undefined || (row.when === 'worksOnly' ? worksOnly : abduct);
+}
+
 /** The top-level state rows a runtime's section carries: every row, less the `when` rows that are not this runtime's. */
 function topRows(rt: Props): readonly RuntimeRow[] {
   return runtimeRowsFor(rt, 'state');
@@ -91,8 +104,9 @@ function topRows(rt: Props): readonly RuntimeRow[] {
 /** The top-level rows of class `cls` that are `rt`'s: the table's, less the `when` rows of another kind of runtime. The
  *  witness and the census walk these, never the whole table, for a row that is not a runtime's is not its state. */
 export function runtimeRowsFor(rt: unknown, cls: RuntimeRow['cls']): RuntimeRow[] {
-  const on = worksOnlyRuntime(rt);
-  return RUNTIME_SNAPSHOT_SCHEMA.filter((r) => r.cls === cls && (r.when === undefined || on));
+  const works = worksOnlyRuntime(rt);
+  const abduct = abductRuntime(rt);
+  return RUNTIME_SNAPSHOT_SCHEMA.filter((r) => r.cls === cls && rowIsOn(r, works, abduct));
 }
 
 const stateRowsCache = new Map<string, readonly RuntimeRow[]>();
@@ -152,7 +166,8 @@ function kindString(kind: RuntimeKind): string {
   }
 }
 
-const digestCache: [number | null, number | null] = [null, null];
+/** One slot per kind of runtime: bit 0 works-only, bit 1 abduct. */
+const digestCache: (number | null)[] = [null, null, null, null];
 
 /**
  * The sim's own `hashWord` folded over every row of the runtime table (name, class, kind), every owned
@@ -160,8 +175,8 @@ const digestCache: [number | null, number | null] = [null, null];
  * in their order, gets another number, and `restoreSim` refuses it. Lazy and cached: `snapshot.ts` and this
  * file import each other, so nothing here may run at module load.
  */
-export function runtimeSchemaDigest(worksOnly = false): number {
-  const slot = worksOnly ? 1 : 0;
+export function runtimeSchemaDigest(worksOnly = false, abduct = false): number {
+  const slot = (worksOnly ? 1 : 0) | (abduct ? 2 : 0);
   const cached = digestCache[slot];
   if (cached !== null) return cached;
   let h = HASH_SEED;
@@ -171,7 +186,7 @@ export function runtimeSchemaDigest(worksOnly = false): number {
   // A `when` row is folded only for the runtime it belongs to (with its condition), so every other runtime's digest is the
   // one it had before the row existed: a snapshot an earlier build wrote of it still restores.
   for (const row of RUNTIME_SNAPSHOT_SCHEMA) {
-    if (row.when !== undefined && !worksOnly) continue;
+    if (!rowIsOn(row, worksOnly, abduct)) continue;
     fold(`MissionRuntime.${row.name}|${row.cls}|${kindString(row.kind)}${row.when === undefined ? '' : `|when:${row.when}`}\n`);
   }
   for (const name of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) {
@@ -180,6 +195,11 @@ export function runtimeSchemaDigest(worksOnly = false): number {
   for (const r of RUNTIME_REF_RULES) fold(`${r.path}|${r.owner}|${r.key}|${r.into ?? ''}|${r.identity ?? ''}\n`);
   digestCache[slot] = h >>> 0;
   return h >>> 0;
+}
+
+/** The runtime schema digest `rt`'s snapshot carries, and a restore onto `rt` requires: the table's, for its kind of runtime. */
+export function runtimeSchemaDigestOf(rt: unknown): number {
+  return runtimeSchemaDigest(worksOnlyRuntime(rt), abductRuntime(rt));
 }
 
 // ---- the world a section is read against ------------------------------------------------------

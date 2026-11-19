@@ -4,6 +4,7 @@ import type { MissionRuntime } from './mission';
 import { RUNTIME_ROW_SETS, RUNTIME_SNAPSHOT_SCHEMA, runtimeRowsOf, type RowSetName } from './runtime-snapshot-schema';
 import { props } from './runtime-snapshot-schema.test-helper';
 import {
+  ABDUCT_WORLD,
   ECONOMY_WORLD,
   FORWARD_WORLD,
   VERSUS_WORKS_WORLD,
@@ -142,6 +143,7 @@ const POISON_CUTS: readonly { spec: RuntimeWorldSpec; Ts: readonly number[] }[] 
   { spec: SINK_WINDOW_WORLD, Ts: [5] },
   { spec: FORWARD_WORLD, Ts: [20, 100, 136, 300] },
   { spec: VERSUS_WORKS_WORLD, Ts: [3, 100, 150, 200, 330] },
+  { spec: ABDUCT_WORLD, Ts: [3, 60, 80, 610] },
 ];
 
 /** The value of a scratch unit (`MissionRuntime.<row>` or `RowSet.<row>` inside a state record) in a runtime. */
@@ -245,6 +247,7 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
       [SINK_WINDOW_WORLD, 5],
       [FORWARD_WORLD, 300],
       [VERSUS_WORKS_WORLD, 200],
+      [ABDUCT_WORLD, 60],
     ] as const) {
       const w = spec.hooks.build();
       for (let t = 0; t < T; t++) {
@@ -274,7 +277,7 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
     );
     // 95 + ObjectiveState.completeTick (GH-976 P2) + MissionRuntime.appendedAnchors (GH-277 forward camp) + the four side-1 works
     // rows of a works-only runtime (versus field works: worksOfferList1, worksPending1, worksSites1, appendedAnchors1) + E8's
-    // MissionRuntime.abductPace (GH-1438, the escort's pacing word per trigger).
+    // MissionRuntime.abductPace (GH-1438, the escort's pacing word per trigger), a `when: 'abduct'` row the abduct world alone carries.
     expect(seen.size, 'state rows poisoned').toBe(102);
   }, 60_000);
 
@@ -433,6 +436,17 @@ describe('runtime self-checks that must stay red', () => {
     });
     // The purse feeds `economyHash`, so the runtime digest in the hash sees it.
     expect(v.hashDivergedAt, 'the purse is hashed').not.toBeNull();
+  }, 60_000);
+
+  it('the escort\'s pacing word reset to walking (abduct world: the escort is halted at T=60)', () => {
+    const v = selfCheck('abduct pace reset', ABDUCT_WORLD, 60, (b) => {
+      const pace = props(b.runtime).abductPace as number[];
+      const before = image(pace);
+      pace[0] = 0;
+      return image(pace) !== before;
+    });
+    // `digest()` folds an abduct trigger's word, so the runtime digest in the hash sees it.
+    expect(v.hashDivergedAt, 'the pacing word is hashed').not.toBeNull();
   }, 60_000);
 
   it('one production line\'s queue emptied (sink world: three builds queued at tick 3)', () => {
