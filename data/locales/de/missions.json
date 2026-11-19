@@ -301,7 +301,7 @@
     },
     "wave_say": {
       "0": "Alle Zugänge zugleich. Es gibt keinen Schwerpunkt — er braucht keinen.",
-      "2": "Das ist ein Sprengtrupp, der auf die Nordwestseite zugeht. Was auch immer da draußen ist, ist jetzt da draußen.",
+      "2": "Das ist ein Ladungstrupp, der auf die Nordwestseite zugeht. Was auch immer da draußen ist, ist jetzt da draußen.",
       "4": "Jetzt Südost. Dieselbe Seite, andere Ecke — er liest, welche du verstärkt hast."
     },
     "src": {
@@ -329,6 +329,244 @@
       "wave_say.0": "c22390a2",
       "wave_say.2": "1a1f05a7",
       "wave_say.4": "6a792482"
+    }
+  },
+  "bir_tarsha_1_recon": {
+    "name": "Bir Tarsha I — Die Torstraße",
+    "briefing": "Bir Tarsha hat eine einzige Straße, und die Straße endet an einem Tor im Zaun. Die Besatzung dieses Tors kann ich von hier aus lesen; wer die Anlagen besetzt hält, die sich an der Zaunstraße entlang nach Osten ziehen, kann ich nicht lesen. Identifiziere die Besatzung am Tor. Danach bring sechs der acht Bewohner im Westviertel zur Zuflucht im Nordwesten. Sie setzen sich in Bewegung, sobald einer von uns auf vier Felder an sie herangekommen ist oder sobald eine Granate in ihrer Nähe einschlägt, und der zweite Weg ist der, den ich nicht wählen würde. Die Ostanlagen sind der andere Weg, und die Besatzung dort ist nichts, was ich sehen kann. Erst die Leute geleiten, dann nach Osten schauen. Fünf Minuten für die Bewohner, sechs für das Lagebild. Südlich des Tors liegt der Zaun, und dahinter beginnen die Badlands. Ihr Rand ist eine markierte Linie, und eine Granate, die darüber einschlägt, ist die teuerste, die du heute Morgen abfeuern kannst. Sechs hinaus und das Tor benannt. Eine Besatzung, die du nicht gefunden hast, findet der nächste Kampf für dich.",
+    "dispatch": "Die Brigaden gingen im Frühjahr heim und kamen im Herbst zurück. Die letzte Bastion des Marj liegt an seinem Südende, an einem Zaun, über den niemand schießt.",
+    "debrief": {
+      "victory": "Das Tor hat einen Namen, und sechs sind aus dem Westviertel heraus. Die Anlagen an der Zaunstraße sind noch ein halbes Bild, und die Hälfte hast du mir gegeben.",
+      "defeat": "Nicht heute Morgen. Das Tor ist jetzt wach, und das Westviertel liegt, wie es zurückgelassen wurde."
+    },
+    "objectives": {
+      "identify_the_gate": "Besatzung am Tor identifizieren",
+      "six_out": "Sechs Bewohner zur Zuflucht bringen",
+      "find_the_crew": "Besatzung der Ostanlagen identifizieren"
+    },
+    "objective_say": {
+      "identify_the_gate": "Das ist die Besatzung an der Straße: eine Schützenzelle, ein Lenkwaffentrupp und ein Raketenwerfertrupp. Die Blöcke dahinter bergen mehr, und ich kann nicht lesen, was.",
+      "six_out": "Sechs draußen. Das Westviertel ist ruhig und hat einen Grund weniger, ein Ziel zu sein.",
+      "find_the_crew": "Markiert. Das ist die Besatzung der Ostanlagen, und wenn wir das nächste Mal diese Straße hinunterkommen, kann ich dir sagen, welche Posten ihre sind."
+    },
+    "objective_say_on_fail": {
+      "six_out": "Das Viertel ist für uns jetzt geschlossen. Einen zweiten Morgen für einen solchen Gang gibt es nicht, und die Leute darin wissen das."
+    },
+    "triggers": {
+      "bt1_works_stir": "Die Ostanlagen regen sich"
+    },
+    "trigger_say": {
+      "bt1_works_stir": "Bewegung an den Ostanlagen. Wer dort sitzt, hat das Tor gehört, und von jetzt an schaut er nach Westen."
+    },
+    "src": {
+      "name": "f3fdcde5",
+      "briefing": "88ddedf2",
+      "objectives.identify_the_gate": "d9707246",
+      "objectives.six_out": "3a8da360",
+      "objectives.find_the_crew": "c41423af",
+      "triggers.bt1_works_stir": "ef9652d0",
+      "dispatch": "a2eb4b3b",
+      "debrief.victory": "7c6194ed",
+      "debrief.defeat": "eb6cc2f8",
+      "objective_say.identify_the_gate": "6ebe588c",
+      "objective_say.six_out": "987a4a0b",
+      "objective_say.find_the_crew": "29cab91e",
+      "objective_say_on_fail.six_out": "4faec83a",
+      "trigger_say.bt1_works_stir": "284a5f99"
+    }
+  },
+  "bir_tarsha_2_foothold": {
+    "name": "Bir Tarsha II — Das Tor",
+    "briefing": "Das Tor ist eine zwei Felder breite Lücke im Zaun zwischen zwei Betonblöcken, und es gehört dir, wenn du es vier Minuten halten kannst. Ich erwarte zwei Vorstöße, beide vom Ostende der Zaunstraße, und der zweite ist härter als der erste. Halte das Tor vier Minuten. Das Lager kauft Infanterie und einen Lavi, und du wirst beides brauchen. Zehn Bewohner stehen an der Querstraße nördlich des sicheren Viertels, dem einzigen Viertel der Stadt, das niemandem gehört. Sie setzen sich in Bewegung, sobald einer von uns auf vier Felder an sie herangekommen ist. Sieben herein innerhalb von fünf Minuten, sonst ist das Viertel eine Wand und kein Viertel. Setz keine Mörsergranate in seine Nähe, um das Tor zu erkaufen. Ihr Mörser steht auf der östlichen Feuerstellung und ist auf die Querstraße eingerichtet. Der Rand der Badlands liegt hinter dir, und eine Granate, die jenseits des Zauns einschlägt, kostet mehr als jede, die du hier aufbringen kannst. Das Dach des Terminals ist fünfzehn Sekunden wert, wenn du die Schützen entbehren kannst. Das Tor kommt zuerst.",
+    "debrief": {
+      "victory": "Das Tor gehört uns, und das sichere Viertel ist noch ein Viertel. Das Lager bleibt, und wenn diese Straße das nächste Mal offen ist, dann von unserer Seite aus.",
+      "defeat": "Das Tor ist wieder ihres, und das Viertel mit ihm. Das Lager geht nicht mit; das Gelände schon."
+    },
+    "objectives": {
+      "hold_the_gate": "Das Tor vier Minuten halten",
+      "seven_in": "Sieben Bewohner ins sichere Viertel bringen",
+      "take_the_roof": "Das Dach des Terminals fünfzehn Sekunden halten"
+    },
+    "objective_say": {
+      "take_the_roof": "Das Dach gehört uns. Jedes Fenster an der Zaunstraße blickt uns jetzt von unserer eigenen Seite an."
+    },
+    "objective_say_on_fail": {
+      "seven_in": "Das Viertel ist nicht offen. Ein Tor ohne jemanden dahinter ist eine Wand, und es bleibt in dieser Stadt nichts mehr, wofür wir es halten könnten."
+    },
+    "wave_say": {
+      "0": "Erster Vorstoß, vom Ostende der Zaunstraße. Es ist der leichtere von zweien, und er soll uns zeigen, wohin das Gewicht geht.",
+      "1": "Zweiter Vorstoß. Ein Ladungstrupp läuft mit, und er läuft aufs Terminal zu, nicht auf dich."
+    },
+    "src": {
+      "name": "047d92cc",
+      "briefing": "3c9585ab",
+      "objectives.hold_the_gate": "3b702112",
+      "objectives.seven_in": "b9262fb4",
+      "objectives.take_the_roof": "aa6994ea",
+      "debrief.victory": "c75f8043",
+      "debrief.defeat": "44dc7ef9",
+      "objective_say.take_the_roof": "775a2764",
+      "objective_say_on_fail.seven_in": "f50a9a3b",
+      "wave_say.0": "538f84ae",
+      "wave_say.1": "cf14548d"
+    }
+  },
+  "bir_tarsha_3_clearance": {
+    "name": "Bir Tarsha III — Zwei Häuser",
+    "briefing": "Zwei Wohnblöcke stehen zehn Felder voneinander entfernt im Lagerviertel, in jedem zwei der bei First Light Verschleppten. Ich kann beide Türen und die Wache an jeder ausmachen, aber nichts im Inneren. Schalte die Wache an jeder Tür aus und bring drei der vier innerhalb von sechs Minuten zum Abholpunkt am Nordrand. Weniger als drei ist eine Niederlage. Wer am Boden rund um einen der Blöcke ist, warnt den anderen innerhalb von zwanzig Sekunden, und ihre Feuerstellungen decken die Gasse dazwischen. Ein Raketentrupp auf jedem Dach sieht in jeden Hof, den du überquerst. Also teilt euch und geht gleichzeitig hinein, oder nimm einen und kämpfe um den zweiten. Der zweite ist langsamer, lauter und teurer. In beiden Blöcken wohnen Menschen, und der Block, der die Verschleppten hält, hält auch die Nachbarn. Eine Kanonengranate in einen von beiden kostet vierzehn Verhalten. Fünfzehn ist die Grenze. Ein Treffer auf einen Block sind vierzehn, und ein zweiter Treffer beendet den Einsatz.",
+    "aftermath": "Drei kamen aus dem Lagerviertel zurück, oder vier, und der Marj hat jeden von ihnen gezählt.",
+    "hostages_place": "der Norden des Lagerviertels",
+    "debrief": {
+      "victory": "Drei oder vier kamen die Gasse herunter zurück. Zwei Häuser sollten nie gleichzeitig genommen werden, und das Lagerviertel hat das nun zu bedenken.",
+      "defeat": "Nicht heute. Die Blöcke sind gewarnt und die Gasse ist gedeckt, und die Menschen darin sind genau da, wo sie waren."
+    },
+    "objectives": {
+      "bring_three_out": "Drei der vier Verschleppten zum Abholpunkt bringen",
+      "guard_west": "Wache am Westblock ausschalten",
+      "guard_east": "Wache am Ostblock ausschalten",
+      "keep_the_blocks": "Höchstens 15 Verhalten verlieren"
+    },
+    "objective_say": {
+      "bring_three_out": "Drei am Nordrand. Ich zähle sie noch einmal, wenn ihr aus der Gasse heraus seid.",
+      "guard_west": "Westtür ist offen. Bleib nicht im Hof stehen.",
+      "guard_east": "Osttür ist offen. Die Gasse ist die gefährliche Hälfte."
+    },
+    "objective_say_on_fail": {
+      "bring_three_out": "Es sind keine drei mehr zu bringen. Was auch immer das hier war, es war keine Zahl, bei der wir uns einen Irrtum leisten konnten.",
+      "keep_the_blocks": "Das ist über fünfzehn. Ein Block mit einer Kanonengranate darin ist nicht das, was wir herausholen wollten."
+    },
+    "triggers": {
+      "bt3_west_warns_east": "Der Ostblock wurde gewarnt",
+      "bt3_east_warns_west": "Der Westblock wurde gewarnt"
+    },
+    "trigger_say": {
+      "bt3_west_warns_east": "Schüsse am Westblock. Der Ostblock hat sie gehört und schickt einen Trupp in seinen Hof.",
+      "bt3_east_warns_west": "Der Westblock hat das gehört. Zwanzig Sekunden gibt die Gasse ihnen, um sie zu überqueren."
+    },
+    "src": {
+      "name": "e20dc6fb",
+      "briefing": "534c5b2d",
+      "objectives.bring_three_out": "623156a6",
+      "objectives.guard_west": "854ed4cf",
+      "objectives.guard_east": "13239920",
+      "objectives.keep_the_blocks": "bd39ccda",
+      "triggers.bt3_west_warns_east": "4e4a551f",
+      "triggers.bt3_east_warns_west": "a9b2dcf9",
+      "aftermath": "cadca5b2",
+      "hostages_place": "dd8b8617",
+      "debrief.victory": "4dfe491e",
+      "debrief.defeat": "acfe79bc",
+      "objective_say.bring_three_out": "fd15eecc",
+      "objective_say.guard_west": "d086a22c",
+      "objective_say.guard_east": "9f97b1be",
+      "objective_say_on_fail.bring_three_out": "2b77ddd6",
+      "objective_say_on_fail.keep_the_blocks": "b77daa93",
+      "trigger_say.bt3_west_warns_east": "e42e3f7e",
+      "trigger_say.bt3_east_warns_west": "f7b11b1c"
+    }
+  },
+  "bir_tarsha_4_clearance": {
+    "name": "Bir Tarsha IV — Die Klingenlinie",
+    "briefing": "Zwischen dem Zaun und dem Weiler liegt ein dreißig Felder langer Gürtel aus Anlagen: Feuerstellungen, Posten, Werkstätten und Erdwälle. Wenn du die Besatzung der Ostanlagen gefunden hast, kann ich sagen, welche davon ihre sind, und wenn nicht, dann alle. Vier D9 stehen dir dafür zur Verfügung, und das Bataillon geht mit ihnen. Planiere jede Anlage im Gürtel und bring die Klingen zum fernen Tor durch, und verlierst du zwei Klingen, ist der Einsatz vorbei. Nördlich des Gürtels liegt ein Weiler, acht Felder vom nächsten Posten, und er ist bewohnt. Ich erwarte Feuer aus seinem Windschatten, sobald irgendetwas von uns den Gürtel betritt, und es ist darauf angelegt, in ein Haus hinein beantwortet zu werden. Antworte nicht in ein Haus hinein. Ein Haus sind sechs Verhalten, zwei sind zwölf, und ein drittes ist der Einsatz. Eine T-Wand sperrt die Straße am Ostende, und ein D9 schneidet sie auf, wo Räder sie nicht überqueren können. Solange sie steht, ist das ferne Tor unerreichbar, und drei Schächte im Gürtel öffnen sich im Rücken dessen, der die Wand im Blick hat. Erdwälle sind niedrig, und eine Klinge nimmt keinen im Vorbeifahren, also braucht jeder einen eigenen Befehl. Schächte hinunter, Anlagen planiert, Klingen durch.",
+    "debrief": {
+      "victory": "Der Gürtel ist eingeebnet, und die Klingen sind durch. An der Zaunstraße steht nichts, was nicht von denen hingestellt wurde, die sie verlassen haben.",
+      "defeat": "Nicht dieses Mal. Was an der Zaunstraße stehen geblieben ist, schaut noch immer aufs Tor, und die Klingen, die nicht zurückkamen, sind nicht an uns zu zählen."
+    },
+    "objectives": {
+      "blades": "Die vier Klingen zum fernen Tor durchbringen",
+      "clear_works": "Die Anlagen an der Zaunstraße in sechseinhalb Minuten einebnen",
+      "drop_shafts": "Die drei Schächte in den Anlagen zum Einsturz bringen",
+      "keep_the_hamlet": "Höchstens 12 Verhalten verlieren"
+    },
+    "objective_say": {
+      "blades": "Klingen durch die Zaunlinie. Zähl sie auf der anderen Seite.",
+      "clear_works": "Der Gürtel ist eingeebnet. Alles auf diesem Streifen ist flach, bis auf die Wand.",
+      "drop_shafts": "Drei Schächte unten. Nichts im Gürtel läuft mehr unter der Straße hindurch."
+    },
+    "objective_say_on_fail": {
+      "blades": "Das sind zwei Klingen weniger. Mit der halben Linie lässt sich die Arbeit von der nahen Seite nicht beenden.",
+      "keep_the_hamlet": "Das ist über zwölf. Ein Haus steckt in der Zählung, das nicht darin sein sollte."
+    },
+    "triggers": {
+      "bt4_lee_opens": "Feuer aus dem Windschatten des Weilers",
+      "bt4_vent_opens": "Hinter der Eskorte hat sich ein Schacht geöffnet"
+    },
+    "trigger_say": {
+      "bt4_lee_opens": "Raketentrupps aus dem Windschatten des Weilers, auf der Gasse. Die Häuser stehen hinter ihnen, und dorthin soll die Antwort gehen.",
+      "bt4_vent_opens": "Ein Schacht hat sich hinter dir aufgetan, südlich des Weilers. Er hat gewartet, bis die Klingen vorbei sind."
+    },
+    "src": {
+      "name": "52569982",
+      "briefing": "8cdb9e35",
+      "objectives.blades": "b251e5af",
+      "objectives.clear_works": "8c5027e7",
+      "objectives.drop_shafts": "640cbdbf",
+      "objectives.keep_the_hamlet": "d311f8ba",
+      "triggers.bt4_lee_opens": "84d673af",
+      "triggers.bt4_vent_opens": "f314e93e",
+      "debrief.victory": "ad10e460",
+      "debrief.defeat": "72d3cfe6",
+      "objective_say.blades": "8f5230c9",
+      "objective_say.clear_works": "57c8d0c4",
+      "objective_say.drop_shafts": "f6ef41d9",
+      "objective_say_on_fail.blades": "0f7334b0",
+      "objective_say_on_fail.keep_the_hamlet": "61843c4e",
+      "trigger_say.bt4_lee_opens": "60e098ea",
+      "trigger_say.bt4_vent_opens": "faedceb3"
+    }
+  },
+  "bir_tarsha_5_subterranean": {
+    "name": "Bir Tarsha V — Unter dem Zaun",
+    "briefing": "Fünf Routen verlaufen unter der Zaunstraße zur Grenze hin. Eine wurde breit genug für einen Lkw gegraben, und sie ist die, auf die es ankommt, und sie liegt so weit östlich, wie sie sie führen konnten. Bring alle fünf innerhalb von sechseinhalb Minuten zum Einsturz. Die Pioniere nehmen die Ladungen, und der Rest von euch hält sie am Leben, bis sie gesetzt sind. Die Erkundung der Pioniere hat am Kopf der Ostroute eine Betonkammer gefunden, mit einer Person darin, allein. Sie liegt an der Oberfläche und läuft nicht auf der Uhr. Bring diese Person hinaus, bevor die letzte Ladung zündet, denn der Einsatz endet in dem Moment, in dem die Routen unten sind. Die Ladungen sind der Befehl; die Person ist deine Entscheidung. Ein Blockkommandeur hält den Posten östlich des Kamms. Sobald ein Drittel der Zellen auf diesem Streifen ausgeschaltet ist, zieht er nach Norden, und was vom Marj an Zellen übrig ist, zieht mit ihm. Das Licht geht in zehn Minuten, und die Häuser an der Oberfläche sind bewohnt. Gehen mehr als zehn Verhalten verloren, ist der Einsatz vorbei.",
+    "aftermath": "Die Zaunstraße ist still, und die Grenze, an der sie entlanglief, ist nur noch ein Zaun. Mit dem Marj ist es nicht vorbei, aber er liegt hinter der Brigade, und die Brigade hat anderswo zu tun.",
+    "hostages_place": "die Zaunstraße",
+    "debrief": {
+      "victory": "Die Routen unter der Zaunstraße sind unten. Was vom Marj übrig war, ging nach Norden, und die Brigade folgte nicht.",
+      "defeat": "Nicht heute Nacht. Die Routen unter dem Zaun sind noch offen, und die Dämmerung gehört jetzt ihnen."
+    },
+    "objectives": {
+      "all_five": "Die fünf Routen unter der Zaunstraße in sechseinhalb Minuten zum Einsturz bringen",
+      "keep_the_surface": "Höchstens 10 Verhalten verlieren",
+      "walk_the_person_out": "Die Person in der Kammer zur Zuflucht bringen",
+      "take_the_commander": "Den Blockkommandeur fassen"
+    },
+    "objective_say": {
+      "all_five": "Alle fünf unten. Die Zaunstraße führt über nichts hinweg.",
+      "walk_the_person_out": "Einer draußen und unterwegs. Das ist der, der zählt, und er läuft auf keiner Uhr.",
+      "take_the_commander": "Der Posten gehört uns. Die Routen darunter lassen sich jetzt in beliebiger Reihenfolge nehmen."
+    },
+    "objective_say_on_fail": {
+      "all_five": "Die Uhr ist abgelaufen. Was unter dem Zaun noch offen ist, steht jedem offen.",
+      "keep_the_surface": "Das ist über zehn. Die Häuser über den Routen sind jetzt die Rechnung."
+    },
+    "triggers": {
+      "bt5_commander_moves": "Der Blockkommandeur zieht nach Norden",
+      "bt5_chamber_reached": "Die Kammer ist in Reichweite"
+    },
+    "trigger_say": {
+      "bt5_commander_moves": "Der Posten östlich des Kamms leert sich nach Norden. Wer ihn verlassen hat, trägt den Rest mit sich, und er kommt nicht zurück.",
+      "bt5_chamber_reached": "Du bist an der Kammer. Bring diese eine Person hinaus, bevor du die letzte Route anrührst."
+    },
+    "src": {
+      "name": "28e9fa4c",
+      "briefing": "ceaf14ff",
+      "objectives.all_five": "4b291f6a",
+      "objectives.keep_the_surface": "a2e99ae1",
+      "objectives.walk_the_person_out": "206e8e8f",
+      "objectives.take_the_commander": "d0bcd665",
+      "triggers.bt5_commander_moves": "1ee8d313",
+      "triggers.bt5_chamber_reached": "8682e9e0",
+      "aftermath": "73b6922f",
+      "hostages_place": "11fbe44a",
+      "debrief.victory": "4f00f68d",
+      "debrief.defeat": "d6031d9e",
+      "objective_say.all_five": "e8d4a327",
+      "objective_say.walk_the_person_out": "72f26f2b",
+      "objective_say.take_the_commander": "6c1de051",
+      "objective_say_on_fail.all_five": "131d4246",
+      "objective_say_on_fail.keep_the_surface": "6f65eace",
+      "trigger_say.bt5_commander_moves": "50c5f458",
+      "trigger_say.bt5_chamber_reached": "453d8c4e"
     }
   },
   "deir_amun_1_recon": {
@@ -430,12 +668,12 @@
     "triggers": {
       "the_village_comes_down_to_the_yard": "Dorf kommt zum Hof herab",
       "the_yard_party_falls_back_up_the_lane": "Hoftrupp zieht sich die Gasse hinauf zurück",
-      "a_charge_squad_comes_down_the_lane": "Sprengtrupp kommt die Gasse herab"
+      "a_charge_squad_comes_down_the_lane": "Ladungstrupp kommt die Gasse herab"
     },
     "trigger_say": {
       "the_village_comes_down_to_the_yard": "Das Dorf kommt die Gasse zum Hof herunter. Da oben stehen neun Häuser, und kein Mensch darin; jeder Körper in dieser Straße ist ein Kämpfer.",
       "the_yard_party_falls_back_up_the_lane": "Der Hoftrupp ist aus dem Pumpenhaus und geht die Gasse nach Norden hinauf.",
-      "a_charge_squad_comes_down_the_lane": "Sprengtrupp die Gasse herab. Hol die Pioniere von der Mündung oder bring etwas zwischen ihn und sie."
+      "a_charge_squad_comes_down_the_lane": "Ladungstrupp die Gasse herab. Hol die Pioniere von der Mündung oder bring etwas zwischen ihn und sie."
     },
     "wave_say": {
       "2": "Zwei Gruppen über die mittlere Furt. Sie gehen nicht zum Hof — sie gehen zum Lager am Ufer, und das Lager ist vier Felder von dieser Furt entfernt."
@@ -475,7 +713,7 @@
       "execution": "Der Kontakt erlischt etwa sechzehn Sekunden, nachdem das letzte Auge ihn verliert; die Drohne ist ein Zeiger, kein Späher, und hinter einem Gebäude so blind wie ein Schütze. Arbeite sie der Reihe nach ab und halte dich daran. Wer in einer eingestürzten Route liegt, stirbt mit ihr, also entscheidet die erste Wahl, welche der übrigen hinter dir hochkommt. Eine mündet an deiner eigenen Straße nach Osten. Was du dort stehen lässt, steht unter deiner Panzerung. Das Dorf liegt auf der Kante unterhalb des Plateaus, und du erreichst es durch zwei Schluchten; der Chef steht diesmal hinter ihm: auf dem Aushubfeld südlich des Dorfes, eine Stufe über der Umgebung, auf Boden, den seine eigenen Trupps aufgeschüttet haben. Er geht nicht unter die Erde und verlässt das Feld nicht. Kanone des Lavi und Mörser werden in diesem Dorf pro zehn Sekunden berechnet, und nichts darin ist das Geld wert. Gewehre und das MG .50 des Eitan sind kostenlos.",
       "notes": "Alle vier in fünf Minuten zum Einsturz bringen und den Chef von diesem Aushub holen."
     },
-    "aftermath": "Sechs Routen unter der Kreuzung, und bis zum Morgen führte keine mehr irgendwohin. Die Brigade setzte einen dritten Stern auf den Zettel und sagte sonst nichts dazu. Der Marj ist ruhig. Sur nicht.",
+    "aftermath": "Sechs Routen unter der Kreuzung, und bis zum Morgen führte keine mehr irgendwohin. Die Brigaden gingen im Frühjahr heim, und ein Bataillon blieb am Einschnitt. Der Marj war bis zum Herbst ruhig.",
     "debrief": {
       "victory": "Alle vier, und die Akte zu dieser Gegend wird heute Nacht geschlossen. Den Mann zu fassen hat nie etwas davon gestoppt — der Boden war, was er war, und davon ist hier unten nichts mehr übrig.",
       "defeat": "Das Dorf steht auf vier offenen Routen, und wir rücken ab. Diese Gegend arbeitet morgen genau so wie gestern."
@@ -497,12 +735,12 @@
     "triggers": {
       "the_village_comes_out_of_its_houses": "Dorf strömt aus den Häusern in die Gassen",
       "he_falls_back_onto_his_own_spoil": "Chef weicht auf seinen Aushub zurück",
-      "a_charge_squad_comes_for_the_engineers": "Sprengtrupp zielt auf die Pioniere"
+      "a_charge_squad_comes_for_the_engineers": "Ladungstrupp zielt auf die Pioniere"
     },
     "trigger_say": {
       "the_village_comes_out_of_its_houses": "Sie sind aus den Häusern heraus und in den Gassen zwischen den Eingängen.",
       "he_falls_back_onto_his_own_spoil": "Er ist zurück aufs Aushubfeld gegangen. Es ist der einzige erhöhte Boden unter der Kante, und seine Trupps bauten ihn aus den Routen, die du hier zum Einsturz bringen sollst.",
-      "a_charge_squad_comes_for_the_engineers": "Sprengtrupp in den Gassen, und deine Pioniere sind das Einzige auf dieser Karte, das stillstehen muss. Deckt sie oder zieht sie ab."
+      "a_charge_squad_comes_for_the_engineers": "Ladungstrupp in den Gassen, und deine Pioniere sind das Einzige auf dieser Karte, das stillstehen muss. Deckt sie oder zieht sie ab."
     },
     "wave_say": {
       "1": "Ein Raketentrupp und ein Technical auf der Westflankenstraße. Mehr können die Flanken nicht schicken; danach setzt er ein, was unter der Erde liegt."
@@ -517,7 +755,7 @@
       "triggers.the_village_comes_out_of_its_houses": "637cad50",
       "triggers.he_falls_back_onto_his_own_spoil": "b152e511",
       "triggers.a_charge_squad_comes_for_the_engineers": "7f82a4bd",
-      "aftermath": "4a2a183a",
+      "aftermath": "d729db81",
       "debrief.victory": "5324aabc",
       "debrief.defeat": "59eda46d",
       "sections.situation": "848ff873",
@@ -802,12 +1040,12 @@
     "triggers": {
       "they_walk_into_the_ward": "Feind rückt in den Bezirk vor",
       "the_block_pulls_back_into_the_souk": "Block weicht in den Souk zurück",
-      "a_charge_squad_comes_for_the_gate": "Sprengtrupp rückt aufs Tor vor"
+      "a_charge_squad_comes_for_the_gate": "Ladungstrupp rückt aufs Tor vor"
     },
     "trigger_say": {
       "they_walk_into_the_ward": "Sie marschieren in den Bezirk. Nicht drum herum und nicht auf die Tore — hinein, denn es ist das einzige Stück Boden auf dieser Karte, auf dem deine Waffen die sind, die dich etwas kosten.",
       "the_block_pulls_back_into_the_souk": "Der Trupp vor der Anlage ist in den Souk zurückgegangen. Sie sind nicht erledigt; sie verkürzen die Linie.",
-      "a_charge_squad_comes_for_the_gate": "Ein Sprengtrupp aus dem Souk, auf dem Weg zum Tor. Er ist das Einzige auf dieser Karte, das eine Familie innerhalb der Mauer töten kann, und ihm ist gleich, auf welcher Seite er stirbt."
+      "a_charge_squad_comes_for_the_gate": "Ein Ladungstrupp aus dem Souk, auf dem Weg zum Tor. Er ist das Einzige auf dieser Karte, das eine Familie innerhalb der Mauer töten kann, und ihm ist gleich, auf welcher Seite er stirbt."
     },
     "wave_say": {
       "0": "Zwei Gruppen auf der Nordstraße zum Tor. Alle zwei Minuten, nach der Uhr, ob am Tor etwas zu bekämpfen ist oder nicht.",
