@@ -68,4 +68,25 @@ export const bt2Plan: Plan = (sim, rt, ids, at) => {
         }
       }
     });
+  // The roof (the secondary `take_the_roof`, GH-1438). The terminal's garrison, one militia cell at (26.5,36.5), stands inside the roof zone and contests it, and on some seeds (18) it is still alive
+  // when the mission is won, because nothing in this plan shoots it: so the Lavi and the sniper take it (north of y 38, so no round lands in the Badlands), and once it is down two squads stand
+  // in the zone for the 15 s the hold takes and then go back to the plan's own orders (left there one was lost in the second wave).
+  let garrison = -1;
+  at(0, () => {
+    let bd = 1;
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.side[i] !== 1 || sim.state.alive[i] !== 1) continue;
+      const d = Math.hypot(Number(sim.state.posX[i]) / 65536 - 26.5, Number(sim.state.posY[i]) / 65536 - 36.5);
+      if (d <= bd) { bd = d; garrison = i; }
+    }
+  });
+  for (let s = 100; s < 600; s += 5)
+    at(s, () => {
+      if (rt.objectiveStatus('take_the_roof') === 'complete') return; // held: the squads go back to the plan's own orders
+      if (garrison >= 0 && sim.state.alive[garrison] === 1) {
+        sim.queueCommand({ kind: 'attack', ids: alive([...armour, ...ids('sniper_team')]), target: garrison });
+        return;
+      }
+      sim.queueCommand({ kind: 'move', ids: alive(ids('inf_squad')).slice(0, 2), ...M(26.5, 35.5) });
+    });
 };
