@@ -148,11 +148,21 @@ jobs:
       # scenes through the shipped mixer in a headless Chromium's
       # OfflineAudioContext, measured with the ffmpeg installed above. Offline
       # rendering needs no GPU; the check itself is ~16 s locally.
+      # Key the browser cache by Ubuntu release as well as runner.os (which is only
+      # "Linux"). When ubuntu-latest moved 24.04 -> 26.04 a cache saved on 24.04 was
+      # restored onto 26.04, `playwright install` found the directory and fetched
+      # nothing, and the 24.04 WebKit (libicu74) died on 26.04 (libicu78). Chromium is
+      # a generic build, so only the WebKit and Firefox jobs strictly need this; all
+      # five caches carry it for consistency. (`env.ImageOS` is not visible to the
+      # env context, hence the os-release read.)
+      - name: Runner Ubuntu release (Playwright cache key)
+        id: osrel
+        run: . /etc/os-release && echo "id=${ID}${VERSION_ID}" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers (mix check)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-chromium-${{ runner.os }}-${{ steps.osrel.outputs.id }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium (mix check)
         # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
         # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
@@ -251,11 +261,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Key the browser cache by Ubuntu release as well as runner.os (which is only
+      # "Linux"). When ubuntu-latest moved 24.04 -> 26.04 a cache saved on 24.04 was
+      # restored onto 26.04, `playwright install` found the directory and fetched
+      # nothing, and the 24.04 WebKit (libicu74) died on 26.04 (libicu78). Chromium is
+      # a generic build, so only the WebKit and Firefox jobs strictly need this; all
+      # five caches carry it for consistency. (`env.ImageOS` is not visible to the
+      # env context, hence the os-release read.)
+      - name: Runner Ubuntu release (Playwright cache key)
+        id: osrel
+        run: . /etc/os-release && echo "id=${ID}${VERSION_ID}" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-three-${{ runner.os }}-${{ steps.osrel.outputs.id }}-${{ hashFiles('pnpm-lock.yaml') }}
       # Three engines, not one: `net:engines` below boots the battlefield in
       # Firefox and WebKit too. The cache key changed with the set, so a cache
       # holding Chromium alone is never restored over a three-engine install.
@@ -489,11 +509,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Key the browser cache by Ubuntu release as well as runner.os (which is only
+      # "Linux"). When ubuntu-latest moved 24.04 -> 26.04 a cache saved on 24.04 was
+      # restored onto 26.04, `playwright install` found the directory and fetched
+      # nothing, and the 24.04 WebKit (libicu74) died on 26.04 (libicu78). Chromium is
+      # a generic build, so only the WebKit and Firefox jobs strictly need this; all
+      # five caches carry it for consistency. (`env.ImageOS` is not visible to the
+      # env context, hence the os-release read.)
+      - name: Runner Ubuntu release (Playwright cache key)
+        id: osrel
+        run: . /etc/os-release && echo "id=${ID}${VERSION_ID}" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-three-${{ runner.os }}-${{ steps.osrel.outputs.id }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
         # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
         # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
@@ -605,11 +635,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Key the browser cache by Ubuntu release as well as runner.os (which is only
+      # "Linux"). When ubuntu-latest moved 24.04 -> 26.04 a cache saved on 24.04 was
+      # restored onto 26.04, `playwright install` found the directory and fetched
+      # nothing, and the 24.04 WebKit (libicu74) died on 26.04 (libicu78). Chromium is
+      # a generic build, so only the WebKit and Firefox jobs strictly need this; all
+      # five caches carry it for consistency. (`env.ImageOS` is not visible to the
+      # env context, hence the os-release read.)
+      - name: Runner Ubuntu release (Playwright cache key)
+        id: osrel
+        run: . /etc/os-release && echo "id=${ID}${VERSION_ID}" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-three-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-three-${{ runner.os }}-${{ steps.osrel.outputs.id }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
         # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
         # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.
@@ -683,11 +723,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Key the browser cache by Ubuntu release as well as runner.os (which is only
+      # "Linux"). When ubuntu-latest moved 24.04 -> 26.04 a cache saved on 24.04 was
+      # restored onto 26.04, `playwright install` found the directory and fetched
+      # nothing, and the 24.04 WebKit (libicu74) died on 26.04 (libicu78). Chromium is
+      # a generic build, so only the WebKit and Firefox jobs strictly need this; all
+      # five caches carry it for consistency. (`env.ImageOS` is not visible to the
+      # env context, hence the os-release read.)
+      - name: Runner Ubuntu release (Playwright cache key)
+        id: osrel
+        run: . /etc/os-release && echo "id=${ID}${VERSION_ID}" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-chromium-${{ runner.os }}-${{ steps.osrel.outputs.id }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright Chromium
         # Retried: apt on the runner sometimes fails to resolve the Ubuntu mirror (11 Nov: 8 PRs red on
         # 'Temporary failure resolving azure.archive.ubuntu.com'). Three tries, 30 s apart, then fail.

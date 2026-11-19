@@ -40,6 +40,7 @@ import {
   type Props,
 } from './runtime-snapshot-schema.test-helper';
 import { walkForward } from './runtime-forward-world.test-helper';
+import { walkVersusWorks } from './runtime-versus-works-world.test-helper';
 import { sinkWorld, walkSink, type Checkpoint } from './runtime-sink-world.test-helper';
 import type { Sim } from './sim';
 
@@ -215,12 +216,24 @@ describe('runtime snapshot schema: completeness over the forward-camp world', ()
   }, 60_000);
 });
 
+describe('runtime snapshot schema: completeness over the versus works world', () => {
+  it('every property has a row and every row a property, with both sides raising, side 1 appending a line and cancelling', () => {
+    const seen = new Set<string>();
+    walkVersusWorks((c) => {
+      expect(checkRuntime(c.label, c.rt, c.sim, seen), c.label).toEqual([]);
+    });
+    // The side-1 rows are populated in this world and in no other: each is checked against a real value.
+    for (const n of ['worksOfferList1', 'worksPending1', 'worksSites1', 'appendedAnchors1']) expect(seen.has(`MissionRuntime.${n}`), n).toBe(true);
+  }, 60_000);
+});
+
 describe('runtime snapshot schema: the table itself', () => {
-  it('the 100 rows are in creation order, each name once', () => {
+  it('the 104 rows are in creation order, each name once', () => {
+    // 100, then the four side-1 works rows of a works-only runtime (versus field works), which every runtime HAS.
     const { rt } = economySetup(ECONOMY_SEED);
     expect(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).toEqual(Object.keys(rt));
-    expect(RUNTIME_SNAPSHOT_SCHEMA).toHaveLength(100);
-    expect(new Set(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).size).toBe(100);
+    expect(RUNTIME_SNAPSHOT_SCHEMA).toHaveLength(104);
+    expect(new Set(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).size).toBe(104);
   });
 
   it('the classes are exactly the ones the design names; everything else is state', () => {
@@ -415,6 +428,7 @@ describe('runtime snapshot schema: the census', () => {
     walkRelief(RELIEF_TICKS_CHECKED, (c) => void checkRuntime(c.label, c.rt, c.sim, seen));
     walkSink((c) => void checkRuntime(c.label, c.rt, c.sim, seen));
     walkForward((c) => void checkRuntime(c.label, c.rt, c.sim, seen));
+    walkVersusWorks((c) => void checkRuntime(c.label, c.rt, c.sim, seen));
     const unexercised = ALL_KEYS.filter((k) => !seen.has(k)).sort();
     // A row that appears here has only ever been checked against an empty container or a null: its
     // kind is the schema's claim from reading `mission.ts`, not something a live value confirmed.
@@ -444,6 +458,7 @@ function censusOfSimWorlds(): ReturnType<typeof newCensus> {
   walkRelief(RELIEF_TICKS_CHECKED, at);
   walkSink(at);
   walkForward(at);
+  walkVersusWorks(at);
   return acc;
 }
 
@@ -584,6 +599,7 @@ describe('runtime snapshot schema: the aliasing census can fail', () => {
     walkRelief([1, 1705], at);
     walkSink(at);
     walkForward(at);
+    walkVersusWorks(at);
     return out;
   })();
 
@@ -811,6 +827,7 @@ const ROWS_ONLY_THE_SINK_WORLD_FILLS: readonly string[] = [
   'MissionRuntime.razeTargets', 'MissionRuntime.rescuedBack', 'MissionRuntime.roeGainJudged', 'MissionRuntime.rosterPool',
   'MissionRuntime.routeFoundBy', 'MissionRuntime.spawnedWaves', 'MissionRuntime.tags', 'MissionRuntime.ventXY',
   'MissionRuntime.worksList', 'MissionRuntime.worksOfferList', 'MissionRuntime.worksPending', 'MissionRuntime.worksSites',
+  'MissionRuntime.worksOfferList1', 'MissionRuntime.worksPending1', 'MissionRuntime.worksSites1', 'MissionRuntime.appendedAnchors1',
   'MissionRuntime.worksStructures', 'MissionRuntime.woundParentOf', 'MissionRuntime.woundedIn', 'MissionRuntime.zoneDeductedAt',
   'PatrolState.id', 'PatrolState.idx', 'PatrolState.waypoints', 'ProductionLine.queue', 'RouteSource.roadMask',
   'WorksCharge.intel', 'WorksCharge.logistics', 'WorksCharge.structType', 'WorksCharge.typeId', 'WorksCharge.x', 'WorksCharge.y',

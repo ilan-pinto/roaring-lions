@@ -1,0 +1,19 @@
+{
+  "id": "sarim_raid",
+  "extends": "sarim",
+  "status": "proposed",
+  "label": "doctrine.sarim_raid.name",
+  "blurb": "doctrine.sarim_raid.blurb",
+  "gives_up": "doctrine.sarim_raid.gives_up",
+  "signature": {
+    "formation": "sarim_raid_column"
+  },
+  "ops": [
+    {"op": "menu_remove", "units": ["rocket_battery", "atgm_cell"]},
+    {"op": "menu_add", "units": ["technical", "moto_rpg"]},
+    {"op": "set_pop_cap", "value": 44},
+    {"op": "set_price", "unit": "gun_truck", "logistics": 345},
+    {"op": "set_price", "unit": "manpad_team", "logistics": 218},
+    {"op": "set_price", "unit": "technical", "logistics": 315}
+  ]
+}

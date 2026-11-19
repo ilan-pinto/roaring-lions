@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
+import { FIELD_WORKS_LOGISTICS, fieldWorksRequest, fieldWorksRoom, FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -428,5 +428,36 @@ describe('capture the flag v2: flagSetup, FLAG_SETUP_MAPS and the cap twin (GH-9
     expect(validateConfig(flagRoom({ flagSetup: true, winMode: 'points' }))).toBeNull();
     expect(validateConfig({ ...CONFIG, flagSetup: true, winMode: 'flag' })).toBeNull();
     for (const bad of [1, 'true', false, null, {}, [true]]) expect(validateConfig(flagRoom({ flagSetup: bad })), String(bad)).toBeNull();
+  });
+});
+
+describe('versus field works: the room option (the lead, 18 Nov 2026: annihilation, KDF vs KDF only)', () => {
+  const mirror = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...CONFIG, mode: 'versus', map: 'tel_marum',
+    seats: [{ ...CONFIG.seats[0], side: 0 }, { ...CONFIG.seats[1], side: 1 }],
+    ...extra,
+  });
+  it('an annihilation KDF-v-KDF room carries it, strictly true, and absent is off', () => {
+    const on = mirror({ fieldWorks: true });
+    expect(validateConfig(JSON.parse(JSON.stringify(on)))).toEqual(on);
+    expect(fieldWorksRoom(validateConfig(on) as MatchConfig)).toBe(true);
+    expect(fieldWorksRoom(validateConfig(mirror()) as MatchConfig)).toBe(false);
+    expect(FIELD_WORKS_LOGISTICS).toBe(1000);
+  });
+  it('refused anywhere else: a win mode, a Sarim seat, a sandbox room, and any value but true', () => {
+    expect(validateConfig(mirror({ fieldWorks: true, winMode: 'points' }))).toBeNull();
+    expect(validateConfig(mirror({ fieldWorks: true, seats: [{ ...CONFIG.seats[0], side: 0 }, { ...CONFIG.seats[1], side: 1, faction: 'sarim' }] }))).toBeNull();
+    expect(validateConfig(mirror({ fieldWorks: true, seats: [{ ...CONFIG.seats[0], side: 1, faction: 'sarim' }, { ...CONFIG.seats[1], side: 0 }] }))).toBeNull();
+    expect(validateConfig({ ...CONFIG, fieldWorks: true })).toBeNull();
+    for (const v of [false, 1, 'true', null]) expect(validateConfig(mirror({ fieldWorks: v })), String(v)).toBeNull();
+  });
+  it('fieldWorksRequest: off unless asked for with true; asked for where it is not allowed, refused (never dropped)', () => {
+    expect(fieldWorksRequest(undefined, { mode: 'versus', matchup: 'mirror' })).toEqual({ on: false });
+    expect(fieldWorksRequest('yes', { mode: 'versus', matchup: 'mirror' })).toEqual({ on: false });
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'mirror' })).toEqual({ on: true });
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'kdf' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'sarim' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'mirror', winMode: 'flag' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'sandbox', matchup: 'mirror' }).refused).toBeDefined();
   });
 });

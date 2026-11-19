@@ -43,6 +43,18 @@ export function pooled(cells: LadderCells): Record<string, Record<LadderLevel, T
   return out;
 }
 
+/**
+ * Whether `hi` beats `lo` by MORE than `margin` (a share of games, e.g. 0.05 = 5 points), decided in integers. A float
+ * difference of two rates is not exact (0.55 - 0.50 is 0.050000000000000044, so an exact 5-point step read as "more than 5"),
+ * so this compares win counts: (hiW/hiG - loW/loG) > bp/10000  <=>  10000 (hiW loG - loW hiG) > bp hiG loG. An empty cell
+ * reads as 0 wins of 1 game, as `winRate` reads it as 0. `margin` is taken to the nearest basis point (the stated margins are).
+ */
+function beatsBy(hi: Tally, lo: Tally, margin: number): boolean {
+  const hiG = Math.max(games(hi), 1);
+  const loG = Math.max(games(lo), 1);
+  return 10000 * (hi.computer * loG - lo.computer * hiG) > Math.round(10000 * margin) * hiG * loG;
+}
+
 const pct = (r: number): string => `${(100 * r).toFixed(1)}%`;
 
 /**
@@ -66,7 +78,7 @@ export function orderingViolations(cells: LadderCells, m: LadderMargins = LADDER
       }
       const a = winRate(byLevel[lo]);
       const b = winRate(byLevel[hi]);
-      if (!(b - a > m.pooledStep)) out.push({ scope: 'pooled', map: null, plan, lower: lo, higher: hi, lowerRate: a, higherRate: b, why: `${hi} ${pct(b)} is not above ${lo} ${pct(a)} by more than ${pct(m.pooledStep)}` });
+      if (!beatsBy(byLevel[hi], byLevel[lo], m.pooledStep)) out.push({ scope: 'pooled', map: null, plan, lower: lo, higher: hi, lowerRate: a, higherRate: b, why: `${hi} ${pct(b)} is not above ${lo} ${pct(a)} by more than ${pct(m.pooledStep)}` });
     }
   }
   for (const [map, byPlan] of Object.entries(cells)) {
@@ -74,7 +86,7 @@ export function orderingViolations(cells: LadderCells, m: LadderMargins = LADDER
       for (const [lo, hi] of [...adjacent, ['easy', 'hard'] as [LadderLevel, LadderLevel]]) {
         const a = winRate(byLevel[lo] ?? ZERO);
         const b = winRate(byLevel[hi] ?? ZERO);
-        if (a - b > m.cellInversion) out.push({ scope: 'cell', map, plan, lower: lo, higher: hi, lowerRate: a, higherRate: b, why: `${lo} ${pct(a)} beats ${hi} ${pct(b)} by more than ${pct(m.cellInversion)}` });
+        if (beatsBy(byLevel[lo] ?? ZERO, byLevel[hi] ?? ZERO, m.cellInversion)) out.push({ scope: 'cell', map, plan, lower: lo, higher: hi, lowerRate: a, higherRate: b, why: `${lo} ${pct(a)} beats ${hi} ${pct(b)} by more than ${pct(m.cellInversion)}` });
       }
     }
   }

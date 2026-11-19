@@ -1,6 +1,6 @@
-import { applyTerrain, BRANCHES_OPEN, branchedTracks, doctrines, flagBlockOf, formations, parseMap, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type BranchPick, type MapJson, type ParsedMap, type SetupKitPiece, type UpgradableUnit } from '@lions/data';
+import { applyTerrain, BRANCHES_OPEN, branchedTracks, doctrines, flagBlockOf, formations, parseMap, structures, roadMaskOf, setupLineOf, setupRegionOf, SETUP_KIT_PIECES, units, versusCapacityOf, versusMissionOf, versusModeMissionOf, versusModes, versusRules, versusTunnelsOf, versusZonesOf, type BranchPick, type MapJson, type ParsedMap, type SetupKitPiece, type UpgradableUnit } from '@lions/data';
 import { maps } from '@lions/data/content';
-import { economyRoom, endOfSeat, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
+import { FIELD_WORKS_LOGISTICS, economyRoom, endOfSeat, fieldWorksRoom, flagSetupRoom, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd, type WinMode } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -58,6 +58,10 @@ export interface MatchWorld {
    *  `runtime` is a GOALS-ONLY one (objectives with a side, no economy), mirror included, and
    *  `outcome.ts` reads it through `goalsOf`. */
   winMode: WinMode | null;
+  /** Versus field works (the lead's ruling, 18 Nov 2026, `fieldWorksRoom(config)`): the room's runtime is WORKS-ONLY -- each
+   *  side raises `versusFieldWorks()` from its own `FIELD_WORKS_LOGISTICS`, no income, no production, no goals. False in every
+   *  other room. An annihilation room still: `outcome.ts` asks the runtime nothing (`productionOf`, `goalsOf`). */
+  fieldWorks: boolean;
   /** GH-976: the camp mode's `wipe` rule (`modes.camp.wipe`), `'ends'` for every room that is not a camp room. Read by
    *  `goalsOf`; static setup data, out of `hash()`. */
   campWipe: 'ends' | 'after_camp';
@@ -188,9 +192,13 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // context, and every byte of it, is what it was.
   const fieldsSpecials = specialsBySide[0].length > 0 || specialsBySide[1].length > 0;
   const popExempt = new Set<number>();
+  // Versus field works: a works-only runtime, built where the others are (after both forces), standing nothing and spawning
+  // nobody, so every entity id and structure is what the same room without it has.
+  const works = fieldWorksRoom(config);
   const built = economy
     ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes, fieldsSpecials ? popExempt : undefined)
-    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide, flagSetupRoom(config)) : null;
+    : config.winMode !== undefined ? modeRuntime(sim, config.map, config.winMode, map, typeOf, endOfSide, flagSetupRoom(config))
+    : works ? worksRuntime(sim, config.map, map, typeOf) : null;
   const runtime = built?.runtime ?? null;
   const structureTypes = built?.structureTypes ?? [];
   // GH-1102: each side's Store specials, last of all, so every entity id a room without them
@@ -204,7 +212,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // GH-976 v2: the set-up, after the forces, the runtime and the specials and before any tick. A restored world is built through this same path, so
   // the region and the kit's type indices (config, not state) are what the source had. A v1 flag room takes none of it.
   const setup = flagSetupRoom(config) ? beginMatchSetup(sim, config.map, map, anchors, endOfSide, structTypes) : null;
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes, setup };
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, specialsBySide, runtime, winMode: config.winMode ?? null, fieldWorks: works, campWipe: config.winMode === 'camp' && versusModes[config.map]?.modes.camp?.wipe === 'after_camp' ? 'after_camp' : 'ends', structureTypes, setup };
 }
 
 /**
@@ -358,6 +366,53 @@ function economyRuntime(
     sim.setStructureExit(st, camp.exit[0], camp.exit[1]);
   }
   return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
+}
+
+/** The field works a field-works room offers (the lead's ruling, 18 Nov 2026), in catalogue order: every buildable shipped
+ *  structure that opens no production line, each with the count its price lets one purse buy (`FIELD_WORKS_LOGISTICS` over the
+ *  cost, floored), so the purse is always what binds and never the count. The forward camp is held out: its line would build
+ *  nothing, for a works room runs no production (HOLD FOR LEAD). */
+export function versusFieldWorks(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, t] of Object.entries(structures as Record<string, { buildable?: { cost: { logistics: number } }; production?: unknown }>)) {
+    if (t.buildable === undefined || t.production !== undefined) continue;
+    const cost = t.buildable.cost.logistics;
+    const n = cost > 0 ? (FIELD_WORKS_LOGISTICS - (FIELD_WORKS_LOGISTICS % cost)) / cost : 0;
+    if (n > 0) out[id] = n;
+  }
+  return out;
+}
+
+/**
+ * The runtime a field-works room plays (the lead's ruling, 18 Nov 2026): WORKS ONLY (`ctx.worksOnly`). Each side's purse
+ * starts at `FIELD_WORKS_LOGISTICS` with no income; the offer is `versusFieldWorks()`; nothing else of the economy room
+ * (no camp, menu, line, zone, cap or goal). Its works' types are what the mesh plan must load.
+ */
+function worksRuntime(sim: Sim, mapId: string, map: ParsedMap, typeOf: ReadonlyMap<string, number>): { runtime: MissionRuntime; structureTypes: string[] } {
+  const fieldWorks = versusFieldWorks();
+  const mission = {
+    id: `versus_field_works_${mapId}`,
+    map: { file: mapId },
+    ledger: { requires: [], produces: [] },
+    objectives: [],
+    field_works: fieldWorks,
+  };
+  const ctx: MissionContext = {
+    typeIdOf: (id) => {
+      const t = typeOf.get(id);
+      if (t === undefined) throw new Error(`versus works runtime references unknown unit ${id}`);
+      return t;
+    },
+    markers: map.markers,
+    zones: map.zones,
+    // C-R4: every runtime is handed the map's roads (a works-only one never routes a convoy, so it reads none).
+    roadMask: roadMaskOf(map),
+    economy: { logisticsStart: [FIELD_WORKS_LOGISTICS, FIELD_WORKS_LOGISTICS], logisticsRatePerMin: [0, 0] },
+    worksOnly: true,
+  };
+  const runtime = new MissionRuntime(sim, mission as unknown as MissionJson, ctx);
+  runtime.start();
+  return { runtime, structureTypes: Object.keys(fieldWorks) };
 }
 
 /**
