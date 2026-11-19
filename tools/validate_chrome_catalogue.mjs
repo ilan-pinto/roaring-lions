@@ -59,11 +59,137 @@ export function messageShape(msg) {
 }
 
 /**
+ * The plural categories a language REQUIRES in every plural besides `other` (CLDR; Intl.PluralRules agrees), for the languages whose rules
+ * differ from the English `one`/`other`. Russian counts 1 / 2-4 / 5-20 differently, so every Russian plural says `one`, `few`, `many` and
+ * `other`, even where the English has no `one` (a plural that is only `=0` and `other`). Every language not listed here keeps the strict rule:
+ * exactly the English option keys. Adding a language is one line here, and a test (validate_chrome_catalogue.test.ts) holds that the table and
+ * the platform's plural rules agree.
+ */
+export const EXTRA_PLURAL_CATEGORIES = { ru: ['one', 'few', 'many'] };
+
+/** The extra plural categories for a locale id such as `ru` or `es-ES` (matched on the language part). */
+export function pluralExtrasFor(locale) {
+  const lang = String(locale ?? '').split('-')[0].toLowerCase();
+  return EXTRA_PLURAL_CATEGORIES[lang] ?? [];
+}
+
+/** `key {text}` options of the body after `arg, plural,`; the same reading as `messageShape`'s. */
+function optionsOf(rest) {
+  const out = [];
+  let k = 0;
+  while (k < rest.length) {
+    const km = /^\s*([^\s{]+)\s*\{/.exec(rest.slice(k));
+    if (km === null) break;
+    const start = k + km[0].length;
+    let d = 1;
+    let e = start;
+    while (e < rest.length && d > 0) {
+      if (rest[e] === '{') d += 1;
+      else if (rest[e] === '}') d -= 1;
+      e += 1;
+    }
+    out.push([km[1], rest.slice(start, e - 1)]);
+    k = e;
+  }
+  return out;
+}
+
+/** The comparable shape of one plural branch's text: its placeholders (and nested ICU arguments) and whether it uses `#`. */
+const branchShape = (text) => `${messageShape(text).join(' ')}${text.includes('#') ? ' #' : ''}`;
+
+/**
+ * Walks `msg` calling `onPlural(arg, branches)` for every plural argument (not for one inside a plural's own branches, which none of the
+ * messages has) and returns `msg` rebuilt with the branches `rebuild(arg, branches)` returns.
+ */
+function mapPlurals(msg, onPlural) {
+  const walk = (s, inPlural) => {
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+      const open = s.indexOf('{', i);
+      if (open < 0) return out + s.slice(i);
+      out += s.slice(i, open);
+      let depth = 1;
+      let j = open + 1;
+      while (j < s.length && depth > 0) {
+        if (s[j] === '{') depth += 1;
+        else if (s[j] === '}') depth -= 1;
+        j += 1;
+      }
+      if (depth !== 0) return out + s.slice(open);
+      const body = s.slice(open + 1, j - 1);
+      const m = /^\s*([A-Za-z0-9_]+)\s*,\s*(plural|select)\s*,([\s\S]*)$/.exec(body);
+      if (m === null) out += `{${body}}`;
+      else if (m[2] === 'plural') {
+        const branches = optionsOf(m[3]).map(([k, t]) => [k, walk(t, true)]);
+        const kept = inPlural ? branches : onPlural(m[1], branches);
+        out += `{${m[1]}, plural, ${kept.map(([k, t]) => `${k} {${t}}`).join(' ')}}`;
+      } else out += `{${m[1]}, select, ${optionsOf(m[3]).map(([k, t]) => `${k} {${walk(t, inPlural)}}`).join(' ')}}`;
+      i = j;
+    }
+    return out;
+  };
+  return walk(msg, false);
+}
+
+/**
+ * Takes a language's own plural categories (`extras`) OUT of a message, so what is left can be compared by the ordinary shape rule.
+ *
+ * The English side (`enMsg` absent): the categories are only set aside. The translation (`enMsg` given): every plural argument must carry each
+ * of `extras`, and each such branch must have the shape of the English `other` of the same argument (the k-th one of that name): in Russian
+ * `one` is not just 1, it is also 21, 31 and 101, so it must carry the count (`#`) exactly where `other` does, never the English `one`'s
+ * count-less form. The singular that names no count is written as an exact `=1` branch, which the English may not have: it is allowed, and
+ * must have the shape of the English `one` where the English has one (else its `other`); an `=1` the English also has is compared by the
+ * ordinary rule. Returns the message without the categories (and without an extra `=1`) and the problems. With no `extras` it changes nothing.
+ */
+export function withoutExtraPlurals(msg, extras, enMsg = undefined) {
+  const problems = [];
+  if (extras.length === 0) return { text: msg, problems };
+  const english = new Map();
+  if (enMsg !== undefined) {
+    mapPlurals(enMsg, (arg, branches) => {
+      const list = english.get(arg) ?? [];
+      list.push(Object.fromEntries(branches.map(([k, t]) => [k, branchShape(t)])));
+      english.set(arg, list);
+      return branches;
+    });
+  }
+  const seen = new Map();
+  const text = mapPlurals(msg, (arg, branches) => {
+    if (enMsg === undefined) return branches.filter(([k]) => !extras.includes(k));
+    const occurrence = seen.get(arg) ?? 0;
+    seen.set(arg, occurrence + 1);
+    const ref = english.get(arg)?.[occurrence];
+    const own = Object.fromEntries(branches.map(([k, t]) => [k, branchShape(t)]));
+    for (const e of extras) {
+      if (!(e in own)) {
+        problems.push(`plural "${arg}" has no "${e}" branch`);
+        continue;
+      }
+      // `one` too follows the English `other`: Russian `one` also covers 21, 31 and 101, so it must carry the count where `other` does.
+      const allowed = ref === undefined ? own.other : ref.other;
+      if (own[e] !== allowed) problems.push(`plural "${arg}" branch "${e}" has different placeholders from the English`);
+    }
+    // An exact `=1` the English does not have: the count-less singular of a language whose `one` is not only 1.
+    const extraExact = '=1' in own && !(ref !== undefined && '=1' in ref);
+    if (extraExact) {
+      const allowedExact = ref === undefined ? own.other : (ref.one ?? ref.other);
+      if (own['=1'] !== allowedExact) problems.push(`plural "${arg}" branch "=1" has different placeholders from the English`);
+    }
+    return branches.filter(([k]) => !extras.includes(k) && !(extraExact && k === '=1'));
+  });
+  return { text, problems };
+}
+
+/**
  * Failure strings; `[]` when `tr` has exactly `en`'s keys, each a non-empty string of the same shape.
+ * `opts.locale` names the language (`ru`, `es-ES`): a language with extra plural categories (`EXTRA_PLURAL_CATEGORIES`) may, and must, carry
+ * them in every plural; every other language must carry exactly the English option keys.
  * `opts.staged` (a language not in `LOCALES`, `locale_staging.mjs`): a key en has and the catalogue lacks is LAG, not a failure; it goes to
  * `opts.lag` (an array the caller passes) instead. Everything else, an extra key, a wrong shape, a non-string, still fails.
  */
 export function chromeCatalogueFailures(file, en, tr, opts = {}) {
+  const extras = pluralExtrasFor(opts.locale);
   const out = [];
   if (tr === null || typeof tr !== 'object' || Array.isArray(tr)) return [`${file}: not a JSON object of key -> text`];
   for (const key of Object.keys(en)) {
@@ -74,8 +200,10 @@ export function chromeCatalogueFailures(file, en, tr, opts = {}) {
     }
     const v = tr[key];
     if (typeof v !== 'string' || v.trim() === '') { out.push(`${file}: "${key}" is not a non-empty string`); continue; }
-    const want = messageShape(en[key]).join(' ');
-    const got = messageShape(v).join(' ');
+    const want = messageShape(withoutExtraPlurals(en[key], extras).text).join(' ');
+    const stripped = withoutExtraPlurals(v, extras, en[key]);
+    for (const p of stripped.problems) out.push(`${file}: "${key}": ${p}`);
+    const got = messageShape(stripped.text).join(' ');
     if (want !== got) out.push(`${file}: "${key}" has the wrong placeholders (English: ${want || 'none'}; here: ${got || 'none'})`);
   }
   for (const key of Object.keys(tr)) if (!(key in en)) out.push(`${file}: "${key}" is not a key of en.json`);

@@ -1220,7 +1220,7 @@ const garrisonableSymbols = new Set(
       const tr = loadJson(file);
       if (!tr) continue;
       const id = entry.name.slice(0, -'.json'.length);
-      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(id)));
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, { locale: id, ...stagingOf(id) }));
       // The stale-translation guard: data/locales/<id>/chrome.src.json carries the hash of the English each string was translated from.
       const srcFile = join(ROOT, 'data/locales', id, 'chrome.src.json');
       if (!existsSync(srcFile)) failures.push(`${rel(file)}: has no source-hash sidecar ${rel(srcFile)} (run \`pnpm locales:chrome-src -- ${id} --write\`)`);

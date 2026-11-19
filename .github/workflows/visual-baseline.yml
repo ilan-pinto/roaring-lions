@@ -55,6 +55,8 @@ concurrency:
 jobs:
   visual:
     runs-on: ubuntu-latest
+    # last 12 runs 12-25 min; 1.8x the slowest
+    timeout-minutes: 45
     permissions:
       contents: read
       issues: write

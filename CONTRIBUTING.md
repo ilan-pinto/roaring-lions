@@ -96,6 +96,7 @@ Missions are declarative data. If yours needs behaviour the schema cannot expres
 **The pipeline.** Open every PR against `dev` (`gh pr create --base dev`); it is squash-merged there once CI is green.
 `main` is production, deployed on every push, and moves only through one weekly promotion PR from `dev`, opened by the `promotion-pr` workflow.
 The lead approves that PR and merges it with a merge commit; nothing else lands on `main`.
+The PR's body reports whether `main`'s own last `ci` run is green; a red `main` is fixed before it moves again (`docs/agent-notes/main-green.md`).
 
 Read the four invariants in `CLAUDE.md` first. In short: 20 Hz fixed tick, Q16.16 fixed-point in the sim with no floats, seeded per-entity PRNG, and strictly one-way data flow from sim to renderer.
 
