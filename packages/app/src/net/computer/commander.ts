@@ -54,7 +54,8 @@
  *      room: the foe's first force is assumed to be its own, since a snapshot of the fog under-counts). It COMMITS (the march runs, as `rush`) when its strength is strictly greater than that,
  *      or, in a room with no economy, while it has seen nothing (there is nothing to wait for or to learn by waiting). It RE-PLANS after a lost engagement, which is the retreat's
  *      reading: the units away from home with a contact in reach are worth strictly less than the contacts around them. It then masses again until its
- *      strength is strictly greater than the largest force it has now seen. Units already out are never recalled (that is `retreat`). Whole-number
+ *      strength is strictly greater than the same foe it commits on (the largest force it has now seen, never below its own first force). Units already
+ *      out are never recalled (that is `retreat`), and only the idle units AT HOME are held: a zone share away from home still goes forward. Whole-number
  *      comparisons; no new tuned number. With it on, task 4 (the guard) is off: the army massed at home is the defending group, and a guard that never
  *      marches could never add to the edge the seat waits for.
  *
@@ -394,12 +395,13 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
         // With no economy and nothing yet seen there is nothing to wait for or to learn by waiting: go. Once a foe has been seen the edge is required, whatever the room.
         if (strength > foe || (view.economy === undefined && seenPeakValue === 0)) massing = false;
       } else {
-        // A lost engagement: the units away from home with a contact in reach are worth strictly less than the contacts around them.
+        // A lost engagement: the units away from home with a contact in reach are worth strictly less than the contacts around them. It masses again against the
+        // same floor it commits on (`foe`, never below its own first force), so a snapshot it has seen cannot hold it committed where it would not have committed.
         const out = view.units.filter((u) => able(u.flags) && !home(u) && u.id !== scoutId && view.contacts.some((c) => dist(c.tile, u.tile) <= RUSH_HOME_TILES));
         if (out.length > 0) {
           const mine = out.reduce((a, u) => a + worthOf(u.type, u.hp), 0);
           const theirs = view.contacts.filter((c) => out.some((u) => dist(c.tile, u.tile) <= RUSH_HOME_TILES)).reduce((a, c) => a + worthOf(c.type, c.hp), 0);
-          if (theirs > mine) massing = strength <= seenPeakValue;
+          if (theirs > mine) massing = strength <= foe;
         }
       }
       if (massing) {

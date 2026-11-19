@@ -7,6 +7,7 @@
 import {
   canonicalCampaign,
   SAVE_VERSION,
+  stickyPicks,
   type CampaignBody,
   type CampaignView,
   type ConflictAnswer,
@@ -54,6 +55,24 @@ export async function readCampaign(db: D1Like, memberId: string): Promise<Campai
   if (r === null) return null;
   const body = { ledger: JSON.parse(r.ledger), brigade: JSON.parse(r.brigade), tutorialDone: r.tutorial_done === 1 } as CampaignBody;
   return { revision: r.revision, body, text: canonicalCampaign(body) };
+}
+
+/**
+ * GH-1384 §4.4: the body to WRITE for a campaign the device sent, with the stored picks kept. `sent` is the raw body (a build from
+ * before branching strips the picks, and the canonical form would read that as a fresh tier 3); `sentText` is its canonical text,
+ * which is returned unchanged when nothing moves (always, while branching is closed). Used where the write lands at the current
+ * revision, and nowhere else: a stale body goes to a conflict slot as it came.
+ */
+export function keepStoredPicks(camp: CampaignRead | null, sent: CampaignBody, sentText: string): { body: CampaignBody; text: string } {
+  if (camp !== null) {
+    const stored = (JSON.parse(camp.text) as CampaignBody).brigade;
+    const brigade = stickyPicks(stored, sent.brigade);
+    if (brigade !== sent.brigade) {
+      const text = canonicalCampaign({ ...sent, brigade });
+      return { body: JSON.parse(text) as CampaignBody, text };
+    }
+  }
+  return { body: JSON.parse(sentText) as CampaignBody, text: sentText };
 }
 
 /** The wire view of a campaign read: its canonical body, revision and digest. */
@@ -189,8 +208,9 @@ export async function putCampaign(ctx: AccountCtx): Promise<Response> {
     const camp = await readCampaign(db, memberId);
     const expected = camp?.revision ?? 0;
     if (base === expected) {
-      const statements = await campaignWrite(db, memberId, camp === null ? null : camp.revision, sent, ctx.now);
-      const view: CampaignView = { ...(JSON.parse(sentText) as CampaignBody), revision: expected + 1, digest: await digestOf(sentText) };
+      const kept = keepStoredPicks(camp, sent, sentText);
+      const statements = await campaignWrite(db, memberId, camp === null ? null : camp.revision, kept.body, ctx.now);
+      const view: CampaignView = { ...kept.body, revision: expected + 1, digest: await digestOf(kept.text) };
       return { statements, status: 200, response: { campaign: view } };
     }
     const c = await conflictSlot(db, memberId, sent, ctx.now, 'conflict');

@@ -1,0 +1,4 @@
+{
+  "$comment": "GH-1418 demo content cut, the ONE config point. HOLD FOR LEAD: the slice is undecided (GH-1379 proposes the tutorial plus Beit Sahwan I to IV). Until the cut is built, missions stays null and the bundle carries the whole web build; policy.mjs readDemoConfig refuses any other value.",
+  "missions": null
+}

@@ -318,7 +318,8 @@ Slices 1 to 3 never decide WHEN the army goes: the march sends what is idle at h
 - **Strength.** The sum of `cost x hp` over the seat's able units. The foe's is the largest sum over the contacts in sight at ONE decision, remembered after they leave sight (fog-visible units only; nothing it cannot see is read), and **never less than the seat's own first force** (a matched room: a snapshot of the fog under-counts).
 - **Massing.** Until the seat's strength is strictly greater than the foe's, the units the march would send (idle at home) are held where they stand, and kept from the straggler sweep. A room with no economy and nothing yet seen has nothing to wait for or to learn by waiting, so the seat goes at once, as `rush` does.
 - **Committing.** The first decision its strength is strictly greater, the march runs as before.
-- **Re-planning.** After a lost engagement (the retreat's reading: the units away from home with a contact in reach are worth strictly less than the contacts around them) it masses again, until its strength beats the largest force it has now seen. Units already out are never recalled (that is `retreat`).
+- **Re-planning.** After a lost engagement (the retreat's reading: the units away from home with a contact in reach are worth strictly less than the contacts around them; an exact tie is not a loss) it masses again, unless its strength is still strictly greater than the same foe it commits on: the largest force it has now seen, never below its own first force (PR 1596 re-massed against the seen snapshot alone, so a seat that would not have committed could stay committed; the follow-up uses one floor for both). Units already out are never recalled (that is `retreat`).
+- **Only the idle units AT HOME are held while massing.** A zone share still leaves (task 2 takes its units before the march), and its spare members idle away from home (those not holding the zone) still go forward through the straggler sweep (`sweepStragglers`; `rush` itself sends only what is at home).
 - With it on, the slice 1 guard is off: the army massed at home is the defending group, and a guard that never marches could never add to the edge the seat waits for.
 - No new tuned number; every comparison is whole-number and strict.
 
@@ -342,6 +343,16 @@ Version 2 by group, wins slice 1 -> mass (gained / lost, two-sided sign test on 
 | economy, Sarim | rush | 80 | 59 -> 58 | 9 / 10 | 1.0 |
 
 The literal 60 s stall reading falls 842 -> 760 and the idle-unit reading 109 -> 26 (held units are kept, and the seat is not idle while it waits); orders a minute (median) 1.06 -> 1.07.
+
+**Version 3 (the 1596 follow-up: re-mass against the same floor it commits on).** Re-measured on the two headline cells only, the 320 games of `pnpm commander:probe -- --maps=tel_marum,wadi_tarfan,wadi_tarfan_l --baselines=passive --commander=slice4 --seeds=8 --jobs=4` (the 160 games of the two passive economy rows above, plus the 160 mirror-room games of the same three maps). Version 2 reproduces exactly (44 and 75 of 80) before the change. After it, wins version 2 -> 3, gained / lost on paired seeds:
+
+| group | vs | games | wins v2 -> v3 | gained / lost | games that differ | wins slice 1 -> v3 (gained / lost) |
+|---|---|---|---|---|---|---|
+| economy, KDF | passive | 80 | 44 -> 46 | 2 / 0 | 8 | 80 -> 46 (0 / 34) |
+| economy, Sarim | passive | 80 | 75 -> 77 | 3 / 1 | 40 | 80 -> 77 (0 / 3) |
+| mirror (these three maps) | passive | 160 | 111 -> 111 | 0 / 0 | 8 | |
+
+The numbers move, a little and the right way, and the reading does not: every one of the 37 economy games it still loses against a passive foe (41 before) is decided by the clock, with the same median end of 14 units to the foe's 26. A mirror room cannot outgrow its own first force, so there a lost engagement now holds what stands at home for the rest of the game (defend still meets a contact at the camp): 8 of the 160 mirror games play differently and none changes its result. The rush rows and the other four maps were not re-run; the 992-game rows above are version 2's.
 
 ### Reading it
 
