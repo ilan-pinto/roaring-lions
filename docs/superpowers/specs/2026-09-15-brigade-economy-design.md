@@ -1,6 +1,6 @@
 # The brigade economy — design
 
-> **Superseded on this point (the lead, 18 Nov 2026): Roar coins buy new units, a coin-bought unit reaches a match against another person only through a "Bring your brigade" room (the standard kit stays equal and fields nothing from either brigade), and the 29 Sep no-pay-to-win rule is retired.** The text below is the earlier posture, kept as history. See `data/store/README.md` E13.
+> **Superseded in part, 18 Nov 2026:** the lead ruled "I want users to be able to use coins to buy new units. That's the leading rule." (relayed on GH-1378 and GH-1415; it reverses the 16 Nov GH-1378 item 6, "paid coins buy cosmetics only at launch"). The 28 Sep amendment below ("a second, cosmetic currency ... It buys no unit, no upgrade") no longer holds. The current rule is `docs/GDD.md` §9: Roar coins buy units and upgrade tiers as brigade credits do, coins bought with money included once purchases open; credits are still never sold. A second ruling the same day answers where they may be used: "coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is RETIRED" (`docs/HANDOVER.md`, rows G7 and G7-R); its scope is set by a third ruling the same day: "standard-kit rooms stay EQUAL (no owned kit, coins or credits); coin-bought units reach PvP only through 'Bring your brigade' rooms. No code change.". The body below is kept as history.
 
 **Date:** 2026-09-15 · **Status:** approved by the lead in conversation, section by section;
 this document is the record. **Downstream:** `writing-plans` (three plans, §8), then

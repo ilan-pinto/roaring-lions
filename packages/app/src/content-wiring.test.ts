@@ -175,3 +175,30 @@ describe('GH-1381: the Sarim side of Free play loads on demand', () => {
     expect(main).toMatch(/announceLang: voiceLangs\[playSide\] \?\? 'he',/);
   });
 });
+
+describe("the save kit carries no map or mission JSON: it loads at every mission boot and on the board, and a module stays for the realm's life", () => {
+  // CI's `perf:memory` read it as heap: every map and mission (about 1 MiB of the "menu after a mission" reading, growing with each one
+  // added) stayed after the first mission or the board, through `mission-save.ts` -> `net/content-digest.ts` -> `@lions/data/content`.
+  const kit = closure(join(SRC, 'mission-save-kit.ts'));
+
+  it("the kit's static import graph reaches no map or mission JSON, nor the eager registry, nor the content digest", () => {
+    expect([...kit].filter(CONTENT)).toEqual([]);
+    expect(kit.has('packages/app/src/net/content-digest.ts')).toBe(false);
+  });
+
+  it('the walk is not vacuous: it reaches the save library, the canonical form and @lions/data, and the digest does reach the registry', () => {
+    for (const f of ['packages/app/src/mission-save.ts', 'packages/app/src/mission-resume.ts', 'packages/app/src/net/canonical-json.ts', 'packages/data/src/index.ts']) {
+      expect(kit.has(f), f).toBe(true);
+    }
+    expect(closure(join(SRC, 'net/content-digest.ts')).has('packages/data/src/content.ts')).toBe(true);
+  });
+
+  it('the digest is loaded on demand, through importWithRetry, at a save and at a resume', () => {
+    const save = read(join(SRC, 'mission-save.ts'));
+    expect(save).toMatch(/export async function loadContentDigest\(\): Promise<number> \{\s*const m = await importWithRetry\(\(\) => import\('\.\/net\/content-digest'\)\);/);
+    expect(read(join(SRC, 'mission-resume.ts'))).toMatch(/const contentDigest = await loadContentDigest\(\)\.catch\(\(\) => null\);\s*const prepared = contentDigest === null \? null : await prepareResume\(record, \{ contentDigest \}\);/);
+    const body = main.slice(main.indexOf('const saveAndQuit = async'));
+    expect(body.indexOf('await loadContentDigest()')).toBeGreaterThan(0);
+    expect(body.indexOf('await loadContentDigest()')).toBeLessThan(body.indexOf('cutMission('));
+  });
+});

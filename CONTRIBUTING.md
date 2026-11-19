@@ -93,6 +93,10 @@ Missions are declarative data. If yours needs behaviour the schema cannot expres
 
 ## Contributing code
 
+**The pipeline.** Open every PR against `dev` (`gh pr create --base dev`); it is squash-merged there once CI is green.
+`main` is production, deployed on every push, and moves only through one weekly promotion PR from `dev`, opened by the `promotion-pr` workflow.
+The lead approves that PR and merges it with a merge commit; nothing else lands on `main`.
+
 Read the four invariants in `CLAUDE.md` first. In short: 20 Hz fixed tick, Q16.16 fixed-point in the sim with no floats, seeded per-entity PRNG, and strictly one-way data flow from sim to renderer.
 
 `pnpm test:determinism` must pass on any change touching `@lions/sim`. It replays 1000 ticks from a fixed seed and asserts the state hash — it is the canary for the invariants above, and a failure there is never cosmetic.

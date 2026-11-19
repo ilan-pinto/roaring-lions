@@ -183,11 +183,11 @@
   },
   "beit_sahwan_4_subterranean": {
     "name": "Beit Sahwan IV — Souterrain",
-    "briefing": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Quatre minutes pour les personnes et cinq pour les itinéraires ; le second délai n'attend pas le premier. Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez. Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre.",
+    "briefing": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin. Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, les quatre qui sont avec Sahim si vous les atteignez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier. Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez. Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre.",
     "sections": {
       "situation": "La ville est à nous et les combats n'ont pas cessé. Les tirs partent de terrain vide, les tireurs sont partis avant l'écho, et la raison est sous vos pieds. Nadir Sahim a miné ce secteur des années avant notre arrivée et il ne l'a pas quitté. Il tient la tête du puits nord, au fond de l'ancienne carrière de calcaire, avec quatre personnes à ses côtés qui sont hors d'atteinte depuis le premier matin.",
-      "mission": "Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Quatre minutes pour les personnes et cinq pour les itinéraires ; le second délai n'attend pas le premier.",
-      "execution": "Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez.",
+      "mission": "Quinze personnes sont encore dans le secteur. Quatre sont avec lui, deux autres sont au fond de la carrière, et neuf s'abritent dans les cours du sud, le souk, le bloc du marché et le bloc de la clinique ; ces neuf restent où ils sont jusqu'à ce qu'un soldat soit assez près pour les faire sortir. Neuf au point de collecte en moins de quatre minutes, douze si vous le pouvez, les quatre qui sont avec Sahim si vous les atteignez, et quiconque est encore dans les rues quand le temps est écoulé est emmené. Le point de collecte est à trois cases de votre ligne de départ, et elles sont comptées dès qu'elles y arrivent. Cinq minutes pour les itinéraires ; le second délai n'attend pas le premier.",
+      "execution": "Idit a quatre itinéraires sous la ville, et l'un est rouvert en ce moment : des déblais qui progressent vers l'ouest le long de la route principale. Les gravats arrêtent le Namer et l'Eitan partout sauf sur la route principale, l'éboulis du côté sud de la carrière est réservé aux piétons, et la rampe de halage dans sa paroi est est la seule entrée pour les véhicules à roues. La fosse ne voit pas par-dessus son propre rebord, et vous pouvez voir dedans. La terre remuée est un signe que tout soldat sait lire. Une équipe de roquettes et un groupe de charge tiennent la ruelle par où les gens du marché doivent descendre, une cellule de fusiliers tient le souk, et ce qui est tiré sur vos escouades retombe sur le sol où se tiennent les gens. Une équipe de roquettes se tient au-dessus des quatre ; le canon du Namer répond à cela et vous fait perdre la mission. Rien de lourd à moins de deux cases d'eux. Seuls le drone ou les sapeurs peuvent vous dire où passent les trois autres, et seulement tant que quelqu'un regarde. Yahalom doit rester immobile à découvert à côté d'un itinéraire pour poser la charge, donc leur survie est une décision que vous prenez avec tout le reste de ce que vous avez.",
       "notes": "Sortez les gens, prenez le terrain où il se tient, puis faites s'effondrer les quatre."
     },
     "aftermath": "Quatre itinéraires sous Beit Sahwan, et l'homme qui les a creusés est remonté du dernier les mains vides. La brigade a pris le dossier et n'a rien dit de plus. Le périmètre est à nous. L'enclave non.",
@@ -199,28 +199,42 @@
     "objectives": {
       "bring_it_down": "Faire s'effondrer tous les itinéraires sous le secteur",
       "read_the_ground": "Trouver l'équipe qui rouvre l'itinéraire ouest de Sahim",
-      "get_them_out": "Sortir cinq personnes au point de collecte avant l'effondrement des itinéraires",
+      "get_them_out": "Sortir neuf personnes au point de collecte en moins de quatre minutes",
       "take_the_shaft_head": "Tenir la tête du puits jusqu'à ce que Sahim en soit sorti",
-      "find_spade": "Trouver Nadir Sahim à la tête du puits"
+      "find_spade": "Trouver Nadir Sahim à la tête du puits",
+      "most_of_them": "Sortir douze des quinze au point de collecte en moins de quatre minutes",
+      "bring_back_the_four": "Sortir les quatre personnes retenues à la tête du puits jusqu'au point de collecte"
     },
     "objective_say": {
       "read_the_ground": "Voilà l'équipe de l'itinéraire ouest. Il garde ses terrassiers près du travail, c'est comme ça que nous l'avons trouvé.",
-      "get_them_out": "Cinq au point de collecte. C'est la première fois que ce secteur rend quelqu'un.",
-      "take_the_shaft_head": "La tête du puits est à vous et il se tient du mauvais côté. Quatre ans à creuser et le voilà en surface."
+      "get_them_out": "Neuf au point de collecte. C'est la première fois que ce secteur rend quelqu'un.",
+      "take_the_shaft_head": "La tête du puits est à vous et il se tient du mauvais côté. Quatre ans à creuser et le voilà en surface.",
+      "most_of_them": "Douze au point de collecte. Gardez la ruelle ouverte pour ceux qui arrivent encore.",
+      "bring_back_the_four": "Les quatre de la tête du puits sont au point de collecte. Tous les quatre."
     },
     "objective_say_on_fail": {
       "bring_it_down": "Le temps est écoulé et il reste sous cette ville un terrain qui n'est pas à nous.",
-      "get_them_out": "Temps écoulé pour les gens. Rien sous cette ville ne vaut ce que nous venons de ne pas faire."
+      "get_them_out": "Temps écoulé pour les gens. Rien sous cette ville ne vaut ce que nous venons de ne pas faire.",
+      "most_of_them": "Temps écoulé pour les douze. Quiconque est encore dans les rues est emmené, et ce nombre est le prix."
+    },
+    "triggers": {
+      "yard_families_shelter": "Les familles de la cour restent sur place",
+      "souk_families_shelter": "Les familles du souk reculent vers l'ouest",
+      "market_families_shelter": "Les familles du marché restent dans la ruelle",
+      "clinic_families_shelter": "Les familles de la clinique se replient"
+    },
+    "trigger_say": {
+      "the_streets_are_cleared": "Temps écoulé. Quiconque est encore dans les rues a été emmené de l'autre côté de sa ligne."
     },
     "wave_say": {
       "1": "Dernier envoi de la ligne de mortiers. Après cela, il dépense ceux du souterrain."
     },
     "src": {
       "name": "c9abe1be",
-      "briefing": "8ce1b9df",
+      "briefing": "2b6d54c3",
       "objectives.bring_it_down": "e5bb2d06",
       "objectives.read_the_ground": "4acfd52d",
-      "objectives.get_them_out": "132b3d66",
+      "objectives.get_them_out": "4ce3c7c6",
       "objectives.take_the_shaft_head": "a7d2e8b7",
       "objectives.find_spade": "da8ec255",
       "aftermath": "f882c5da",
@@ -228,15 +242,25 @@
       "debrief.victory": "fc41956d",
       "debrief.defeat": "84df9ce7",
       "sections.situation": "9bb63df3",
-      "sections.mission": "3f2accd6",
-      "sections.execution": "d5a8f0e2",
+      "sections.mission": "09bb6a00",
+      "sections.execution": "36cbfa90",
       "sections.notes": "0dc13301",
       "objective_say.read_the_ground": "a3cb3dba",
-      "objective_say.get_them_out": "f6fedba3",
+      "objective_say.get_them_out": "d2fd78e3",
       "objective_say.take_the_shaft_head": "72ea9cfa",
       "objective_say_on_fail.bring_it_down": "68b7b2f2",
       "objective_say_on_fail.get_them_out": "232994e9",
-      "wave_say.1": "c220fa50"
+      "wave_say.1": "c220fa50",
+      "objectives.most_of_them": "053aa740",
+      "objective_say.most_of_them": "6ec2fd04",
+      "objective_say_on_fail.most_of_them": "9fa99b11",
+      "trigger_say.the_streets_are_cleared": "ca259384",
+      "triggers.yard_families_shelter": "dd03b9f1",
+      "triggers.souk_families_shelter": "6c21d359",
+      "triggers.market_families_shelter": "a5940c9f",
+      "triggers.clinic_families_shelter": "8a8ab1c5",
+      "objectives.bring_back_the_four": "235dacf1",
+      "objective_say.bring_back_the_four": "0ce0f960"
     }
   },
   "beit_sahwan_breach": {
@@ -277,7 +301,7 @@
     },
     "wave_say": {
       "0": "Toutes les approches à la fois. Il n'y a pas d'effort principal là-dedans — il n'en a pas besoin.",
-      "2": "Un groupe kamikaze marche sur la face nord-ouest. Ce qui est dehors est dehors, maintenant.",
+      "2": "Un groupe de charge marche sur la face nord-ouest. Ce qui est dehors est dehors, maintenant.",
       "4": "Sud-est maintenant. Même face, autre coin — il lit lequel vous avez renforcé."
     },
     "src": {
@@ -406,12 +430,12 @@
     "triggers": {
       "the_village_comes_down_to_the_yard": "Le village descend vers la cour",
       "the_yard_party_falls_back_up_the_lane": "Le détachement de la cour remonte la ruelle",
-      "a_charge_squad_comes_down_the_lane": "Un groupe kamikaze descend la ruelle"
+      "a_charge_squad_comes_down_the_lane": "Un groupe de charge descend la ruelle"
     },
     "trigger_say": {
       "the_village_comes_down_to_the_yard": "Le village descend la ruelle vers la cour. Il y a neuf maisons là-haut et pas une personne dedans ; chaque corps dans cette rue est un combattant.",
       "the_yard_party_falls_back_up_the_lane": "Le détachement de la cour a quitté la pompe et remonte la ruelle vers le nord.",
-      "a_charge_squad_comes_down_the_lane": "Groupe kamikaze dans la ruelle. Sortez les sapeurs de l'orifice ou mettez quelque chose entre lui et eux."
+      "a_charge_squad_comes_down_the_lane": "Groupe de charge dans la ruelle. Sortez les sapeurs de l'orifice ou mettez quelque chose entre lui et eux."
     },
     "wave_say": {
       "2": "Deux sections traversent le gué central. Elles ne vont pas à la cour — elles vont au camp sur la berge, et le camp est à quatre cases de ce gué."
@@ -473,12 +497,12 @@
     "triggers": {
       "the_village_comes_out_of_its_houses": "Le village se vide dans les ruelles",
       "he_falls_back_onto_his_own_spoil": "Le chef se replie sur les déblais",
-      "a_charge_squad_comes_for_the_engineers": "Un groupe kamikaze vise les sapeurs"
+      "a_charge_squad_comes_for_the_engineers": "Un groupe de charge vise les sapeurs"
     },
     "trigger_say": {
       "the_village_comes_out_of_its_houses": "Ils sortent des maisons et gagnent les ruelles entre les entrées.",
       "he_falls_back_onto_his_own_spoil": "Il est retourné sur le champ de déblais. C'est le seul terrain surélevé sous l'escarpement, et ses équipes l'ont bâti avec les tunnels que vous êtes venus faire tomber.",
-      "a_charge_squad_comes_for_the_engineers": "Groupe kamikaze dans les ruelles, et vos sapeurs sont la seule chose sur cette carte qui doit rester immobile. Couvrez-les ou déplacez-les."
+      "a_charge_squad_comes_for_the_engineers": "Groupe de charge dans les ruelles, et vos sapeurs sont la seule chose sur cette carte qui doit rester immobile. Couvrez-les ou déplacez-les."
     },
     "wave_say": {
       "1": "Une équipe de roquettes et un technical sur la route du flanc ouest. C'est tout ce que les flancs peuvent envoyer ; après cela, il dépense ce qu'il a sous terre."
@@ -565,7 +589,7 @@
   },
   "ein_qasab_2_foothold": {
     "name": "Ein Qasab II — Angle mort",
-    "briefing": "La ferme de ce creux est le relais d'étape de la route d'hiver, et ses caisses de drones sont dans sa grange à attendre que la pluie cesse. Les crêtes de chaque côté la dominent de quatre niveaux, et rien venu des collines du nord n'est en vue avant d'en atteindre le sommet. Tenez le creux cinq minutes et brûlez la grange dans les mêmes cinq. Les charges des sapeurs sont propres et lentes sous le feu ; le mortier et le Namer sont rapides, et chaque coup près de cette cour est facturé. Une famille est dans la cour entre la maison et la grange, à deux cases de la cellule qui s'y trouve. Un camion est dans le col nord ; identifié aujourd'hui, c'est un canon connu au-dessus de la tête de chaussée, et non un premier tir. Vous avez la logistique pour un avant-poste. Enterrez-le dans le creux et il ne voit rien ; placez-le sur la crête et il les voit venir, depuis l'extérieur du terrain que vous devez tenir. Toute roue venant de l'est passe par une seule brèche de deux cases dans la digue. Du nord, c'est le col pour les roues et la crête pour les pieds. La grange est l'ordre reçu ; la maison et la famille à côté pèsent sur l'évaluation.",
+    "briefing": "La ferme de ce creux est le relais d'étape de la route d'hiver, et ses caisses de drones sont dans sa grange à attendre que la pluie cesse. Les crêtes de chaque côté la dominent de quatre niveaux, et rien venu des collines du nord n'est en vue avant d'en atteindre le sommet. Tenez le creux cinq minutes et brûlez la grange dans les mêmes cinq. Les charges des sapeurs sont propres et lentes sous le feu ; le mortier et le Namer sont rapides, et chaque coup près de cette cour est facturé. Une famille est dans la cour entre la maison et la grange, à deux cases de la cellule qui s'y trouve. Un camion est dans le col nord ; identifié aujourd'hui, c'est un canon connu au-dessus de la tête de chaussée, et non un premier tir. Vous avez la logistique pour un avant-poste. Enterrez-le dans le creux et il ne voit rien ; placez-le sur la crête et il les voit venir, depuis l'extérieur du terrain que vous devez tenir. Toute roue venant de l'est passe par une seule brèche de deux cases dans l'arête de basalte. Du nord, c'est le col pour les roues et la crête pour les pieds. La grange est l'ordre reçu ; la maison et la famille à côté pèsent sur l'évaluation.",
     "debrief": {
       "victory": "La ferme est à nous et la grange en cendres. Ce qui franchira désormais ces crêtes descendra sur nous, et nous le verrons d'abord sur la ligne de crête.",
       "defeat": "Nous avons quitté la ferme et ils sont de retour dans le creux. Depuis la crête, on ne voit pas ce qu'ils y mettent."
@@ -585,11 +609,11 @@
     },
     "triggers": {
       "the_saddle_truck_comes_down_to_the_farm": "Le camion du col descend vers la ferme",
-      "riders_come_through_the_dyke_gap": "Des motards passent par la brèche de la digue"
+      "riders_come_through_the_dyke_gap": "Des motards passent par la brèche de l'arête"
     },
     "trigger_say": {
       "the_saddle_truck_comes_down_to_the_farm": "Le camion du col a commencé à descendre la piste nord vers la ferme. S'il doit être identifié sur ce terrain, c'est maintenant.",
-      "riders_come_through_the_dyke_gap": "Des motards par la brèche de la digue, un par un, car elle n'est pas plus large. C'est la seule porte de ce côté."
+      "riders_come_through_the_dyke_gap": "Des motards par la brèche de l'arête, un par un, car elle n'est pas plus large. C'est la seule porte de ce côté."
     },
     "wave_say": {
       "1": "Deux cellules franchissent la crête nord à pied. Depuis la ferme, elles n'existent pas avant d'être sur la ligne de crête.",
@@ -597,12 +621,12 @@
     },
     "src": {
       "name": "322a7c7d",
-      "briefing": "49c95d88",
+      "briefing": "72284d35",
       "objectives.hold_the_hollow": "0e3318ca",
       "objectives.burn_the_barn": "a8f3dd66",
       "objectives.mark_the_saddle_truck": "6f7c3df2",
       "triggers.the_saddle_truck_comes_down_to_the_farm": "1bd18ecc",
-      "triggers.riders_come_through_the_dyke_gap": "5f26aa67",
+      "triggers.riders_come_through_the_dyke_gap": "5504f8dd",
       "debrief.victory": "b2ba2fe4",
       "debrief.defeat": "32fc814e",
       "objective_say.hold_the_hollow": "508ceba4",
@@ -610,7 +634,7 @@
       "objective_say.mark_the_saddle_truck": "3867b98c",
       "objective_say_on_fail.burn_the_barn": "3031c576",
       "trigger_say.the_saddle_truck_comes_down_to_the_farm": "632ac6c4",
-      "trigger_say.riders_come_through_the_dyke_gap": "2a865526",
+      "trigger_say.riders_come_through_the_dyke_gap": "8026b10d",
       "wave_say.1": "acefef7d",
       "wave_say.4": "ebf45e47"
     }
@@ -778,12 +802,12 @@
     "triggers": {
       "they_walk_into_the_ward": "L'ennemi s'avance dans le quartier",
       "the_block_pulls_back_into_the_souk": "Le pâté de maisons se replie dans le souk",
-      "a_charge_squad_comes_for_the_gate": "Un groupe kamikaze vise la porte"
+      "a_charge_squad_comes_for_the_gate": "Un groupe de charge vise la porte"
     },
     "trigger_say": {
       "they_walk_into_the_ward": "Ils entrent dans le quartier. Ni autour, ni vers les portes : dedans, car c'est le seul terrain de cette carte où vos armes sont celles qui vous coûtent.",
       "the_block_pulls_back_into_the_souk": "Le groupe en avant de l'enceinte est retourné dans le souk. Ils n'ont pas fini ; ils raccourcissent leur front.",
-      "a_charge_squad_comes_for_the_gate": "Un groupe kamikaze, sorti du souk, vient vers la porte. C'est la seule chose sur cette carte qui peut tuer une famille dans le mur, et peu lui importe de quel côté du mur il meurt."
+      "a_charge_squad_comes_for_the_gate": "Un groupe de charge, sorti du souk, vient vers la porte. C'est la seule chose sur cette carte qui peut tuer une famille dans le mur, et peu lui importe de quel côté du mur il meurt."
     },
     "wave_say": {
       "0": "Deux sections descendent la route nord vers la porte. Toutes les deux minutes, à l'heure, qu'il y ait ou non quelque chose à combattre à la porte.",

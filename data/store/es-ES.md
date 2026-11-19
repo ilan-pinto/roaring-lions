@@ -17,7 +17,7 @@ Usted manda un batallón de las Kedem Defence Forces en la tierra ficticia de Ke
 
 **La contención es una puntuación.** Cada misión tiene reglas de enfrentamiento. Disparar contra un edificio protegido o una calle señalizada cuesta puntos de Conducta. La unidad que gana el combate no siempre es la que puede permitirse emplear.
 
-**Una campaña de misiones cortas.** Treinta y nueve misiones por las ciudades de Kedem, casi todas pensadas para durar de cinco a siete minutos. Las unidades que conserve y los créditos que gane pasan a la misión siguiente.
+**Una campaña de misiones cortas.** Cuarenta misiones por las ciudades de Kedem, casi todas pensadas para durar de cinco a siete minutos. Las unidades que conserve y los créditos que gane pasan a la misión siguiente.
 
 **Herramientas para una operación de verdad.**
 - Humo, fuego de mortero, barridos de drones y ataques de precisión, pagados con la inteligencia que se gana cumpliendo la misión.
@@ -36,7 +36,7 @@ Usted manda un batallón de las Kedem Defence Forces en la tierra ficticia de Ke
 ## Key features
 - Un modelo de combate realista: orientación del blindaje, cobertura, línea de visión, altura y supresión
 - Reglas de enfrentamiento y una puntuación de Conducta que hacen de la contención parte de la victoria
-- Una campaña de treinta y nueve misiones cortas en la tierra ficticia de Kedem
+- Una campaña de cuarenta misiones cortas en la tierra ficticia de Kedem
 - Apoyo de fuego con humo, mortero, drones y ataques de precisión, edificios guarnecidos, túneles, heridos y civiles
 - Más de 40 tipos de unidad, desde escuadras de fusileros hasta carros de combate y helicópteros
 - Una brigada persistente con créditos, mejoras y garaje

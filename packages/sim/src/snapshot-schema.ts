@@ -408,6 +408,12 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'sepFootCols', cls: 'config', kind: SCALAR },
   { name: 'sepFootN', cls: 'scratch', kind: SCALAR },
   { name: 'sepOff', cls: 'scratch', kind: typed('Uint8Array', 'capacity') },
+  // GH-1438 E1 (the compound gate), APPENDED. Each gate's swing state, timer and hold, and the flag that folds them into
+  // hash(): all state, read on the next tick by stepGates. The tiles a gate blocks are in `blocked`, already state.
+  { name: 'stGateState', cls: 'state', kind: typed('Uint8Array', { fixed: 256 }) },
+  { name: 'stGateTimer', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
+  { name: 'stGateHold', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
+  { name: 'gateLive', cls: 'state', kind: SCALAR },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */

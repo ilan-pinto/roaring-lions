@@ -13,9 +13,11 @@ import {
   challengeMet,
   challengeMissionIds,
   challengeOf,
+  challengeTerms,
   hasChallenge,
   missionChallenges,
   type ChallengeRun,
+  type ChallengeWin,
 } from './challenges';
 
 const ROOT = join(__dirname, '..', '..', '..');
@@ -173,7 +175,7 @@ describe('every offer bites on its mission (an offer that changes nothing would 
 });
 
 describe('C7: the predicate, on the stored row, at its boundaries', () => {
-  const run = (o: Partial<ChallengeRun>): ChallengeRun => ({ roe: 100, ticks: 0, lost: 0, carriesAll: true, ...o });
+  const run = (o: Partial<ChallengeRun>): ChallengeRun => ({ roe: 100, ticks: 0, lost: 0, carriesAll: true, objectivesDone: [], ...o });
   it('lost_at_most 0 is met by 0 and not by 1', () => {
     expect(challengeMet({ lost_at_most: 0 }, run({ lost: 0 }), 7)).toBe(true);
     expect(challengeMet({ lost_at_most: 0 }, run({ lost: 1 }), 7)).toBe(false);
@@ -193,6 +195,41 @@ describe('C7: the predicate, on the stored row, at its boundaries', () => {
   it('carries_all reads the flag', () => {
     expect(challengeMet({ carries_all: true }, run({ carriesAll: true }), 7)).toBe(true);
     expect(challengeMet({ carries_all: true }, run({ carriesAll: false }), 7)).toBe(false);
+  });
+  it('objective_done reads the run\'s done list for that one id, and no other', () => {
+    expect(challengeMet({ objective_done: 'hvt_seen' }, run({ objectivesDone: ['picture', 'hvt_seen'] }), 7)).toBe(true);
+    expect(challengeMet({ objective_done: 'hvt_seen' }, run({ objectivesDone: ['picture', 'find_the_column'] }), 7)).toBe(false);
+    expect(challengeMet({ objective_done: 'hvt_seen' }, run({ objectivesDone: [] }), 7)).toBe(false);
+    // It is not carries_all: the other carried secondary left open does not matter, and carriesAll alone does not pass it.
+    expect(challengeMet({ objective_done: 'hvt_seen' }, run({ carriesAll: false, objectivesDone: ['hvt_seen'] }), 7)).toBe(true);
+    expect(challengeMet({ objective_done: 'hvt_seen' }, run({ carriesAll: true, objectivesDone: [] }), 7)).toBe(false);
+  });
+  it('challengeTerms: one entry per named field, in the closed set\'s order, each with whether it held', () => {
+    const win: ChallengeWin = { objective_done: 'hvt_seen', lost_at_most: 1, conduct_at_least: 80, ticks_at_most_target: true, carries_all: true };
+    expect(challengeTerms(win, run({ roe: 79, lost: 1, ticks: 8401, carriesAll: true, objectivesDone: ['hvt_seen'] }), 7)).toEqual([
+      { term: 'conduct_at_least', held: false },
+      { term: 'lost_at_most', held: true },
+      { term: 'ticks_at_most_target', held: false },
+      { term: 'carries_all', held: true },
+      { term: 'objective_done', held: true },
+    ]);
+    expect(challengeTerms({ objective_done: 'hvt_seen' }, run({}), 7)).toEqual([{ term: 'objective_done', held: false }]);
+  });
+  // Restrictive only: adding any term to a challenge never turns an unmet run into a met one.
+  it('every term only adds: a run that misses a challenge misses it with any term added', () => {
+    const terms: ChallengeWin[] = [{ conduct_at_least: 90 }, { lost_at_most: 0 }, { ticks_at_most_target: true }, { carries_all: true }, { objective_done: 'hvt_seen' }];
+    const runs = [run({}), run({ roe: 50 }), run({ lost: 3 }), run({ ticks: 99999 }), run({ carriesAll: false }), run({ objectivesDone: ['hvt_seen'] })];
+    for (const a of terms) for (const b of terms) for (const r of runs) {
+      if (!challengeMet(a, r, 7)) expect(challengeMet({ ...a, ...b }, r, 7), `${JSON.stringify(a)} + ${JSON.stringify(b)}`).toBe(false);
+    }
+  });
+  it('Whole Picture (the lead\'s ruling on PR 1568) needs the ATGM pair only, without the drone', () => {
+    const c = challengeOf('beit_sahwan_1_recon');
+    expect(c?.challenge.id).toBe('whole_picture');
+    expect(c?.challenge.amendments).toEqual(['recon_no_drone']);
+    expect(c?.challenge.win).toEqual({ objective_done: 'hvt_seen' });
+    const hvt = (byId('beit_sahwan_1_recon') as unknown as { objectives: { id: string; primary: boolean }[] }).objectives.find((o) => o.id === 'hvt_seen');
+    expect(hvt?.primary).toBe(false);
   });
   it('every named field must hold', () => {
     const win = { lost_at_most: 0, ticks_at_most_target: true as const };

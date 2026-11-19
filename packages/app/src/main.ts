@@ -186,7 +186,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget, unloadPress } from './input/keymap';
 import { buyUnlock } from './brigade-account';
 import { buyTierWithCredits } from './credit-buy';
-import { withGarageBranch } from './branch-bridge';
+import { legacyOffers, legacyOnStore } from './garage-legacy';
 import { coinHalfFor, storeInputFor } from '@lions/economy';
 import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
@@ -1198,16 +1198,24 @@ async function main(): Promise<void> {
     // GH-1394 slice 2: the posture chip is lazy (off the entry chunk), fetched alongside the save kit; a chunk that will not
     // load leaves the board without the chip, and the posture stays what the ledger says.
     const postureUiLoad = importWithRetry(() => import('./ui/posture-ui')).catch(() => null);
+    // GH-1395 slice 2: the challenge mark is lazy (off the entry chunk), fetched alongside the save kit; a chunk that will not
+    // load leaves the board without the mark, and nothing it would have shown is counted anywhere else.
+    const challengeBoardLoad = importWithRetry(() => import('./ui/challenge-board')).catch(() => null);
     // GH-1393: the Resume row needs the save library; if its chunk will not load the board still opens, without the row.
     const kit = await saveKit().catch(() => null);
     if (req.signal.aborted) return () => undefined;
     const postureUi = await postureUiLoad;
     if (req.signal.aborted) return () => undefined;
+    const challengeBoard = await challengeBoardLoad;
+    if (req.signal.aborted) return () => undefined;
+    const boardWorld = parseWorld(world);
+    const boardLedger = ledgerStore.readLedger();
     return showCampaign(host, {
       base: BASE,
-      world: parseWorld(world),
+      world: boardWorld,
       countries: parseCountries(countries),
-      ledger: ledgerStore.readLedger(),
+      ledger: boardLedger,
+      ...(challengeBoard === null ? {} : { townMark: challengeBoard.challengeTownMark(boardWorld, boardLedger) }),
       commander: parseCommander(commander),
       missionOf: (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id],
       portraitUrl: commanderPortraitUrl,
@@ -1291,19 +1299,28 @@ async function main(): Promise<void> {
      *  answers the same way -- the store is the truth either way. */
     const now = (): GarageState => {
       const a = accountState();
-      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers, earned: ledgerStore.readAccount().upgrades, picks: a.ownedPicks };
+      return {
+        units: garageUnits(a.boughtUnits),
+        credits: a.balance,
+        owned: a.ownedTiers,
+        earned: ledgerStore.readAccount().upgrades,
+        picks: a.ownedPicks,
+        // GH-1384: `{}` while the branch switch is closed (the shipped branched table is empty).
+        legacy: legacyOffers(ledgerStore.readAccount(), ledgerStore.readRoar()),
+      };
     };
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => coinHalfFor({ brigade: ledgerStore.readAccount(), roar: ledgerStore.readRoar() });
     // Signed-in-ness comes from the STORE (fix round 2): an account store with no flow is offline, never a guest.
-    const serverCtl = serverControls<GarageState>(garageServerMode(ledgerStore, spendFlowRef), now, {
+    const garageMode = garageServerMode(ledgerStore, spendFlowRef);
+    const serverCtl = serverControls<GarageState>(garageMode, now, {
       guest: () => ({
         buy: (ask) => {
           const roar = ledgerStore.readRoar();
           const { account, ok } = buyWithCoins(
             storeInputFor({ ledger: ledgerStore.readLedger(), brigade: ledgerStore.readAccount(), roar }),
             roar,
-            withGarageBranch(ask),
+            ask,
             Date.now()
           );
           if (ok) {
@@ -1427,8 +1444,18 @@ async function main(): Promise<void> {
       owned: ownedTiers,
       earned: ledgerStore.readAccount().upgrades,
       picks: accountState().ownedPicks,
+      legacy: now().legacy,
+      // GH-1384: the legacy owner's Switch or Return writes both stores at once (`garage-legacy.ts`); a guest's only, since a
+      // member's are server routes (the net and Worker slice). Inert while the branch switch is closed: no marker can stand.
+      onLegacy:
+        ledgerStore.available && garageMode.mode === 'guest'
+          ? (unitId, track, action) => {
+              const out = legacyOnStore(ledgerStore, unitId, track, action, Date.now());
+              return { ...now(), landed: out.ok };
+            }
+          : undefined,
       onBuyUpgrade: ledgerStore.available
-        ? (unitId, track, tier, price) => {
+        ? (unitId, track, tier, price, pick) => {
             // A credit Buy pays the run `creditAsk` states, recomputed from a FRESH read of the
             // account and the single-player view (Review Focus 2): the button's price is checked,
             // never trusted.
@@ -1442,7 +1469,8 @@ async function main(): Promise<void> {
               unitId,
               track,
               tier,
-              price
+              price,
+              pick
             );
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
@@ -1478,6 +1506,9 @@ async function main(): Promise<void> {
         // nowhere else (per-seat kit): this is the one read of the account on
         // a room path. The world is built from the room's config, never from it.
         tiers: () => accountState().ownedTiers,
+        // GH-1384: the branch picks, from the SAME view as the tiers; `roomClaim` sends them only beside the tiers,
+        // never into a matched create, and only while branching is open.
+        picks: () => accountState().ownedPicks,
         // GH-1102: the Store specials the account owns, by the same path and the same rule.
         specials: () => kit.ownedStoreSpecials(accountState().boughtUnits),
         ...(signal ? { signal } : {}),
@@ -1619,6 +1650,9 @@ async function main(): Promise<void> {
         },
       ]
     : [];
+  /** GH-1395 slice 2: the amendment set a mission's restart hands its next mount (the deploy panel's change, or the pause
+   *  menu's Restart), one shot, in this JS realm only. The mission route takes it and clears it. */
+  let amendmentCarry: { missionId: string; ids: readonly string[] } | null = null;
   const router = new Router({
     base: BASE,
     stage,
@@ -1659,21 +1693,30 @@ async function main(): Promise<void> {
         // briefing focuses Deploy itself (KS-08, `shell/router.ts`).
         focus: false,
         pattern: '/mission/:id',
-        mount: (host, req) =>
-          guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
+        mount: (host, req) => {
+          // GH-1395 slice 2: the amendment set a restart of THIS mission carried, taken once (a later mount of any mission,
+          // from the board, a link or a reload, starts plain).
+          const carried = amendmentCarry !== null && amendmentCarry.missionId === req.params.id ? amendmentCarry.ids : undefined;
+          amendmentCarry = null;
+          return guardBoot(host, req.signal, (err) => bootFailure(host, err), bootBattlefield(host, {
             missionId: req.params.id,
             sandboxMap: null,
             query: req.query,
             signal: req.signal,
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
+            ...(carried === undefined ? {} : { amendments: carried }),
             // GH-1393: a Restart starts the mission over; it must not carry `resume` along and load the save again.
-            restart: () => {
+            // GH-1395 slice 2: it carries the amendment set it is handed (the panel's new one, or the run's own).
+            restart: (next) => {
+              const ids = next?.amendments ?? [];
+              amendmentCarry = ids.length > 0 ? { missionId: req.params.id, ids: [...ids] } : null;
               const q = new URLSearchParams(req.query);
               q.delete('resume');
               void router.navigate(router.href(req.path, q), { replace: true, force: true });
             },
-          })),
+          }));
+        },
       },
       {
         name: 'settings',
@@ -1881,8 +1924,12 @@ export interface BattlefieldRequest {
    *  to this route's own href rather than a bespoke re-init: the router's
    *  existing mount/dispose sequencing is what tears the old sim/renderer down
    *  and boots a fresh one, so there is no second teardown path to keep in
-   *  step with the real one. */
-  restart(): void;
+   *  step with the real one.
+   *
+   *  GH-1395 slice 2: `next.amendments` is the amendment set the restarted run is played with (the deploy panel's new
+   *  choice, or the pause menu's Restart carrying the run's own). Only the mission route reads it; a restart with none
+   *  is the plain mission. */
+  restart(next?: { amendments?: readonly string[] }): void;
   /** GH-954 W1: this battlefield WATCHES a bot-vs-bot arena game instead of playing one (the DEV-only
    *  `/arena/watch` route builds it; no other screen does). The room is joined with a spectator ticket through
    *  `connect`, and the battlefield then has no command path at all: no order, pause, surrender, chat, advisor
@@ -1894,9 +1941,10 @@ export interface BattlefieldRequest {
     hooks: SpectateHooks;
     capTicks: number;
   };
-  /** GH-1395: the amendments to the orders this run is played under (ids from `data/challenges/amendments.json`,
-   *  each one the mission offers). Slice 1 has no screen that sets it, so every run today is unamended; the deploy
-   *  toggles (slice 2) are its one writer, and a save and a replay must carry it (D10). */
+  /** GH-1395: the amendments to the orders this run is ASKED to be played under, carried from the last restart (the
+   *  deploy panel's choice, or Restart). Never read raw: `amendmentsForRun` filters it to what the mission offers and the
+   *  panel's gates allow (a pilot mission, not the tutorial, not on Easier, open at boot), and a resumed run plays the
+   *  save's ids instead. Not a URL key: a link or a reload starts the plain mission. */
   amendments?: readonly string[];
 }
 
@@ -2157,10 +2205,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     req.navigate(routes.campaign(), { replace: true });
     return teardown;
   }
+  // GH-1395 slice 2: the amendments this run is played with, judged on the AUTHORED mission and the ledger at boot,
+  // before the posture is applied (`amendmentsForRun`): a resumed run plays its save's ids (D10), a new run the set its last
+  // restart carried, filtered to what the panel may offer (a pilot mission, not the tutorial, not on Easier, open at boot).
+  // `amendmentOffer` is the panel's gate: null, no panel. A save whose ids this mission no longer offers is not loaded.
+  const amendmentRun =
+    mission === undefined || inRoom
+      ? { ids: [] as string[], offer: null }
+      : posture.amendmentsForRun({ mission, ledger, requested: req.amendments, saved: resumed === null ? null : (resumed.inputs.amendments ?? []) });
+  if ('refused' in amendmentRun) {
+    resumeKit?.noteResumeProblem('failed');
+    req.navigate(routes.campaign(), { replace: true });
+    return teardown;
+  }
+  /** The run's amendment ids: the start input the save, the replay and Restart carry, and the victory judges. */
+  const runAmendments: readonly string[] = amendmentRun.ids;
   if (mission !== undefined) mission = posture.campaignMission(mission, ledger, t);
   // GH-1395: the amendments go on AFTER the posture (`./posture` re-exports `./challenge`, so it is one lazy chunk and
   // nothing campaign-only reaches the entry); with none on, this line does nothing.
-  if (mission !== undefined && req.amendments) mission = posture.amended(mission, req.amendments);
+  if (mission !== undefined && runAmendments.length > 0) mission = posture.amended(mission, runAmendments);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -3145,16 +3208,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   onDispose(() => loading.dispose());
   // GH-1394 slice 2 (D10): the deploy line, under the orders: the posture this run is played on, what it does to the grade and
   // the pay, and the one place besides the board to change it. A change rewrites the ledger key and starts this briefing again
-  // (`req.restart`), so the mission the player deploys is the one the line names. Not on the tutorial (D12), a sandbox or a
-  // resumed run (its posture is the save's); read-only under `?fresh`, whose ledger is not the campaign's (`deployPostureDeps`).
+  // (`req.restart`), so the mission the player deploys is the one the line names. The restart carries this run's amendments
+  // (GH-1395 slice 2): `amendmentsForRun` judges them again on the new posture, so on Easier they drop. Not on the tutorial
+  // (D12), a sandbox or a resumed run (its posture is the save's); read-only under `?fresh`, whose ledger is not the
+  // campaign's (`deployPostureDeps`).
   // Frozen the moment Deploy is answered (`freezePostureLine`, below `loading.done()`): with an intro planned the screen, and
   // the line, stay up, and a change there would restart a mission that has started, unasked (review finding 2).
   let freezePostureLine = (): void => undefined;
   if (resumed === null && posture.showsPosture(mission)) {
-    const line = posture.posturePicker(posture.deployPostureDeps({ fresh: params.get('fresh') !== null, ledger, store: ledgerStore, restart: () => req.restart() }));
+    const line = posture.posturePicker(posture.deployPostureDeps({ fresh: params.get('fresh') !== null, ledger, store: ledgerStore, restart: () => req.restart({ amendments: runAmendments }) }));
     (stage.querySelector('.rl-loading__orders') ?? stage.querySelector('.rl-loading__box'))?.append(line.el);
     onDispose(line.dispose);
     freezePostureLine = line.freeze;
+  }
+  // GH-1395 slice 2: "Amendments to the orders", under the orders (D11). Only where `amendmentOffer` allowed one (a pilot
+  // mission, not the tutorial, not on Easier, open at boot) and never on a resumed run (its ids are the save's). A press
+  // starts this briefing again on the new set (`req.restart`), as the posture line does, so the mission deployed is the one
+  // the panel names; frozen the moment Deploy is answered (`freezeAmendments`, below `loading.done()`).
+  let freezeAmendments = (): void => undefined;
+  if (resumed === null && amendmentRun.offer !== null) {
+    const panel = posture.amendmentPanel({ offer: amendmentRun.offer, chosen: runAmendments, onChange: (next) => req.restart({ amendments: next }) });
+    (stage.querySelector('.rl-loading__orders') ?? stage.querySelector('.rl-loading__box'))?.append(panel.el);
+    onDispose(panel.dispose);
+    freezeAmendments = panel.freeze;
   }
   // GH-1393: a resumed mission was briefed and deployed before it was saved: the screen stays up as the loading screen and answers itself.
   if (resumed !== null) loading.deployNow();
@@ -3290,6 +3366,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Deploy is answered: the posture line takes no more changes (GH-1394 slice 2). In the same task as the resolve, so no click
   // can land between the two.
   freezePostureLine();
+  // Deploy is answered: the amendments panel takes no more presses (GH-1395 slice 2). In the same task as the resolve, so no
+  // click can land between the two.
+  freezeAmendments();
   if (req.signal.aborted) abandon('left before deploy');
 
   // The mission starts HERE, after the player has answered the deploy screen
@@ -3374,7 +3453,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // cast: TypeScript narrows `deploySelection` to its initial null, since
       // it is assigned only inside the deploy screen's callback.
       const picks = deploySelection as DeploySelection | null;
-      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen }) ?? null;
+      // GH-1395 slice 2 (D10): the amendment ids are a start input, so Save and quit carries them and a resume rebuilds the amended mission.
+      startInputs = sk?.startInputsJson({ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null ? null : picks.chosen, amendments: runAmendments }) ?? null;
       if (resumed !== null && sk !== null) {
         // The world stands at tick 0, built as for a new mission. The save is written onto it, proved (sim hash and runtime digest equal
         // the saved ones) before a tick runs, and the renderer is re-seeded from it. A refusal leaves this sim half-written: it is dropped.
@@ -3413,6 +3493,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         ...replayStartPicks(branchPicks),
         unlocks: [...boughtUnits],
         deploy: picks === null ? null : [...picks.chosen],
+        // GH-1395 slice 2 (D10): the replay rebuilds the amended mission, not the plain one under its name.
+        ...(runAmendments.length > 0 ? { amendments: [...runAmendments] } : {}),
       });
       // Read after `startMission` has spawned the force: living side-0 units
       // by type, and how many the placements drew from the roster (R-3, R-4).
@@ -4373,28 +4455,40 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * the battlefield is gone (torn down mid-save: no menu is left to read a line, and nothing is written or navigated).
    */
   const saveAndQuit = async (): Promise<SaveOutcome> => {
+    // The save belongs to the pause it was asked from. Resume and Escape stay live while a chunk loads (the content digest's first load
+    // fetches every map's JSON), so once THAT menu is gone, or the mission is decided, the sim may have ticked: nothing is cut, written or
+    // navigated, and null leaves no line (a closed menu reads nothing; an open one just clears its busy line). A new pause is a new menu.
+    const menu = pauseHandle;
+    const stale = (): boolean => !paused || pauseHandle !== menu || runtime?.result !== 'ongoing';
     const kit = await saveKit().catch(() => null);
-    if (disposed) return null; // left by another way while the kit loaded: nothing to cut, write or leave
+    if (disposed || stale()) return null; // left by another way while the kit loaded: nothing to cut, write or leave
     if (kit === null) return t('save.err.encode_failed');
-    const { cutMission, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
+    const { cutMission, loadContentDigest, sealMission, writeSuspended, openSuspendStore, saveFailureText, shellJson, captureShell, savedMissionOtherThan, confirmReplaceOther } = kit;
     if (runtime === null || startInputs === null || resolvedMission === undefined) return saveFailureText('encode_failed');
     // The slot holds ONE save. Replacing another mission's is the player's decision, asked before anything is cut or written.
     const other = savedMissionOtherThan(openSuspendStore(() => window.localStorage), resolvedMission.id);
     if (!(await confirmReplaceOther(other, (id) => (missionManifest as Record<string, MissionSummary | undefined>)[id]?.name))) return { declined: true };
-    if (disposed) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    if (disposed || stale()) return null; // torn down while the replace question was open: nothing to cut, write or leave
+    // The content digest (every map's JSON) loads at the save, not with the kit, which rides every mission boot (`loadContentDigest`).
+    const contentDigest = await loadContentDigest().catch(() => null);
+    if (disposed || stale()) return null; // left, resumed or ended while the digest loaded: nothing to cut, write or leave
+    if (contentDigest === null) return saveFailureText('encode_failed');
     const cut = cutMission({
       sim,
       runtime,
+      contentDigest,
       missionId: resolvedMission.id,
       seed: SIM_SEED,
       build: `${__APP_BUILD__}+${__APP_COMMIT__}`,
       savedAt: Date.now(),
       campaign: startInputs,
+      // GH-1395 slice 2 (D10): the same list `startInputs` holds; `loadResume` refuses a record whose two disagree.
+      ...(runAmendments.length > 0 ? { amendments: runAmendments } : {}),
       shell: shellJson(captureShell({ log: missionLog, deductions, lost: lostThisMission, narratedRoe: narratedRoeReasons, evacuated: evacuatedSoFar, deadlinesWarned, limitWarned })),
     });
     if (!cut.ok) return saveFailureText('encode_failed');
     const sealed = await sealMission(cut.cut);
-    if (disposed) return null; // left mid-gzip: no save of a mission the player left, and no navigation off where they went
+    if (disposed || stale()) return null; // left or resumed mid-gzip: no save of a mission the player left or went back to, and no navigation
     if (!sealed.ok) return saveFailureText(sealed.reason);
     const wrote = writeSuspended(openSuspendStore(() => window.localStorage), sealed.record);
     if (!wrote.ok) return saveFailureText(wrote.reason);
@@ -4429,7 +4523,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             }).answer.then((ok) => {
               if (!ok) return;
               // GH-1393: Restart keeps a resumed mission's save too (it starts the mission over; the old save is still the player's to resume or discard).
-              req.restart();
+              // GH-1395 slice 2 (D10): and it restarts the run's own amendments, so a restart cannot shed a restriction.
+              req.restart({ amendments: runAmendments });
             });
           },
         }
@@ -6526,7 +6621,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // against the ledger the run BOOTED with (posture, open-at-boot). Not on Easier, not for a mission played by
           // address, never on a defeat (`victoryMark`, ./challenge via ./posture). Its mark joins the same all-or-none
           // victory write, and `posture.settleVictory` pays its coin there.
-          const challengeMark = runtime && posture.victoryMark(mission, ledger, req.amendments, runtime, mev);
+          const challengeMark = runtime && posture.victoryMark(mission, ledger, runAmendments, runtime, mev);
           const updatedLedger: CampaignLedger = posture.withChallengeMark(carryover ? carryover.ledger : { ...ledger, ...mev.ledger }, mission.id, challengeMark);
           if (mev.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
@@ -6728,6 +6823,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               taken: takenAccount,
               marked: runtime.markedCount,
               typeName,
+              // GH-1395 slice 2: the challenge rung, on a win played with amendments on; worded in the lazy chunk.
+              challenge: mev.result === 'victory' ? posture.victoryRung(mission, runAmendments, challengeMark, runtime, mev) : null,
             });
             // GH-1394 slice 2 (D11): one line suggesting Easier on a lost campaign mission, never a change.
             const suggestion = posture.defeatSuggestion(mev.result, mission, ledger);

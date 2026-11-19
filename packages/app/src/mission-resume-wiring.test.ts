@@ -61,7 +61,8 @@ describe('Save and quit (main.ts)', () => {
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // every failure is a line, never a throw or a silent return of null before the write is kept (a torn-down battlefield aside, below)
-    expect(body.match(/return saveFailureText\(/g)?.length).toBe(4);
+    // (5: the content digest's on-demand load is the fifth, since the kit stopped carrying every map's JSON)
+    expect(body.match(/return saveFailureText\(/g)?.length).toBe(5);
     expect(body).toMatch(/return null;\s*\};?\s*$/);
   });
 
@@ -73,12 +74,30 @@ describe('Save and quit (main.ts)', () => {
     expect(awaits.length).toBeGreaterThanOrEqual(2); // saveKit() and sealMission(): never a vacuous pass over none
     for (const a of awaits) {
       const after = body.slice((a.index ?? 0) + a[0].length).replace(/^(?:\s|\/\/[^\n]*\n)*/, '');
-      expect(after.startsWith('if (disposed) return'), `after \`${a[0]}\` the next statement is: ${after.split('\n')[0]}`).toBe(true);
+      expect(after.startsWith('if (disposed || stale()) return null;'), `after \`${a[0]}\` the next statement is: ${after.split('\n')[0]}`).toBe(true);
     }
   });
 
+  it('stops after every await once its pause is over: Resume, Escape or the end while a chunk loads means no cut, no write, no leave', () => {
+    // Resume and Escape stay live while a save is out (pause.ts), and the content digest's first load is a real fetch: a sim that ticked
+    // since the menu opened must not be cut, and a player who went back to the mission must not be navigated off it.
+    const body = main.slice(at(/const saveAndQuit = async/), at(/const pauseMenuDeps = \(\): PauseDeps/));
+    expect(body).toMatch(/const menu = pauseHandle;\s*const stale = \(\): boolean => !paused \|\| pauseHandle !== menu \|\| runtime\?\.result !== 'ongoing';\s*const kit = await saveKit\(\)/);
+    const awaits = [...body.matchAll(/\bawait\b[^;]*;/g)];
+    expect(awaits.length).toBeGreaterThanOrEqual(4); // the kit, the replace question, the digest and the gzip
+    for (const a of awaits) {
+      const after = body.slice((a.index ?? 0) + a[0].length).replace(/^(?:\s|\/\/[^\n]*\n)*/, '');
+      expect(/^if \([^)]*\bstale\(\)[^)]*\) return null;/.test(after), `after \`${a[0]}\` the next statement is: ${after.split('\n')[0]}`).toBe(true);
+    }
+    // the cut and the write come after the last stale check
+    const lastCheck = body.lastIndexOf('stale()) return null;');
+    expect(lastCheck).toBeLessThan(body.indexOf('writeSuspended(openSuspendStore'));
+    expect(body.indexOf('if (disposed || stale()) return null; // left, resumed or ended while the digest loaded')).toBeLessThan(body.indexOf('const cut = cutMission('));
+  });
+
   it('what is saved is what the mission was started from, and the shell', () => {
-    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen \}\) \?\? null;/);
+    // GH-1395 slice 2 (D10): the run's amendment ids are a start input too.
+    expect(main).toMatch(/startInputs = sk\?\.startInputsJson\(\{ ledger, tiers: bootKit, picks: branchPicks, unlocks: boughtUnits, deploy: picks === null \? null : picks\.chosen, amendments: runAmendments \}\) \?\? null;/);
     expect(main).toMatch(/shell: shellJson\(captureShell\(\{ log: missionLog, deductions, lost: lostThisMission, narratedRoe: narratedRoeReasons, evacuated: evacuatedSoFar, deadlinesWarned, limitWarned \}\)\),/);
   });
 });
@@ -88,7 +107,8 @@ describe('the save is dropped when its mission is over, and only then', () => {
     expect(main).toMatch(/if \(mev\.kind === 'missionEnd'\) \{\s*\/\/[^\n]*\n\s*if \(mission\) dropSavedMission\(mission\.id\);/);
     expect(main.match(/dropSavedMission\(/g)?.length).toBe(2); // the definition and the one call at the mission's end
     expect(main).toMatch(/if \(ok\) req\.navigate\(quitHref\(room !== null, !mission\)\);/);
-    expect(main).toMatch(/if \(!ok\) return;\s*\/\/[^\n]*\n\s*req\.restart\(\);/);
+    // GH-1395 slice 2 (D10): Restart carries the run's own amendments.
+    expect(main).toMatch(/if \(!ok\) return;\s*(\/\/[^\n]*\n\s*)+req\.restart\(\{ amendments: runAmendments \}\);/);
     expect(main).toMatch(/leaveCopy\(!mission, resumed !== null\)/); // the pause menu's Quit says it
     expect(main).toMatch(/freePlay: !mission,\s*resumed: resumed !== null,/); // and so does the HUD's own leave
   });

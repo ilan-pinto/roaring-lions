@@ -46,7 +46,7 @@ const FREE_TO_PLAY: Record<Lang, string> = {
   'es-ES': 'Gratis para jugar',
 };
 /** The mission count in words, per language, for 30 to 40, and the noun after it. A count outside the table fails with a message to add the word,
- *  so a new batch of missions moves the copy and this guard together (39 files today). */
+ *  so a new batch of missions moves the copy and this guard together (40 files today). */
 const MISSION_WORDS: Record<Lang, { noun: string; words: Record<number, string> }> = {
   en: { noun: 'missions', words: { 30: 'Thirty', 31: 'Thirty-one', 32: 'Thirty-two', 33: 'Thirty-three', 34: 'Thirty-four', 35: 'Thirty-five', 36: 'Thirty-six', 37: 'Thirty-seven', 38: 'Thirty-eight', 39: 'Thirty-nine', 40: 'Forty' } },
   de: { noun: 'Einsätze', words: { 30: 'Dreißig', 31: 'Einunddreißig', 32: 'Zweiunddreißig', 33: 'Dreiunddreißig', 34: 'Vierunddreißig', 35: 'Fünfunddreißig', 36: 'Sechsunddreißig', 37: 'Siebenunddreißig', 38: 'Achtunddreißig', 39: 'Neununddreißig', 40: 'Vierzig' } },

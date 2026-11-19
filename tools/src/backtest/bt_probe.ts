@@ -43,7 +43,7 @@ if (!sweep) {
     ? (evs: readonly { kind: string; tick?: number }[]): void => {
         for (const e of evs) {
           const x = e as unknown as Record<string, unknown>;
-          if (e.kind === 'routed' || e.kind === 'destroyed') console.log(`EV t=${((e.tick ?? 0) / 20).toFixed(0)}s ${e.kind} ${JSON.stringify(x)}`);
+          if (e.kind === 'routed' || e.kind === 'destroyed' || e.kind === 'structureDestroyed') console.log(`EV t=${((e.tick ?? 0) / 20).toFixed(0)}s ${e.kind} ${JSON.stringify(x)}`);
           else if (e.kind === 'fire' && (x.shooter === 2 || x.shooter === 3 || x.shooter === 5) && (e.tick ?? 0) > 3600 && (e.tick ?? 0) < 4800) console.log(`EV t=${((e.tick ?? 0) / 20).toFixed(0)}s fire shooter ${x.shooter} ${x.weaponId} target ${x.target} pHit ${x.pHit} willHit ${x.willHit}`);
         }
       }

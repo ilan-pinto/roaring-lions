@@ -22,8 +22,8 @@ are AI translations (Claude, in-house, no paid service, GH-1407 D3), **not proof
 - **"Free to play" is said one way per language**, in the short description, as the bold heading and in the key-features bullet: "Free to play" /
   "Kostenlos spielbar" / "Jouable gratuitement" / "Gratis para jugar". The test checks all three places.
 - **The numbers are derived, not pinned:** missions (the count of `data/missions/*.json`, spelled out per language), the Free Play maps (above) and the
-  unit types (more than 40). The shipped count is 39 (Qasr Liwan and Bir Tarsha are in): `MISSION_WORDS` in `tools/src/store_copy.test.ts`
-  holds the words for 30 to 40, and the test fails with "add the word" outside the table, so the copy ("Thirty-nine missions") and E4 move together.
+  unit types (more than 40). The shipped count is 40 (Qasr Liwan and Bir Tarsha are in): `MISSION_WORDS` in `tools/src/store_copy.test.ts`
+  holds the words for 30 to 40, and the test fails with "add the word" outside the table, so the copy ("Forty missions") and E4 move together.
 - **The ban list** has two parts: real-world places, peoples, faiths, persons and operations, matched from the start of a word with accents
   ignored; and every Kedem town and region name, read from `data/campaign/world.json` and the mission names at test time so the list cannot go stale.
 
@@ -33,7 +33,7 @@ are AI translations (Claude, in-house, no paid service, GH-1407 D3), **not proof
 | E1 | The fiction: KDF, Kedem, the Sarim; the "inspired by" line; no real names | GH-1378 Q8 (ruling of 16 Nov); `data/campaign/world.json` (fictional regions), `docs/campaign/storyline.md` |
 | E2 | Armour has a front, side and rear; cover and walls stop rounds; height decides what you see; one set of rules for both sides | `packages/sim/src/tuning.ts` (facing arcs, cover, penetration), `packages/sim/src/vehicle-health.ts`; elevation and line of sight: `data/maps/*.json` `elevation`, CLAUDE.md "A map" rules |
 | E3 | Rules of engagement and a Conduct score; protected buildings and flagged streets cost Conduct | `packages/sim/src/grade.ts`, `packages/sim/src/credits.ts`, structure `roe_penalty` in `data/structures.json`; `m` civic-hall tiles on nine maps; unit blurbs in `data/locales/en/units.json` ("In a flagged street they cost Conduct") |
-| E4 | Thirty-nine missions across the Kedem towns, almost all designed for five to seven minutes; units and credits carry on | `data/missions/*.json` (39 files; the test counts them); `target_minutes` 5 to 7 in `data/schemas/mission.schema.json` (one named exemption, the 12-minute tutorial); carry-over: `docs/campaign/README.md` (ledger `requires`/`produces`), `packages/app/src/roster-carryover.ts` |
+| E4 | Forty missions across the Kedem towns, almost all designed for five to seven minutes; units and credits carry on | `data/missions/*.json` (40 files; the test counts them); `target_minutes` 5 to 7 in `data/schemas/mission.schema.json` (one named exemption, the 12-minute tutorial); carry-over: `docs/campaign/README.md` (ledger `requires`/`produces`), `packages/app/src/roster-carryover.ts` |
 | E5 | Smoke, mortar barrage, drone sweep and precision strike, paid with intelligence earned by doing the job | `dock.support.smoke_screen` / `mortar_barrage` / `drone_sweep` / `air_strike` in `packages/app/src/i18n/en.json`; `packages/sim/src/intel-earn.ts`; GH-1378/G3 Q1 in `docs/HANDOVER.md` ("intel stays the fire-support currency") |
 | E6 | Garrison a house, collapse a tunnel, bring down a wall, medic under fire, civilians to the refuge | `packages/sim/src/structures.ts` (garrison), `tunnels.ts` (Yahalom collapse), `wounds.ts` (wounds and rescue), `civilians.ts` (flight to the refuge); units `yahalom_squad`, `demo_squad`, `dozer_d9`, `inf_medic_squad` in `data/units/` |
 | E7 | Column, attack formation, ambush | `data/formations/{column,attack,ambush}.json` (GH-859) |

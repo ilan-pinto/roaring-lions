@@ -1,0 +1,26 @@
+{
+  "levels": [
+    {
+      "id": "easy",
+      "label_key": "versus.cpu.level.easy.label",
+      "blurb_key": "versus.cpu.level.easy.blurb",
+      "withhold": [
+        { "unit": "mbt_lavi", "count": 2 }
+      ]
+    },
+    {
+      "id": "medium",
+      "label_key": "versus.cpu.level.medium.label",
+      "blurb_key": "versus.cpu.level.medium.blurb",
+      "withhold": [
+        { "unit": "mbt_lavi", "count": 1 }
+      ]
+    },
+    {
+      "id": "hard",
+      "label_key": "versus.cpu.level.hard.label",
+      "blurb_key": "versus.cpu.level.hard.blurb",
+      "withhold": []
+    }
+  ]
+}

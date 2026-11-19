@@ -21,7 +21,7 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 
 **Restraint is a score.** Every mission has rules of engagement. Fire into a protected building or a flagged street and your Conduct score pays for it. The unit that wins the fight is not always the one you can afford to use.
 
-**A campaign of short missions.** Thirty-nine missions across the Kedem towns, almost all designed for five to seven minutes. The units you keep and the credits you earn carry on to the next mission.
+**A campaign of short missions.** Forty missions across the Kedem towns, almost all designed for five to seven minutes. The units you keep and the credits you earn carry on to the next mission.
 
 **Tools for a real operation.**
 - Smoke, mortar barrages, drone sweeps and precision strikes, paid for with intelligence you earn by doing the job.
@@ -40,7 +40,7 @@ You command a Kedem Defence Forces battalion in the fictional land of Kedem, ins
 ## Key features
 - A realistic combat model: armour facing, cover, line of sight, height and suppression
 - Rules of engagement and a Conduct score that make restraint part of winning
-- A campaign of thirty-nine short missions in the fictional land of Kedem
+- A campaign of forty short missions in the fictional land of Kedem
 - Smoke, mortar, drone and precision fire support, garrisons, tunnels, wounded and civilians
 - More than 40 unit types, from rifle squads to tanks and helicopters
 - A persistent brigade with credits, upgrades and a garage

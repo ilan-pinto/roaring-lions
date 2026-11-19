@@ -21,12 +21,21 @@ import { BASELINES, isGated } from './baseline';
  * accepted and does nothing at all, exactly as `HTMLElement.click()` on a
  * button with no listener does.
  */
-function stubDeployGate(liveOnPoll: number): DeployGatePage & { polls: number; clicks: number; removed: boolean } {
+function stubDeployGate(liveOnPoll: number): DeployGatePage & {
+  polls: number;
+  clicks: number;
+  removed: boolean;
+  selectorTimeouts: (number | undefined)[];
+} {
   const state = {
     polls: 0,
     clicks: 0,
     removed: false,
-    async waitForSelector(): Promise<unknown> {
+    // Every `timeout` the button wait was handed, so a test can read what
+    // reached Playwright rather than what the caller asked for.
+    selectorTimeouts: [] as (number | undefined)[],
+    async waitForSelector(_selector: string, options?: { timeout?: number }): Promise<unknown> {
+      state.selectorTimeouts.push(options?.timeout);
       return null;
     },
     async evaluate<R>(fn: () => R): Promise<R> {
@@ -87,6 +96,20 @@ describe('dismissDeployGate', () => {
     // "were lost" clause must NOT appear or it would report a race that did
     // not happen.
     expect(lines.join('\n')).not.toContain('were lost');
+  });
+
+  it('waits for the button as long as the caller asks, and 20 s when it does not', async () => {
+    // `ui:routes`' kit legs (K4, K5) cold-boot a mission and pass 60 s here;
+    // on a slow SwiftShader runner K4 died at the 20 s button wait while the
+    // 60 s gate-clear budget behind it was never reached (PR 1595's visual
+    // job). The option is only worth anything if it reaches Playwright.
+    const asked = stubDeployGate(1);
+    await dismissDeployGate(asked, 'test', { intervalMs: 0, selectorTimeoutMs: 60_000, log: () => {} });
+    expect(asked.selectorTimeouts).toEqual([60_000]);
+
+    const unasked = stubDeployGate(1);
+    await dismissDeployGate(unasked, 'test', { intervalMs: 0, log: () => {} });
+    expect(unasked.selectorTimeouts).toEqual([20_000]);
   });
 
   it('throws with the boot it was waiting on, rather than timing out somewhere else', async () => {

@@ -13,7 +13,7 @@ import { buildMatchWorld, matchTick } from '../match-world';
 import { decideOnHashTick, goalsOf, productionOf, type LocalDecision } from '../outcome';
 import { connectMatch } from '../connect';
 import { OFFLINE_CODE, OfflineMatchGone, armOffline, dropOffline, isOfflineTransport, takeOffline } from '../offline-slot';
-import { HUMAN_SEAT, OfflineMatchTransport, offlineConfig, offlineMatch, type OfflineRequest } from '../offline-match';
+import { COMPUTER_SEAT, HUMAN_SEAT, OfflineMatchTransport, offlineConfig, offlineMatch, type OfflineRequest } from '../offline-match';
 import { ComputerSeat } from './computer-seat';
 import { REALTIME_EVERY_TICKS, passive, rush } from './policy';
 import { DESK_FLUSH_TICKS } from './order-desk';
@@ -83,13 +83,23 @@ describe('a match against the computer seat runs to a result with no network at 
     expect(run.humanOrders).toBe(0);
   }, 300_000);
 
-  it('an economy pairing is refused: the computer builds nothing, so kdf and sarim could never end (GH-1388)', () => {
+  it('a faction pairing is armed where the coverage probe read the cell clean, and refused where it is closed (GH-1390)', () => {
+    // Wadi Tarfan, a KDF human racing for the camp against the Sarim commander: open. The same ground in annihilation (the skirmish economy) is closed.
+    const open = offlineMatch({ ...REQ, map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' });
+    expect(open.config.seats[COMPUTER_SEAT].faction).toBe('sarim');
+    expect(open.config.winMode).toBe('camp');
     for (const matchup of ['kdf', 'sarim'] as const) {
-      expect(() => offlineConfig({ ...REQ, matchup }), matchup).toThrow(/mirror/);
-      expect(() => offlineMatch({ ...REQ, matchup }), matchup).toThrow(/mirror/);
+      expect(() => offlineConfig({ ...REQ, map: 'wadi_tarfan', matchup }), matchup).toThrow(/not open/);
+      expect(() => offlineMatch({ ...REQ, matchup }), matchup).toThrow(/not open/);
     }
     expect(() => offlineConfig(REQ)).not.toThrow();
   });
+
+  it('a camp race on a faction pairing runs to a result through the battlefield\'s own loop: Wadi Tarfan, a passive KDF human against the Sarim commander (GH-1390)', () => {
+    const run = play({ ...REQ, map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' }, { maxTicks: 24_000 });
+    expect(run.result, `no result after ${run.ticks} ticks`).not.toBeNull();
+    expect(run.computerOrders).toBeGreaterThan(0);
+  }, 300_000);
 
   it('a passive human on milh_flats (the worst cell) is found: the match reaches a result inside 20 sim-minutes, seeds 1001-1003', () => {
     for (const seed of [1001, 1002, 1003]) {

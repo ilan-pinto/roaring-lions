@@ -2622,6 +2622,191 @@ describe('civilians and ROE (GDD §6)', () => {
     ).toThrow(/needs civilians\.refuge/);
   });
 
+  // E3 (GH-1438, the civilian drama design §10.2 and §11.3, N32): `evacuate_before.group`. An evacuation scoped to a
+  // group counts only that group's people, and its zone collects only them while it is active. Every fixture below
+  // stands its civilians straight in `refuge_zone` (x 0..5, y 8..11), so the first evaluation collects them (N44), and
+  // keeps the squad at (24, 2), more than four tiles from everyone, so nobody is shepherded unless a test says so.
+  describe('E3: group-scoped evacuation', () => {
+    const FAR: PlacementJson = { unit: 'm_squad', count: 1, at: [24, 2] };
+    const inYard = (group: string, count: number, x = 1): PlacementJson => ({ unit: 'm_civ', count, at: [x, 9], group });
+    const away = (group: string): PlacementJson => ({ unit: 'm_civ', count: 1, at: [20, 6], group });
+    const evac = (id: string, count: number, extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({
+      id, type: 'evacuate_before', primary: false, target: 'refuge_zone', count, seconds: 600, ...extra,
+    });
+    const CLOCK: ObjectiveJson = { id: 'clock', type: 'survive_until', primary: true, seconds: 600 };
+    const statusOf = (w: World, id: string): string | undefined => w.runtime.objectiveList.find((o) => o.id === id)?.status;
+    const evacuatedIds = (evs: MissionEvent[]): number[] => evs.flatMap((e) => (e.kind === 'evacuated' ? [e.entity] : []));
+
+    it('a person of group B evacuating does not advance an objective scoped to A', () => {
+      // Spawn order: the squad (0), a's one far away (1), b's two in the yard (2, 3).
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [away('a'), inYard('b', 2)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), evac('b_out', 2, { group: 'b' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([2, 3]);
+      expect(statusOf(w, 'b_out')).toBe('complete');
+      expect(statusOf(w, 'a_out')).toBe('active');
+    });
+
+    it("collects only the scoped group's people: another group standing in the zone stays on the map, uncounted", () => {
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [away('a'), inYard('b', 2)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([]);
+      expect([w.sim.state.alive[2], w.sim.state.alive[3]]).toEqual([1, 1]);
+      expect(statusOf(w, 'a_out')).toBe('active');
+    });
+
+    it('N32: once a scoped objective is complete, a later arrival of its group is not collected, though another evacuation is still counting', () => {
+      // a1 (1) stands in the yard and completes `a_out` on the first evaluation. a2 (2) is walked in by the squad
+      // beside him after that. `b_out` stays active the whole time (its one person never moves), so the zone is
+      // still collecting, for b alone.
+      const w = civWorld(
+        {
+          starting_force: [{ unit: 'm_squad', count: 1, at: [10, 9] }],
+          civilians: { groups: [inYard('a', 1), { unit: 'm_civ', count: 1, at: [9, 9], group: 'a' }, away('b')], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), evac('b_out', 1, { group: 'b' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const first = w.step(2);
+      expect(evacuatedIds(first.mission)).toEqual([1]);
+      expect(statusOf(w, 'a_out')).toBe('complete');
+      const zone = REFUGE_CTX.zones.refuge_zone;
+      const inZone = (id: number): boolean => {
+        const tx = w.sim.state.posX[id] >> 16;
+        const ty = w.sim.state.posY[id] >> 16;
+        return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+      };
+      let later: MissionEvent[] = [];
+      for (let t = 0; t < 3000 && !inZone(2); t++) later = later.concat(w.step(1).mission);
+      expect(inZone(2)).toBe(true);
+      later = later.concat(w.step(40).mission);
+      expect(evacuatedIds(later)).toEqual([]);
+      expect(w.sim.state.alive[2]).toBe(1);
+      expect(statusOf(w, 'b_out')).toBe('active');
+    });
+
+    it('an array scope counts every group it names', () => {
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('both', 3, { group: ['a', 'b'] }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([1, 2, 3]);
+      expect(statusOf(w, 'both')).toBe('complete');
+    });
+
+    it('an unscoped objective still counts everyone, beside a scoped one', () => {
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('all', 3), evac('a_out', 1, { group: 'a' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      w.step(20);
+      expect(statusOf(w, 'all')).toBe('complete');
+      expect(statusOf(w, 'a_out')).toBe('complete');
+    });
+
+    it("never collects a soldier whose placement shares a civilian group's name", () => {
+      // The squad (0) stands in the yard under the name `a`; so does a's civilian (1).
+      const w = civWorld(
+        {
+          starting_force: [FAR, { unit: 'm_squad', count: 1, at: [4, 9], group: 'a' }],
+          civilians: { groups: [inYard('a', 1)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([2]);
+      expect(w.sim.state.alive[1]).toBe(1);
+    });
+
+    it("civ.settlements_evacuated counts the primary evacuations' groups when every primary evacuation is scoped", () => {
+      const w = civWorld(
+        {
+          ledger: { requires: [], produces: ['civ.settlements_evacuated'] },
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a', primary: true }), evac('b_out', 2, { group: 'b' }), { ...CLOCK, seconds: 10 }],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(10 * TICKS_PER_SECOND + 2);
+      expect(evacuatedIds(evs.mission)).toEqual([1, 2, 3]);
+      const end = evs.mission.find((e) => e.kind === 'missionEnd');
+      expect(end?.kind === 'missionEnd' && end.result).toBe('victory');
+      expect(end?.kind === 'missionEnd' && end.ledger['civ.settlements_evacuated']).toBe(1);
+    });
+
+    it('civ.settlements_evacuated keeps the whole count when a primary evacuation is unscoped', () => {
+      const w = civWorld(
+        {
+          ledger: { requires: [], produces: ['civ.settlements_evacuated'] },
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('all', 1, { primary: true }), evac('b_out', 2, { group: 'b' }), { ...CLOCK, seconds: 10 }],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(10 * TICKS_PER_SECOND + 2);
+      const end = evs.mission.find((e) => e.kind === 'missionEnd');
+      expect(end?.kind === 'missionEnd' && end.result).toBe('victory');
+      expect(end?.kind === 'missionEnd' && end.ledger['civ.settlements_evacuated']).toBe(3);
+    });
+
+    it('refuses at start() a group no civilian placement declares', () => {
+      const m = (group: string, force: PlacementJson[] = [FAR]): Partial<MissionJson> => ({
+        starting_force: force,
+        civilians: { groups: [inYard('a', 1)], refuge: 'refuge' },
+        objectives: [evac('x_out', 1, { group: ['a', group] }), CLOCK],
+      });
+      expect(() => civWorld(m('nobody'), REFUGE_CTX)).toThrow(/evacuate_before "x_out" names group "nobody", which no civilian placement declares/);
+      // A name only a soldier carries is no civilian group either.
+      expect(() => civWorld(m('troop', [FAR, { unit: 'm_squad', count: 1, at: [20, 9], group: 'troop' }]), REFUGE_CTX)).toThrow(
+        /names group "troop", which no civilian placement declares/
+      );
+      expect(() => civWorld(m('a'), REFUGE_CTX)).not.toThrow();
+    });
+
+    it('refuses a group on any type but evacuate_before, and an empty one', () => {
+      expect(() =>
+        civWorld({ starting_force: [FAR], objectives: [{ ...CLOCK, group: 'a' }] }, REFUGE_CTX)
+      ).toThrow(/objective "clock" is a survive_until, which takes no group \(only evacuate_before does\)/);
+      expect(() =>
+        civWorld(
+          { starting_force: [FAR], civilians: { groups: [inYard('a', 1)], refuge: 'refuge' }, objectives: [evac('e', 1, { group: [] }), CLOCK] },
+          REFUGE_CTX
+        )
+      ).toThrow(/evacuate_before "e" needs a group of one or more non-empty names/);
+      expect(() =>
+        civWorld(
+          { starting_force: [FAR], civilians: { groups: [inYard('a', 1)], refuge: 'refuge' }, objectives: [evac('e', 1, { group: '' }), CLOCK] },
+          REFUGE_CTX
+        )
+      ).toThrow(/evacuate_before "e" needs a group of one or more non-empty names/);
+    });
+  });
+
   describe('defeatCause', () => {
     function ongoingRuntime(): World {
       // Copied from 'objectives and mission end' > 'capture: clear the zone,

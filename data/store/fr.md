@@ -17,7 +17,7 @@ Vous commandez un bataillon des Kedem Defence Forces dans le pays fictif de Kede
 
 **La retenue est un score.** Chaque mission a ses règles d'engagement. Tirer sur un bâtiment protégé ou dans une rue signalée fait baisser votre score de Conduite. L'unité qui gagne le combat n'est pas toujours celle que l'on peut se permettre d'employer.
 
-**Une campagne de missions courtes.** Trente-neuf missions dans les villes de Kedem, presque toutes pensées pour durer de cinq à sept minutes. Les unités que vous gardez et les crédits que vous gagnez passent à la mission suivante.
+**Une campagne de missions courtes.** Quarante missions dans les villes de Kedem, presque toutes pensées pour durer de cinq à sept minutes. Les unités que vous gardez et les crédits que vous gagnez passent à la mission suivante.
 
 **Les outils d'une vraie opération.**
 - Fumée, barrages de mortier, balayages de drones et frappes de précision, payés avec le renseignement que vous gagnez en faisant le travail.
@@ -36,7 +36,7 @@ Vous commandez un bataillon des Kedem Defence Forces dans le pays fictif de Kede
 ## Key features
 - Un modèle de combat réaliste : orientation du blindage, couvert, ligne de vue, hauteur et neutralisation par le feu
 - Des règles d'engagement et un score de Conduite qui font de la retenue une part de la victoire
-- Une campagne de trente-neuf missions courtes dans le pays fictif de Kedem
+- Une campagne de quarante missions courtes dans le pays fictif de Kedem
 - Appui-feu par fumée, mortier, drones et frappes de précision, occupation de bâtiments, tunnels, blessés et civils
 - Plus de 40 types d'unités, du groupe de fusiliers aux chars et aux hélicoptères
 - Une brigade qui dure, avec crédits, améliorations et garage

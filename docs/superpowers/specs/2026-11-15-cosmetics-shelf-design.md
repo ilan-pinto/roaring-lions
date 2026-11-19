@@ -1,5 +1,7 @@
 # The first cosmetics shelf (GH-1416) — design for the lead
 
+> **Superseded in part, 18 Nov 2026:** the lead ruled "I want users to be able to use coins to buy new units. That's the leading rule." (relayed on GH-1378 and GH-1415; it reverses the 16 Nov GH-1378 item 6, "paid coins buy cosmetics only at launch"). The power-lane ruling this design waits on (§0) is made: coins buy units. The first shelf stays cosmetic; the section this design names as the one that moves with the ruling (§0) is the one to revisit, and §5's never-power guard holds for cosmetics only, not for what coins may buy. The current rule is `docs/GDD.md` §9: Roar coins buy units and upgrade tiers as brigade credits do, coins bought with money included once purchases open; credits are still never sold. A second ruling the same day answers where they may be used: "coin-bought units work EVERYWHERE, PvP included; the 29 Sep 'no pay-to-win' (G7) rule is RETIRED" (`docs/HANDOVER.md`, rows G7 and G7-R); its scope is set by a third ruling the same day: "standard-kit rooms stay EQUAL (no owned kit, coins or credits); coin-bought units reach PvP only through 'Bring your brigade' rooms. No code change.". The body below is kept as history.
+
 **Date:** 2026-11-15 · **Status:** a proposal for the lead to approve before any build. Docs only: no code, no data, no
 render and no Meshy call; the sim is untouched.
 **Builds on, and does not replace:** `2026-10-11-monetisation-content-plan.md` (WP-ST8 rev. 2: the principles, the
@@ -17,8 +19,6 @@ GH-1416 depends on "the power-lane ruling" in *Rule on the open decisions of the
 document from here. This design assumes the ST8 lane stands as ruled on 11 Oct (D1–D5): single-player early access
 fenced, **cosmetics horizontal**, no paid art shipped before D5. Everything below is cosmetic, so it holds under either
 reading of the power lane; if the ruling changes what coins may buy, only §5 (spend rules) moves.
-
-> **Ruled (the lead, 18 Nov 2026): Roar coins buy new units** (and the Stores already sell upgrade tiers for coins). The cosmetics shelf is therefore one shelf among the coin shop's, not the only thing coins buy. §5, the never-power guard, still holds **for cosmetics**: a cosmetic never changes a fight. It no longer says what coins as a whole may buy.
 
 **D5 is the real gate on shipping anything** (ST8 F5): the repository is public and the art is all rights reserved, so a
 paid asset committed beside the free art is downloadable though not licensed. This note's first shelf is deliberately

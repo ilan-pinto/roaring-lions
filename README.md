@@ -21,7 +21,7 @@ On first launch an opening cinematic plays. Skip it at any time; Settings can re
 | Entry | What it is |
 |---|---|
 | **Start** / **Continue** | Jumps to the next mission of the campaign (the tutorial first). |
-| **Campaign** | The campaign map: three fronts, 38 missions. |
+| **Campaign** | The campaign map: three fronts, 39 missions. |
 | **Brigade** | The garage and the Stores: your units, their upgrades, what unlocks what. |
 | **Play with a friend** | Open or join a one-versus-one room, or play a basic computer opponent. |
 | **free play, any map** | Walk any listed map with a full task force, no mission needed. |
@@ -68,17 +68,17 @@ You play a KDF officer, Shai Hammai, from a dawn siege to the end of the war, wi
 
 | Front | Enemy doctrine | Towns (missions) |
 |---|---|---|
-| **The Marj Strip** | Ashwar Front: tunnels, IEDs, ambush, human terrain | Beit Sahwan (5), Qasr Liwan (5), Khan Rafid (3), Deir Amun (3), Bir Tarsha (4) |
+| **The Marj Strip** | Ashwar Front: tunnels, IEDs, ambush, human terrain | Beit Sahwan (5), Qasr Liwan (5), Khan Rafid (3), Deir Amun (3), Bir Tarsha (5) |
 | **Sur** | Sarim Brigades: rockets, anti-tank missiles, standoff | Tel Marum (3), Qarn Hadid (3), Umm Zeitoun (4) |
 | **Naharin** | Rif Cells: technicals, raids, mobility; wet ground and rain | Wadi Halam (5), Ein Qasab (3) |
 
-The war opens with *First Light* in Beit Sahwan. Bir Tarsha opens after Deir Amun III, Sur after Bir Tarsha V, Naharin after Umm Zeitoun IV, and Ein Qasab after Wadi Halam III. Each mission is meant to take five to seven minutes and has a time limit; running out with a primary objective open is a defeat. The tutorial, *Working Up*, is the thirty-ninth mission file and sits outside the map.
+The war opens with *First Light* in Beit Sahwan. Bir Tarsha opens after Deir Amun III, Sur after Bir Tarsha V, Naharin after Umm Zeitoun IV, and Ein Qasab after Wadi Halam III. Each mission is meant to take five to seven minutes and has a time limit; running out with a primary objective open is a defeat. The tutorial, *Working Up*, is the fortieth mission file and sits outside the map.
 
 - **Deploy.** Before a mission you pick which veterans fill its slots. Units keep a service record, and veterans aim better and resist suppression.
 - **Objectives.** Locate, hold for a time, survive until relief, capture, eliminate a target, evacuate civilians, collapse a tunnel, raze a building, or destroy everything.
 - **Held ground pays.** Eighteen missions (in Beit Sahwan, Bir Tarsha, Qasr Liwan, Deir Amun, Ein Qasab, Khan Rafid, Qarn Hadid, Tel Marum, Umm Zeitoun and Wadi Halam) have income zones: ground you hold alone pays logistics each minute, and an enemy inside pays nobody.
 - **Conduct and stars.** Every mission scores Conduct from 0 to 100. A win earns one star; a second for Conduct above the mission's floor; a third for completing every secondary objective that counts toward it (only secondaries flagged as carrying do), so a mission with none tops out at two stars. The debrief lists each Conduct deduction by reason, your losses by name, and the credit payout.
-- **Why a unit died.** The debrief says how each named loss fell (penetrated through the rear by a named gun, shot, burned down, struck by a kamikaze), and the card of the unit that takes its slot repeats it. When the events cannot say how, it names only who, not a guess.
+- **Why a unit died.** The debrief says how each named loss fell (penetrated through the rear by a named gun, shot, burned down, struck by a one-way charge), and the card of the unit that takes its slot repeats it. When the events cannot say how, it names only who, not a guess.
 - **Wounded men.** An infantryman who falls may go down wounded instead of dying. He bleeds out unless a medic reaches him, and nobody fires on him. Most missions loan you a Nemala Medic Team, and rescuing a wounded man, enemy or civilian, earns Conduct.
 - **Intel and the ledger.** Recon in one mission can change the next. The ledger carries your named units, Conduct, stars, intel, evacuated civilians and recovered hostages from mission to mission.
 - **Difficulty.** Choose Easier, Standard or Harder on the campaign board, and again on the deploy screen. Easier thins the enemy's waves and sends a relief squad at a minute and a half, but caps a mission at two stars and pays no carry credits; Harder thickens the waves. Standard is the default, and the tutorial has no choice.
@@ -128,7 +128,7 @@ Your brigade starts with the five units marked *start*. The rest open on **Condu
 
 ### The other side
 
-You meet these in the campaign, one doctrine per front: the **Ashwar** on the Marj Strip (militia cells, RPG teams, mortar crews, diggers, suicide squads, powered parachutes), the **Sarim** on Sur (rifles, Kornet ATGM cells, recoilless teams, MANPAD teams, Grad rocket batteries, loitering munitions and drone swarms) and the **Rif** on Naharin (armed technicals and motorcycles, AA gun trucks). In a [KDF-against-Sarim match](#play-with-a-friend-or-the-computer) the Sarim player builds six of them (listed below). Free play can add four more Sarim units with its *Sarim roster* option.
+You meet these in the campaign, one doctrine per front: the **Ashwar** on the Marj Strip (militia cells, RPG teams, mortar crews, diggers, charge squads, powered parachutes), the **Sarim** on Sur (rifles, Kornet ATGM cells, recoilless teams, MANPAD teams, Grad rocket batteries, loitering munitions and drone swarms) and the **Rif** on Naharin (armed technicals and motorcycles, AA gun trucks). In a [KDF-against-Sarim match](#play-with-a-friend-or-the-computer) the Sarim player builds six of them (listed below). Free play can add four more Sarim units with its *Sarim roster* option.
 
 ## The brigade, credits and Roar coins
 
@@ -136,7 +136,7 @@ Campaign wins pay **credits**: 100 for the win, 40 per carrying secondary object
 
 Spend credits in the **garage** (Brigade on the menu): unlock a unit you have not yet earned, or upgrade it. Most units have three tracks, **armour**, **sensors** and **firepower**, each with up to three tiers, and a bought tier applies to every unit of that type. The Rifle Squad's armour tiers cost 115, 175 and 250 credits. Turn each model in a close-up and read its specification before buying.
 
-**Roar coins** are the second currency, and today they are free. Every player has a coin wallet that survives *New campaign*; coins are earned in the campaign (100 on the first victory, 10 for the first win of each mission, 5 per new star, 100 for finishing the campaign) and the Stores can spend them, at 1 coin = 10 credits, on the same units and upgrade tiers credits buy. **Honestly, what the build does today:** no money moves anywhere (the real-money coin packs are switched off), and the Stores has no cosmetics yet. The project's rule for launch is that coins sold for money buy **cosmetics only**, never units, upgrades or anything that changes a fight; the build does not enforce that yet, because coins still buy units.
+**Roar coins** are the second currency, and today they are free. Every player has a coin wallet that survives *New campaign*; coins are earned in the campaign (100 on the first victory, 10 for the first win of each mission, 5 per new star, 100 for finishing the campaign) and the Stores can spend them, at 1 coin = 10 credits, on the same units and upgrade tiers credits buy. **Honestly, what the build does today:** no money moves anywhere (the real-money coin packs are switched off), and the Stores has no cosmetics yet. The project's rule (the lead, 18 Nov 2026) is that **coins buy new units**, and that a coin-bought unit can be used in a match against another player too, through a "Bring your brigade" room, where each player fields what they own, coin buys included. The standard kit stays equal: it fields nothing from either brigade. The Stores sell upgrade tiers for coins as well, with the coins you earn. Brigade credits are earned and never sold.
 
 An optional **account** (Sign in / Sign up on the menu) keeps your campaign, brigade and coins on a server instead of in one browser, and shows your coin balance and its history on the profile page. It is on in the live build when the host has opened sign-in; without an account everything stays in your browser, and the brigade survives **New campaign** either way.
 

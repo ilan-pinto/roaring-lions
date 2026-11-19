@@ -17,7 +17,7 @@ Du führst ein Bataillon der Kedem Defence Forces im fiktiven Land Kedem, inspir
 
 **Zurückhaltung ist eine Wertung.** Jeder Einsatz hat Einsatzregeln. Wer in ein geschütztes Gebäude oder eine markierte Straße feuert, zahlt dafür mit seiner Verhaltenswertung. Die Einheit, die das Gefecht gewinnt, ist nicht immer die, die du dir leisten kannst.
 
-**Eine Kampagne aus kurzen Einsätzen.** Neununddreißig Einsätze in den Städten von Kedem, fast alle auf fünf bis sieben Minuten ausgelegt. Die Einheiten, die du behältst, und die Credits, die du verdienst, gehen in den nächsten Einsatz mit.
+**Eine Kampagne aus kurzen Einsätzen.** Vierzig Einsätze in den Städten von Kedem, fast alle auf fünf bis sieben Minuten ausgelegt. Die Einheiten, die du behältst, und die Credits, die du verdienst, gehen in den nächsten Einsatz mit.
 
 **Werkzeuge für eine echte Operation.**
 - Rauch, Mörserfeuer, Drohnenüberflüge und Präzisionsschläge, bezahlt mit Aufklärung, die du dir durch gute Arbeit verdienst.
@@ -36,7 +36,7 @@ Du führst ein Bataillon der Kedem Defence Forces im fiktiven Land Kedem, inspir
 ## Key features
 - Ein realistisches Kampfmodell: Panzerungsausrichtung, Deckung, Sichtlinie, Höhe und Niederhalten
 - Einsatzregeln und eine Verhaltenswertung machen Zurückhaltung zum Teil des Siegs
-- Eine Kampagne aus neununddreißig kurzen Einsätzen im fiktiven Land Kedem
+- Eine Kampagne aus vierzig kurzen Einsätzen im fiktiven Land Kedem
 - Feuerunterstützung mit Rauch, Mörsern, Drohnen und Präzisionsschlägen, dazu Besetzen, Tunnel, Verwundete und Zivilisten
 - Über 40 Einheitentypen, vom Schützentrupp bis zu Panzern und Hubschraubern
 - Eine bleibende Brigade mit Credits, Aufrüstungen und einer Garage

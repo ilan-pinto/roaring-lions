@@ -35,6 +35,9 @@ importers:
       jsdom:
         specifier: ~30.0.1
         version: 30.0.1
+      miniflare:
+        specifier: 5.20261006.1-alpha
+        version: 5.20261006.1-alpha(@types/node@26.6.6)
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
