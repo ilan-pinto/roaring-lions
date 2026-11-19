@@ -390,7 +390,73 @@ does the commercial strip (9.3's 26 files, GH-1415).
 - **In-app licence links**: the Credits screen opens a library's bundled licence text with `target="_blank"` on the
   app's own origin; the window-open handler drops it (it is not an external https link), so the link does nothing on
   desktop. The URI stays readable on the screen.
-- **Crash reporting** is GH-1414, a separate change. Its seam is marked in `main.mjs`: `crashReporter.start` belongs
-  before `ready`, and `desktop-build.json` already carries the version and commit a report names.
+- **Crash reporting** (GH-1414): built, off unless packaged with `--crash-reports`, and the Worker endpoint is closed
+  until the lead opens it. See 9.6.
 - Real GPU, Steam overlay switches, Steam Linux Runtime and the Deck: questions 2, 4 and 6, unchanged.
 - Not trimmed (question 7): the `.m4a` fallbacks and `sw.js` still ship.
+
+### 9.6 Crash reports (GH-1414, 19 Nov 2026)
+
+The lead's rulings: no third-party service (our own Worker, the `/api/feedback` pattern); no personal data.
+
+**No minidump.** Electron's `crashReporter` is never started. A minidump is a copy of process memory, which holds save
+data, text the player typed and file paths; scrubbing one is not possible. What is sent is a small whitelisted JSON
+record, `data/schemas/crash_report.schema.json`, built by `tools/desktop/crash.mjs`:
+
+| Field | What |
+|---|---|
+| `kind` | `renderer_gone`, `child_gone` (GPU, utility), `main_exception`, `main_rejection`, `page_exception`, `page_rejection` |
+| `reason`, `exitCode`, `process`, `service` | a process that went away: Electron's reason (`crashed`, `oom`, ...; a clean exit is no report), its exit code, its type and service name |
+| `name`, `message`, `stack` | a JavaScript error: its class name, ONE line scrubbed by rule (the twin of the app's GH-1410 scrubber, pinned on its corpus), and up to 16 frames `fn (where:line:col)` |
+| `version`, `commit`, `electron`, `chrome`, `platform`, `arch` | from `desktop-build.json` and `process` |
+| `gpu` | the graphics card's FAMILY (`gpuFamily`, the twin of `@lions/data`'s), never its raw string |
+| `screen`, `mission` | the page path's first segment, and the mission id on `/mission/<id>`; no query |
+| `launch`, `uptimeS`, `t` | a random id made at launch and kept in memory only (it groups one launch's reports), seconds since launch, the clock |
+
+A stack location is only ever `web/<path>` (the page's own file: `app://roaring-lions.local/` and any query dropped),
+`asar/<path>` (the main process's own file: everything up to `app.asar/` dropped, so the install directory and the user
+name in it never leave), `node:<module>`, `<native>` or `<other>`. The Worker refuses a frame of any other shape, and a
+message that still holds an email, a URL, a path of two segments or more, a drive path or a UNC share (the second lock).
+
+**How each kind is seen, with nothing added to the page.** `app.on('render-process-gone')` and `child-process-gone`;
+`process.on('uncaughtExceptionMonitor')` for the main process (it observes and changes nothing, and also sees unhandled
+rejections); the page's uncaught exceptions and rejections through the DevTools protocol (`webContents.debugger`,
+`Runtime.exceptionThrown`), so there is still no preload and no IPC. The graphics card is read once after the first load
+from a throwaway 1x1 WebGL context (Electron 45.2.1's `app.getGPUInfo` carries no renderer string: measured, no
+`glRenderer`), and reduced to its family in the main process.
+
+**Who sends, and where.** The MAIN process POSTs (`net.request`, Origin `app://roaring-lions.local`, no cookie, no
+redirect, User-Agent `roaring-lions-desktop`) to one compile-time constant, `https://roaring-lions.pint12.workers.dev/api/crash`
+(pinned against the Worker's own origin). The page sends nothing and its CSP and navigation rules are unchanged.
+
+**When.** `crashMode` sends only when EVERY one holds: a packaged app, a manifest packaged with `--crash-reports`
+(`crashReports: true`; a plain `pnpm desktop:package` sends nothing), not a smoke bundle, no `CI`, no
+`RL_DESKTOP_NO_CRASH_REPORTS`, no `--no-crash-reports` launch option. On top of that, the player's Settings switch
+("Anonymous usage and crash reports", `lions.telemetry.optout`, GH-1410) is read from the page on every load and screen
+change and every 15 s; off, no report is made and none is sent, and the outbox is emptied. A launch makes at most 6
+reports (3 from the page), never the same one twice. A report waits in `crash-outbox.json` in the profile (at most 5,
+7 days) when the network or the Worker cannot take it, so one made as the main process dies goes at the next launch;
+410 (closed) and any 4xx drop it, 429, 5xx and a network failure keep it.
+
+**The Worker** (`packages/worker/src/crash-ingest.ts`, `crash-meta.ts`): POST only; CLOSED unless the D1 `flags` row
+`crash` reads `'open'` (no row is closed), and `CRASH_CLOSED` closes it with no database; Origin must be the desktop
+build's, the Worker's own or `ALLOWED_ORIGINS`; `CRASH_LIMIT` 5 a minute per address (in the binding); a body of at most
+6144 bytes of `application/json`; then 10 a day per launch, 20 per address (a keyed daily hash, `rate-day.ts`) and 200
+in all. No IP and no header is stored. Rows live in `crash_report` (migration `0008_crash_report.sql`, NOT applied by
+this change) for 90 days, deleted on the ingest path (25 per insert) rather than by the daily cron, whose D1 budget is
+at 48 of 50. `/stats` shows the newest 50 with their stacks and a count by kind, version and GPU family.
+
+**Measured, 19 Nov 2026** (linux-x64, Electron 45.2.1, Xvfb, SwiftShader, root so `--no-sandbox`): `pnpm desktop:package
+--skip-build --smoke --smoke-crash --no-tar` against a stand-in web build (an index page whose script throws once from
+`assets/boot.js`), with `RL_DESKTOP_SMOKE_CRASH_SINK` pointing at a loopback server: PASS. The run recorded and POSTed
+four reports, `page_exception` (from `bootBoom (web/assets/boot.js:4:40)`), `page_exception` and `page_rejection`
+(forced from the page with a home path, an email, a query and a Windows user path in their messages, all scrubbed) and
+`renderer_gone` (`crashed`, exit code 2, from `forcefullyCrashRenderer`); GPU family `Software (no GPU)`. Each arrived
+with `origin: app://roaring-lions.local`, `content-type: application/json`, no cookie, and each is stored by the Worker's
+handler as sent (`crash-captured.test-helper.ts`, byte for byte). The shipped bundle's launch check still passed.
+
+**Not done, and open (HOLD FOR LEAD):** opening the endpoint (apply 0008, then the `crash` flag); a privacy-page line
+before it opens; the crash-free-session RATE for the desktop build needs a count of launches, which this change does not
+send (telemetry is off on the desktop host, 9.2); a main-process exception was tested by unit tests only (Electron
+shows its own error box, which a headless run cannot dismiss); Windows and macOS not run.
+

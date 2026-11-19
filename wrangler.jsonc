@@ -98,6 +98,16 @@
 				"period": 60
 			}
 		},
+		// GH-1414: POST /api/crash, per connecting IP (never stored). The
+		// launch, address and global day ceilings are counted in D1.
+		{
+			"name": "CRASH_LIMIT",
+			"namespace_id": "1009",
+			"simple": {
+				"limit": 5,
+				"period": 60
+			}
+		},
 		// N0: POST /api/match and /api/match/:code/join, per connecting IP.
 		// Never the socket upgrade: a reconnect loop would trip it.
 		{

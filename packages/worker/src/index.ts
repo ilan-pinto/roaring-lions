@@ -4,6 +4,7 @@ import { purgeRateDays } from './rate-day';
 import { withSecurityHeaders } from './security-headers';
 import { handleStats } from './stats';
 import { handleFeedback } from './feedback-ingest';
+import { handleCrash } from './crash-ingest';
 import { purgeExpired } from './feedback-triage';
 import { handleArenaResults, isArenaPath } from './arena-results';
 import { handlePrivacy } from './privacy-page';
@@ -24,6 +25,8 @@ export default {
     // #559 L-5: every response the Worker writes carries the security headers.
     if (pathname === '/api/events') return withSecurityHeaders(await handleIngest(req, env, Date.now()));
     if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
+    // GH-1414: the desktop build's crash reports. Closed until the lead opens flags.crash.
+    if (pathname === '/api/crash') return withSecurityHeaders(await handleCrash(req, env, Date.now()));
     if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now(), accountDepsFor(ctx)));
     if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
     // GH-1075 A1: the privacy page. No D1, no cookie; closed (503) until the lead supplies the contact and age.
