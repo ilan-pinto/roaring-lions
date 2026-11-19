@@ -9,7 +9,6 @@ import { structures as structureTypes, units } from '@lions/data';
 import { maps, missions } from '@lions/data/content';
 import { MissionRuntime, type MissionJson } from '@lions/sim';
 import {
-  FORCE_CLEARANCE_EXEMPT,
   FORCE_CLEARANCE_TILES,
   authoredBodies,
   authoredForceToGateFailures,
@@ -176,22 +175,17 @@ describe('every shipped mission, after the start layout', () => {
     })
   );
 
-  it('walks all 39 missions, 344 ground side-0 bodies and 141 surface civilians', () => {
-    // Literals, so a walk that silently lost a mission or a body cannot pass. 344 is start_layout.test.ts's census;
-    // 141 is the sum of every shipped `civilians.groups` count (none is buried), summed straight from the JSON, not by this walk.
-    expect(ids.length).toBe(39);
-    expect([...readings.values()].reduce((n, r) => n + r.force, 0)).toBe(344);
-    expect([...readings.values()].reduce((n, r) => n + r.civilians, 0)).toBe(141);
+  it('walks all 40 missions, 362 ground side-0 bodies and 148 surface civilians', () => {
+    // Literals, so a walk that silently lost a mission or a body cannot pass. 362 is start_layout.test.ts's census;
+    // 148 is the sum of every shipped `civilians.groups` count (none is buried), summed straight from the JSON, not by this walk
+    // (141, plus Beit Sahwan IV's 8 grown to 15 in PR 1610; Bir Tarsha IV fields none).
+    expect(ids.length).toBe(40);
+    expect([...readings.values()].reduce((n, r) => n + r.force, 0)).toBe(362);
+    expect([...readings.values()].reduce((n, r) => n + r.civilians, 0)).toBe(148);
   });
-  it.each(ids.filter((id) => !Object.hasOwn(FORCE_CLEARANCE_EXEMPT, id)))('%s keeps its force 4.5 tiles clear', (id) => {
+  // No exemption (the lead ruled Beit Sahwan IV moves its civilians, PR 1610): every shipped id is a row.
+  it.each(ids)('%s keeps its force 4.5 tiles clear', (id) => {
     expect(readings.get(id)?.failures).toEqual([]);
-  });
-  it.each(Object.keys(FORCE_CLEARANCE_EXEMPT))('%s is still inside the rule (else delete the exemption)', (id) => {
-    expect(readings.get(id)?.failures.length).toBeGreaterThan(0);
-  });
-  it('the exemption is what was measured: beit_sahwan_4_subterranean, 1.03 tiles', () => {
-    expect(Object.keys(FORCE_CLEARANCE_EXEMPT)).toEqual(['beit_sahwan_4_subterranean']);
-    expect(readings.get('beit_sahwan_4_subterranean')?.min).toBeCloseTo(1.03, 2);
   });
   it.each(ids)('%s passes the authored reading validate_data.mjs runs', (id) => {
     const m = missions[id as keyof typeof missions] as MissionJson;

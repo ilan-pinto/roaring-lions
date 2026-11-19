@@ -5,7 +5,6 @@ export interface ClearPoint {
   y: number;
 }
 export declare const FORCE_CLEARANCE_TILES: number;
-export declare const FORCE_CLEARANCE_EXEMPT: Readonly<Record<string, string>>;
 export declare function authoredBodies(
   placements: unknown,
   markers: unknown,

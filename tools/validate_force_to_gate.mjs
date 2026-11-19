@@ -33,18 +33,6 @@
 /** The clearance, in tiles: the shepherd's 4 plus 0.5 (the lead, 18 Nov). */
 export const FORCE_CLEARANCE_TILES = 4.5;
 
-/**
- * Missions excused from the rule, each with its reason. Every entry carries a demotion check in the test: when the
- * mission passes without it, the test fails and the entry is deleted.
- */
-export const FORCE_CLEARANCE_EXEMPT = {
-  // The two civilians at (24.5, 33.5) shelter among the starting force (inf_squad at (24, 34)): 1.03 tiles after the
-  // assembly, 0.56 authored. They are walked out at t=0 and count toward `get_them_out` (5 of 8), so a passive player
-  // banks two of the five. The other three must be the four hostages from (22.5, 9.5), deep in the enemy's ground,
-  // and the passive control loses. Moving them is a content change for mission-author and the lead (HOLD FOR LEAD).
-  beit_sahwan_4_subterranean: 'two start-line civilians among the force (GH-1438 E13, held for the lead)',
-};
-
 /** Spawn spread between bodies of one placement, tiles (`SPREAD`, mission.ts). */
 const SPREAD_TILES = 1.25;
 
@@ -186,10 +174,10 @@ export function forceToGateFailures({ force = [], civilians = [], musters = [], 
 
 /**
  * validate_data.mjs's reading: the authored spread, no sim. `unitsById` resolves a unit's domain (an aircraft is not
- * ground). A mission in FORCE_CLEARANCE_EXEMPT is skipped.
+ * ground). No mission is exempt: the lead ruled out an exemption, and Beit Sahwan IV moved its civilians
+ * instead (PR 1610).
  */
 export function authoredForceToGateFailures(mission, map, types, unitsById, file) {
-  if (mission?.id !== undefined && Object.hasOwn(FORCE_CLEARANCE_EXEMPT, mission.id)) return [];
   const markers = map?.markers ?? {};
   const playerStart = mission?.map?.player_start;
   const ground = (p) => unitsById?.get?.(p.unit)?.mobility?.domain !== 'air';
