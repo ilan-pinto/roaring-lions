@@ -371,7 +371,7 @@ describe('the other server handlers', () => {
     expect(r.server.count('POST coupon')).toHaveLength(1);
     expect(r.flow.gate.campaignFrozen()).toBe(false);
     r.holds.couponStatus = 500;
-    expect((await r.flow.redeem('x')).result).toBe('failed');
+    expect(await r.flow.redeem('x')).toEqual({ result: 'failed', credits: 0, coins: 0 });
   });
 
   it('the reset is the server\'s: the brigade and the free coins come back empty, and the freeze lifts', async () => {
@@ -395,7 +395,7 @@ describe('the other server handlers', () => {
     r.online.on = true;
     r.store.writeLedger({ 'campaign.slots_issued': 1 });
     expect(await r.flow.buy({ kind: 'unit', unitId: 'breach_team' })).toBe('syncing');
-    expect((await r.flow.redeem('c')).result).toBe('failed');
+    expect(await r.flow.redeem('c')).toEqual({ result: 'failed', credits: 0, coins: 0 });
     expect(r.server.calls.filter((c) => c.name.startsWith('POST'))).toEqual([]);
     expect(r.store.pendingSpends.size).toBe(0);
   });
