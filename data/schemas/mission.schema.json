@@ -673,6 +673,10 @@
                     "tag": {
                       "type": "string",
                       "description": "Tag, so eliminate_hvt and intel.marked_positions can name a unit from this wave."
+                    },
+                    "fires_on_civilians": {
+                      "type": "boolean",
+                      "description": "As on a placement (GH-1438 E6): this wave's bodies fire on civilians when nothing of the fighting sides is in reach. Passed through to the spawn."
                     }
                   }
                 }
@@ -953,6 +957,10 @@
         "in_tunnel": {
           "type": "string",
           "description": "Route id (map tunnels[].id) this placement starts inside. The bodies spawn underground in that route rather than standing on their tile, and stay below until the route is dug through and vents -- or die with it if it is collapsed first. Enemy and civilian placements only; player-side burial is refused (see starting_force). Mutually exclusive with a garrison stance, a tag, passengers, and digs, and the route must exist on the mission's map -- all enforced by validate_data.mjs, which also rejects a burial in a route this mission leaves unopenable: the route must be pre_dug, or dug by a digs placement in the same mission, or the garrison could never surface."
+        },
+        "fires_on_civilians": {
+          "type": "boolean",
+          "description": "GH-1438 E6 (D18, Option A): an enemy placement only. With no target of the fighting sides in reach, its bodies fire on the nearest identified, standing civilian; the civilian falls in place (the shipped down pose) and costs the player no Conduct. Refused on starting_force, civilians.groups and a reinforce trigger (validate:data, and the runtime at load)."
         },
         "digs": {
           "type": "string",

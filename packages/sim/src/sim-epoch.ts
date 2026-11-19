@@ -21,7 +21,9 @@
 // (`VERSUS_WORKS_WORLD_PIN`, a new works-only world) on top of epoch 2 and moved none (every pin above it reads as on dev), and
 // its four side-1 runtime rows are `when: 'worksOnly'`, so no other runtime's digest moves: every world a save can be made in
 // plays byte for byte as before, so the epoch stays 2 and only the fingerprint follows the pin list. A moved pin would bump the
-// epoch as well.
-export const SIM_EPOCH_RECORD = { epoch: 2, fingerprint: 773375667 } as const;
+// epoch as well. Epoch 3, fingerprint 4288273075: fires on civilians (GH-1438 E6) ADDED `CIV_FIRE_WORLD_PIN` and appended
+// two sim snapshot rows (`civFire`, `civFireLive`), so, as at epoch 2, the snapshot schema digest already refuses every older
+// save and the epoch moves with it; no existing pin moved.
+export const SIM_EPOCH_RECORD = { epoch: 3, fingerprint: 4288273075 } as const;
 
 export const SIM_EPOCH: number = SIM_EPOCH_RECORD.epoch;

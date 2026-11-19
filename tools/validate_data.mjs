@@ -50,6 +50,7 @@ import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
 import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
+import { civFireFailures } from './validate_civ_fire.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
@@ -1023,6 +1024,8 @@ const garrisonableSymbols = new Set(
     failures.push(...timeLimitFailures(mi, rel(file)));
     // GH-1438 E10: at most 160 authored entities, so the sim's 256 lifetime slots keep 96 for runtime spawns.
     failures.push(...entityBudgetFailures(mi, rel(file)));
+    // GH-1438 E6: `fires_on_civilians` on an enemy placement only.
+    failures.push(...civFireFailures(mi, rel(file)));
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.

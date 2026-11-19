@@ -2259,6 +2259,15 @@ export class Sim {
    *  set (the deferred fold, field works' D1 shape), and `stepGates` returns at once while it is false, so a
    *  world with no gate runs exactly the code it ran before and moves no pin. Never cleared. */
   private gateLive = false;
+  /** GH-1438 E6: 1 for an entity whose placement is marked `fires_on_civilians` (`setCivFire`, from the mission
+   *  runtime's `spawnPlacement` only). Such a shooter, with no target of the fighting sides in reach, takes the nearest
+   *  identified, standing civilian (side 2) instead (`selectTarget`'s second scan). 0 for everyone else. Hashed behind
+   *  `civFireLive`. Never cleared: the flag is the placement's, for the entity's life. */
+  private readonly civFire: Uint8Array;
+  /** GH-1438 E6: true once one entity is flagged (`setCivFire`). hash() folds `civFire` only while set (the deferred
+   *  fold), and the second scan never runs while it is false, so a world with no flagged placement runs exactly the
+   *  code it ran before and moves no pin. Never cleared. */
+  private civFireLive = false;
   // --- field works (#277) state block. Every array is declared and hashed
   // here (Task 2) even where a later task is its only writer; see hash() for
   // why the block folds only once `fwLive` is set (D1).
@@ -2657,6 +2666,7 @@ export class Sim {
     this.woundParent = new Int32Array(n).fill(-1);
     this.woundBy = new Int32Array(n).fill(-1);
     this.woundState = new Uint8Array(n);
+    this.civFire = new Uint8Array(n);
     this.bleedTicks = new Int32Array(n);
     this.woundTimer = new Int32Array(n);
     this.medState = new Uint8Array(n);
@@ -4796,6 +4806,25 @@ export class Sim {
   teleport(id: number, x: Fx, y: Fx): void {
     this.posX[id] = x;
     this.posY[id] = y;
+  }
+
+  /**
+   * GH-1438 E6 (the lead's ruling D18, Option A, 18 Nov 2026): mark `id` as a shooter that fires on civilians when it has
+   * no target of the fighting sides in reach. Called by `MissionRuntime.spawnPlacement` for a side-1 placement marked
+   * `fires_on_civilians`, and by nothing else: it is authored content, never a command, so no `Command` carries it and
+   * no versus room can send it. Refuses a dead or a non-enemy entity (the schema and validate:data refuse the field on a
+   * player or civilian placement; this is the same rule where the column is written).
+   */
+  setCivFire(id: number): void {
+    if (id < 0 || id >= this.count || this.alive[id] === 0) throw new Error(`setCivFire: ${id} is not a living entity`);
+    if (this.side[id] !== 1) throw new Error(`setCivFire: ${id} is side ${this.side[id]}; only side 1 fires on civilians`);
+    this.civFire[id] = 1;
+    this.civFireLive = true;
+  }
+
+  /** GH-1438 E6: whether `id` is flagged to fire on civilians (`setCivFire`). Read-only. */
+  firesOnCivilians(id: number): boolean {
+    return this.civFire[id] === 1;
   }
 
   /** Dev/test hook: remove a unit as if destroyed (sandbox tooling). */
@@ -8198,11 +8227,15 @@ export class Sim {
    * the scan ranks an unhurtable target as a last resort rather than
    * excluding it, and the focus paths add `weaponHurts` themselves.
    */
-  private engageable(shooter: number, w: WeaponStats, t: number): boolean {
+  private engageable(shooter: number, w: WeaponStats, t: number, civilians = false): boolean {
     const sSide = this.side[shooter];
     // Civilians (side 2) are never targets — collateral comes from
-    // ordnance, not aimpoints. That asymmetry is what ROE scores.
-    if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) return false;
+    // ordnance, not aimpoints. That asymmetry is what ROE scores. The one
+    // exception (GH-1438 E6) is `selectTarget`'s second scan for a shooter
+    // flagged `fires_on_civilians`, which passes `civilians` and asks about
+    // side 2 alone; every other caller asks about the fighting sides only.
+    if (this.alive[t] === 0 || this.side[t] === sSide) return false;
+    if (civilians ? this.side[t] !== 2 : this.side[t] > 1) return false;
     // GH-707: a wounded man is hors de combat -- nobody picks him (splash still finds him).
     if (this.woundLive && this.horsDeCombat(t)) return false;
     // Men inside a building cannot be shot at: the building is in the way,
@@ -8298,6 +8331,19 @@ export class Sim {
         best = t;
         bestHurts = hurts;
         bestDistSq = rank;
+      }
+    }
+    // GH-1438 E6: nothing of the fighting sides in reach, and this shooter's placement fires on civilians: the nearest
+    // identified, standing civilian this weapon may engage (`engageable`'s whole filter, side 2 instead of the enemy: a
+    // man down is hors de combat and never picked, so the fallen lie still). Ascending ids, nearest first, ties to the
+    // lower id. No draw: the shot resolves through the same per-entity stream as any other.
+    if (best === -1 && this.civFireLive && this.civFire[shooter] === 1) {
+      for (let t = 0; t < this.count; t++) {
+        if (!this.engageable(shooter, w, t, true)) continue;
+        if (best === -1 || this.engageDSq < bestDistSq) {
+          best = t;
+          bestDistSq = this.engageDSq;
+        }
       }
     }
     return best;
@@ -9063,7 +9109,9 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
-    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target (selectTarget is hostile-only, so every shot is at an enemy)
+    // GH-859 P1b: a member that opens fire reports contact at its target. selectTarget is hostile-only but for one case,
+    // GH-1438 E6's flagged shooter firing on a civilian (side 2): that is no contact, so it is kept out by the side test.
+    if (this.fmLive && this.side[target] <= 1) this.fmPend(shooter, tx, ty);
     // A shot is definitely being taken. Meter the surfacing burst — only a
     // unit up from a route has one; an ordinary surface unit never carries
     // volley bookkeeping.
@@ -14243,6 +14291,12 @@ export class Sim {
       h = hashArray(h, this.stGateState);
       h = hashArray(h, this.stGateTimer);
       h = hashArray(h, this.stGateHold);
+    }
+    // GH-1438 E6: the civilian-fire flags, the deferred fold. Nothing before the first flag is set, so no golden,
+    // versus, net or economy pin moves.
+    if (this.civFireLive) {
+      h = hashWord(h, 0x43460438); // 'CF' GH-1438
+      h = hashArray(h, this.civFire);
     }
     // Field works (#277), D1: the FW state block is folded only once `fwLive`
     // is set, and NOTHING at all is folded before that -- no marker, no length

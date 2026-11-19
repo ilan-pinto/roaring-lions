@@ -806,6 +806,13 @@ function restoreInner(sim: Sim, bytes: Uint8Array, runtime: MissionRuntime | und
   for (let s = 0; s < gateState.length; s++) {
     if (gateState[s] > 3) throw new SnapshotRefused(`structure ${s}: gate state ${gateState[s]} is not one of 0..3`);
   }
+  // GH-1438 E6: the civilian-fire flag is 0 or 1, and a set flag needs the fold on (`setCivFire` writes both together):
+  // a 1 with `civFireLive` false would fire on civilians while hash() ignored it, so two peers could part unseen.
+  const civFire = self.civFire as Uint8Array;
+  for (let i = 0; i < civFire.length; i++) {
+    if (civFire[i] > 1) throw new SnapshotRefused(`entity ${i}: civilian-fire flag ${civFire[i]} is not 0 or 1`);
+    if (civFire[i] === 1 && self.civFireLive !== true) throw new SnapshotRefused(`entity ${i}: civilian-fire flag set with civFireLive false`);
+  }
 
   // ---- the tail: bounded by a fixed cap and by what is left of the input.
   const tailLen = r.u32();
