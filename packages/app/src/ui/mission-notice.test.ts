@@ -1,5 +1,27 @@
+import type { MissionEvent } from '@lions/sim';
 import { describe, expect, it } from 'vitest';
-import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './mission-notice';
+import { missionEventTier } from './alerts';
+import { FEED_MERGE_WINDOW_MS } from './feed-model';
+import {
+  alertNotice,
+  CIVILIAN_FEED_WINDOW_TICKS,
+  CIVILIAN_STREAK_TICKS,
+  CivilianFeed,
+  civilianLineNotice,
+  civilianLineReplaces,
+  civilianTallyOf,
+  coalesceCivilianEvents,
+  evacuatedNotice,
+  placePhrase,
+  reinforceTrigger,
+  removedNotice,
+  ledgerSavedNotice,
+  triggerLabel,
+  unknownSandboxMapNotice,
+  writeCivilianLines,
+  type CivilianFeedEntry,
+  type CivilianLine,
+} from './mission-notice';
 
 describe('removedNotice', () => {
   it('reads "taken (n)" for a civilian (side 2)', () => {
@@ -37,11 +59,135 @@ describe('evacuatedNotice', () => {
     expect(tone).not.toBe(takenTone);
   });
 
-  it('says one, never a running total', () => {
-    // One line per arrival, like `removedNotice`: nothing here coalesces a
-    // tick's worth of civilians, so the count is always (1).
-    expect(evacuatedNotice()[0]).toContain('(1)');
-    expect(evacuatedNotice()[0]).toBe(evacuatedNotice()[0]);
+  it('says one by default, and the count it is given (E4 folds the count, `CivilianFeed`)', () => {
+    expect(evacuatedNotice()[0]).toBe('<b>clear</b> (1)');
+    expect(evacuatedNotice(30)[0]).toBe('<b>clear</b> (30)');
+    expect(removedNotice(2, 'civilians', 12)[0]).toBe('<b>taken</b> (12)');
+    // A player unit is named, never counted.
+    expect(removedNotice(0, 'inf_squad', 12)[0]).not.toContain('12');
+  });
+});
+
+// Civilian drama E4 (GH-1438, `docs/campaign/civilian-drama.md` 10.2): the
+// merged feed line. Every expected value below is a literal.
+describe('E4: the civilian feed line folds a second of arrivals into one', () => {
+  const evac = (tick: number, entity = 0): MissionEvent => ({ kind: 'evacuated', tick, entity });
+  const removed = (tick: number, side: number, entity = 0): MissionEvent => ({ kind: 'removed', tick, entity, side, unit: side === 2 ? 'civilians' : 'inf_squad' });
+  const civ = (tally: 'evacuated' | 'taken', n: number, total: number, replaces: number, tick: number): CivilianFeedEntry<string> => ({ civilian: { tally, n, total, replaces, tick } });
+  const named = (e: MissionEvent): string | null => (e.kind === 'removed' ? `unit:${e.side}` : e.kind === 'trigger' ? `trigger:${e.id}` : null);
+
+  it('a window is one second and a streak eight, on the sim clock', () => {
+    expect(CIVILIAN_FEED_WINDOW_TICKS).toBe(20);
+    expect(CIVILIAN_STREAK_TICKS).toBe(160);
+    // The streak is the feed's own merge window, at 50 ms a tick.
+    expect(CIVILIAN_STREAK_TICKS * 50).toBe(FEED_MERGE_WINDOW_MS);
+  });
+
+  it('30 arrivals in 20 ticks are one line, n = 30', () => {
+    const events: MissionEvent[] = [];
+    for (let i = 0; i < 30; i++) events.push(evac(Math.floor((i * 20) / 30), 100 + i));
+    expect(events[29].tick).toBe(19);
+    expect(coalesceCivilianEvents(events, 20)).toEqual([civ('evacuated', 30, 30, 0, 0)]);
+  });
+
+  it('a taken civilian and a taken soldier in the same second are not merged', () => {
+    const out = coalesceCivilianEvents([removed(0, 2, 1), removed(5, 0, 2), removed(10, 2, 3)], 20, named);
+    // The soldier is his own line, worded by the caller; the civilians are
+    // counted without him, and the open tally is written before his line.
+    expect(out).toEqual([civ('taken', 1, 1, 0, 0), { event: removed(5, 0, 2), line: 'unit:0' }, civ('taken', 1, 2, 1, 10)]);
+    expect(civilianTallyOf(removed(0, 0))).toBeNull();
+    expect(civilianTallyOf(removed(0, 1))).toBeNull();
+    expect(civilianTallyOf(removed(0, 2))).toBe('taken');
+  });
+
+  it('clear and taken are separate tallies in the same second', () => {
+    expect(coalesceCivilianEvents([evac(0), removed(2, 2), evac(4), removed(6, 2), removed(8, 2)], 20)).toEqual([
+      civ('evacuated', 2, 2, 0, 0),
+      civ('taken', 3, 3, 0, 2),
+    ]);
+  });
+
+  it('the window holds 20 ticks: tick 19 joins it, tick 20 opens the next', () => {
+    expect(coalesceCivilianEvents([evac(0), evac(19)], 20)).toEqual([civ('evacuated', 2, 2, 0, 0)]);
+    expect(coalesceCivilianEvents([evac(0), evac(20)], 20)).toEqual([civ('evacuated', 1, 1, 0, 0), civ('evacuated', 1, 2, 1, 20)]);
+    const feed = new CivilianFeed(20);
+    expect(feed.take(evac(0))).toBe(true);
+    expect(feed.due(19)).toEqual([]);
+    expect(feed.due(20)).toEqual([{ tally: 'evacuated', n: 1, total: 1, replaces: 0, tick: 0 }]);
+    expect(feed.due(40)).toEqual([]);
+  });
+
+  it('a steady run is one streak whose total climbs; eight silent seconds start a fresh count', () => {
+    // Three a second for four seconds.
+    const run: MissionEvent[] = [];
+    for (let s = 0; s < 4; s++) for (let k = 0; k < 3; k++) run.push(evac(s * 20 + k * 6));
+    expect(coalesceCivilianEvents(run, 20)).toEqual([
+      civ('evacuated', 3, 3, 0, 0),
+      civ('evacuated', 3, 6, 3, 20),
+      civ('evacuated', 3, 9, 6, 40),
+      civ('evacuated', 3, 12, 9, 60),
+    ]);
+    // 160 ticks after the last arrival the streak still stands; 161 and it is over.
+    expect(coalesceCivilianEvents([evac(0), evac(160)], 20)).toEqual([civ('evacuated', 1, 1, 0, 0), civ('evacuated', 1, 2, 1, 160)]);
+    expect(coalesceCivilianEvents([evac(0), evac(161)], 20)).toEqual([civ('evacuated', 1, 1, 0, 0), civ('evacuated', 1, 1, 0, 161)]);
+  });
+
+  it('another line writes the open tallies first, so the feed stays in order', () => {
+    const trigger: MissionEvent = { kind: 'trigger', tick: 4, id: 'gate_shut' };
+    const out = coalesceCivilianEvents([evac(0), evac(2), removed(3, 2), trigger, evac(4)], 20, named);
+    expect(out).toEqual([
+      civ('evacuated', 2, 2, 0, 0),
+      civ('taken', 1, 1, 0, 3),
+      { event: trigger, line: 'trigger:gate_shut' },
+      civ('evacuated', 1, 3, 2, 4),
+    ]);
+    // An event that writes no line (a `say`, a `wave`) closes nothing.
+    const say: MissionEvent = { kind: 'say', tick: 3, speaker: 'commander', text: 'x' };
+    expect(coalesceCivilianEvents([evac(0), say, evac(5)], 20, named)).toEqual([civ('evacuated', 2, 2, 0, 0)]);
+  });
+
+  it('lines come out in the order their windows opened, however they closed', () => {
+    const feed = new CivilianFeed(20);
+    feed.take(evac(0));
+    feed.take(removed(5, 2));
+    // The taken window closes first (its own next event, past its end), the clear one only at `due`.
+    feed.take(removed(26, 2));
+    expect(feed.due(26).map((l) => l.tally)).toEqual(['evacuated', 'taken']);
+    expect(feed.flush()).toEqual([{ tally: 'taken', n: 1, total: 2, replaces: 1, tick: 26 }]);
+    expect(feed.flush()).toEqual([]);
+  });
+
+  it('keeps nothing of an event that is not a civilian leaving', () => {
+    const feed = new CivilianFeed(20);
+    expect(feed.take(removed(0, 0))).toBe(false);
+    expect(feed.take({ kind: 'trigger', tick: 0, id: 'x' })).toBe(false);
+    expect(feed.flush()).toEqual([]);
+  });
+
+  it('words the total, in the tone and tier of the event it folds', () => {
+    const clear: CivilianLine = { tally: 'evacuated', n: 3, total: 30, replaces: 27, tick: 0 };
+    const taken: CivilianLine = { tally: 'taken', n: 12, total: 12, replaces: 0, tick: 0 };
+    expect(civilianLineNotice(clear)).toEqual({ html: '<b>clear</b> (30)', tone: 'good' });
+    expect(civilianLineNotice(taken)).toEqual({ html: '<b>taken</b> (12)', tone: 'bad', tier: 'important' });
+    expect(civilianLineReplaces(clear)).toEqual({ html: '<b>clear</b> (27)', tone: 'good' });
+    expect(civilianLineReplaces(taken)).toBeNull();
+    // The tiers are `missionEventTier`'s for the kinds folded.
+    expect(civilianLineNotice(taken).tier).toBe(missionEventTier(removed(0, 2)));
+    expect(civilianLineNotice(clear).tier).toBe(missionEventTier(evac(0)) ?? undefined);
+  });
+
+  it('writes a streak as one line: the previous total is taken back before the new one goes up', () => {
+    const calls: string[] = [];
+    const sink = {
+      note: (html: string, tone: string, o: { tier?: string }) => void calls.push(`note ${tone}|${o.tier ?? ''}|${html}`),
+      retireNote: (html: string, tone: string, o: { tier?: string; fade?: boolean }) =>
+        void calls.push(`retire ${tone}|${o.tier ?? ''}|${html}${o.fade === false ? ' now' : ''}`),
+    };
+    writeCivilianLines(sink, [
+      { tally: 'taken', n: 2, total: 2, replaces: 0, tick: 0 },
+      { tally: 'taken', n: 3, total: 5, replaces: 2, tick: 20 },
+    ]);
+    expect(calls).toEqual(['note bad|important|<b>taken</b> (2)', 'retire bad|important|<b>taken</b> (2) now', 'note bad|important|<b>taken</b> (5)']);
   });
 });
 

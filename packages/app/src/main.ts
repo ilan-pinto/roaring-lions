@@ -219,7 +219,18 @@ import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInter
 import { webgl2Available } from './ui/webgl-probe';
 import { gpuOf } from './gpu-flag';
 import { frameLoopFrozen, setFrameLoopFrozen } from './frame-freeze';
-import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
+import {
+  alertNotice,
+  CivilianFeed,
+  evacuatedNotice,
+  placePhrase,
+  reinforceTrigger,
+  removedNotice,
+  ledgerSavedNotice,
+  triggerLabel,
+  unknownSandboxMapNotice,
+  writeCivilianLines,
+} from './ui/mission-notice';
 import { ReinforcementDock, isWorksKind, type ProductionRuntime } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
 import { barrageLine, breakdownLine, strikeLine } from './ui/intel-copy';
@@ -2549,6 +2560,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // protected-zone violation is offered once rather than on every cooldown
   // expiry. One mission, one set — it lives as long as the runtime does.
   const narratedRoeReasons = new Set<string>();
+  /** Civilian drama E4 (GH-1438): the civilians leaving the field -- `evacuated`, and `removed` side 2 -- folded into
+   *  one feed line a second per tally, carrying the streak's total (`ui/mission-notice.ts`'s `CivilianFeed`). Pure
+   *  presentation; a save resumes without it, which drops at most one second's line. `writeCivilianLines` puts a line
+   *  up and takes the streak's previous one back, so a steady run holds one feed slot whose count climbs. */
+  const civFeed = new CivilianFeed();
   /** Every Conduct deduction this mission, for the debrief. The sim keeps no
    *  presentation log; the events are the record. */
   const deductions: Deduction[] = [];
@@ -6569,8 +6585,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           if (record) lostThisMission.push(record);
           causeOfLost.delete(mev.entity);
         }
-        const described = describeMissionEvent(mev, mission, narratedRoeReasons, placeNames, structureName);
-        if (described) hud.note(described[0], described[1], { tier: missionEventTier(mev) ?? undefined });
+        // E4: a civilian leaving the field folds into its tally's line (`civFeed`); any other line first writes
+        // the tallies still open, so the feed stays in order. `coalesceCivilianEvents` is this loop's model.
+        const described = civFeed.take(mev) ? null : describeMissionEvent(mev, mission, narratedRoeReasons, placeNames, structureName);
+        if (described) {
+          writeCivilianLines(hud, civFeed.flush());
+          hud.note(described[0], described[1], { tier: missionEventTier(mev) ?? undefined });
+        }
         // The story voice (GDD §11): the commander bar is the one surface for
         // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
         // so this is the only place a `say` event lands. See `Hud.say`'s own
@@ -7030,6 +7051,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           }
         }
       }
+      // E4: the tallies whose second is up are written once the tick's own lines are.
+      writeCivilianLines(hud, civFeed.due(sim.tickCount));
       if (tut) {
         const now = performance.now();
         for (const e of events) {
