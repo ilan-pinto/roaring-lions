@@ -19,12 +19,15 @@ permissions:
 
 # A new push to a pull request cancels that PR's older, unfinished runs: a
 # superseded commit's 40-minute suite only queues ahead of the commit that
-# matters (the queue reached 46 runs with 2 running on 8 Nov). Pushes (to main
-# or dev) keep a group of their own per run, so no main run (or its release bump) is
-# ever cancelled.
+# matters (the queue reached 46 runs with 2 running on 8 Nov). A push to dev
+# likewise cancels the older dev push runs (one shared `dev-push` group): only
+# dev's tip needs a full run, and on 19 Nov 30 dev push runs queued from 00:53Z
+# with none started. Every other push (main, which runs the release bump, and
+# any other branch) keeps a group of its own per run, so it is never cancelled.
+# Pinned by tools/src/ci/concurrency.test.ts.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.ref == 'refs/heads/dev' && 'dev-push') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/dev' }}
 
 jobs:
   gates:
@@ -175,7 +178,7 @@ jobs:
           exit 1
       - run: pnpm audio:mix
       - run: python tools/validate_balance.py --units data/units
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --also docs/campaign/special_units/gh1382
       # Brigade economy Task 5: the same cost-curve check, run again against every
       # KDF unit patched to its own maximum tiers (tools/validate_balance.py's
       # `--max-tier`), cost bumped by `--upgrade-cost-factor K` * that unit's own
@@ -188,8 +191,8 @@ jobs:
       # branch vector (`--branch=1`, `--branch=2`); without one the pass refuses (exit 2).
       - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=1
       - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02 --branch=2
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=1
-      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --max-tier --upgrade-cost-factor 0.02 --branch=2
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --also docs/campaign/special_units/gh1382 --max-tier --upgrade-cost-factor 0.02 --branch=1
+      - run: python tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 --also docs/campaign/special_units/gh709 --also docs/campaign/special_units/gh1382 --max-tier --upgrade-cost-factor 0.02 --branch=2
       - run: pnpm balance
       # Headless mission playtests (tools/src/backtest/playtest.ts): each Beit Sahwan/
       # Wadi Halam mission must be winnable by a sensible scripted plan inside its time
@@ -862,7 +865,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      # contents to push the bump and the tag.
+      # contents to push the bump and the tag, and to publish the GitHub release (GH-1622). Nothing broader.
       contents: write
     steps:
       # The whole history and every tag: the rule reads the range since the
@@ -919,9 +922,18 @@ jobs:
             if (out === raw) throw new Error("version line not found in package.json");
             fs.writeFileSync(p, out);
           '
+          # GH-1622: the release notes ride the same bump commit. The drafted next.json becomes v<NEXT>.json (its
+          # "version" line rewritten to NEXT) and a fresh empty next.json takes its place. With no next.json to move,
+          # an empty v<NEXT>.json is written instead: a release never waits on its notes.
+          if [ -f data/release-notes/next.json ]; then
+            git mv data/release-notes/next.json "data/release-notes/v${NEXT}.json"
+          else
+            echo "::warning title=No release notes::data/release-notes/next.json was missing; v${NEXT} ships with empty notes."
+          fi
+          node tools/ci/release-notes-md.mjs cut --version="${NEXT}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
+          git add package.json data/release-notes/next.json "data/release-notes/v${NEXT}.json"
           # [skip ci] is what stops this push retriggering ci. Without
           # it the bump would trigger a run that finds no new commits since the
           # tag, cuts nothing, and still costs a full matrix.
@@ -934,4 +946,19 @@ jobs:
           git tag -a "v${NEXT}" -m "v${NEXT}"
           git push origin HEAD:main
           git push origin "refs/tags/v${NEXT}"
+
+      # GH-1622: the GitHub release for the tag just pushed, its body rendered from the v<NEXT>.json the bump commit
+      # wrote (tools/ci/release-notes-md.mjs: a heading per non-empty section, or "No player-facing changes"). The
+      # entries passed validate:data's filter gate in `gates`. --verify-tag: publish for the pushed tag, never cut a new one.
+      - name: Publish the GitHub release
+        if: steps.decide.outputs.next != ''
+        env:
+          NEXT: ${{ steps.decide.outputs.next }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node tools/ci/release-notes-md.mjs render --version="${NEXT}" --out="$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_STEP_SUMMARY"
+          gh release create "v${NEXT}" --verify-tag --title "v${NEXT}" --notes-file "$RUNNER_TEMP/release-notes.md"
 

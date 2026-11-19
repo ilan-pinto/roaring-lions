@@ -41,6 +41,28 @@ describe('the ordering gate', () => {
     expect(orderingViolations(above)).toEqual([]);
   });
 
+  it('an exact 5.0-point step fails "more than 5" and 5.1 points passes (integer compare, not 0.55 - 0.50 in floats)', () => {
+    const one = (lo: Tally, hi: Tally): LadderCells => ({ a: { sensible: { easy: t(0, 20), medium: lo, hard: hi } } });
+    const sensible = (c: LadderCells) => orderingViolations(c).filter((x) => x.scope === 'pooled' && x.plan === 'sensible' && x.lower === 'medium');
+    // 10 of 20 = 50.0%, 11 of 20 = 55.0%: in floats 0.55 - 0.5 = 0.050000000000000044 > 0.05, which let the PR 1616 Sarim step pass.
+    expect(0.55 - 0.5 > 0.05).toBe(true);
+    expect(sensible(one(t(10, 10), t(11, 9)))).toHaveLength(1);
+    // 62 of 100 over 57 of 100: also exactly 5.0 points, and 0.62 - 0.57 is above 0.05 in floats too.
+    expect(sensible(one(t(57, 43), t(62, 38)))).toHaveLength(1);
+    // 5.1 points: 1000 games a level, 500 over 551.
+    expect(sensible(one(t(500, 500), t(551, 449)))).toEqual([]);
+    // 5.0 points exactly at a size where the float difference lands BELOW 0.05 (0.45 - 0.4): fails too.
+    expect(sensible(one(t(24, 36), t(27, 33)))).toHaveLength(1);
+  });
+
+  it('the cell inversion margin is also exact: 24 of 30 over 18 of 30 (exactly 20.0 points) is not MORE than 20, 25 of 30 is', () => {
+    const inv = (lo: number, hi: number): LadderCells => ({ a: { rush: { easy: t(0, 30), medium: t(lo, 30 - lo), hard: t(hi, 30 - hi) } } });
+    const cell = (c: LadderCells) => orderingViolations(c).filter((x) => x.scope === 'cell' && x.lower === 'medium');
+    expect(0.8 - 0.6 > 0.2).toBe(true); // the float reading would have flagged it
+    expect(cell(inv(24, 18))).toEqual([]);
+    expect(cell(inv(25, 18))).toHaveLength(1);
+  });
+
   it('fails one map where a lower level beats a higher one by more than the cell margin, and passes one inside it', () => {
     const big = ordered();
     big.b.passive = { easy: t(3, 27), medium: t(28, 2), hard: t(21, 9) }; // medium 93.3% over hard 70.0%: 23.3 points

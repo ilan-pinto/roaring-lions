@@ -8,6 +8,14 @@ allowBuilds:
 # Drop this once wrangler/miniflare ships a patched pin.
 overrides:
   "undici@>=7.18.0 <7.30.1": "7.30.1"
+# Security (Dependabot alerts 71-75): hono 4.13.13 arrives via @modelcontextprotocol/sdk (tools/ only); fixed in 4.13.16.
+# Drop this once @modelcontextprotocol/sdk resolves hono >= 4.13.16 on its own.
+  "hono@<4.13.16": "4.13.16"
+# Security (Dependabot alerts 69-70): @hono/node-server 2.1.5, same parent; fixed in 2.1.6. Drop with the hono override above.
+  "@hono/node-server@>=2.0.0 <2.1.6": "2.1.6"
+# Security (Dependabot alert 68, GHSA-g3hv-75wg-m249): minimatch >=7.0.0 <11.0.1, no 10.x fix. typescript-estree 8.72.2 pins 10.2.6.
+# 11.0.8 is the 11.x already in the lockfile. Drop this once typescript-eslint ships a release that depends on minimatch >= 11.0.1.
+  "minimatch@>=7.0.0 <11.0.1": "11.0.8"
 # GH-943: three r187's one-line WebGPU fix (sample a depth texture through a DEPTH-ONLY view), backported onto 0.186.1. Without it the
 # node backend on WebGPU binds the scene pass's depth24plus-stencil8 depth with aspect "all", the bind group is invalid and G draws
 # black. Pinned by packages/render/src/three/backend/depth-aspect.node.test.ts. Drop it with the upgrade to three >= 0.187.

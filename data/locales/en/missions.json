@@ -517,7 +517,7 @@
   },
   "bir_tarsha_5_subterranean": {
     "name": "Bir Tarsha V — Under the Fence",
-    "briefing": "Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface and it is not on the clock. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.",
+    "briefing": "Five routes run under the Fence Road toward the border. One was dug wide enough for a truck, which is the one that matters, and it is as far east as they could take it. Bring all five down inside six and a half minutes. The engineers take the charges, and the rest of you keep them alive until they are set. The engineers' survey found a concrete chamber at the head of the east route, with one person inside, alone. It is on the surface, and on a shorter clock: five and a half minutes. Walk that person out before the last charge goes, because the mission ends the moment the routes are down. The charges are the order; the person is yours to choose. A block commander holds the post east of the ridge. Once a third of the cells on this strip are down he walks north, and whatever is left of the Marj's cells walks with him. The light goes in ten minutes and the houses on the surface are lived in. More than ten Conduct lost ends it.",
     "aftermath": "The Fence Road is quiet, and the border it ran beside is only a fence again. The Marj is not finished with, but it is behind the brigade, and the brigade has somewhere else to go.",
     "hostages_place": "the Fence Road",
     "debrief": {
@@ -532,7 +532,7 @@
     },
     "objective_say": {
       "all_five": "All five down. The Fence Road runs over nothing.",
-      "walk_the_person_out": "One out and walking. That is the one that counts, and it is not on any clock.",
+      "walk_the_person_out": "One out and walking, with time still on the clock. That is the one that counts.",
       "take_the_commander": "The post is ours. The routes under it can be taken in any order now."
     },
     "objective_say_on_fail": {
@@ -549,7 +549,7 @@
     },
     "src": {
       "name": "28e9fa4c",
-      "briefing": "ceaf14ff",
+      "briefing": "d62111af",
       "objectives.all_five": "4b291f6a",
       "objectives.keep_the_surface": "a2e99ae1",
       "objectives.walk_the_person_out": "206e8e8f",
@@ -561,7 +561,7 @@
       "debrief.victory": "4f00f68d",
       "debrief.defeat": "d6031d9e",
       "objective_say.all_five": "e8d4a327",
-      "objective_say.walk_the_person_out": "72f26f2b",
+      "objective_say.walk_the_person_out": "6985c68d",
       "objective_say.take_the_commander": "6c1de051",
       "objective_say_on_fail.all_five": "131d4246",
       "objective_say_on_fail.keep_the_surface": "6f65eace",

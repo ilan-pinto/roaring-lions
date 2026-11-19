@@ -1,0 +1,17 @@
+{
+  "id": "sarim_standoff",
+  "extends": "sarim",
+  "status": "proposed",
+  "label": "doctrine.sarim_standoff.name",
+  "blurb": "doctrine.sarim_standoff.blurb",
+  "gives_up": "doctrine.sarim_standoff.gives_up",
+  "signature": {
+    "formation": "sarim_standoff_screen"
+  },
+  "ops": [
+    {"op": "menu_remove", "units": ["gun_truck"]},
+    {"op": "menu_add", "units": ["mortar_crew"]},
+    {"op": "set_price", "unit": "atgm_cell", "logistics": 222},
+    {"op": "set_price", "unit": "sarim_rifles", "logistics": 355}
+  ]
+}

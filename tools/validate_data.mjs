@@ -11,8 +11,10 @@
 //   data/maps/**     against data/schemas/map.schema.json, plus grid
 //                    dimensions and marker/zone bounds
 //   data/tutorial/** against data/schemas/tutorial.schema.json
-//   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
-//                    menu and budget rules in tools/validate_doctrine.mjs
+//   data/doctrines/*.json against data/schemas/doctrine.schema.json, plus the
+//                    menu and budget rules in tools/validate_doctrine.mjs (picks/ skipped: it is not a base)
+//   data/doctrines/picks/** against data/schemas/doctrine_pick.schema.json (GH-1383), plus P1-P10 in
+//                    tools/validate_doctrine.mjs and the cost-curve bar in tools/doctrine_balance.py (python3)
 //   data/computer/levels.json against data/schemas/computer_levels.schema.json (GH-1389), plus the
 //                    order, unit and no-boost rules in tools/validate_computer_levels.mjs
 //   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
@@ -27,6 +29,8 @@
 //                    amendments.schema.json, plus the cross-file rules in tools/validate_challenges.mjs (GH-1395)
 //   data/chat/filter.*.json against data/schemas/chat_filter.schema.json, plus the provenance,
 //                    licence and tier rules in tools/validate_chat_filters.mjs (GH-1417 S2)
+//   data/release-notes/*.json against data/schemas/release_notes.schema.json, plus the filename and
+//                    filter rules (no internal words, refs, hashes or ids) in tools/validate_release_notes.mjs (GH-1622)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -44,18 +48,21 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
-import { doctrineFailures } from './validate_doctrine.mjs';
+import { doctrineFailures, doctrinePickFailures } from './validate_doctrine.mjs';
+import { spawnSync } from 'node:child_process';
 import { computerLevelFailures } from './validate_computer_levels.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
 import { upgradeTierFailures, validateBranches } from './validate_branches.mjs';
 import { chatFilterFailures } from './validate_chat_filters.mjs';
+import { releaseNotesFailures } from './validate_release_notes.mjs';
 import { challengeFailures } from './validate_challenges.mjs';
 import { contentManifestFailures } from './content_manifest.mjs';
 import { arenaResultsFailures } from './validate_arena_results.mjs';
@@ -207,6 +214,7 @@ const schemas = {
   // was a comment.
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
+  doctrinePick: loadJson(join(ROOT, 'data/schemas/doctrine_pick.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
   versusMode: loadJson(join(ROOT, 'data/schemas/versus_mode.schema.json')),
   formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
@@ -221,6 +229,7 @@ const schemas = {
   arenaResults: loadJson(join(ROOT, 'data/schemas/arena-results.schema.json')),
   arenaPlayers: loadJson(join(ROOT, 'data/schemas/arena-public-players.schema.json')),
   chatFilter: loadJson(join(ROOT, 'data/schemas/chat_filter.schema.json')),
+  releaseNotes: loadJson(join(ROOT, 'data/schemas/release_notes.schema.json')),
 };
 
 let checked = 0;
@@ -231,7 +240,7 @@ const stagingOf = (lang) => stagingOpts(lang, shippedLocales, localeLag);
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.vfxMunitions && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter
+  schemas.structure && schemas.doctrine && schemas.doctrinePick && schemas.versus && schemas.versusMode && schemas.formation && schemas.grade && schemas.coupons && schemas.avatarPresets && schemas.minWin && schemas.difficulty && schemas.computerLevels && schemas.amendments && schemas.challenge && schemas.arenaResults && schemas.arenaPlayers && schemas.chatFilter && schemas.releaseNotes
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -248,6 +257,7 @@ if (
     hints: ajv.compile(schemas.hints),
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
+    doctrinePick: ajv.compile(schemas.doctrinePick),
     versus: ajv.compile(schemas.versus),
     versusMode: ajv.compile(schemas.versusMode),
     formation: ajv.compile(schemas.formation),
@@ -262,6 +272,7 @@ if (
     arenaResults: ajv.compile(schemas.arenaResults),
     arenaPlayers: ajv.compile(schemas.arenaPlayers),
     chatFilter: ajv.compile(schemas.chatFilter),
+    releaseNotes: ajv.compile(schemas.releaseNotes),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -269,7 +280,10 @@ if (
   checked += validateFile(join(ROOT, 'data/vfx/munitions.json'), validators.vfxMunitions, 'vfx_munitions.schema');
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
-  checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
+  // GH-1383: data/doctrines/picks/ holds the doctrine PICKS, a second kind of document under the base files' directory, with
+  // its own schema. Walked into the base schema, each pick would read as an extra base doctrine.
+  checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema', ['picks']);
+  checked += validateDir(join(ROOT, 'data/doctrines/picks'), validators.doctrinePick, 'doctrine_pick.schema');
   checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema', ['modes']);
   checked += validateDir(join(ROOT, 'data/versus/modes'), validators.versusMode, 'versus_mode.schema');
   checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
@@ -278,6 +292,8 @@ if (
   checked += validateDir(join(ROOT, 'data/grades'), validators.grade, 'grade.schema');
   // GH-1417 S2: the chat word lists. The pristine upstream copies under data/chat/third_party/ are not JSON and are not walked.
   checked += validateDir(join(ROOT, 'data/chat'), validators.chatFilter, 'chat_filter.schema');
+  // GH-1622: the player-facing release notes, next.json and every released v<X.Y.Z>.json.
+  checked += validateDir(join(ROOT, 'data/release-notes'), validators.releaseNotes, 'release_notes.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1015,6 +1031,9 @@ const garrisonableSymbols = new Set(
     failures.push(...productionFailures(mi, map, structureCatalogue, enemyUnitsById, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
+    // GH-1438 E13 (b): no ground side-0 unit starts within 4.5 tiles of a civilian, a muster marker or a gate
+    // centre. This is the AUTHORED spread; the laid-out reading is tools/src/validate_force_to_gate.test.ts.
+    failures.push(...authoredForceToGateFailures(mi, map, structureCatalogue?.types, unitsById, rel(file)));
     // Field works (#277 Task 8): rules 2-4.
     failures.push(...fieldWorksKeyFailures(mi, structureCatalogue, rel(file)));
     {
@@ -1400,8 +1419,36 @@ const garrisonableSymbols = new Set(
     const u = loadJson(file);
     if (u?.id) doctrineUnits.set(u.id, u);
   }
-  const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  // `picks` skipped: a pick is not a base doctrine, and the base rules ("a doctrine's id IS its faction, exactly one per
+  // faction") would refuse every one of them (GH-1383).
+  const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines'), ['picks']).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...doctrineFailures(doctrines, doctrineUnits));
+  // GH-1383 slice 1: the doctrine picks, P1-P10 (tools/validate_doctrine.mjs).
+  const picks = jsonFilesIn(join(ROOT, 'data/doctrines/picks')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  const pickEn = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const formationIds = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => loadJson(file)?.id).filter((id) => typeof id === 'string');
+  failures.push(...doctrinePickFailures(picks, doctrines, doctrineUnits, pickEn, formationIds));
+  // ...and the cost-curve half of the bar (the lead's Q6): |delta| <= 0.005 on the frozen base fit and every priced unit
+  // inside +/-18%, KDF picks again at max tier per branch. Python, because the curve is validate_balance.py's and is
+  // called, not copied. K = 0.02 is the value docs/campaign/economy/upgrades.md section 5 records, as ci.yml passes it.
+  const bal = spawnSync('python3', ['tools/doctrine_balance.py', '--upgrade-cost-factor', '0.02', '--json'], { cwd: ROOT, encoding: 'utf8' });
+  let balance;
+  try {
+    balance = JSON.parse(bal.stdout);
+  } catch {
+    balance = null;
+  }
+  if (bal.error || balance === null || !Array.isArray(balance.failures)) {
+    failures.push(
+      `tools/doctrine_balance.py: did not run (${bal.error?.message ?? `exit ${bal.status}: ${(bal.stderr || '').trim().split('\n').pop()}`}) -- ` +
+        'the doctrine cost-curve gate needs python3 on PATH'
+    );
+  } else {
+    if (balance.picks.length !== picks.length) {
+      failures.push(`tools/doctrine_balance.py: scored ${balance.picks.length} picks of ${picks.length} in data/doctrines/picks`);
+    }
+    for (const f of balance.failures) failures.push(`doctrine cost curve (T4): ${f}`);
+  }
   // GH-1389: the computer levels -- KDF units, strictly ordered by the force they field, no income or vision key.
   const levelsFile = join(ROOT, 'data/computer/levels.json');
   failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits));
@@ -1462,6 +1509,14 @@ const garrisonableSymbols = new Set(
   const chat = chatFilterFailures(chatFiles, chatDir);
   failures.push(...chat.failures);
   warnings.push(...chat.warnings);
+}
+
+// --- release notes (GH-1622): the filename rule and the filter gate -----------
+// Shown to players and published as the GitHub release, so every entry is plain player English: no internal word, no
+// PR or issue ref, no git hash, no snake_case id. Drafting guide: docs/agent-notes/release-notes.md.
+{
+  const notesFiles = jsonFilesIn(join(ROOT, 'data/release-notes')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...releaseNotesFailures(notesFiles));
 }
 
 // --- the synchronous content manifest (B6-6) ----------------------------------

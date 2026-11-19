@@ -241,6 +241,11 @@ change into a priced trade-off without touching combat. Deliberately absent from
 | P9 | `signature.formation` names a file in `data/formations/doctrine/` whose `doctrines` list is exactly `[<this id>]`; every file there is named by exactly one doctrine, and no file in `data/formations/` itself carries `doctrines` (§2.5; `index.test.ts`'s directory pin for `formations` skips the subfolder, and a second pin holds `doctrineFormations` to it). |
 | P10 | `label`, `blurb` and `gives_up` are keys in `data/locales/en.json` (the formations' rule). |
 
+**As built in slice 1 (GH-1383, decision (b)(i), for the lead to confirm):** P9's file half (the `data/formations/doctrine/`
+file and its `doctrines` list) waits for slice 5, which adds both; until then the schema requires `signature.formation` as an
+id and P9 checks only that it is unique to its pick and is no shipped formation's id. P10's catalogue is
+`packages/app/src/i18n/en.json`.
+
 ### 2.3 The order against upgrades and overlays
 
 `@lions/data` gains `packages/data/src/doctrines.ts`, a leaf module like `upgrades.ts`:
