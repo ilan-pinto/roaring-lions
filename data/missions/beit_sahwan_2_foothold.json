@@ -13,10 +13,10 @@
       "text": "They spent a night's men on a line they did not want, to buy a day on a shaft they did."
     }
   },
-  "briefing": "The battalion has its foothold on the western terraces and Ashwar knows it. Idit is reading spoil in the dry channel below the line \u2014 disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. You hold the top terrace and everything they send has to climb out of the channel to reach you. Ashwar dug this ground for years before the war reached it, and a route that comes up in the channel bed under your wall is worth more to them than every man they will spend in front of it. Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
+  "briefing": "The battalion has its foothold on the western terraces and Ashwar knows it. Idit is reading spoil in the dry channel below the line \u2014 disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. Take the crest of the top terrace and hold it for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. You hold the top terrace and everything they send has to climb out of the channel to reach you. Ashwar dug this ground for years before the war reached it, and a route that comes up in the channel bed under your wall is worth more to them than every man they will spend in front of it. Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
   "briefing_sections": [
     {"id": "situation", "text": "The battalion has its foothold on the western terraces and Ashwar knows it. Idit is reading spoil in the dry channel below the line — disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now."},
-    {"id": "mission", "text": "Hold the western approach for five minutes while the engineers dig in behind you."},
+    {"id": "mission", "text": "Take the crest of the top terrace and hold it for five minutes while the engineers dig in behind you."},
     {"id": "execution", "text": "The corridor delivers reinforcements — spend them well; what survives tonight clears the town tomorrow. You hold the top terrace and everything they send has to climb out of the channel to reach you. Ashwar dug this ground for years before the war reached it, and a route that comes up in the channel bed under your wall is worth more to them than every man they will spend in front of it."},
     {"id": "notes", "text": "Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down."}
   ],
@@ -128,16 +128,19 @@
   },
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 120
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      { "zone": "terrace_crest", "rate_per_min": 48 }
+    ]
   },
   "objectives": [
     {
       "id": "hold_west",
       "type": "hold_for",
       "primary": true,
-      "target": "west_approach",
+      "target": "terrace_crest",
       "seconds": 300,
-      "text": "Hold the western approach for five minutes"
+      "text": "Hold the crest of the top terrace for five minutes"
     },
     {
       "id": "collapse_tunnel",

@@ -178,7 +178,8 @@ describe('the chrome register: theme.css', () => {
     it('is a tab on the chip frame: absolute inside a positioned chip, on a panel ground', () => {
       expect(own('.rl-loan--tab', 'position')).toEqual(['absolute']);
       expect(own('.rl-loan--tab', 'top')).toEqual(['0']);
-      expect(own('.rl-loan--tab', 'right')).toEqual(['var(--s2)']);
+      expect(own('.rl-loan--tab', 'inset-inline-end')).toEqual(['var(--s2)']); // GH-1406 part 2: logical, so the tab mirrors with its chip
+      expect(own('.rl-loan--tab', 'right')).toEqual([]);
       expect(own('.rl-loan--tab', 'background')).toEqual(['var(--panel-bg)']);
       expect(own(".rl-chip[data-loan='1']", 'position')).toEqual(['relative']);
     });

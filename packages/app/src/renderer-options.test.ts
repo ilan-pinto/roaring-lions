@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { maps, paletteColor, paletteTeamColors, parseMap, type MapJson } from '@lions/data';
+import { paletteColor, paletteTeamColors, parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { QUALITY_PRESETS } from '@lions/render';
 import { dracoDecoderPath } from './mesh-catalogue';
 import { rendererOptionsFor, windFor } from './renderer-options';

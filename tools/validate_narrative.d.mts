@@ -9,3 +9,8 @@ export function narrativeTextFailures(mission: object, label: string): string[];
 export function commanderRankFailures(commander: object, world: object, label: string): string[];
 export function triggerLabelFailures(mission: object, file: string): string[];
 export function overlayFailures(file: string, overlay: object, missions: Map<string, object>): string[];
+export function unitOverlayFailures(file: string, overlay: object | null, units: Map<string, object>): string[];
+/** GH-1406 part 5: the stale-translation guard's hash, and the generated English unit catalogue. */
+export function sourceHash(text: string): string;
+export function buildEnglishUnits(units: readonly object[]): Record<string, object>;
+export function englishUnitFailures(file: string, catalogue: unknown, units: readonly object[]): string[];

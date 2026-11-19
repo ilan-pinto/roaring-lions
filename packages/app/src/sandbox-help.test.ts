@@ -9,9 +9,13 @@ import { describe, expect, it } from 'vitest';
 import {
   KNOWN_PARAMS,
   SANDBOX_FLAGS,
+  SANDBOX_SIDES,
+  freePlayDefaults,
   readFlags,
   sandboxHelp,
+  sandboxSideOf,
   sandboxUrl,
+  sideFlags,
   unknownParams,
 } from './sandbox-help';
 
@@ -298,5 +302,124 @@ describe('console API line', () => {
   it('names contentDigest(), the L4 digest the engines check reads', () => {
     const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
     expect(sandboxHelp(ctx)).toMatch(/console: .*contentDigest\(\)/);
+  });
+});
+
+describe('GH-1381: the side a Free play commands', () => {
+  const q = (s: string): URLSearchParams => new URLSearchParams(s);
+
+  it('is the KDF with no `side`, silently: every existing link is the KDF\'s', () => {
+    expect(sandboxSideOf(q(''), true)).toEqual({ value: 'kdf' });
+    expect(sandboxSideOf(q('tunnel&sur'), true)).toEqual({ value: 'kdf' });
+  });
+
+  it('reads kdf and sarim in Free play', () => {
+    expect(sandboxSideOf(q('side=kdf'), true)).toEqual({ value: 'kdf' });
+    expect(sandboxSideOf(q('side=sarim'), true)).toEqual({ value: 'sarim' });
+  });
+
+  it('warns on a value that is not a side, and plays the KDF', () => {
+    const got = sandboxSideOf(q('side=Sarim'), true);
+    expect(got.value).toBe('kdf');
+    expect(got.warning).toMatch(/not a side/);
+  });
+
+  it('is the KDF outside Free play (a mission, a room), whatever the URL says, and says so', () => {
+    const got = sandboxSideOf(q('side=sarim'), false);
+    expect(got.value).toBe('kdf');
+    expect(got.warning).toMatch(/ignored/);
+  });
+
+  it('is a known parameter, so `&side=` never warns as a typo', () => {
+    expect(unknownParams(q('sandbox=tel_marum&side=sarim'))).toEqual([]);
+    expect(KNOWN_PARAMS.some((p) => p.name === 'side')).toBe(true);
+    // And not a boolean flag: the picker draws it as a radio group, never a checkbox.
+    expect(SANDBOX_FLAGS.some((f) => (f.name as string) === 'side')).toBe(false);
+    expect(SANDBOX_SIDES).toEqual(['kdf', 'sarim']);
+  });
+
+  it('prints in the banner: the side this boot commands, and the parameter', () => {
+    const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
+    expect(sandboxHelp(ctx)).toMatch(/\n {2}side: kdf\n/);
+    expect(sandboxHelp({ ...ctx, side: 'sarim' })).toMatch(/\n {2}side: sarim\n/);
+    expect(sandboxHelp(ctx)).toMatch(/&side=<kdf\|sarim>\s+kdf \| sarim/);
+  });
+});
+
+describe('GH-1381: sideFlags', () => {
+  const all = (): ReturnType<typeof readFlags> => readFlags(new URLSearchParams(SANDBOX_FLAGS.map((f) => f.name).join('&')));
+
+  it('marks exactly the four extras that add KDF kit or Sarim opposition as KDF-only (literals)', () => {
+    expect(SANDBOX_FLAGS.filter((f) => f.kdfOnly === true).map((f) => f.name)).toEqual(['tunnel', 'sur', 'kit', 'works']);
+  });
+
+  it('keeps every flag for the KDF, and warns about none', () => {
+    const warned: string[] = [];
+    expect(sideFlags(all(), 'kdf', (k) => warned.push(k))).toEqual(all());
+    expect(warned).toEqual([]);
+  });
+
+  it('drops the KDF-only ones for Sarim, naming each the URL asked for, and keeps the rest', () => {
+    const warned: string[] = [];
+    const got = sideFlags(all(), 'sarim', (k) => warned.push(k));
+    expect(warned).toEqual(['tunnel', 'sur', 'kit', 'works']);
+    expect(Object.entries(got).filter(([, on]) => on).map(([k]) => k)).toEqual(['roe', 'civ', 'ditch', 'decals', 'rubble', 'ragdoll', 'soft']);
+  });
+
+  it('names nothing for Sarim when no KDF-only flag was asked for', () => {
+    const warned: string[] = [];
+    sideFlags(readFlags(new URLSearchParams('civ&roe')), 'sarim', (k) => warned.push(k));
+    expect(warned).toEqual([]);
+  });
+});
+
+describe('field works in Free play (the lead, 18 Nov 2026): freePlayDefaults', () => {
+  const q = (s: string): URLSearchParams => new URLSearchParams(s);
+  const none = (): ReturnType<typeof readFlags> => readFlags(q(''));
+  const onOf = (f: Record<string, boolean>): string[] => Object.entries(f).filter(([, v]) => v).map(([k]) => k);
+
+  it('marks field works, and only field works, as on in every Free play (literals)', () => {
+    expect(SANDBOX_FLAGS.filter((f) => f.freePlayDefault === true).map((f) => f.name)).toEqual(['works']);
+  });
+
+  it('turns field works on for the KDF and leaves everything else as the URL said', () => {
+    expect(onOf(freePlayDefaults(none(), 'kdf', q('')))).toEqual(['works']);
+    expect(onOf(freePlayDefaults(readFlags(q('civ&roe')), 'kdf', q('civ&roe')))).toEqual(['roe', 'civ', 'works']);
+  });
+
+  it('&works is an alias on the KDF side: the same flags with it and without it', () => {
+    expect(freePlayDefaults(readFlags(q('works&civ')), 'kdf', q('works&civ'))).toEqual(
+      freePlayDefaults(readFlags(q('civ')), 'kdf', q('civ')),
+    );
+  });
+
+  it('gives the Sarim side no field works: a KDF-only default stays off there', () => {
+    expect(onOf(freePlayDefaults(none(), 'sarim', q('')))).toEqual([]);
+    expect(onOf(freePlayDefaults(readFlags(q('civ')), 'sarim', q('civ')))).toEqual(['civ']);
+  });
+
+  it('&works=0, =off and =false opt this boot out (the lead, 18 Nov: the captures pass it); bare &works and =1 do not', () => {
+    for (const v of ['0', 'off', 'false']) {
+      const p = q(`works=${v}&civ`);
+      expect(onOf(freePlayDefaults(readFlags(p), 'kdf', p)), v).toEqual(['civ']);
+      expect(unknownParams(p), v).toEqual([]);
+    }
+    for (const s of ['works', 'works=1', 'works=on', '']) {
+      const p = q(s);
+      expect(onOf(freePlayDefaults(readFlags(p), 'kdf', p)), s).toEqual(['works']);
+    }
+  });
+
+  it('reads a value only on a default flag: &sur=0 is still ON, as it always was', () => {
+    expect(readFlags(q('sur=0')).sur).toBe(true);
+    expect(readFlags(q('works=0')).works).toBe(false);
+  });
+
+  it('documents the opt-out in the banner (and so in __lions.help())', () => {
+    expect(sandboxHelp({ mapId: 'tel_marum', mapIds: [], on: [] })).toContain('&works=0, =off or =false');
+  });
+
+  it('still parses &works, so an old link is not reported as a typo', () => {
+    expect(unknownParams(new URLSearchParams('?sandbox=tel_marum&works'))).toEqual([]);
   });
 });

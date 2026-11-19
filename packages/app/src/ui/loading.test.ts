@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { missions } from '@lions/data';
+import { missions } from '@lions/data/content';
 import type { LedgerRosterEntry } from '@lions/sim';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
@@ -160,6 +160,36 @@ describe('showLoading with orders to read', () => {
     await done;
     expect(handed).toBe(true);
     expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  // GH-1393: a mission resumed from a save was briefed and deployed before it was saved; nobody is asked to press Deploy again.
+  it('deployNow() answers the deploy with no click, before or after done(), once', async () => {
+    const early = host();
+    const a = showLoading(early, 'Break the Depot', 'Seven structures.');
+    a.deployNow();
+    expect(early.querySelector('.rl-loading')).not.toBeNull(); // kept until done() is asked for
+    await a.done();
+    expect(early.querySelector('.rl-loading')).toBeNull();
+
+    const late = host();
+    const b = showLoading(late, 'Break the Depot', 'Seven structures.');
+    let resolutions = 0;
+    const done = b.done().then(() => { resolutions++; });
+    b.deployNow();
+    b.deployNow();
+    await done;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(resolutions).toBe(1);
+  });
+
+  it('deployNow() on a disposed screen does nothing, and done() still rejects', async () => {
+    const el = host();
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    screen.dispose();
+    screen.deployNow();
+    let rejected = false;
+    await screen.done().catch(() => { rejected = true; });
+    expect(rejected).toBe(true);
   });
 
   it('a click before done() on a disposed screen does not resolve anything (PA-27)', async () => {

@@ -19,6 +19,7 @@ import type { D1Like, Env } from './d1';
 import { feedbackRef, FEEDBACK_CATEGORIES, TEXT_MAX } from './feedback-meta';
 import { buildIssueLink, type IssueLink } from './feedback-issue';
 import { feedbackOpen } from './feedback-ingest';
+import { RETENTION_MS } from './retention';
 
 export const FEEDBACK_STATUSES = ['new', 'triaged', 'filed', 'dismissed'] as const;
 export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
@@ -398,13 +399,17 @@ export async function handleFeedbackApi(req: Request, env: Env, url: URL, now: n
  *  the contact and the ids that tie the note to a person (player, session, tester) go;
  *  the note and context stay.
  *  Run daily by the Cron Trigger in wrangler.jsonc. Returns rows purged. */
-export const RETENTION_MS = 180 * 86_400_000;
-/** Slices of 100 notes a run: 1,000 notes a day at one D1 query each (GH-1432). */
-export const PURGE_EXPIRED_BATCHES = 10;
-/** One slice is ONE D1 query (a `batch()`), so a run costs at most `maxBatches` of the Free plan's 50 per invocation (GH-1432).
+export { RETENTION_MS } from './retention';
+/** Notes a slice, and slices a run: still 1,000 notes a day, twice the 500 a day feedback ingest admits (`feedback-ingest.ts`). */
+export const PURGE_EXPIRED_SLICE = 500;
+export const PURGE_EXPIRED_BATCHES = 2;
+/** One slice is ONE `batch()` of `PURGE_EXPIRED_STATEMENTS` statements. The platform counts a batch as one D1 query; GH-1432 meters
+ *  the Free plan's 50 per invocation PER STATEMENT on purpose, as a stricter budget (see `account/sweep.ts`), so a run costs at most
+ *  `maxBatches` times three: a few big slices, never many small ones.
  *  Every statement names the same oldest-first slice of expired rows, and the batch is one transaction: the attachments go first
  *  while the note still matches the slice, the note's own columns last, and that last statement's change count is the slice size. */
-export async function purgeExpired(env: Env, now: number, batch = 100, maxBatches = PURGE_EXPIRED_BATCHES): Promise<number> {
+export const PURGE_EXPIRED_STATEMENTS = 3;
+export async function purgeExpired(env: Env, now: number, batch = PURGE_EXPIRED_SLICE, maxBatches = PURGE_EXPIRED_BATCHES): Promise<number> {
   let purged = 0;
   const slice = `SELECT id FROM feedback WHERE received_at < ?1
        AND (shot_bytes IS NOT NULL OR replay_bytes IS NOT NULL OR contact IS NOT NULL

@@ -57,6 +57,9 @@ export interface MotionTeam {
   readonly ground: boolean;
   /** Figures that PUMP in the `work` clip (`motion/work.ts`), built from `kneel`. */
   readonly work?: readonly string[];
+  /** Bones drawn in `work` ALONE (a prop on the ground the crew works at): scale 1 in `work`; every other clip must
+   *  key them to 0, which the pass checks (`motion/work.ts`, `showInWork`). */
+  readonly workShows?: readonly string[];
   /** 'replant' (the default) re-solves the legs onto planted footpaths
    *  (`replant.ts`); 'warp' scales a captured run's own stance instead
    *  (`stride.ts`), kept for a rig the replant cannot drive. */
@@ -107,15 +110,20 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     figures: rifles(['mil0', 'mil1'], [[0.35, -0.3], [-0.35, 0.45]]),
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.95,
   },
+  // Infantry upgrade unit "Yahalom" (GH-826, 17 Nov 2026): both men carry the
+  // skinned Meshy body's own carbine (the mast, its tip-up carry and the
+  // kneeling twin `yah_ak` went with the rigid figure). The slots stay. Both
+  // kneel over the charge in `work`, carbines in both fists (the lead's
+  // decision 6); the charge rides yah_b's own `yah_b_charge` bone, moves with
+  // his slot (`companions`) and is drawn in `work` alone (`workShows`).
   yahalom_squad: {
     figures: [
-      // The sensor mast (1.45 m, level in his right hand) is carried tip-up
-      // while he walks: rig.py's arm swing drove its head 114 mm into the
-      // ground in move (ground-fix, 6 Oct).
-      { prefix: 'yah_a', kneels: true, slot: [0.35, -0.3], companions: ['yah_ak_root', 'yah_ak_death_root'], carry: { forearm: 'R', pitchDeg: 20 } },
-      { prefix: 'yah_b', weapon: 'rifle', kneels: true, slot: [-0.35, 0.45] },
+      { prefix: 'yah_a', weapon: 'rifle', kneels: true, slot: [0.35, -0.3] },
+      { prefix: 'yah_b', weapon: 'rifle', kneels: true, slot: [-0.35, 0.45], companions: ['yah_b_charge'] },
     ],
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.85,
+    work: ['yah_a', 'yah_b'],
+    workShows: ['yah_b_charge'],
   },
   rpg_team: {
     figures: [
@@ -125,9 +133,11 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,
   },
   // spike-walk (6 Oct): demo_a stands and walks now, and kneels at the
-  // charge on the sim's brace like everyone else.
+  // charge on the sim's brace like everyone else. Infantry upgrade unit 1
+  // (GH-826, 12 Nov): both men carry the skinned Meshy body's own carbine,
+  // so demo_a is a rifleman too; he still sets the charge in `work`.
   demo_squad: {
-    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', kneels: true }],
+    figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', weapon: 'rifle', kneels: true }],
     hold: true, kneel: true, formation: false, stride: true, ground: true, speedTiles: 0.85,
     work: ['demo_a'],
   },

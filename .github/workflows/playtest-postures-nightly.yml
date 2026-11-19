@@ -1,0 +1,51 @@
+# GH-1394 (lead ruling D13): the difficulty-posture ladder at full depth.
+#
+# `pnpm playtest` in ci.yml runs Standard on 30 seeds and Easier and Harder on 8 (`PT_POSTURE_SEEDS` defaults to 8,
+# `tools/src/backtest/posture-ladder.ts`), so a posture regression shows on the PR. This runs Easier and Harder on all
+# 30 seeds overnight, so a thin margin shows before a plan crosses it. Same gate, same exit code: red means a plan
+# that does not win on every posture seed, a passive control that does not lose, a win rate that is not monotone, or
+# a posture clock under the overlaid rule.
+#
+# It plays `dev` (B5-1, 17 Nov 2026): every PR, and so every plan and tuning change, merges there first, and the point is
+# to see a thin margin before it reaches production with the weekly promotion. A schedule runs the DEFAULT branch's copy
+# of this file at main's tip, so the checkout names dev explicitly; a dispatch can name any ref (`ref`, default dev).
+
+name: playtest-postures-nightly
+
+on:
+  schedule:
+    # 02:17 UTC: outside contributor hours, and off the visual nightly's 03:00.
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or sha to check (default dev, where every PR lands; main is production)'
+        required: false
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playtest-postures-nightly
+  cancel-in-progress: true
+
+jobs:
+  postures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      # `inputs.ref` is empty on a schedule, hence the fallback.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || 'dev' }}
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm playtest
+        env:
+          PT_POSTURE_SEEDS: '30'

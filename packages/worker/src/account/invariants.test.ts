@@ -1,22 +1,28 @@
 /**
  * The A2 invariants under random play (GH-1075 A2-8, A2-21). A seeded generator drives every A2 write route and the
  * invariants are checked after EVERY op, not at the end: the coin journal balances (`wallet.free` is the sum of its
- * `free_delta`), the free coins credited since the last `reset` never pass the 925 ceiling, and `earn_lifetime` never
- * goes down. A red run prints its seed and op list, so it replays.
+ * `free_delta`), the free coins credited since the last `reset` never pass the ceiling (1,050 over the 34 missions, plus
+ * 10 for each mission in the GH-1395 challenge index: 1,110 for the pilot), and `earn_lifetime` never goes down. A red
+ * run prints its seed and op list, so it replays.
  */
-import { emptyAccount, parseWorld, sha256Hex, worldMissionIds } from '@lions/economy';
-import { coupons, world } from '@lions/data';
+import { emptyAccount, parseWorld, worldMissionIds } from '@lions/economy';
+import { CHALLENGE_COINS } from '@lions/economy/challenge-earn';
+import { challengeMissionIds, world } from '@lions/data';
 import { describe, expect, it } from 'vitest';
 import { handleAccount } from './routes';
-import { accountHarness, seedWalletMember } from './test-kit';
+import { accountHarness, seedWalletMember, testCouponTable, TEST_COUPON_COIN_ID } from './test-kit';
 
 const DAY = 86_400_000;
 const T0 = 20_000 * DAY + 3_600_000;
 const ids = worldMissionIds(parseWorld(world));
 const CODE = 'TEST-CODE';
-const TABLE = coupons.map((c) => ({ ...c, sha256: sha256Hex(CODE) }));
-const COIN_ID = 'lead_roar_coins_100k';
-const CEILING = 925;
+const TABLE = testCouponTable(CODE);
+const COIN_ID = TEST_COUPON_COIN_ID;
+// 1,050 over the 34 missions: 100 + 10 a mission + 5 a star + 100 (was 925 over 29; the Qasr Liwan town makes it 34).
+// GH-1395: the ceiling rises by the challenge coin for each mission in the index, read from the index so the day a
+// mission gains a challenge this bound moves with it; the literal beside it is the pilot's, moved deliberately.
+const CEILING = 100 + 10 * ids.length + 5 * 3 * ids.length + 100 + CHALLENGE_COINS * challengeMissionIds.length;
+const CEILING_PILOT = 1235; // Was 1110 over 34 missions: Bir Tarsha I to V add 50 + 5 x 3 x 5 = 125 (GH-1438)
 const FLOORS = Object.fromEntries(ids.map((id) => [id, 1]));
 const RICH = { coins: { free: 1_000_000, paid: 0 } };
 
@@ -34,7 +40,8 @@ const ledgerOf = (wins: [string, number][]): Record<string, unknown> => ({
   'campaign.mission_results': Object.fromEntries(wins.map(([id, stars]) => [id, { stars, roe: 0, ticks: 0, lost: 0 }])),
 });
 const FULL: [string, number][] = ids.map((id) => [id, 3]);
-const FULL_EARN = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 3 }])) };
+// The full-ledger device carries a challenge flag on EVERY mission: only the indexed ones may pay.
+const FULL_EARN = { welcomed: true, campaignDone: true, backfilled: false, missions: Object.fromEntries(ids.map((id) => [id, { won: true, stars: 3, challenge: true }])) };
 
 type Kind = 'victory' | 'spend' | 'coupon' | 'reset' | 'claim' | 'campaign';
 const KINDS: Kind[] = ['victory', 'victory', 'victory', 'spend', 'coupon', 'reset', 'claim', 'campaign'];
@@ -43,7 +50,7 @@ const opId = (n: number): string => `${String(n).padStart(8, '0')}-8888-4888-888
 const dev = (n: number): string => `dddddddd-${String(n).padStart(4, '0')}-4ddd-8ddd-dddddddddddd`;
 
 interface Landed { kind: Kind; status: number; paid: number }
-interface Record_ { missions: Record<string, { won: boolean; stars: number }>; welcomed: boolean; campaignDone: boolean }
+interface Record_ { missions: Record<string, { won: boolean; stars: number; challenge?: boolean }>; welcomed: boolean; campaignDone: boolean }
 
 /** Runs `n` ops of seed `seed`; checks the invariants after each; returns what landed. Throws with the op list. */
 async function play(seed: number, n: number, check: { journal: boolean; bound: boolean }) {
@@ -75,10 +82,14 @@ async function play(seed: number, n: number, check: { journal: boolean; bound: b
       clock.t += 2000;
       const sendCampaign = rand() < 0.3;
       const wins: [string, number][] = rand() < 0.2 ? FULL : ids.filter(() => rand() < 0.4).map((id) => [id, 1 + Math.floor(rand() * 3)] as [string, number]);
-      log.push(`victory ${mission} stars=${stars} start=${withStart} campaign=${sendCampaign ? wins.length : 'null'}`);
+      // GH-1395: a three-star win claims the challenge too, on every mission (only the indexed ones may pay). Derived from
+      // a draw already made, so every seed plays the op list it played before the challenge existed.
+      const challenge = stars === 3;
+      log.push(`victory ${mission} stars=${stars} start=${withStart} campaign=${sendCampaign ? wins.length : 'null'}${challenge ? ' challenge' : ''}`);
       const r = await post('victory', {
         op_id: opId(seq++), missionId: mission, stars, start: withStart ? startOp : null, base: rand() < 0.8 ? await revisionOf() : 0,
         campaign: sendCampaign ? { ledger: ledgerOf(wins), brigade: emptyAccount(), tutorialDone: false } : null,
+        challenge,
       });
       const b = (await r.json()) as { coins?: number };
       return { kind, status: r.status, paid: b.coins ?? 0 };
@@ -138,6 +149,10 @@ async function play(seed: number, n: number, check: { journal: boolean; bound: b
         const p = now.missions[id];
         expect(p?.won === true || !m.won, `earn_lifetime never decreases: ${id} won`).toBe(true);
         expect(p?.stars ?? 0, `earn_lifetime never decreases: ${id} stars`).toBeGreaterThanOrEqual(m.stars);
+        expect(p?.challenge === true || m.challenge !== true, `earn_lifetime never decreases: ${id} challenge`).toBe(true);
+      }
+      for (const [id, m] of Object.entries(now.missions)) {
+        if (m.challenge === true) expect(challengeMissionIds, `only an indexed mission holds a challenge flag: ${id}`).toContain(id);
       }
       lifetime = now;
       // Free coins credited since the last reset by earn, backfill and claim, less the coupon coins a claim carried.
@@ -147,7 +162,7 @@ async function play(seed: number, n: number, check: { journal: boolean; bound: b
            AND id > COALESCE((SELECT MAX(id) FROM coin_journal WHERE member_id = 'm1' AND kind = 'reset'), 0)`,
       ).first<{ s: number }>())?.s ?? -1;
       maxCredited = Math.max(maxCredited, credited);
-      expect(credited, 'free coins credited since the last reset stay within the 925 ceiling').toBeLessThanOrEqual(CEILING);
+      expect(credited, `free coins credited since the last reset stay within the ${CEILING} ceiling`).toBeLessThanOrEqual(CEILING);
     }
   }
 
@@ -182,7 +197,10 @@ describe('invariants under random play', () => {
     }
   }, 120_000);
 
-  it('the_bound_holds (A2-21): over 50 seeds of 60 ops, 925 is never passed and earn_lifetime never decreases', async () => {
+  it('the_bound_holds (A2-21): over 50 seeds of 60 ops, the ceiling is never passed and earn_lifetime never decreases', async () => {
+    // GH-1395: the pilot's ceiling, moved deliberately from 1,050 by 10 for each of the six challenges.
+    expect(ids.length).toBe(39);
+    expect(CEILING).toBe(CEILING_PILOT);
     let reached = 0;
     for (let seed = 1; seed <= 50; seed++) {
       const { maxCredited } = await play(seed, 60, { journal: true, bound: true });

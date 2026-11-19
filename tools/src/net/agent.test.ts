@@ -148,8 +148,9 @@ describe('stdout purity (static)', () => {
     expect(names).toEqual(expect.arrayContaining([
       'tools/src/net/agent-client.ts', 'tools/src/net/agent.ts', 'tools/src/net/build-id.ts', 'tools/src/net/mcp-tools.ts',
       'tools/src/net/node-socket.ts', 'tools/src/net/order-desk.ts', 'tools/src/net/view.ts', 'tools/src/net/fog-tracker.ts',
+      // GH-1388: the desk, the view and the fog tracker live in the app now; the tools files re-export them, so they are still reached.
+      'packages/app/src/net/computer/order-desk.ts', 'packages/app/src/net/computer/view.ts', 'packages/app/src/net/computer/fog-tracker.ts',
       'packages/app/src/net/match-world.ts', 'packages/app/src/net/frame-step.ts', 'packages/app/src/net/outcome.ts',
-      'packages/render/src/three/fog.ts',
     ]));
     expect(names.every((n) => n.startsWith('tools/src/net/') || n.startsWith('packages/app/src/') || n.startsWith('packages/render/src/'))).toBe(true);
   });

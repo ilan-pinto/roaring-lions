@@ -914,6 +914,265 @@ describe('escort (GH-2)', () => {
   });
 });
 
+describe('escort through the work (GH-1439)', () => {
+  const DEST = { dest: [20, 2, 5, 7] };
+  const FOUR: PlacementJson[] = [{ unit: 'm_squad', count: 4, at: [3, 5], tag: 'vip' }, { unit: 'm_squad', count: 1, at: [3, 9] }];
+  const escort = (extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({ id: 'vip', type: 'escort', primary: true, target: 'vip', zone: 'dest', ...extra });
+  /** The work the escort waits on: a primary that completes at a known tick (seconds * 20), standing in for a raze or a collapse. */
+  const work = (seconds: number, extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({ id: 'work', type: 'survive_until', primary: true, seconds, ...extra });
+  const world = (objectives: ObjectiveJson[], force: PlacementJson[] = FOUR): World => makeWorld(baseMission({ starting_force: force, objectives }), { zones: DEST });
+  const status = (w: World, id = 'vip') => w.runtime.objectiveList.find((o) => o.id === id)?.status;
+  const IN: [number, number] = [21.5, 5.5];
+  /** Puts bodies on or off the zone by writing positions, as the GH-2 block does ("fixture: the body stands on the zone"). */
+  const put = (w: World, ids: number[], at: [number, number]): void => {
+    for (const id of ids) {
+      w.sim.state.posX[id] = fx.from(at[0]);
+      w.sim.state.posY[id] = fx.from(at[1]);
+    }
+  };
+  /** The events of one tick with the tick they carry, as `id:status@tick`. */
+  const marks = (w: World, ticks: number): string[] => {
+    const out: string[] = [];
+    for (let t = 0; t < ticks; t++) for (const e of w.step(1).mission) if (e.kind === 'objective') out.push(`${e.id}:${e.status}@${e.tick}`);
+    return out;
+  };
+
+  it('with an until, the escort waits for the work: in the zone and still active, then complete on the tick the work completes', () => {
+    const w = world([escort({ until: ['work'] }), work(30)]);
+    put(w, [0, 1, 2, 3], IN);
+    const early = marks(w, 20 * TICKS_PER_SECOND);
+    expect(early).toEqual([]);
+    expect(status(w)).toBe('active');
+    expect(status(w, 'work')).toBe('active');
+    const done = marks(w, 12 * TICKS_PER_SECOND);
+    expect(done).toHaveLength(2);
+    expect(done[0]).toMatch(/^work:complete@(\d+)$/);
+    expect(done[1]).toBe(`vip:complete@${done[0].split('@')[1]}`); // the same tick, work first
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('arrival is read each tick, not latched: all in the zone once, then one leaves before the work ends, and the escort waits for it to come back', () => {
+    const w = world([escort({ until: ['work'] }), work(10)]);
+    put(w, [0, 1, 2, 3], IN);
+    marks(w, 2 * TICKS_PER_SECOND); // everyone was in the zone at once, with the work still to do
+    put(w, [3], [3.5, 5.5]); // and now one is out
+    expect(marks(w, 10 * TICKS_PER_SECOND)).toEqual(expect.arrayContaining([expect.stringMatching(/^work:complete@/)]));
+    expect(status(w, 'work')).toBe('complete');
+    expect(status(w)).toBe('active'); // a latched arrival would have completed here
+    put(w, [3], IN);
+    expect(marks(w, 2)).toEqual([expect.stringMatching(/^vip:complete@/)]);
+  });
+
+  it('fail_after_losses 2 of four: one loss leaves it active and the mission ongoing, the second fails it and loses the mission', () => {
+    const w = world([escort({ fail_after_losses: 2, until: ['work'] }), work(120)]);
+    w.step(5);
+    w.sim.debugKill(0);
+    w.step(3);
+    expect(status(w)).toBe('active');
+    expect(w.runtime.result).toBe('ongoing');
+    w.sim.debugKill(1);
+    const { mission } = w.step(3);
+    expect(mission.some((e) => e.kind === 'objective' && e.id === 'vip' && e.status === 'failed')).toBe(true);
+    expect(w.runtime.result).toBe('defeat');
+    expect(w.runtime.defeatCause).toEqual({ objective: 'vip' });
+  });
+
+  it('taken counts as lost: two escorted units removed by trigger fail a tolerance of 2, and one does not', () => {
+    const force: PlacementJson[] = [
+      { unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip', group: 'g1' },
+      { unit: 'm_squad', count: 1, at: [3, 7], tag: 'vip', group: 'g2' },
+      { unit: 'm_squad', count: 2, at: [3, 9], tag: 'vip' },
+    ];
+    const w = makeWorld(
+      baseMission({
+        starting_force: force,
+        objectives: [escort({ fail_after_losses: 2, until: ['work'] }), work(120)],
+        triggers: [
+          { id: 'take_one', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'g1' } },
+          { id: 'take_two', on: { kind: 'timer_s', value: 3 }, do: { kind: 'remove', group: 'g2' } },
+        ],
+      }),
+      { zones: DEST },
+    );
+    w.step(2 * TICKS_PER_SECOND);
+    expect(w.sim.state.alive[0]).toBe(0); // taken, not killed
+    expect(status(w)).toBe('active');
+    expect(w.runtime.result).toBe('ongoing');
+    w.step(2 * TICKS_PER_SECOND);
+    expect(w.sim.state.alive[1]).toBe(0);
+    expect(status(w)).toBe('failed');
+    expect(w.runtime.result).toBe('defeat');
+  });
+
+  it('ceiling runs after the escort pass', () => {
+    const cap: ObjectiveJson = { id: 'cap', type: 'no_collateral_above', primary: true, threshold: 30 };
+    const w = makeWorld(baseMission({ starting_force: FOUR, objectives: [cap, escort({ until: ['work'] }), work(10)], roe: { enabled: true, civilian_casualty_penalty: 15 } }), { zones: DEST });
+    put(w, [0, 1, 2, 3], IN);
+    const ev = marks(w, 12 * TICKS_PER_SECOND);
+    const t = (id: string) => ev.find((m) => m.startsWith(`${id}:complete@`))?.split('@')[1];
+    expect(t('vip')).toBeDefined();
+    expect(t('cap')).toBe(t('vip'));
+  });
+
+  it('survivors are what arrive: one dead (left where it fell, outside the zone), three standing in the zone, the work done', () => {
+    const w = world([escort({ fail_after_losses: 2, until: ['work'] }), work(10)]);
+    w.step(2);
+    w.sim.debugKill(3); // dies on the start line, nowhere near the zone
+    put(w, [0, 1, 2], IN);
+    const done = marks(w, 12 * TICKS_PER_SECOND);
+    expect(done.some((m) => m.startsWith('vip:complete'))).toBe(true);
+    expect(status(w)).toBe('complete');
+    expect(w.runtime.result).toBe('victory');
+  });
+
+  it('the tie: the second death and the last piece of work on the SAME tick fail the escort, and the mission is a defeat', () => {
+    // A control world finds the step in which the work completes; the tied world kills the second unit just before that step.
+    const probe = world([escort({ fail_after_losses: 2, until: ['work'] }), work(10)]);
+    put(probe, [0, 1, 3], IN);
+    probe.sim.debugKill(2);
+    let n = 0;
+    while (status(probe, 'work') === 'active' && n < 400) {
+      probe.step(1);
+      n++;
+    }
+    expect(status(probe, 'work')).toBe('complete'); // control: one loss, three survivors in the zone, the work done -> the escort wins
+    expect(status(probe)).toBe('complete');
+    const tied = world([escort({ fail_after_losses: 2, until: ['work'] }), work(10)]);
+    put(tied, [0, 1, 3], IN);
+    tied.sim.debugKill(2);
+    tied.step(n - 1);
+    expect(status(tied, 'work')).toBe('active');
+    tied.sim.debugKill(3); // the second loss, in the very step the work completes
+    const { mission } = tied.step(1);
+    expect(mission.filter((e) => e.kind === 'objective').map((e) => (e.kind === 'objective' ? `${e.id}:${e.status}` : ''))).toContain('work:complete');
+    expect(status(tied)).toBe('failed');
+    expect(tied.runtime.result).toBe('defeat');
+    expect(tied.runtime.defeatCause).toEqual({ objective: 'vip' });
+  });
+
+  it('order does not matter: the escort authored BEFORE its work completes on the same tick as the one authored after it', () => {
+    const before = world([escort({ until: ['work'] }), work(10)]);
+    const after = world([work(10), escort({ until: ['work'] })]);
+    for (const w of [before, after]) put(w, [0, 1, 2, 3], IN);
+    const evA = marks(before, 12 * TICKS_PER_SECOND);
+    const evB = marks(after, 12 * TICKS_PER_SECOND);
+    const tickOf = (ev: string[], id: string): string | undefined => ev.find((m) => m.startsWith(`${id}:complete@`))?.split('@')[1];
+    expect(tickOf(evA, 'vip')).toBeDefined();
+    // the same tick whichever order it was authored in, and it is the work's own tick, not the one after
+    expect(tickOf(evA, 'vip')).toBe(tickOf(evB, 'vip'));
+    expect(tickOf(evA, 'vip')).toBe(tickOf(evA, 'work'));
+    expect(tickOf(evB, 'vip')).toBe(tickOf(evB, 'work'));
+  });
+
+  it('default unchanged: an escort with no until still runs in the first pass, so on a shared tick its events keep authored order', () => {
+    // The escort is authored FIRST and the work second; both complete in the same step. Only the escort-with-until moved passes.
+    const probe = world([work(5)]);
+    let n = 0;
+    while (status(probe, 'work') === 'active' && n < 400) {
+      probe.step(1);
+      n++;
+    }
+    expect(n).toBeGreaterThan(0);
+    const w = world([escort(), work(5)]);
+    w.step(n - 1);
+    expect(status(w, 'work')).toBe('active');
+    put(w, [0, 1, 2, 3], IN); // everyone arrives in the very step the work completes
+    const { mission } = w.step(1);
+    expect(mission.filter((e) => e.kind === 'objective').map((e) => (e.kind === 'objective' ? `${e.id}:${e.status}` : ''))).toEqual(['vip:complete', 'work:complete']);
+  });
+
+  it('default unchanged: no fields means the first loss fails it, and an explicit fail_after_losses of 1 plays the same hash every tick', () => {
+    const lone = world([escort(), work(600)]);
+    lone.step(5);
+    lone.sim.debugKill(0);
+    lone.step(3);
+    expect(status(lone)).toBe('failed');
+    const absent = world([escort(), work(600)]);
+    const one = world([escort({ fail_after_losses: 1 }), work(600)]);
+    for (const w of [absent, one]) w.sim.queueCommand({ kind: 'move', ids: [0, 1, 2, 3], x: fx.from(IN[0]), y: fx.from(IN[1]) });
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      if (t === 300) { absent.sim.debugKill(2); one.sim.debugKill(2); }
+      absent.step(1);
+      one.step(1);
+      expect(absent.sim.hash(), `tick ${t + 1}`).toBe(one.sim.hash());
+    }
+    expect(status(absent)).toBe('failed');
+    expect(status(one)).toBe('failed');
+  });
+
+  it('writes nothing into the sim: a mission using both fields has the hash of the same mission without the escort, every tick', () => {
+    // Two escorted squads 8 tiles out, so the walk really arrives inside the run (four jostling at the start line did not).
+    const near: PlacementJson[] = [{ unit: 'm_squad', count: 2, at: [12, 5], tag: 'vip' }, { unit: 'm_squad', count: 1, at: [3, 9] }];
+    const withEscort = world([escort({ fail_after_losses: 2, until: ['work'] }), work(30)], near);
+    const without = world([work(30)], near);
+    for (const w of [withEscort, without]) w.sim.queueCommand({ kind: 'move', ids: [0, 1], x: fx.from(IN[0]), y: fx.from(IN[1]) });
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      withEscort.step(1);
+      without.step(1);
+      expect(withEscort.sim.hash(), `tick ${t + 1}`).toBe(without.sim.hash());
+    }
+    expect(status(withEscort)).toBe('complete'); // and the objective did run in that span
+  });
+
+  describe('refuses a broken escort at load: the runtime and validate_objectives.mjs say the same thing (R1 to R7)', () => {
+    const load = (objectives: ObjectiveJson[], force: PlacementJson[] = FOUR): World => world(objectives, force);
+    it('R1: fail_after_losses and until belong to escort alone', () => {
+      expect(() => load([escort(), work(30, { fail_after_losses: 1 })])).toThrow(/takes no fail_after_losses \(only escort does\)/);
+      expect(() => load([escort(), work(30, { until: ['vip'] })])).toThrow(/takes no until \(only escort does\)/);
+    });
+    it('R2: fail_after_losses is a whole number of at least 1', () => {
+      for (const v of [0, -1, 1.5]) expect(() => load([escort({ fail_after_losses: v }), work(30)]), String(v)).toThrow(/needs a whole fail_after_losses of at least 1/);
+    });
+    it('R3: fail_after_losses cannot exceed the units tagged', () => {
+      expect(() => load([escort({ fail_after_losses: 5 }), work(30)])).toThrow(/fail_after_losses 5 cannot exceed the 4 units tagged "vip"/);
+      expect(() => load([escort({ fail_after_losses: 4 }), work(30)])).not.toThrow();
+    });
+    it('R4: until is a non-empty list of distinct ids of this mission, never the escort itself', () => {
+      expect(() => load([escort({ until: [] }), work(30)])).toThrow(/needs an until of one or more distinct objective ids/);
+      expect(() => load([escort({ until: ['work', 'work'] }), work(30)])).toThrow(/needs an until of one or more distinct objective ids/);
+      expect(() => load([escort({ until: ['ghost'] }), work(30)])).toThrow(/until names unknown objective "ghost"/);
+      expect(() => load([escort({ until: ['vip'] }), work(30)])).toThrow(/until names itself/);
+    });
+    it('R5: every until id is a primary', () => {
+      expect(() => load([escort({ until: ['work'] }), work(30, { primary: false }), { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }])).toThrow(/until waits on a secondary \("work"\)/);
+    });
+    it('R6: no until id is another escort, a ceiling or a score', () => {
+      expect(() => load([escort({ until: ['other'] }), { id: 'other', type: 'escort', primary: true, target: 'vip', zone: 'dest' }, work(30)])).toThrow(/waits on a type that waits on it \("other" is an escort\)/);
+      expect(() => load([escort({ until: ['sc'] }), { id: 'sc', type: 'score', primary: true, side: 0 }, work(30)])).toThrow(/waits on a type that waits on it \("sc" is a score\)/);
+      expect(() => load([escort({ until: ['cap'] }), { id: 'cap', type: 'no_collateral_above', primary: true, threshold: 30 }, work(30)])).toThrow(/waits on a type that waits on it \("cap" is a no_collateral_above\)/);
+    });
+    it('R7: the starts-inside fault applies only to an escort with no until (a protect-in-place escort is legal)', () => {
+      const inside: PlacementJson[] = [{ unit: 'm_squad', count: 1, at: [21, 5], tag: 'vip' }, { unit: 'm_squad', count: 1, at: [3, 9] }];
+      expect(() => load([escort(), work(30)], inside)).toThrow(/starts inside zone "dest"/);
+      const w = load([escort({ until: ['work'] }), work(10)], inside);
+      expect(marks(w, 12 * TICKS_PER_SECOND).filter((m) => m.startsWith('vip:'))).toEqual([expect.stringMatching(/^vip:complete@/)]);
+    });
+  });
+
+  // Recorded on `main` BEFORE this change (the implementation under test did not exist; the literals below were printed by a
+  // scratch run of the same two worlds on the unmodified tree and pasted here). `tick:hash:digest` every 100 ticks, 40 s. They are
+  // the default path's witness: a mission with neither field must keep its hash and its objective digest word for word.
+  it('the default path is byte-identical to main: hash and digest literals recorded before the change (one tagged unit arrives; two tagged and one dies)', () => {
+    const series = (force: PlacementJson[], kill: number | null): string => {
+      const w = makeWorld(baseMission({ starting_force: force, objectives: [{ id: 'vip', type: 'escort', primary: true, target: 'vip', zone: 'dest' }, { id: 'hold', type: 'survive_until', primary: true, seconds: 600 }] }), { zones: DEST });
+      w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(21.5), y: fx.from(5.5) });
+      const out: string[] = [];
+      for (let t = 1; t <= 800; t++) {
+        if (kill !== null && t === kill) w.sim.debugKill(1);
+        w.step(1);
+        if (t % 100 === 0) out.push(`${t}:${w.sim.hash()}:${w.runtime.digest()}`);
+      }
+      return `${out.join(' ')} | ${w.runtime.objectiveList.map((o) => `${o.id}=${o.status}`).join(',')} ${w.runtime.result}`;
+    };
+    expect(series([{ unit: 'm_squad', count: 1, at: [3, 5], tag: 'vip' }, { unit: 'm_squad', count: 1, at: [3, 8] }], null)).toBe(
+      '100:1806374:1052054353 200:382542966:1052054353 300:57381718:676373952 400:1960065826:676373952 500:1104389902:676373952 600:1615211930:676373952 700:4191657574:676373952 800:2846490034:676373952 | vip=complete,hold=active ongoing',
+    );
+    expect(series([{ unit: 'm_squad', count: 2, at: [3, 5], tag: 'vip' }, { unit: 'm_squad', count: 1, at: [3, 8] }], 300)).toBe(
+      '100:1173036160:2762694806 200:2160754600:2762694806 300:2369735765:4208219299 400:1018658753:4208219299 500:237677037:4208219299 600:3344786009:4208219299 700:4266812901:4208219299 800:3545788369:4208219299 | vip=failed,hold=active defeat',
+    );
+  });
+});
+
 describe('triggers and waves', () => {
   it('timer trigger commits a group toward a marker', () => {
     const w = makeWorld(
@@ -2361,6 +2620,191 @@ describe('civilians and ROE (GDD §6)', () => {
         REFUGE_CTX
       )
     ).toThrow(/needs civilians\.refuge/);
+  });
+
+  // E3 (GH-1438, the civilian drama design §10.2 and §11.3, N32): `evacuate_before.group`. An evacuation scoped to a
+  // group counts only that group's people, and its zone collects only them while it is active. Every fixture below
+  // stands its civilians straight in `refuge_zone` (x 0..5, y 8..11), so the first evaluation collects them (N44), and
+  // keeps the squad at (24, 2), more than four tiles from everyone, so nobody is shepherded unless a test says so.
+  describe('E3: group-scoped evacuation', () => {
+    const FAR: PlacementJson = { unit: 'm_squad', count: 1, at: [24, 2] };
+    const inYard = (group: string, count: number, x = 1): PlacementJson => ({ unit: 'm_civ', count, at: [x, 9], group });
+    const away = (group: string): PlacementJson => ({ unit: 'm_civ', count: 1, at: [20, 6], group });
+    const evac = (id: string, count: number, extra: Partial<ObjectiveJson> = {}): ObjectiveJson => ({
+      id, type: 'evacuate_before', primary: false, target: 'refuge_zone', count, seconds: 600, ...extra,
+    });
+    const CLOCK: ObjectiveJson = { id: 'clock', type: 'survive_until', primary: true, seconds: 600 };
+    const statusOf = (w: World, id: string): string | undefined => w.runtime.objectiveList.find((o) => o.id === id)?.status;
+    const evacuatedIds = (evs: MissionEvent[]): number[] => evs.flatMap((e) => (e.kind === 'evacuated' ? [e.entity] : []));
+
+    it('a person of group B evacuating does not advance an objective scoped to A', () => {
+      // Spawn order: the squad (0), a's one far away (1), b's two in the yard (2, 3).
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [away('a'), inYard('b', 2)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), evac('b_out', 2, { group: 'b' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([2, 3]);
+      expect(statusOf(w, 'b_out')).toBe('complete');
+      expect(statusOf(w, 'a_out')).toBe('active');
+    });
+
+    it("collects only the scoped group's people: another group standing in the zone stays on the map, uncounted", () => {
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [away('a'), inYard('b', 2)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([]);
+      expect([w.sim.state.alive[2], w.sim.state.alive[3]]).toEqual([1, 1]);
+      expect(statusOf(w, 'a_out')).toBe('active');
+    });
+
+    it('N32: once a scoped objective is complete, a later arrival of its group is not collected, though another evacuation is still counting', () => {
+      // a1 (1) stands in the yard and completes `a_out` on the first evaluation. a2 (2) is walked in by the squad
+      // beside him after that. `b_out` stays active the whole time (its one person never moves), so the zone is
+      // still collecting, for b alone.
+      const w = civWorld(
+        {
+          starting_force: [{ unit: 'm_squad', count: 1, at: [10, 9] }],
+          civilians: { groups: [inYard('a', 1), { unit: 'm_civ', count: 1, at: [9, 9], group: 'a' }, away('b')], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), evac('b_out', 1, { group: 'b' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const first = w.step(2);
+      expect(evacuatedIds(first.mission)).toEqual([1]);
+      expect(statusOf(w, 'a_out')).toBe('complete');
+      const zone = REFUGE_CTX.zones.refuge_zone;
+      const inZone = (id: number): boolean => {
+        const tx = w.sim.state.posX[id] >> 16;
+        const ty = w.sim.state.posY[id] >> 16;
+        return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+      };
+      let later: MissionEvent[] = [];
+      for (let t = 0; t < 3000 && !inZone(2); t++) later = later.concat(w.step(1).mission);
+      expect(inZone(2)).toBe(true);
+      later = later.concat(w.step(40).mission);
+      expect(evacuatedIds(later)).toEqual([]);
+      expect(w.sim.state.alive[2]).toBe(1);
+      expect(statusOf(w, 'b_out')).toBe('active');
+    });
+
+    it('an array scope counts every group it names', () => {
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('both', 3, { group: ['a', 'b'] }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([1, 2, 3]);
+      expect(statusOf(w, 'both')).toBe('complete');
+    });
+
+    it('an unscoped objective still counts everyone, beside a scoped one', () => {
+      const w = civWorld(
+        {
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('all', 3), evac('a_out', 1, { group: 'a' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      w.step(20);
+      expect(statusOf(w, 'all')).toBe('complete');
+      expect(statusOf(w, 'a_out')).toBe('complete');
+    });
+
+    it("never collects a soldier whose placement shares a civilian group's name", () => {
+      // The squad (0) stands in the yard under the name `a`; so does a's civilian (1).
+      const w = civWorld(
+        {
+          starting_force: [FAR, { unit: 'm_squad', count: 1, at: [4, 9], group: 'a' }],
+          civilians: { groups: [inYard('a', 1)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a' }), CLOCK],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(20);
+      expect(evacuatedIds(evs.mission)).toEqual([2]);
+      expect(w.sim.state.alive[1]).toBe(1);
+    });
+
+    it("civ.settlements_evacuated counts the primary evacuations' groups when every primary evacuation is scoped", () => {
+      const w = civWorld(
+        {
+          ledger: { requires: [], produces: ['civ.settlements_evacuated'] },
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('a_out', 1, { group: 'a', primary: true }), evac('b_out', 2, { group: 'b' }), { ...CLOCK, seconds: 10 }],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(10 * TICKS_PER_SECOND + 2);
+      expect(evacuatedIds(evs.mission)).toEqual([1, 2, 3]);
+      const end = evs.mission.find((e) => e.kind === 'missionEnd');
+      expect(end?.kind === 'missionEnd' && end.result).toBe('victory');
+      expect(end?.kind === 'missionEnd' && end.ledger['civ.settlements_evacuated']).toBe(1);
+    });
+
+    it('civ.settlements_evacuated keeps the whole count when a primary evacuation is unscoped', () => {
+      const w = civWorld(
+        {
+          ledger: { requires: [], produces: ['civ.settlements_evacuated'] },
+          starting_force: [FAR],
+          civilians: { groups: [inYard('a', 1), inYard('b', 2, 3)], refuge: 'refuge' },
+          objectives: [evac('all', 1, { primary: true }), evac('b_out', 2, { group: 'b' }), { ...CLOCK, seconds: 10 }],
+        },
+        REFUGE_CTX
+      );
+      const evs = w.step(10 * TICKS_PER_SECOND + 2);
+      const end = evs.mission.find((e) => e.kind === 'missionEnd');
+      expect(end?.kind === 'missionEnd' && end.result).toBe('victory');
+      expect(end?.kind === 'missionEnd' && end.ledger['civ.settlements_evacuated']).toBe(3);
+    });
+
+    it('refuses at start() a group no civilian placement declares', () => {
+      const m = (group: string, force: PlacementJson[] = [FAR]): Partial<MissionJson> => ({
+        starting_force: force,
+        civilians: { groups: [inYard('a', 1)], refuge: 'refuge' },
+        objectives: [evac('x_out', 1, { group: ['a', group] }), CLOCK],
+      });
+      expect(() => civWorld(m('nobody'), REFUGE_CTX)).toThrow(/evacuate_before "x_out" names group "nobody", which no civilian placement declares/);
+      // A name only a soldier carries is no civilian group either.
+      expect(() => civWorld(m('troop', [FAR, { unit: 'm_squad', count: 1, at: [20, 9], group: 'troop' }]), REFUGE_CTX)).toThrow(
+        /names group "troop", which no civilian placement declares/
+      );
+      expect(() => civWorld(m('a'), REFUGE_CTX)).not.toThrow();
+    });
+
+    it('refuses a group on any type but evacuate_before, and an empty one', () => {
+      expect(() =>
+        civWorld({ starting_force: [FAR], objectives: [{ ...CLOCK, group: 'a' }] }, REFUGE_CTX)
+      ).toThrow(/objective "clock" is a survive_until, which takes no group \(only evacuate_before does\)/);
+      expect(() =>
+        civWorld(
+          { starting_force: [FAR], civilians: { groups: [inYard('a', 1)], refuge: 'refuge' }, objectives: [evac('e', 1, { group: [] }), CLOCK] },
+          REFUGE_CTX
+        )
+      ).toThrow(/evacuate_before "e" needs a group of one or more non-empty names/);
+      expect(() =>
+        civWorld(
+          { starting_force: [FAR], civilians: { groups: [inYard('a', 1)], refuge: 'refuge' }, objectives: [evac('e', 1, { group: '' }), CLOCK] },
+          REFUGE_CTX
+        )
+      ).toThrow(/evacuate_before "e" needs a group of one or more non-empty names/);
+    });
   });
 
   describe('defeatCause', () => {

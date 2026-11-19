@@ -42,7 +42,7 @@ const TICKS_PER_SECOND = 20;
 describe('Ambush (Ashwar) gate (GH-26)', () => {
   it('passes at both tiers with margin', () => {
     const base = ambushReading({}, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => ambushReading({}, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => ambushReading({}, SEEDS));
     expect(base.volleyFirstPct).toBeGreaterThanOrEqual(90); // 100 read
     expect(base.heldPct).toBeGreaterThanOrEqual(90); // 100 read — the stance held fire
     expect(base.firedPct).toBeGreaterThanOrEqual(90); // 100 read
@@ -55,12 +55,13 @@ describe('Ambush (Ashwar) gate (GH-26)', () => {
 
   it('the shipped target row reads PASS at both tiers', () => {
     expect(ambush(SEEDS).pass).toBe(true);
-    expect(withRoster(unitsAtMaxTier, () => ambush(SEEDS)).pass).toBe(true);
+    // GH-1384: the PASS row at both uniform branch vectors (the readings above run branch 1).
+    for (const pick of [1, 2] as const) expect(withRoster(unitsAtMaxTier(pick), () => ambush(SEEDS)).pass, `branch ${pick}`).toBe(true);
   }, 60_000);
 
   it('goes red without the ambush stance (the RPG fires at max range), both tiers', () => {
     const base = ambushReading({ stance: false }, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => ambushReading({ stance: false }, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => ambushReading({ stance: false }, SEEDS));
     expect(base.heldPct).toBeLessThanOrEqual(10); // 0 read: the volley goes out at ~4.1 tiles
     expect(base.volleyFirstPct).toBeLessThan(80); // 0 read
     expect(max.volleyFirstPct).toBeLessThan(80); // 0 read
@@ -70,7 +71,7 @@ describe('Ambush (Ashwar) gate (GH-26)', () => {
 
   it('goes red when the team is too visible (signature 3.0), both tiers', () => {
     const base = ambushReading({ signature: 3.0 }, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => ambushReading({ signature: 3.0 }, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => ambushReading({ signature: 3.0 }, SEEDS));
     expect(base.volleyFirstPct).toBeLessThan(80); // 0 read
     expect(max.volleyFirstPct).toBeLessThan(80); // 0 read
     expect(ambushPasses(base)).toBe(false);
@@ -81,7 +82,7 @@ describe('Ambush (Ashwar) gate (GH-26)', () => {
 describe('Raid (Rif) gate (GH-26)', () => {
   it('escape passes at both tiers with margin', () => {
     const base = raidReading({ techCount: 3, disengage: true }, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => raidReading({ techCount: 3, disengage: true }, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => raidReading({ techCount: 3, disengage: true }, SEEDS));
     expect(base.survivedPct).toBeGreaterThanOrEqual(80); // 98 read
     expect(base.firedPct).toBeGreaterThanOrEqual(90); // 100 read
     expect(max.survivedPct).toBeGreaterThanOrEqual(80); // 99 read
@@ -91,7 +92,7 @@ describe('Raid (Rif) gate (GH-26)', () => {
 
   it('a caught technical dies fast at both tiers', () => {
     const base = raidReading({ techCount: 1, disengage: false }, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => raidReading({ techCount: 1, disengage: false }, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => raidReading({ techCount: 1, disengage: false }, SEEDS));
     expect(base.caughtPct).toBeGreaterThanOrEqual(90); // 100 read
     expect(base.medianTtdTicks).toBeLessThanOrEqual(8 * TICKS_PER_SECOND); // 6.1 s read
     expect(max.medianTtdTicks).toBeLessThanOrEqual(8 * TICKS_PER_SECOND); // 6.1 s read
@@ -102,13 +103,16 @@ describe('Raid (Rif) gate (GH-26)', () => {
   it('the shipped target rows read PASS at both tiers', () => {
     expect(raidEscape(SEEDS).pass).toBe(true);
     expect(raidCaught(SEEDS).pass).toBe(true);
-    expect(withRoster(unitsAtMaxTier, () => raidEscape(SEEDS)).pass).toBe(true);
-    expect(withRoster(unitsAtMaxTier, () => raidCaught(SEEDS)).pass).toBe(true);
+    // GH-1384: the PASS rows at both uniform branch vectors (the readings above run branch 1).
+    for (const pick of [1, 2] as const) {
+      expect(withRoster(unitsAtMaxTier(pick), () => raidEscape(SEEDS)).pass, `branch ${pick}`).toBe(true);
+      expect(withRoster(unitsAtMaxTier(pick), () => raidCaught(SEEDS)).pass, `branch ${pick}`).toBe(true);
+    }
   }, 60_000);
 
   it('goes red when the technicals cannot disengage (caught raid), both tiers', () => {
     const base = raidReading({ techCount: 3, disengage: false }, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => raidReading({ techCount: 3, disengage: false }, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => raidReading({ techCount: 3, disengage: false }, SEEDS));
     expect(base.survivedPct).toBeLessThan(60); // 42 read
     expect(max.survivedPct).toBeLessThan(60); // 31 read
     expect(raidEscapePasses(base)).toBe(false);
@@ -117,7 +121,7 @@ describe('Raid (Rif) gate (GH-26)', () => {
 
   it('goes red when a caught technical is tankier (2× hp), both tiers', () => {
     const base = raidReading({ techCount: 1, disengage: false, techHp: 1200 }, SEEDS);
-    const max = withRoster(unitsAtMaxTier, () => raidReading({ techCount: 1, disengage: false, techHp: 1200 }, SEEDS));
+    const max = withRoster(unitsAtMaxTier(1), () => raidReading({ techCount: 1, disengage: false, techHp: 1200 }, SEEDS));
     expect(base.medianTtdTicks).toBeGreaterThan(10 * TICKS_PER_SECOND); // 12.0 s read
     expect(raidCaughtPasses(base)).toBe(false);
     expect(raidCaughtPasses(max)).toBe(false);

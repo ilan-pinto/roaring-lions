@@ -73,7 +73,7 @@ describe('the bay’s kit plate mark', () => {
 
 describe('kitSummary', () => {
   it('reads the audit seed: level, pips, the kit’s share of the hit points, and what it cost', () => {
-    expect(kitSummary(kdf('inf_squad'), { armour: 2, sensors: 1 })).toEqual({
+    expect(kitSummary(kdf('inf_squad'), { armour: 2, sensors: 1 }, {})).toEqual({
       level: 1,
       maxed: false,
       pips: [
@@ -88,12 +88,12 @@ describe('kitSummary', () => {
   });
 
   it('calls a fully bought unit maxed, and prices it whole', () => {
-    const s = kitSummary(kdf('mbt_lavi'), { armour: 3, sensors: 3, firepower: 3 });
+    const s = kitSummary(kdf('mbt_lavi'), { armour: 3, sensors: 3, firepower: 3 }, {});
     expect([s.level, s.maxed, s.hpKit, s.spent, s.total]).toEqual([3, true, 750, 5150, 5150]);
   });
 
   it('draws a track the type does not have as an empty column', () => {
-    const s = kitSummary(kdf('dozer_d9'), {});
+    const s = kitSummary(kdf('dozer_d9'), {}, {});
     expect(s.pips.map((p) => [p.track, p.length])).toEqual([
       ['armour', 3],
       ['sensors', 3],
@@ -103,7 +103,7 @@ describe('kitSummary', () => {
   });
 
   it('clamps an owned tier past its track, in the pips and in the spend', () => {
-    const s = kitSummary(kdf('recon_drone'), { armour: 9 });
+    const s = kitSummary(kdf('recon_drone'), { armour: 9 }, {});
     expect(s.pips[0]).toEqual({ track: 'armour', owned: 3, length: 3 });
     expect([s.level, s.spent]).toEqual([2, 390]);
   });
@@ -114,13 +114,13 @@ describe('kitSummary', () => {
       hull: { hp: 10 },
       upgrades: { armour: { tiers: [{ price: 5, patch: { 'hull.armor.front': 5 } }] } },
     };
-    expect(() => kitSummary(broken, { armour: 1 })).not.toThrow();
-    expect(kitSummary(broken, { armour: 1 }).hpKit).toBe(0);
+    expect(() => kitSummary(broken, { armour: 1 }, {})).not.toThrow();
+    expect(kitSummary(broken, { armour: 1 }, {}).hpKit).toBe(0);
   });
 });
 
 describe('kitPipsHtml', () => {
-  const pips = kitSummary(kdf('inf_squad'), { armour: 2, sensors: 1 }).pips;
+  const pips = kitSummary(kdf('inf_squad'), { armour: 2, sensors: 1 }, {}).pips;
   /** Parsed, not regexed: the HUD builds a string, the garage sets innerHTML. */
   const parse = (html: string): HTMLElement => {
     const div = document.createElement('div');
@@ -137,7 +137,7 @@ describe('kitPipsHtml', () => {
 
   it('says the kit in words for a screen reader, skipping a track the type lacks', () => {
     expect(kitPipsHtml(pips)).toContain('aria-label="Kit: Armour 2 of 3, Sensors 1 of 3, Firepower 0 of 3"');
-    const d9 = kitSummary(kdf('dozer_d9'), { armour: 1 }).pips;
+    const d9 = kitSummary(kdf('dozer_d9'), { armour: 1 }, {}).pips;
     expect(kitPipsHtml(d9)).toContain('aria-label="Kit: Armour 1 of 3, Sensors 0 of 3"');
     expect(kitPipsHtml(d9)).toContain('data-track="firepower" data-len="0"');
   });
@@ -348,13 +348,13 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
     const sign = ruleBody('.rl-kit-icon');
     expect(sign).toMatch(/position:\s*absolute/);
     expect(sign).toMatch(/top:\s*0/);
-    expect(sign).toMatch(/right:\s*0/);
+    expect(sign).toMatch(/inset-inline-end:\s*0/);
     expect(sign).not.toMatch(/\b(left|bottom):/);
     expect(sign).toMatch(/drop-shadow\([^)]*var\(--kit-edge\)\)/);
     expect(sign).toMatch(/pointer-events:\s*none/);
     expect(ruleBody('.rl-kit-host')).toMatch(/position:\s*relative/);
-    expect(ruleBody('.rl-card__frame > .rl-kit-icon')).toMatch(/top:\s*0\.1875rem;\s*right:\s*0\.1875rem/);
-    expect(ruleBody('.rl-tile > .rl-kit-icon')).toMatch(/top:\s*0\.125rem;\s*right:\s*0\.125rem/);
+    expect(ruleBody('.rl-card__frame > .rl-kit-icon')).toMatch(/top:\s*0\.1875rem;\s*inset-inline-end:\s*0\.1875rem/);
+    expect(ruleBody('.rl-tile > .rl-kit-icon')).toMatch(/top:\s*0\.125rem;\s*inset-inline-end:\s*0\.125rem/);
     expect(ruleBody(".rl-tile[data-locked='1'] > .rl-kit-icon")).toMatch(/display:\s*none/);
   });
 });

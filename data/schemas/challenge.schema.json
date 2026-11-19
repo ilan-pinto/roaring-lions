@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/challenge.schema.json",
+  "title": "A mission's amendments and its named challenge",
+  "description": "GH-1395 (design 2026-11-15-challenge-star-design.md §3.1, §5.1; lead rulings D1-D9 of 16 Nov 2026): the three amendments a mission offers (ids from data/challenges/amendments.json) and its one named challenge: the amendments it needs on (extras are allowed, D7) and a predicate over the run's own result row. A beaten challenge pays 10 Roar coins once per account, pays no credits, counts toward no unit unlock and is not recorded on Easier. Labels and blurbs are English source text (data text, as a mission's own name and briefing are), not en.json keys. Cross-file rules (the ids exist, the challenge's amendments are among the offers, every offer changes its mission, no amendment moves the clock) are tools/validate_challenges.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mission", "offers", "challenge"],
+  "properties": {
+    "mission": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "offers": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "description": "Three amendment ids (D8): from the generic library, or from `own`.",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+    },
+    "own": {
+      "type": "array",
+      "maxItems": 1,
+      "description": "D8's mission-specific amendment, where it earns its place: the library's shape, authored against this mission (its id must not be a library id). The same restricting operations only.",
+      "items": { "$ref": "amendments.schema.json#/$defs/amendment" }
+    },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "blurb", "amendments", "win"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "blurb": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "amendments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "win": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "description": "The CLOSED predicate set (§5.1), each read off the run's own result row: Conduct at least n; at most n player units lost (every unit that died, built ones included, as the ledger's `lost`); the run ended inside the mission's own target_minutes; every carrying secondary complete; one named SECONDARY objective of the mission complete (`objective_done`, the lead's ruling on PR 1568; tools/validate_challenges.mjs refuses an id that is not a secondary of this mission). All named fields must hold, and each only adds to a victory.",
+          "properties": {
+            "conduct_at_least": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "lost_at_most": { "type": "integer", "minimum": 0, "maximum": 20 },
+            "ticks_at_most_target": { "const": true },
+            "carries_all": { "const": true },
+            "objective_done": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+          }
+        }
+      }
+    }
+  }
+}

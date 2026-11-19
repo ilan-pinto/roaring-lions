@@ -88,6 +88,8 @@ export interface DebriefOptions {
   /** The rating prompt (GH-464), mounted in the foot above the nav. Built and
    *  disposed by the caller; this only places it. */
   prompt?: HTMLElement;
+  /** GH-1394 (D11): a defeat's one line suggesting Easier, already worded (`ui/posture-ui.ts` decides whether). Words only. */
+  suggestion?: string;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -197,6 +199,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     verdict.appendChild(why);
   }
   b.appendChild(verdict);
+  if (!won && o.suggestion) b.appendChild(el('p', 'rl-aar__suggest', o.suggestion));
 
   // --- the ladder (a win) ---------------------------------------------------
   if (r.ladder.length > 0) {
@@ -205,6 +208,12 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
       const li = el('li', `rl-aar__rung rl-aar__rung--${rung.met ? 'met' : 'missed'}`);
       li.dataset.stars = String(rung.stars);
       li.append(el('span', 'rl-aar__rung-stars', '★'.repeat(rung.stars)), el('span', 'rl-aar__rung-text', rung.text));
+      ladder.appendChild(li);
+    }
+    // GH-1395 slice 2: the challenge, after the stars, with the coin mark rather than a star (D2).
+    if (r.challenge) {
+      const li = el('li', `rl-aar__rung rl-aar__rung--challenge rl-aar__rung--${r.challenge.met ? 'met' : 'missed'}`);
+      li.append(el('span', 'rl-aar__rung-coin'), el('span', 'rl-aar__rung-text', r.challenge.text));
       ladder.appendChild(li);
     }
     b.appendChild(ladder);

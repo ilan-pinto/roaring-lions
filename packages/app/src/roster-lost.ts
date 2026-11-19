@@ -51,6 +51,7 @@
  * READ, never mutated: this function only ever writes to `roster`'s own
  * returned copy.
  */
+import type { KillCause } from './kill-cause';
 import type { LostRecord, RosterEntry } from './ledger-store';
 
 /**
@@ -66,6 +67,7 @@ export function lostRecordFor(
   unit: string,
   missionId: string,
   tick: number,
+  cause?: KillCause,
 ): LostRecord | null {
   if (entry === undefined || entry.slot === undefined) return null;
   return {
@@ -77,6 +79,7 @@ export function lostRecordFor(
     kills: entry.kills ?? 0,
     missionId,
     tick,
+    ...(cause !== undefined ? { cause } : {}),
   };
 }
 

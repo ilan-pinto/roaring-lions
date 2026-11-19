@@ -4,6 +4,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { timeLimitFailures } from '../validate_time_limit.mjs';
+import { applyOverlays, POSTURE_IDS } from '@lions/data';
+import { missions } from '@lions/data/content';
 
 const ROOT = join(__dirname, '..', '..');
 const base = {
@@ -36,6 +38,16 @@ describe('timeLimitFailures', () => {
       timeLimitFailures({ ...late, target_minutes: 1, time_limit_s: 359, objectives: [{ id: 'x', type: 'evacuate_before', primary: true }] }, 'm')
     ).toHaveLength(1);
   });
+  it('GH-1394 D6 / GH-1395 D13: an overlaid mission may go down to once its target, never below, and keeps the clearance', () => {
+    expect(timeLimitFailures({ ...base, time_limit_s: 420 }, 'm', { overlaid: true })).toEqual([]);
+    expect(timeLimitFailures({ ...base, time_limit_s: 419 }, 'm', { overlaid: true })).toHaveLength(1);
+    // The authored rule is untouched: 420 is still under twice the target.
+    expect(timeLimitFailures({ ...base, time_limit_s: 420 }, 'm')).toHaveLength(1);
+    // The clearance holds for an overlaid run too: 300 s evacuation + 60 s > 359.
+    expect(
+      timeLimitFailures({ ...base, target_minutes: 5, time_limit_s: 359 }, 'm', { overlaid: true })
+    ).toEqual(['m: time_limit_s 359 does not clear primary "evac"\'s 300 s clock by 60 s -- the mission would end by the limit instead of its own deadline']);
+  });
   it('ignores a secondary deadline and a hold clock', () => {
     const m = { ...base, objectives: [
       { id: 'a', type: 'raze', primary: false, seconds: 900 },
@@ -59,6 +71,9 @@ describe('the shipped limits', () => {
     qarn_hadid_2_foothold: 840, qarn_hadid_3_clearance: 840, umm_zeitoun_1_recon: 720,
     umm_zeitoun_2_buildup: 840, umm_zeitoun_3_clearance: 840, umm_zeitoun_4_clearance: 840,
     ein_qasab_1_recon: 720, ein_qasab_2_foothold: 840, ein_qasab_3_buildup: 840,
+    qasr_liwan_1_recon: 720, qasr_liwan_2_foothold: 840, qasr_liwan_3_buildup: 840,
+    qasr_liwan_4_clearance: 840, qasr_liwan_5_subterranean: 840,
+    bir_tarsha_1_recon: 720, bir_tarsha_2_foothold: 840, bir_tarsha_3_clearance: 720, bir_tarsha_4_clearance: 840, bir_tarsha_5_subterranean: 840,
   };
   const dir = join(ROOT, 'data/missions');
   const shipped = readdirSync(dir).filter((n) => n.endsWith('.json'));
@@ -71,4 +86,19 @@ describe('the shipped limits', () => {
     expect(m.time_limit_s).toBe(EXPECTED[m.id]);
     expect(timeLimitFailures(m, f)).toEqual([]);
   });
+});
+
+describe('GH-1394: every shipped mission under every posture passes the overlaid clock rule', () => {
+  const ids = Object.keys(missions) as (keyof typeof missions)[];
+  it('covers the whole shipped list', () => {
+    expect(ids.length).toBe(40); // Was 35 (30 before Qasr Liwan's five): Bir Tarsha I to V
+  });
+  for (const posture of POSTURE_IDS) {
+    it.each(ids)(`%s at ${posture}`, (id) => {
+      const m = applyOverlays(missions[id] as never, { posture }) as { time_limit_s?: number };
+      expect(timeLimitFailures(m, id, { overlaid: true })).toEqual([]);
+      // A posture never shortens the backstop (F-1: every shipped limit sits on the authored floor).
+      expect(m.time_limit_s ?? 0).toBeGreaterThanOrEqual((missions[id] as { time_limit_s?: number }).time_limit_s ?? 0);
+    });
+  }
 });

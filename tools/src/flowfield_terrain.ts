@@ -2,7 +2,8 @@
 // the sim's own masks, nearest-neighbour stretches of a few to 80x80 (in memory, nothing is written
 // to data/), and seeded random terrain. Pure arrays in, pure arrays out: no Sim is built, so a
 // witness over hundreds of goals costs milliseconds and measures `FlowField` alone.
-import { maps, parseMap, type MapJson } from '@lions/data';
+import { parseMap, type MapJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 export interface Terrain {
   readonly id: string;

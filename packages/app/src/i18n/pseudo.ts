@@ -55,6 +55,20 @@ function accent(ch: string): string {
   return ch === lower ? mapped : mapped.toUpperCase();
 }
 
+/** U+202E RIGHT-TO-LEFT OVERRIDE and U+202C POP DIRECTIONAL FORMATTING: the two bidi controls `pseudoRtl` wraps a string in. */
+export const RLO = '\u202E';
+export const PDF = '\u202C';
+
+/**
+ * The mirrored pseudo-locale (`?pseudo=rtl`, GH-1406 part 2): `pseudo(s)` forced right-to-left by a bidi override, so every string
+ * reads backwards on screen and the bracket pair mirrors. With `dir="rtl"` on the document (`locales.ts`'s `applyLocale`) it shows a
+ * screen what a right-to-left language would do to it, with NO real script in it: no letter of any language, so no speaker is implied
+ * and nothing needs a native reviewer. It is reversible: stripping the two controls gives `pseudo(s)` back.
+ */
+export function pseudoRtl(s: string): string {
+  return `${RLO}${pseudo(s)}${PDF}`;
+}
+
 export function pseudo(s: string): string {
   let out = '';
   let letters = 0;

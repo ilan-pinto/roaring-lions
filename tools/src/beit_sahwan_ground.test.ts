@@ -20,7 +20,8 @@
 //        walls on three sides, scree down the fourth (foot only), one haul ramp for wheels; all
 //        four routes' mouths in the town zone.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { applyTerrain, parseMap, structures as structureCatalogue, type MapJson } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
@@ -289,6 +290,16 @@ describe('II: the western terraces', () => {
     expect(zx + zw).toBeLessThan(17);
     expect(inZone(m, 'west_approach', kdf)).toBe(true);
     for (const f of ms.starting_force) expect(inZone(m, 'west_approach', f.at), `force at ${f.at}`).toBe(true);
+    for (let y = zy; y < zy + zh; y++) for (let x = zx; x < zx + zw; x++) expect(tile(m, x, y), `(${x},${y})`).not.toBe('b');
+  });
+  it('the hold is on the crest, not on the start: terrace_crest holds no starting tile and no boulder, stays short of the channel, and the plan target is inside it (GH-1378 Q12)', () => {
+    const [zx, zy, zw, zh] = m.zones!.terrace_crest;
+    expect(((ms as unknown as { objectives: { id: string; target?: string }[] }).objectives).find((o) => o.id === 'hold_west')?.target).toBe('terrace_crest');
+    for (const f of ms.starting_force) expect(inZone(m, 'terrace_crest', f.at), `force at ${f.at}`).toBe(false);
+    expect(inZone(m, 'terrace_crest', kdf)).toBe(false);
+    expect(inZone(m, 'terrace_crest', [8, 23])).toBe(true);
+    expect(zx + zw).toBeLessThan(17);
+    expect(inZone(m, 'terrace_crest', [west.vent[0], west.vent[1]])).toBe(false);
     for (let y = zy; y < zy + zh; y++) for (let x = zx; x < zx + zw; x++) expect(tile(m, x, y), `(${x},${y})`).not.toBe('b');
   });
   it('the waves come from the road in the town: both sources are road tiles and each reaches the line on foot, the mortar line on wheels too', () => {

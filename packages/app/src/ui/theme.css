@@ -52,6 +52,62 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
 }
+/* Cyrillic (GH-1407, ruling D6): the same Plex Mono 2.3 build as the latin
+ * files above, subset by tools/fonts/build_cyrillic.py. A separate file with
+ * a unicode-range, so the latin rules and bytes are untouched, a latin glyph
+ * can never come from here, and the browser fetches it only when a Cyrillic
+ * character is on screen. Not preloaded. */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-cyrillic-400.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-cyrillic-600.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
+/* Cyrillic companions (the lead's ruling of 17 Nov 2026, option B). Barlow and
+ * Big Shoulders Display have NO Cyrillic in any OFL source, so each gets a
+ * companion served UNDER ITS OWN FAMILY NAME with a Cyrillic-only
+ * unicode-range, exactly as Plex Mono's Cyrillic is: Fira Sans 400/600 for
+ * Barlow, Oswald (variable, 200-700; a requested weight past 700 draws at 700)
+ * for Big Shoulders Display. A different face, so the pairing is a judgement of
+ * the eye; subset by tools/fonts/build_cyrillic.py. Latin text never draws
+ * from these files (font-faces.test.ts reads their character maps back), and
+ * an English session fetches the same bytes as before. Self-hosted, never a
+ * CDN. */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/fira-sans-cyrillic-400.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/fira-sans-cyrillic-600.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Big Shoulders Display';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('/fonts/oswald-cyrillic.woff2') format('woff2');
+  unicode-range: U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
 
 :root {
   /* UI scale (spec 2026-09-16 §5): every dimension below is rem, so this one
@@ -858,7 +914,7 @@ body {
 /* The leader's horizontal anchor for THIS board -- beside the pin, not
    centred on it, so the generic rule's 50% is wrong here. Every other leader
    property comes from the generic `.rl-world__town::before` rule above. */
-.rl-world--3d .rl-world__town::before { left: 0.4375rem; }
+.rl-world--3d .rl-world__town::before { inset-inline-start: 0.4375rem; }
 .rl-world--3d .rl-world__town::after {
   /* The pin itself: a small ring on the marker's exact point, with the label
      beside it. Without this the text floats with nothing tying it to ground.
@@ -866,7 +922,7 @@ body {
      slot on this element, and the two never need to be the same one. */
   content: '';
   position: absolute;
-  left: -0.8125rem;
+  inset-inline-start: -0.8125rem;
   top: 50%;
   width: 0.4375rem;
   height: 0.4375rem;
@@ -892,7 +948,7 @@ body {
    part of the frame. */
 .rl-world__spin {
   position: absolute;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   bottom: var(--s2);
   display: flex;
   align-items: stretch;
@@ -934,11 +990,11 @@ body {
 .rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13.75rem, 1fr)); gap: var(--s2); }
 .rl-world__card {
   border: 1px solid var(--panel-frame);
-  border-left: 0.25rem solid var(--map-spent);
+  border-inline-start: 0.25rem solid var(--map-spent);
   padding: var(--s2);
 }
-.rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
-.rl-world__card[data-status='locked'] { border-left-color: var(--map-locked); opacity: var(--disabled-opacity); }
+.rl-world__card[data-status='live'] { border-inline-start-color: var(--map-live); }
+.rl-world__card[data-status='locked'] { border-inline-start-color: var(--map-locked); opacity: var(--disabled-opacity); }
 .rl-world__badge { font-size: var(--t-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim); }
 
 .rl-world__stars { color: var(--commend); font-family: var(--font-mono); }
@@ -1005,7 +1061,7 @@ body {
 /* Right-aligned slot in the band: mission code, unit count, whatever the panel
    wants to stamp beside its name. */
 .rl-panel__tag {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: var(--t-xs);
   font-weight: 600;
   letter-spacing: var(--track-label);
@@ -1131,7 +1187,7 @@ body {
   gap: var(--s2);
 }
 .rl-foot__end {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-foot .rl-btn {
   display: inline-flex;
@@ -1378,11 +1434,11 @@ body {
 .rl-avatar-picker__tile[data-checked='1']::after {
   content: '';
   position: absolute;
-  right: 0.2rem;
+  inset-inline-end: 0.2rem;
   top: 0.2rem;
   width: 0.6rem;
   height: 0.35rem;
-  border-left: 2px solid var(--avatar-ring-selected); /* px-ok */
+  border-inline-start: 2px solid var(--avatar-ring-selected); /* px-ok */
   border-bottom: 2px solid var(--avatar-ring-selected); /* px-ok */
   transform: rotate(-45deg);
   background: var(--panel-bg-solid);
@@ -1444,7 +1500,7 @@ body {
 }
 .rl-intro__skip {
   position: absolute;
-  right: var(--s4);
+  inset-inline-end: var(--s4);
   bottom: var(--s4);
 }
 
@@ -1476,8 +1532,8 @@ body {
 }
 .rl-outcome__bar {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   background: var(--panel-bg-solid);
   pointer-events: auto;
 }
@@ -1860,7 +1916,7 @@ body[data-outcome-beat] .rl-aar {
   flex-wrap: wrap;
 }
 .rl-feedback__hint {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--ink-mute);
   font: var(--t-s) var(--font-mono);
 }
@@ -1915,6 +1971,47 @@ body[data-outcome-beat] .rl-aar {
   overflow: auto;
 }
 
+/* The menu's "What's new" panel (GH-1622, ui/whats-new.ts): a .rl-confirm-family modal. The notes scroll inside the
+   panel; the Close row stays under them. Headings wear the label register, the lines the body's. */
+.rl-whats-new__panel {
+  width: min(34rem, 94vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.rl-whats-new__panel > .rl-panel__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.rl-whats-new__content {
+  overflow: auto;
+  min-height: 0;
+}
+.rl-whats-new__section + .rl-whats-new__section {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-whats-new__heading {
+  margin: 0 0 var(--s2);
+  font: 600 var(--t-band) var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-whats-new__list {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  font: var(--t-m) / 1.45 var(--font-body);
+}
+.rl-whats-new__list > li + li {
+  margin-top: var(--s1);
+}
+.rl-whats-new__empty {
+  margin: 0;
+}
+
 /* The debrief's rating prompt, in the report's foot above the nav. */
 .rl-rate {
   display: flex;
@@ -1926,7 +2023,7 @@ body[data-outcome-beat] .rl-aar {
   border-bottom: 1px solid var(--panel-rule);
 }
 .rl-rate__q {
-  margin-right: var(--s2);
+  margin-inline-end: var(--s2);
   font: 600 var(--t-band) var(--font-display);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -2231,7 +2328,7 @@ body[data-outcome-beat] .rl-aar {
   text-transform: uppercase;
 }
 .rl-score__r {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .rl-card__head {
@@ -2287,8 +2384,8 @@ body[data-outcome-beat] .rl-aar {
 
 .rl-strip {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   top: 0;
   height: var(--hud-strip-h);
   box-sizing: border-box;
@@ -2335,8 +2432,8 @@ body[data-outcome-beat] .rl-aar {
    limit's last minute (GH-540). */
 .rl-strip__deadline,
 .rl-strip__limit {
-  border-left: 1px solid var(--panel-frame);
-  padding-left: var(--s3);
+  border-inline-start: 1px solid var(--panel-frame);
+  padding-inline-start: var(--s3);
 }
 /* The countdown is a fixed stamp, not text to elide: it shares the
    `.rl-strip__obj` class for its type, but "Time le..." tells the player
@@ -2366,7 +2463,7 @@ body[data-outcome-beat] .rl-aar {
    what the force has on the right -- and the gap between them is what makes
    that legible without a rule or a divider. */
 .rl-strip__gap {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-strip__right {
   display: flex;
@@ -2600,7 +2697,7 @@ body[data-outcome-beat] .rl-aar {
   flex: 1;
   min-width: 0;
   background: var(--panel-bg);
-  border-left: 2px solid var(--band-mission);
+  border-inline-start: 2px solid var(--band-mission);
   padding: var(--s1h) var(--s2h);
   pointer-events: auto;
 }
@@ -2621,7 +2718,7 @@ body[data-outcome-beat] .rl-aar {
   color: var(--ink-dim);
 }
 .rl-cmd__page {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   gap: var(--s1);
 }
@@ -2706,7 +2803,7 @@ body[data-outcome-beat] .rl-aar {
 }
 /* The merge count ("×4"): the same line said again, not a new line. */
 .rl-notice__count {
-  margin-left: 0.5em;
+  margin-inline-start: 0.5em;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--ink);
@@ -2890,12 +2987,12 @@ body[data-outcome-beat] .rl-aar {
    puts the centre of the remaining box back on --hud-centre exactly. */
 .rl-sel {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   bottom: var(--s2);
   box-sizing: border-box;
-  padding-left: calc(2 * var(--hud-centre-offset) + var(--s2));
-  padding-right: var(--s2);
+  padding-inline-start: calc(2 * var(--hud-centre-offset) + var(--s2));
+  padding-inline-end: var(--s2);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2963,7 +3060,7 @@ body[data-outcome-beat] .rl-aar {
   align-items: center;
 }
 .rl-orders__tag {
-  margin-right: var(--s1);
+  margin-inline-end: var(--s1);
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -3030,7 +3127,7 @@ body[data-outcome-beat] .rl-aar {
 .rl-loan--tab {
   position: absolute;
   top: 0;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   transform: translateY(-50%);
   background: var(--panel-bg);
 }
@@ -3227,7 +3324,7 @@ body[data-outcome-beat] .rl-aar {
    picture inside changes size from one unit type to the next. */
 .rl-card__badge {
   position: absolute;
-  left: 3px;
+  inset-inline-start: 3px;
   top: 3px;
   color: var(--ink-label);
   line-height: 0;
@@ -3292,7 +3389,7 @@ body[data-outcome-beat] .rl-aar {
 .rl-card__why { font-size: var(--t-s); color: var(--ink-mute); }
 /* GH-698: a carrier's seats and an air carrier's flight state (hud.ts, the carry line). */
 .rl-card__carry { font-size: var(--t-s); }
-.rl-card__carry svg { vertical-align: middle; margin-right: 2px; }
+.rl-card__carry svg { vertical-align: middle; margin-inline-end: 2px; }
 .rl-supp {
   display: flex;
   align-items: center;
@@ -3300,7 +3397,7 @@ body[data-outcome-beat] .rl-aar {
   margin-top: 3px;
   max-width: 16rem;
 }
-.rl-supp > .rl-label { margin-right: var(--s1); }
+.rl-supp > .rl-label { margin-inline-end: var(--s1); }
 .rl-supp__cell {
   flex: 1;
   height: 0.375rem;
@@ -3309,7 +3406,7 @@ body[data-outcome-beat] .rl-aar {
   overflow: hidden;
 }
 .rl-supp__cell > i { display: block; height: 100%; background: var(--hot); }
-.rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-left: 2px; }
+.rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-inline-start: 2px; }
 .rl-supp__pin[data-on='1'] { color: var(--hot); }
 /* GH-707 P2: the unit card's bleed ring for a down wounded (ui/bleed.ts). The ring empties
    clockwise as he bleeds; held (stabilised or carried) it turns to the info tone. */
@@ -3346,7 +3443,7 @@ body[data-outcome-beat] .rl-aar {
   flex: none;
 }
 .rl-card__hp {
-  margin-left: auto;
+  margin-inline-start: auto;
   white-space: nowrap;
 }
 /* The kit (WP-S3g §3.4, D2): three tracks' pips beside the veterancy stars --
@@ -3360,7 +3457,7 @@ body[data-outcome-beat] .rl-aar {
    with a hairline gap make the column 17 pixels, centred on the line; the
    card is the same height either way (`ui:routes` measures it). Scoped to
    the card -- the garage's own pips are unchanged. */
-.rl-card__kit { display: inline-flex; align-self: center; margin-left: var(--s1); }
+.rl-card__kit { display: inline-flex; align-self: center; margin-inline-start: var(--s1); }
 .rl-card__kit .rl-kit-pips,
 .rl-card__kit .rl-kit-pips__col {
   gap: 1px; /* px-ok */
@@ -3414,17 +3511,17 @@ body[data-outcome-beat] .rl-aar {
   transform: translateX(-100%);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  border-left: 3px solid var(--panel-frame);
+  border-inline-start: 3px solid var(--panel-frame);
   padding: var(--s1) var(--s2);
   white-space: nowrap;
   pointer-events: none;
   z-index: 5;
 }
 .rl-held[data-side='own'] {
-  border-left-color: var(--friendly);
+  border-inline-start-color: var(--friendly);
 }
 .rl-held[data-side='hostile'] {
-  border-left-color: var(--bad);
+  border-inline-start-color: var(--bad);
 }
 /* Field works (GH-277): the placement tooltip beside the cursor while a work is armed. */
 .rl-works-tip {
@@ -3645,7 +3742,7 @@ body[data-outcome-beat] .rl-aar {
    attribute; no author `display` rule here would beat it, so the `[hidden]`
    rule below is defensive (it keeps a later `display` on this class honest). */
 .rl-dock__pop {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: var(--t-strip);
   text-shadow: var(--halo);
 }
@@ -3803,7 +3900,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-line__left {
   position: absolute;
-  left: 2px;
+  inset-inline-start: 2px;
   top: 0;
   font-size: var(--t-xs);
   color: var(--live);
@@ -3811,7 +3908,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-line__bar {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 3px;
   background: var(--live);
@@ -3838,7 +3935,7 @@ body[data-outcome-beat] .rl-aar {
   white-space: nowrap;
 }
 .rl-line__rally {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 /* --- one tile --------------------------------------------------------- */
@@ -3910,7 +4007,7 @@ body[data-outcome-beat] .rl-aar {
 
 .rl-tile__cost {
   position: absolute;
-  right: 3px;
+  inset-inline-end: 3px;
   bottom: 1px;
   font-size: var(--t-s);
   font-weight: 600;
@@ -3927,7 +4024,7 @@ body[data-outcome-beat] .rl-aar {
 
 .rl-tile__left {
   position: absolute;
-  left: 3px;
+  inset-inline-start: 3px;
   top: 1px;
   font-size: var(--t-s);
   color: var(--live);
@@ -3935,7 +4032,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__bar {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 3px;
   background: var(--live);
@@ -3958,8 +4055,8 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__lock {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   bottom: 2px;
   text-align: center;
   font-size: var(--t-s);
@@ -3973,8 +4070,8 @@ body[data-outcome-beat] .rl-aar {
    countdown sits, because it is the same kind of fact: something on its way. */
 .rl-tile__deploying {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   top: 1px;
   text-align: center;
   font-size: var(--t-s);
@@ -4058,7 +4155,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__charge {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
   height: 3px;
   width: 0;
@@ -4097,7 +4194,7 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-tile__worksleft {
   position: absolute;
-  left: 3px;
+  inset-inline-start: 3px;
   top: 1px;
   font-size: var(--t-s);
   color: var(--ink);
@@ -4193,7 +4290,7 @@ body[data-outcome-beat] .rl-aar {
   text-transform: uppercase;
 }
 .rl-tip__cost {
-  margin-left: auto;
+  margin-inline-start: auto;
   white-space: nowrap;
   color: var(--info);
 }
@@ -4311,6 +4408,34 @@ body[data-outcome-beat] .rl-aar {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s2);
+}
+/* GH-1413 G1: the software-rendering line (`ui/software-hint.ts`). One status
+   line at the foot of a shell screen, not a dialog: below the scrims (50) and
+   the end panel (30), so a modal card covers it rather than fighting it. */
+.rl-software-hint {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s3);
+  transform: translateX(-50%);
+  z-index: 25;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--s3));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+}
+.rl-software-hint[hidden] {
+  display: none;
+}
+.rl-software-hint__text {
+  margin: 0;
+  flex: 1 1 20rem;
 }
 
 /* Route transitions (shell/router.ts): the stage fades out under the old
@@ -4581,7 +4706,7 @@ body[data-outcome-beat] .rl-aar {
   font-weight: 600;
   letter-spacing: var(--track-title);
   text-transform: uppercase;
-  text-align: left;
+  text-align: start;
 }
 /* The sandbox and the ledger reset are instruments, not missions — they should
    not read as the fourth and fifth chapters of the campaign. */
@@ -4645,7 +4770,9 @@ body[data-outcome-beat] .rl-aar {
   color: var(--ink-dim);
 }
 .rl-profile__avatar .rl-avatar {
-  border-width: 2px; /* px-ok */
+  width: 7rem;
+  height: 7rem;
+  border: 0.1875rem solid var(--crest-rim, var(--avatar-ring));
 }
 .rl-avatar--chip {
   width: 1.75rem;
@@ -4763,14 +4890,14 @@ button.rl-menu__item[data-kind='aside'] {
   margin: var(--s1) auto var(--s2);
   padding: var(--s2) var(--s3);
   border: 1px solid var(--panel-frame);
-  text-align: left;
+  text-align: start;
 }
 /* WP-P2: the extras sit behind a closed disclosure, so the picker opens on
    the maps. The summary is a quiet line, not a button competing with them. */
 .rl-sandbox__dev {
   max-width: var(--menu-col);
   margin: var(--s3) auto var(--s2);
-  text-align: left;
+  text-align: start;
 }
 .rl-sandbox__dev-summary {
   cursor: pointer;
@@ -4811,6 +4938,20 @@ button.rl-menu__item[data-kind='aside'] {
   accent-color: var(--good);
 }
 .rl-sandbox__blurb {
+  color: var(--ink-mute);
+}
+/* GH-1381: the side pick, the versus lobby's segmented group, above the
+   options. Its blurb takes the whole row under the two segments. */
+fieldset.rl-sandbox__sides {
+  max-width: var(--menu-col);
+  margin: var(--s3) auto 0;
+}
+/* The side blurb, and what Free play has without being asked (field works on the KDF side) under it. */
+.rl-sandbox__side-blurb,
+.rl-sandbox__default {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--t-s);
   color: var(--ink-mute);
 }
 
@@ -4968,7 +5109,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s4);
   padding: var(--s4) var(--s5);
-  text-align: left;
+  text-align: start;
 }
 .rl-aar__verdict {
   display: flex;
@@ -4997,7 +5138,7 @@ button.rl-menu__item[data-kind='aside'] {
   list-style: none;
   margin: 0;
   padding: 0;
-  text-align: right;
+  text-align: end;
   font: var(--t-m) / 1.5 var(--font-body);
   color: var(--ink-mute);
 }
@@ -5006,7 +5147,7 @@ button.rl-menu__item[data-kind='aside'] {
   display: none;
 }
 .rl-aar[data-result='defeat'] .rl-aar__reason {
-  text-align: left;
+  text-align: start;
   font: 600 var(--t-read) / 1.4 var(--font-body);
   color: var(--bad-text);
 }
@@ -5025,9 +5166,9 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: baseline;
   padding: var(--s2) var(--s3);
   font: var(--t-m) / 1.4 var(--font-body);
-  border-right: 1px solid var(--panel-rule);
+  border-inline-end: 1px solid var(--panel-rule);
 }
-.rl-aar__rung:last-child { border-right: 0; }
+.rl-aar__rung:last-child { border-inline-end: 0; }
 .rl-aar__rung--met { color: var(--good); }
 .rl-aar__rung--missed { color: var(--ink-dim); }
 .rl-aar__rung-stars { flex: none; letter-spacing: 1px; }
@@ -5457,7 +5598,7 @@ button.rl-menu__item[data-kind='aside'] {
    rather than a ragged centre. */
 .rl-loading__box--brief {
   width: min(42.5rem, 88vw);
-  text-align: left;
+  text-align: start;
 }
 /* The rank/plate line and, beside it, the same photo `.rl-cmd__face` shows
    for Shai -- 200x250, `2026-08-21-commander-brief-design.md`'s own
@@ -5567,7 +5708,7 @@ button.rl-menu__item[data-kind='aside'] {
   max-height: min(42vh, 27.5rem); /* the vh half is the binding one on a 45rem-tall screen (48vh measured Deploy 1.8125rem below the fold there); the px half lets a tall screen show more of the eight 1.25rem beats than the old 340 did. */
   overflow-y: auto;
   /* Scrolled text needs a margin to breathe against the scrollbar. */
-  padding-right: var(--s2);
+  padding-inline-end: var(--s2);
 }
 /* GH-417 B-03: with orders to read, the beats do NOT scroll inside their own
    box any more. That nested box cut its text off flush against the
@@ -5580,7 +5721,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-loading__box--brief:not(.rl-loading__box--video) .rl-loading__brief {
   max-height: none;
   overflow-y: visible;
-  padding-right: 0;
+  padding-inline-end: 0;
 }
 /* One beat, one paragraph, with air between them -- the "wall of text"
    complaint was as much about the missing paragraph breaks as the size.
@@ -5632,7 +5773,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* A section's picture: a small framed thumbnail the prose wraps beside, so a
    picture never costs the orders their reading measure. */
 .rl-loading__section-img {
-  float: right;
+  float: inline-end;
   width: 5.5rem;
   height: 6.875rem;
   margin: 0 0 var(--s2) var(--s3);
@@ -5664,9 +5805,9 @@ button.rl-menu__item[data-kind='aside'] {
    Deploy -- never a beat itself. The left rule borrows `--commend`, the same
    token the world-map star line uses, so a carry-over reads as an earned
    thing rather than as another paragraph of prose. */
-.rl-loading__brought { margin: var(--s2h) 0 0; padding: var(--s2) var(--s2h); border-left: 2px solid var(--commend); color: var(--ink); }
+.rl-loading__brought { margin: var(--s2h) 0 0; padding: var(--s2) var(--s2h); border-inline-start: 2px solid var(--commend); color: var(--ink); }
 .rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-s); text-transform: uppercase; letter-spacing: 1px; }
-.rl-loading__brought ul { margin: var(--s1) 0; padding-left: 1.1em; }
+.rl-loading__brought ul { margin: var(--s1) 0; padding-inline-start: 1.1em; }
 .rl-loading__brought-line { margin: var(--s1) 0 0; color: var(--ink-mute); }
 /* Survivors this mission does not field -- a count, under the roster, in the
    same muted ink the panel's own prose uses rather than the roster's. */
@@ -5771,7 +5912,7 @@ button.rl-menu__item[data-kind='aside'] {
   min-width: 0;
   padding: var(--s2) var(--s3);
   border: 0;
-  border-left: 2px solid var(--commend);
+  border-inline-start: 2px solid var(--commend);
 }
 .rl-deploy__title,
 .rl-deploy__map figcaption {
@@ -5803,7 +5944,7 @@ button.rl-menu__item[data-kind='aside'] {
   padding: var(--s2) var(--s3);
   font-family: var(--font-body);
   font-size: var(--t-band);
-  text-align: left;
+  text-align: start;
   overflow-wrap: anywhere;
   color: var(--ink-mute);
   background: transparent;
@@ -5861,7 +6002,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-force__why {
   max-width: 24rem;
-  text-align: right;
+  text-align: end;
 }
 .rl-deploy__map {
   margin: 0;
@@ -6120,7 +6261,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-kit-icon {
   position: absolute;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   line-height: 0;
   pointer-events: none;
   filter: drop-shadow(0 0 1px var(--kit-edge));
@@ -6151,7 +6292,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* The card frame and the dock tile are already positioned; the sign steps in
    by the margin that surface's own corner mark uses -- the role badge's 3 px,
    the art's 2 px. */
-.rl-card__frame > .rl-kit-icon { top: 0.1875rem; right: 0.1875rem; }
+.rl-card__frame > .rl-kit-icon { top: 0.1875rem; inset-inline-end: 0.1875rem; }
 
 /* The pinned status mark on a unit's ICON (GH-262, candidate A "pressed
    flat", G-PIN 28 Sep): bottom-left, the corner the kit sign (top-right) and
@@ -6185,11 +6326,11 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-pin-mark[data-mark='slowed'] { color: var(--bad-text); }
 /* GH-706: slowed is the immobilised mark at half ink (symbol.ts HALF_INK_CLASS). */
 .rl-sym--half { opacity: 0.5; }
-.rl-kit-host > .rl-pin-mark { left: 1px; bottom: 1px; }
+.rl-kit-host > .rl-pin-mark { inset-inline-start: 1px; bottom: 1px; }
 .rl-kit-host > .rl-pin-mark svg { width: 0.75rem; height: 0.75rem; }
-.rl-card__frame > .rl-pin-mark { left: 0.1875rem; bottom: 0.1875rem; }
+.rl-card__frame > .rl-pin-mark { inset-inline-start: 0.1875rem; bottom: 0.1875rem; }
 .rl-card__frame > .rl-pin-mark svg { width: 1rem; height: 1rem; }
-.rl-tile > .rl-kit-icon { top: 0.125rem; right: 0.125rem; }
+.rl-tile > .rl-kit-icon { top: 0.125rem; inset-inline-end: 0.125rem; }
 /* A locked tile asks what to earn next, and its art is already drained (plan
    2b R-8). Hidden, not removed: it is back the moment the lock lifts. */
 .rl-tile[data-locked='1'] > .rl-kit-icon { display: none; }
@@ -6247,7 +6388,7 @@ button.rl-menu__item[data-kind='aside'] {
   overflow: hidden;
   /* `.rl-menu`'s own centred, monospaced column is right for a list of four
      buttons and wrong for a screen that is read. */
-  text-align: left;
+  text-align: start;
   font-family: var(--font-body);
   font-size: var(--t-body);
 }
@@ -6395,14 +6536,14 @@ button.rl-menu__item[data-kind='aside'] {
   gap: var(--s1);
   min-height: 0;
   overflow-y: auto;
-  padding-right: var(--s1);
+  padding-inline-end: var(--s1);
 }
 .rl-garage__card {
   display: flex;
   align-items: center;
   gap: var(--s2);
   padding: var(--s2);
-  text-align: left;
+  text-align: start;
   color: var(--ink);
   background: var(--well);
   border: 1px solid var(--panel-frame);
@@ -6494,7 +6635,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-menu--garage .rl-stores__packs-h {
   font-family: var(--font-display);
@@ -6530,7 +6671,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__notice {
   margin: 0;
   padding: var(--s1) var(--s3);
-  border-left: 3px solid var(--roar);
+  border-inline-start: 3px solid var(--roar);
   font-size: var(--t-band);
   color: var(--ink-mute);
 }
@@ -6879,7 +7020,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__adds-stat-v,
 .rl-stores__adds-stat-d {
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: end;
 }
 .rl-menu--garage .rl-stores__adds-more {
   align-self: flex-start;
@@ -6900,7 +7041,7 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-band);
 }
 .rl-stores__receipts th {
-  text-align: left;
+  text-align: start;
   color: var(--ink-label);
   font-weight: 600;
   letter-spacing: var(--track-label);
@@ -6975,11 +7116,11 @@ button.rl-menu__item[data-kind='aside'] {
 /* The kit, where a type has any, sits at the card's far edge; a kitted card
    also takes a steel edge (§3.1) so the rail reads "kitted" at a glance. */
 .rl-garage__card-kit {
-  margin-left: auto;
+  margin-inline-start: auto;
   flex: none;
 }
 .rl-garage__card:not([data-kit='0']) {
-  border-left-color: var(--kit);
+  border-inline-start-color: var(--kit);
 }
 
 /* --- the bay ------------------------------------------------------------ */
@@ -7080,8 +7221,8 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate[data-model='pending']::before {
   content: '';
   position: absolute;
-  left: 22%;
-  right: 22%;
+  inset-inline-start: 22%;
+  inset-inline-end: 22%;
   top: 62%;
   bottom: 14%;
   border-radius: 50%;
@@ -7125,7 +7266,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__model-hint {
   position: absolute;
-  left: var(--s2);
+  inset-inline-start: var(--s2);
   bottom: var(--s2);
   font-family: var(--font-display);
   font-size: var(--t-body);
@@ -7210,7 +7351,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate-kit {
   position: absolute;
   top: var(--s2);
-  left: var(--s2);
+  inset-inline-start: var(--s2);
   display: flex;
   align-items: center;
   gap: var(--s2);
@@ -7245,7 +7386,7 @@ button.rl-menu__item[data-kind='aside'] {
    pips and levels this plate already carries. */
 .rl-garage__plate-maxed {
   position: absolute;
-  right: var(--s2);
+  inset-inline-end: var(--s2);
   bottom: var(--s2);
   font-family: var(--font-display);
   font-size: var(--t-card);
@@ -7639,7 +7780,7 @@ button.rl-menu__item[data-kind='aside'] {
   position: absolute;
   top: -2px;
   bottom: -2px;
-  left: 0;
+  inset-inline-start: 0;
   box-sizing: border-box;
   pointer-events: none;
 }
@@ -7657,7 +7798,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__stat-n {
   font-family: var(--font-mono);
   color: var(--ink);
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 /* The kit line: what the kit added, in its own steel colour, right after the
@@ -7669,7 +7810,7 @@ button.rl-menu__item[data-kind='aside'] {
   grid-row: 1;
   font-size: var(--t-band);
   color: var(--kit);
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 
@@ -7687,15 +7828,15 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s1);
   padding: var(--s1) var(--s2);
-  border-left: 2px solid var(--panel-frame); /* px-ok */
+  border-inline-start: 2px solid var(--panel-frame); /* px-ok */
 }
 .rl-garage__rung:hover,
 .rl-garage__rung:focus-visible {
-  border-left-color: var(--accent);
+  border-inline-start-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .rl-garage__rung[data-state='owned'] {
-  border-left-color: var(--friendly);
+  border-inline-start-color: var(--friendly);
   background: color-mix(in srgb, var(--friendly) 12%, transparent);
 }
 /* The rung a purchase just bought (§3.5) sweeps out of the kit's steel into
@@ -7788,7 +7929,7 @@ button.rl-menu__item[data-kind='aside'] {
      the board column it wraps. Allowed: it reads as two balanced lines, left-aligned, inside the button's own
      padding, rather than one line breaking at the box edge. */
   max-width: 100%;
-  text-align: left;
+  text-align: start;
   text-wrap: balance;
   line-height: 1.3;
 }
@@ -7797,6 +7938,109 @@ button.rl-menu__item[data-kind='aside'] {
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+/* GH-1384: the fork on a branched rung (`garage-fork.ts`). Two cards side by side, each in the kit's
+   steel; giving a branch up is not an error, so "Gives up" and "Given up" are muted ink, never --bad.
+   Drawn only while the branch switch is open. */
+.rl-garage__fork {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--s2);
+}
+.rl-garage__fork-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  border: 1px solid color-mix(in srgb, var(--kit) 60%, var(--kit-edge)); /* px-ok */
+}
+.rl-garage__fork-card:hover,
+.rl-garage__fork-card:focus-within {
+  border-color: var(--accent);
+}
+.rl-garage__fork-name {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__fork-choose {
+  font-size: var(--t-band);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--kit);
+}
+.rl-garage__fork-gives,
+.rl-garage__fork-given,
+.rl-garage__fork-run,
+.rl-garage__fork-final {
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-garage__fork-gives-head {
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-garage__fork-legacy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  border-inline-start: 2px solid var(--kit); /* px-ok */
+}
+.rl-garage__fork-legacy-title {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__fork-legacy-body {
+  margin: 0;
+  font-size: var(--t-band);
+  color: var(--ink-mute);
+}
+.rl-garage__fork-legacy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-garage__branch-notice {
+  margin: 0 var(--s3) var(--s2);
+  padding: var(--s1) var(--s2);
+  border-inline-start: 2px solid var(--kit); /* px-ok */
+  background: color-mix(in srgb, var(--kit) 12%, transparent);
+  color: var(--ink);
+  font-size: var(--t-body);
+}
+.rl-garage__branch-notice-title {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+}
+.rl-garage__branch-notice-list {
+  margin: var(--s1) 0;
+  padding-inline-start: var(--s3);
+}
+.rl-garage__branch-notice-hint {
+  color: var(--ink-mute);
+}
+.rl-stores__branches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-stores__branch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-stores__branch-name {
+  color: var(--ink);
+}
+.rl-stores__branch-final {
+  font-size: var(--t-band);
+  color: var(--ink-mute);
 }
 /* F7: the account itself is empty, not any one track -- prepended above the
    board's tracks, in the same recessed well a stat panel sits in, so it
@@ -7982,28 +8226,82 @@ button.rl-menu__item[data-kind='aside'] {
 /* A fixed-position `.rl-panel` rather than a `.rl-menu` column, since this
    screen is also mounted inside the pause overlay (Task 6), which has no
    `.rl-menu` frame to sit in. (The brigade screen this used to point at for
-   the shape is the garage now, and a full-width grid.) */
+   the shape is the garage now, and a full-width grid.)
+
+   GH-1510: the screen follows the account page (GH-1075 P7, GH-1367). Its
+   sections are the account page's cards and columns (`ui/page-card.ts`, the
+   shared `.rl-page-card*` and `.rl-page-cols` rules below, never copied):
+   the same 64rem width, the wide and narrow columns, the title strips in the
+   profile's role colours, and the warm ground behind it. The Controls card
+   runs full width under both columns. The columns fall to one when the PANEL
+   is narrow, not only the window: a container query, because the pause
+   menu's Settings tab mounts this same panel in a 40rem modal on a wide
+   screen. */
 .rl-settings {
   top: 6%;
   left: 50%;
   transform: translateX(-50%);
-  width: min(32rem, 94vw);
+  width: min(64rem, 94vw);
   max-height: 88vh;
   overflow: auto;
+  text-align: start;
 }
-.rl-settings__table {
+.rl-settings__content {
+  container: rl-settings / inline-size;
   display: flex;
   flex-direction: column;
+  gap: var(--s3);
 }
-.rl-settings__section {
-  margin: var(--s4) 0 var(--s1);
-  font-family: var(--font-display);
-  font-size: var(--t-card);
-  letter-spacing: var(--track-title);
-  color: var(--ink);
+/* Two class names: `.rl-page-cols` comes later in this file, and its
+   media query too, so a single class here would lose to it by order. */
+@container rl-settings (max-width: 48rem) {
+  .rl-page-cols.rl-settings__cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
-.rl-settings__section:first-child {
-  margin-top: 0;
+/* The rows carry their own padding and hairline, so the card body adds no
+   gap of its own between them. */
+.rl-settings__card .rl-page-card__body {
+  gap: 0;
+}
+/* The key table is long: on a wide panel its rows run in two columns. */
+@container rl-settings (min-width: 48rem) {
+  .rl-settings__card--controls .rl-page-card__body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--s5);
+    align-items: start;
+  }
+}
+/* Each card's title strip and frame, in the account page's role colours
+   (GH-1367 S3): the same token pairs, so the same 4.5:1 checks in
+   profile-css.test.ts hold here. Privacy is the profile's "Your data". */
+.rl-settings__card--video .rl-page-card__title,
+.rl-settings__card--controls .rl-page-card__title,
+.rl-settings__card--language .rl-page-card__title {
+  background: var(--card-head-history);
+}
+.rl-settings__card--audio .rl-page-card__title,
+.rl-settings__card--chat .rl-page-card__title {
+  background: var(--card-head-record);
+}
+.rl-settings__card--accessibility .rl-page-card__title {
+  background: var(--card-head-signin);
+  color: var(--card-head-signin-ink);
+}
+.rl-settings__card--privacy .rl-page-card__title {
+  background: var(--card-head-data);
+}
+/* Two class names again: `.rl-page-card`'s own `border` comes later. */
+.rl-page-card.rl-settings__card--audio,
+.rl-page-card.rl-settings__card--chat {
+  border-color: var(--card-head-record);
+}
+.rl-page-card.rl-settings__card--accessibility {
+  border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent);
+}
+.rl-page-card.rl-settings__card--privacy {
+  border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
 .rl-settings__row {
   display: grid;
@@ -8044,7 +8342,7 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: center;
   justify-content: flex-end;
   gap: var(--s1) var(--s2);
-  text-align: right;
+  text-align: end;
   /* Part of I6: the grid track can now shrink, so the contents must be
      allowed to as well -- a flex item's default `min-width: auto` would
      otherwise refuse and put the overflow back. */
@@ -8099,7 +8397,7 @@ button.rl-menu__item[data-kind='aside'] {
    Left-aligned rather than `.rl-menu`'s own centred text: a row of name,
    date and three buttons reads as a list, not a headline. */
 .rl-menu--saves .rl-panel {
-  text-align: left;
+  text-align: start;
 }
 /* GH-223: its own scroll region, capped well under the column's 96vh, so a
    long list scrolls internally instead of pushing the name field, the Save
@@ -8228,7 +8526,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex-direction: column;
   gap: var(--s3);
   padding: var(--s5) var(--s6) var(--s4);
-  text-align: left;
+  text-align: start;
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame); /* px-ok */
 }
@@ -8329,7 +8627,7 @@ fieldset.rl-versus__maps {
   gap: var(--s1);
 }
 .rl-versus__sides > .rl-versus__label {
-  float: left;
+  float: inline-start;
   margin: 0 var(--s2) 0 0;
 }
 /* A card or a segment is a label around a real radio, so arrows, Space and
@@ -8404,12 +8702,18 @@ fieldset.rl-versus__maps {
   text-align: center;
   color: var(--ink-mute);
 }
-.rl-versus__side-note { text-align: left; grid-column: 1 / -1; }
+.rl-versus__side-note { text-align: start; grid-column: 1 / -1; }
 /* GH-976 P2: the win-mode group is the side group's twin; its options sit in a span that dissolves into the flex row. */
 .rl-versus__win-options {
   display: contents;
 }
 .rl-versus__win[hidden] {
+  display: none;
+}
+/* Versus field works: the host's switch row and the room's line are toggled with `hidden`, and their base classes
+   (.rl-versus__kit, .rl-versus__room-kit) set display: flex, which an author rule wins over the user agent's [hidden]. */
+.rl-versus__works[hidden],
+.rl-versus__room-works[hidden] {
   display: none;
 }
 .rl-versus__side-reason[hidden],
@@ -8471,7 +8775,7 @@ fieldset.rl-versus__maps {
   font-weight: 700;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  text-align: left;
+  text-align: start;
   color: var(--ink-dim);
   overflow-wrap: anywhere;
 }
@@ -8490,7 +8794,7 @@ fieldset.rl-versus__maps {
   width: auto;
   object-fit: contain;
 }
-.rl-versus__art-img[data-n='1'] { margin-left: -1.5rem; }
+.rl-versus__art-img[data-n='1'] { margin-inline-start: -1.5rem; }
 /* Your friend's figures face yours. */
 .rl-versus__fcard[data-who='friend'] .rl-versus__art--big { transform: scaleX(-1); }
 .rl-versus__fcard-name {
@@ -8643,7 +8947,7 @@ fieldset.rl-versus__maps {
   display: inline-block;
   width: 0.6rem;
   height: 0.6rem;
-  margin-right: var(--s1);
+  margin-inline-end: var(--s1);
   vertical-align: middle;
   border-radius: 50%;
   border: 1px solid var(--mark-edge); /* px-ok */
@@ -8813,7 +9117,28 @@ fieldset.rl-versus__maps {
   font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
-  text-align: right;
+  text-align: end;
+}
+/* GH-1388: the basic computer opponent, under the room controls. */
+.rl-versus__cpu {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  margin-top: var(--s4);
+}
+.rl-versus__cpu-note,
+.rl-versus__cpu-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink-mute);
+}
+.rl-versus__cpu-msg {
+  min-height: calc(var(--lh-body) * 1em);
+}
+.rl-versus__cpu-msg[data-tone='bad'] {
+  color: var(--bad-text);
 }
 .rl-versus__open-col {
   display: flex;
@@ -9019,7 +9344,7 @@ fieldset.rl-versus__maps {
   min-width: 0;
   margin-top: var(--s2);
   padding-top: var(--s2);
-  text-align: left;
+  text-align: start;
   border-top: 1px solid var(--panel-frame); /* px-ok */
 }
 .rl-versus__advisor-scope {
@@ -9088,7 +9413,7 @@ fieldset.rl-versus__maps {
     align-items: stretch;
   }
   .rl-versus__open-col { align-items: stretch; }
-  .rl-versus__open-msg { text-align: left; }
+  .rl-versus__open-msg { text-align: start; }
 }
 
 /* Reduced motion: the colour and knob transitions stop (the entrance
@@ -9139,7 +9464,54 @@ fieldset.rl-versus__maps {
 .rl-chat__line {
   overflow-wrap: anywhere;
 }
+.rl-chat__entry {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+/* GH-1417 S1: the line shown in place of the chat while Settings has it off. */
+.rl-chat__off {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* GH-1417 S2: why a line was not sent (the word filter would hide it on the other screen). */
+.rl-chat__refused {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The mute toggle beside the input; aria-pressed carries the state, the label names the action. */
+.rl-chat__mute {
+  flex: none;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+  cursor: pointer;
+}
+.rl-chat__quick {
+  flex: none;
+  max-width: 11rem;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+.rl-chat__mute[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--selected-fill);
+  border-color: var(--selected);
+}
 .rl-chat__input {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   box-sizing: border-box;
   background: var(--panel-bg-solid);
@@ -9157,7 +9529,7 @@ fieldset.rl-versus__maps {
 /* A `.rl-menu` column like Saves -- a list of sections reads left-aligned,
    not centred the way `.rl-menu`'s plain nav links do. */
 .rl-menu--credits .rl-panel {
-  text-align: left;
+  text-align: start;
 }
 .rl-credits__section {
   margin: var(--s4) 0 var(--s1);
@@ -9369,7 +9741,7 @@ fieldset.rl-versus__maps {
   display: inline-block;
   width: 0.875rem;
   height: 0.1875rem;
-  margin-right: var(--s1);
+  margin-inline-end: var(--s1);
   vertical-align: 0.2em;
   background: var(--ink-mute);
 }
@@ -9400,7 +9772,7 @@ fieldset.rl-versus__maps {
   column-gap: var(--s6);
   row-gap: var(--s4);
   align-items: start;
-  text-align: left;
+  text-align: start;
   padding-top: var(--s4);
 }
 .rl-field__head {
@@ -9579,7 +9951,7 @@ fieldset.rl-versus__maps {
   display: flex;
   flex-direction: column;
   padding: 0;
-  text-align: left;
+  text-align: start;
   font: inherit;
   color: var(--ink);
   background: var(--tile-bg);
@@ -9643,7 +10015,7 @@ fieldset.rl-versus__maps {
 .rl-force__swap {
   position: absolute;
   top: var(--s1);
-  right: var(--s1);
+  inset-inline-end: var(--s1);
   padding: 0 var(--s1);
   font: 600 var(--t-xs) var(--font-body);
   color: var(--ink);
@@ -9666,7 +10038,7 @@ fieldset.rl-versus__maps {
 .rl-force__bench {
   position: absolute;
   bottom: calc(100% + var(--s2));
-  left: 12rem;
+  inset-inline-start: 12rem;
   z-index: 4;
   width: min(26rem, 90vw);
   max-height: 55vh;
@@ -9696,7 +10068,7 @@ fieldset.rl-versus__maps {
   padding: var(--s1) var(--s2);
   font: var(--t-m) var(--font-body);
   color: var(--ink);
-  text-align: left;
+  text-align: start;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--panel-rule);
@@ -9726,13 +10098,13 @@ fieldset.rl-versus__maps {
   font-weight: 600;
 }
 .rl-force__bench-rec {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--ink-mute);
   font-size: var(--t-body);
 }
 .rl-force__bench-state {
   width: 3.5rem;
-  text-align: right;
+  text-align: end;
   font: 600 var(--t-xs) var(--font-body);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -9777,7 +10149,7 @@ fieldset.rl-versus__maps {
 /* N1b task 11: a desync's Report, beside the line. The line itself stays
    click-through; `.rl-btn` takes pointer events back for the button alone. */
 .rl-net-status__report {
-  margin-left: var(--s3);
+  margin-inline-start: var(--s3);
   font-size: var(--t-s);
 }
 
@@ -9845,7 +10217,7 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 .rl-advisor__count {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .rl-advisor__input {
   width: 100%;
@@ -9909,7 +10281,7 @@ fieldset.rl-versus__maps {
   color: var(--ink);
   border: 1px solid var(--panel-frame); /* px-ok */
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 .rl-below__chip[aria-pressed='true'] {
@@ -10065,7 +10437,7 @@ fieldset.rl-versus__maps {
   background: var(--bad);
 }
 .rl-net-points__n {
-  text-align: right;
+  text-align: end;
 }
 .rl-net-points__rate {
   color: var(--ink-dim);
@@ -10080,7 +10452,7 @@ fieldset.rl-versus__maps {
 .rl-net-board th,
 .rl-net-board td {
   padding: var(--s1) var(--s2);
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 .rl-net-board thead th {
@@ -10090,7 +10462,7 @@ fieldset.rl-versus__maps {
   letter-spacing: 0.06em;
 }
 .rl-net-board tbody th {
-  text-align: left;
+  text-align: start;
   max-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -10258,7 +10630,7 @@ fieldset.rl-versus__maps {
 .rl-arena-setup__table td {
   padding: var(--s1) var(--s2);
   border-bottom: 1px solid var(--panel-rule);
-  text-align: left;
+  text-align: start;
 }
 
 /* GH-954 W3: the arena results list and the replay controls (dev-only routes). */
@@ -10283,7 +10655,7 @@ fieldset.rl-versus__maps {
 }
 .rl-arena-results__criteria ul {
   margin: var(--s1) 0 0;
-  padding-left: var(--s4);
+  padding-inline-start: var(--s4);
 }
 .rl-arena-replay {
   display: inline-flex;
@@ -10320,13 +10692,16 @@ fieldset.rl-versus__maps {
 /* GH-1367 S2: a warm ground behind the account page, and one frame. The ground is the limestone and dust ramps
    (index 0 is the lightest, so 6 is the dark end), under a dust glow top left and an olive shade bottom right. It
    is scoped by :has() to the stage that holds the profile column, so no other screen moves, and the router empties
-   #stage on leave, so nothing outlives the page. Static: nothing animates. */
+   #stage on leave, so nothing outlives the page. Static: nothing animates. GH-1510: the Settings screen, which follows
+   the account page's design, stands on the same ground; the pause menu's Settings tab is not a child of #stage, so a
+   mission never takes it. */
 :root {
   --profile-ground: linear-gradient(var(--rl-limestone-6), var(--rl-dust-6));
   --profile-ground-glow: color-mix(in srgb, var(--rl-dust-3) 40%, transparent);
   --profile-ground-shade: color-mix(in srgb, var(--rl-olive-2) 55%, transparent);
 }
-#stage:has(> .rl-menu--profile) {
+#stage:has(> .rl-menu--profile),
+#stage:has(> .rl-settings) {
   background:
     radial-gradient(ellipse at 18% 8%, var(--profile-ground-glow), transparent 60%),
     radial-gradient(ellipse at 82% 92%, var(--profile-ground-shade), transparent 55%),
@@ -10345,7 +10720,7 @@ fieldset.rl-versus__maps {
   background: var(--panel-bg-solid);
 }
 .rl-menu--profile .rl-panel {
-  text-align: left;
+  text-align: start;
 }
 /* GH-1367 S3: each card says what it is in colour. Heads are filled strips; the record tiles and result chips are
    filled blocks. Lost and danger use --bad (it re-points under every data-cvd variant), never terracotta, which is
@@ -10377,24 +10752,24 @@ fieldset.rl-versus__maps {
 .rl-profile__status.rl-bad {
   color: var(--bad-text);
 }
-.rl-profile__cols {
+.rl-page-cols {
   display: grid;
   grid-template-columns: minmax(0, 38fr) minmax(0, 24fr);
   gap: var(--s3);
   align-items: start;
 }
-.rl-profile__col {
+.rl-page-cols__col {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
   min-width: 0;
 }
 @media (max-width: 56rem) {
-  .rl-profile__cols {
+  .rl-page-cols {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.rl-profile__card {
+.rl-page-card {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
@@ -10403,11 +10778,70 @@ fieldset.rl-versus__maps {
   border: 1px solid var(--panel-frame); /* px-ok */
   min-width: 0;
 }
-/* The header card: a gold rule on its left edge. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
+/* The crest echo (GH-1367 S4): the card is washed in the member's own crest, read off the avatar's data-avatar. Ground
+   is the crest's ground and rim its brightest charge tone, from tools/avatars/crest_geometry.mjs; crest-card.test.ts
+   pins every pair to that table. Five are named substitutes: a near-black or near-white ground would wash the card
+   black or white. --title-accent, not --accent: VR-31 keeps --accent for interactive states. */
 .rl-profile__card--head {
-  border-left: 0.1875rem solid var(--title-accent);
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--title-accent);
+  border-inline-start: 0.1875rem solid var(--crest-rim);
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--crest-ground) 85%, transparent) 0,
+    color-mix(in srgb, var(--crest-ground) 35%, var(--rl-shadow-1)) 45%,
+    var(--card-bg) 80%
+  );
 }
-.rl-profile__card-title {
+.rl-profile__card--head:has([data-avatar='crest-chevrons']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-claw']) {
+  --crest-ground: var(--rl-terracotta-1);
+  --crest-rim: var(--rl-terracotta-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-lion']) {
+  --crest-ground: var(--rl-olive-2);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-tower']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-star']) {
+  --crest-ground: var(--rl-olive-3);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wing']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-track']) {
+  --crest-ground: var(--rl-gunmetal-3);
+  --crest-rim: var(--rl-limestone-2);
+}
+.rl-profile__card--head:has([data-avatar='crest-sprig']) {
+  --crest-ground: var(--rl-scrub-1);
+  --crest-rim: var(--rl-limestone-1);
+}
+.rl-profile__card--head:has([data-avatar='crest-ridge']) {
+  --crest-ground: var(--rl-gunmetal-2);
+  --crest-rim: var(--rl-limestone-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-wave']) {
+  --crest-ground: var(--rl-water-1);
+  --crest-rim: var(--rl-water-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-dune']) {
+  --crest-ground: var(--rl-dust-5);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-profile__card--head:has([data-avatar='crest-reticle']) {
+  --crest-ground: var(--rl-terracotta-2);
+  --crest-rim: var(--rl-dust-0);
+}
+.rl-page-card__title {
   /* A strip across the top of the card: cancel the card's padding on three sides. */
   margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
   padding: var(--s1) var(--s4);
@@ -10418,17 +10852,17 @@ fieldset.rl-versus__maps {
   text-transform: uppercase;
   color: var(--band-ink);
 }
-.rl-profile__card--record .rl-profile__card-title {
+.rl-profile__card--record .rl-page-card__title {
   background: var(--card-head-record);
 }
-.rl-profile__card--history .rl-profile__card-title {
+.rl-profile__card--history .rl-page-card__title {
   background: var(--card-head-history);
 }
-.rl-profile__card--signin .rl-profile__card-title {
+.rl-profile__card--signin .rl-page-card__title {
   background: var(--card-head-signin);
   color: var(--card-head-signin-ink);
 }
-.rl-profile__card--data .rl-profile__card-title {
+.rl-profile__card--data .rl-page-card__title {
   background: var(--card-head-data);
 }
 .rl-profile__card--record {
@@ -10440,7 +10874,7 @@ fieldset.rl-versus__maps {
 .rl-profile__card--data {
   border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent);
 }
-.rl-profile__card-body {
+.rl-page-card__body {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
@@ -10483,7 +10917,7 @@ fieldset.rl-versus__maps {
 }
 .rl-profile__since {
   margin: 0;
-  color: var(--ink-mute);
+  color: var(--ink);
 }
 @media (max-width: 30rem) {
   .rl-profile__head {
@@ -10500,7 +10934,7 @@ fieldset.rl-versus__maps {
   padding: var(--s3) var(--s4);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame); /* px-ok */
-  border-left: 0.25rem solid var(--band-mission);
+  border-inline-start: 0.25rem solid var(--band-mission);
 }
 .rl-profile__claim-lead,
 .rl-profile__claim-state {
@@ -10518,7 +10952,7 @@ fieldset.rl-versus__maps {
   margin: 0 auto;
   text-align: center;
 }
-.rl-profile__guest .rl-profile__card-body {
+.rl-profile__guest .rl-page-card__body {
   align-items: center;
   gap: var(--s3);
 }
@@ -10656,6 +11090,9 @@ fieldset.rl-versus__maps {
   align-items: center;
   justify-content: space-between;
   gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  background: var(--well);
+  border-inline-start: 0.1875rem solid var(--good);
 }
 .rl-profile__identity-main {
   display: flex;
@@ -10800,11 +11237,218 @@ fieldset.rl-versus__maps {
 .rl-profile__card--danger {
   border-color: var(--danger-frame);
 }
-.rl-profile__card--danger .rl-profile__card-title {
+.rl-profile__card--danger .rl-page-card__title {
   background: var(--card-head-danger);
   color: var(--band-ink);
 }
 .rl-profile__delete {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* GH-1393: the saved mission, on the campaign board's footer, and the pause menu's save line. */
+.rl-resume {
+  display: grid;
+  gap: var(--s2);
+  justify-items: start;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+}
+.rl-resume__lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-resume__line,
+.rl-resume__msg,
+.rl-pause__save-msg {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+.rl-resume__msg,
+.rl-pause__save-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  color: var(--ink-mute);
+}
+.rl-resume__msg[data-tone='bad'],
+.rl-pause__save-msg[data-tone='bad'] {
+  color: var(--bad-text);
+}
+.rl-resume__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/* GH-1394 slice 2: the campaign posture, on the board's header (the chip) and under the deploy screen's orders (the line). A
+   disclosure: the summary names the posture and what it does to the grade and the pay; open, the three rows. */
+.rl-posture {
+  margin: var(--s2) 0 0;
+  font: var(--t-s) / var(--lh-body) var(--font-body);
+  color: var(--ink);
+}
+.rl-posture__chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+.rl-posture__name {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-posture__note { color: var(--ink-mute); }
+.rl-posture[data-posture='easier'] .rl-posture__note { color: var(--ink); }
+.rl-posture__rows {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.rl-posture__row {
+  display: grid;
+  gap: var(--s1);
+  justify-items: start;
+  text-align: start;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-posture__row[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-posture__row:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-posture__row-name { font-weight: 600; }
+.rl-posture__row-blurb { color: var(--ink-mute); }
+.rl-posture__pays,
+.rl-posture__when,
+.rl-posture__msg {
+  margin: var(--s1) 0 0;
+  color: var(--ink-mute);
+}
+.rl-posture__msg:empty { display: none; }
+.rl-posture__msg[data-tone='bad'] { color: var(--bad-text); }
+/* GH-1394 (D11): a defeat's one line suggesting Easier, under the verdict. */
+.rl-aar__suggest {
+  margin: var(--s2) 0 0;
+  font: var(--t-m) / 1.4 var(--font-body);
+  color: var(--ink);
+}
+
+/* GH-1395 slice 2: "Amendments to the orders", under the deploy screen's orders. A disclosure (open while any amendment is
+   on), the three toggles, the challenge it names, and what beating it pays. The challenge's coin mark is the coin colour
+   (`--roar`), because what it pays is coins (design §5.3); no new colour. */
+.rl-amend {
+  margin: var(--s2) 0 0;
+  font: var(--t-s) / var(--lh-body) var(--font-body);
+  color: var(--ink);
+}
+.rl-amend__summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--panel-frame);
+  background: var(--panel-bg);
+  cursor: pointer;
+}
+.rl-amend__head {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-amend__count { color: var(--ink-mute); }
+.rl-amend__rows {
+  display: grid;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+.rl-amend__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s1) var(--s2);
+  text-align: start;
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-amend__row[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-amend__row:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-amend__name { font-weight: 600; }
+.rl-amend__need { color: var(--roar); font-size: var(--t-s); }
+.rl-amend__blurb { grid-column: 1 / -1; color: var(--ink-mute); }
+.rl-amend__challenge { margin-top: var(--s2); }
+.rl-amend__challenge p { margin: var(--s1) 0 0; }
+.rl-amend__challenge-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-weight: 600;
+}
+.rl-amend__challenge-blurb,
+.rl-amend__challenge-state { color: var(--ink-mute); }
+.rl-amend__challenge[data-armed='true'] .rl-amend__challenge-state { color: var(--ink); }
+.rl-amend__pays,
+.rl-amend__when {
+  margin: var(--s1) 0 0;
+  color: var(--ink-mute);
+}
+/* The coin mark, one drawing for the panel, the after-action rung and the board: a terracotta disc with a darker edge. */
+.rl-amend__mark,
+.rl-aar__rung-coin,
+.rl-world__challenge::before {
+  display: inline-block;
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 50%;
+  background: var(--roar);
+  box-shadow: inset 0 0 0 1px var(--roar-deep);
+}
+.rl-amend__challenge[data-armed='false'] .rl-amend__mark { background: transparent; box-shadow: inset 0 0 0 1px var(--roar); }
+/* The after-action's challenge rung: its own row under the three stars (D2: it is not a fourth star). */
+.rl-aar__rung--challenge {
+  grid-column: 1 / -1;
+  align-items: center;
+  border-top: 1px solid var(--panel-rule);
+  border-inline-end: 0;
+}
+.rl-aar__rung--challenge.rl-aar__rung--missed .rl-aar__rung-coin { background: transparent; box-shadow: inset 0 0 0 1px var(--roar); }
+/* The campaign board: "challenge done", beside a town's stars. */
+.rl-world__challenge {
+  color: var(--roar);
+  font-family: var(--font-mono);
+}
+.rl-world__challenge::before {
+  content: '';
+  margin-inline: var(--s1) 2px;
+  vertical-align: -0.05em;
 }

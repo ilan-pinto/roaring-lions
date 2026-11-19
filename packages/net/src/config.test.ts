@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
+import { FIELD_WORKS_LOGISTICS, fieldWorksRequest, fieldWorksRoom, FLAG_SETUP_CAP_MINUTES, FLAG_SETUP_MAPS, flagSetupFor, flagSetupRoom, matchCapMinutesOf, matchCapTicksOf, MAP_CAP_MINUTES, MATCH_CAP_MINUTES_DEFAULT, endOfSeat, matchCapMinutes, matchCapTicks, maxLogCmdChars, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, winModeAllowed, winModeOpen, winModeRequest, winModesOffered, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -31,6 +31,20 @@ describe('validateConfig', () => {
     expect(validateConfig(withUnlocks(Array.from({ length: 32 }, (_, i) => `u${i}`)))).not.toBeNull();
     expect(validateConfig(withUnlocks(Array.from({ length: 33 }, (_, i) => `u${i}`)))).toBeNull();
     expect(validateConfig(withUnlocks(['demo_tzav', 7]))).toBeNull();
+  });
+  it('GH-1389: a force handicap (`withhold`) rides a BOT seat of a versus config only, as positive bounded counts', () => {
+    const versus = (seat1: Record<string, unknown>, mode = 'versus') => ({ ...CONFIG, mode, map: 'tel_marum', seats: [CONFIG.seats[0], { ...CONFIG.seats[1], ...seat1 }] });
+    const bot = { kind: 'bot', withhold: { mbt_lavi: 2 } };
+    expect(validateConfig(JSON.parse(JSON.stringify(versus(bot))))).toEqual(versus(bot));
+    // Only a computer level sets it, so a human seat carrying one is refused, and so is a sandbox room.
+    expect(validateConfig(versus({ kind: 'human', withhold: { mbt_lavi: 2 } }))).toBeNull();
+    expect(validateConfig(versus(bot, 'sandbox'))).toBeNull();
+    // Counts are integers from 1 to 64 (literal bounds), and no reserved key names a type.
+    for (const n of [0, -1, 1.5, 65, '2']) expect(validateConfig(versus({ kind: 'bot', withhold: { mbt_lavi: n } })), String(n)).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: { mbt_lavi: 64 } }))).not.toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: JSON.parse('{"__proto__": 1}') }))).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: [2] }))).toBeNull();
+    expect(validateConfig(versus({ kind: 'bot', withhold: Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`u${i}`, 1])) }))).toBeNull();
   });
 });
 
@@ -81,6 +95,43 @@ describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type sha
     expect(parsed('{"mbt_lavi": {"constructors": 1}}')).not.toBeNull();
     // An own "__proto__" really is an own key here (not a prototype set).
     expect(Object.keys(JSON.parse('{"__proto__": {"armour": 1}}'))).toEqual(['__proto__']);
+  });
+});
+
+describe('validateConfig: SeatConfig.picks (GH-1384), optional, bounded as tiers is', () => {
+  const withPicks = (picks: unknown) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], kit: 'brigade', tiers: { mbt_lavi: { firepower: 3 } }, picks }, CONFIG.seats[1]] });
+  it('absent reads as before (a config from before it still parses), and a nested branch map round-trips', () => {
+    expect(validateConfig(JSON.parse(JSON.stringify(CONFIG)))).toEqual(CONFIG);
+    expect(Object.keys(CONFIG.seats[0])).not.toContain('picks');
+    expect(validateConfig(withPicks({ mbt_lavi: { firepower: 2 } }))?.seats[0].picks).toEqual({ mbt_lavi: { firepower: 2 } });
+    expect(validateConfig(withPicks({ mbt_lavi: { firepower: 1 }, apc_kipod: { armour: 2 } }))).not.toBeNull();
+    expect(validateConfig(withPicks({}))).not.toBeNull();
+  });
+  it('every leaf is exactly 1 or 2: a branch, never a tier', () => {
+    for (const leaf of [0, 3, 1.5, -1, '1', null, true, NaN]) expect(validateConfig(withPicks({ mbt_lavi: { firepower: leaf } })), String(leaf)).toBeNull();
+  });
+  it('refuses the flat shape, arrays and null', () => {
+    expect(validateConfig(withPicks({ mbt_lavi: 2 }))).toBeNull();
+    expect(validateConfig(withPicks([]))).toBeNull();
+    expect(validateConfig(withPicks({ mbt_lavi: [2] }))).toBeNull();
+    expect(validateConfig(withPicks(null))).toBeNull();
+  });
+  it('is bounded: at most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks an id (64 and 8, literal)', () => {
+    expect([TIERS_MAX_TYPES, TIERS_MAX_TRACKS]).toEqual([64, 8]);
+    const ids = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`u${i}`, { armour: 1 }]));
+    const tracks = (n: number) => ({ mbt_lavi: Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, 2])) });
+    expect(validateConfig(withPicks(ids(64)))).not.toBeNull();
+    expect(validateConfig(withPicks(ids(65)))).toBeNull();
+    expect(validateConfig(withPicks(tracks(8)))).not.toBeNull();
+    expect(validateConfig(withPicks(tracks(9)))).toBeNull();
+  });
+  it('refuses __proto__, constructor and prototype as a key at either level', () => {
+    const parsed = (text: string) => validateConfig(withPicks(JSON.parse(text)));
+    for (const key of ['__proto__', 'constructor', 'prototype']) {
+      expect(parsed(`{"${key}": {"firepower": 1}}`), `type ${key}`).toBeNull();
+      expect(parsed(`{"mbt_lavi": {"${key}": 1}}`), `track ${key}`).toBeNull();
+    }
+    expect(parsed('{"proto": {"firepower": 1}}')).not.toBeNull();
   });
 });
 
@@ -220,16 +271,22 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     for (const map of ['qarn_hadid', 'tel_marum_1', 'tutorial_ground', 'nowhere', '']) expect(winModesOffered(map), map).toEqual([]);
     for (const map of SEVEN) expect(winModeAllowed('camp', map), map).toBe(CAMP_MAPS.includes(map));
   });
-  /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The table is empty today
-   *  (GH-976 P4 review), so the mechanism is exercised with a cell the test adds. */
+  /** Runs `fn` with one faction cell added to the table, and takes it out again, also on a throw. The points and flag
+   *  tables are empty today (GH-976 P4 review; only the camp has cells, GH-1381), so the mechanism is exercised with a cell the test adds. */
   const withCell = <T,>(mode: 'points' | 'flag', map: string, hosts: ('kdf' | 'sarim')[], fn: () => T): T => {
     const cells = WIN_MODE_FAIR_FACTION_CELLS[mode] as Record<string, readonly ('kdf' | 'sarim')[]>;
     cells[map] = hosts;
     try { return fn(); } finally { delete cells[map]; }
   };
-  it('GH-976 P4: KDF against Sarim is offered nothing on any map today: no cell passed the review', () => {
-    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: {}, points: {}, flag: {} });
-    for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) expect(winModesOffered(map, matchup), `${map} ${matchup}`).toEqual([]);
+  it('GH-1381 (GH-1378 Q11): KDF against Sarim is offered the camp on wadi_tarfan and wadi_tarfan_l from either host, and nothing else on any map', () => {
+    expect(WIN_MODE_FAIR_FACTION_CELLS).toEqual({ camp: { wadi_tarfan: ['kdf', 'sarim'], wadi_tarfan_l: ['kdf', 'sarim'] }, points: {}, flag: {} });
+    const FACTION_CAMP_MAPS = ['wadi_tarfan', 'wadi_tarfan_l'];   // read on 4000-4287, every camp gate, both hosts (config.ts)
+    for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) expect(winModesOffered(map, matchup), `${map} ${matchup}`).toEqual(FACTION_CAMP_MAPS.includes(map) ? ['camp'] : []);
+    for (const matchup of ['kdf', 'sarim'] as const) {
+      expect(winModeRequest('camp', versus('wadi_tarfan', matchup)), matchup).toEqual({ mode: 'camp' });
+      expect(winModeRequest('camp', versus('wadi_tarfan_l', matchup)), matchup).toEqual({ mode: 'camp' });
+      expect(winModeRequest('camp', versus('milh_flats', matchup)).refused, matchup).toBe('win mode not offered on this map for this matchup');   // the camp's mirror-only map
+    }
     // A key that merely exists on every object is not a map: the faction table is read as own data.
     for (const map of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
       expect(winModeAllowed('points', map, 'kdf'), map).toBe(false);
@@ -238,15 +295,15 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
   });
   it('GH-976 P4: a cell in the faction table is offered to the hosts it names and to no one else', () => {
     withCell('points', 'wadi_tarfan_l', ['kdf'], () => {
-      expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['points']);
-      expect(winModesOffered('wadi_tarfan_l', 'sarim')).toEqual([]);
-      expect(winModesOffered('wadi_tarfan', 'kdf')).toEqual([]);
+      expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['camp', 'points']);
+      expect(winModesOffered('wadi_tarfan_l', 'sarim')).toEqual(['camp']);
+      expect(winModesOffered('wadi_tarfan', 'kdf')).toEqual(['camp']);
       expect(winModeAllowed('flag', 'wadi_tarfan_l', 'kdf')).toBe(false);
       expect(winModeAllowed('points', 'wadi_tarfan_l')).toBe(true);   // the mirror table is its own
       expect(winModeRequest('points', versus('wadi_tarfan_l', 'kdf'))).toEqual({ mode: 'points' });
       expect(winModeRequest('points', versus('wadi_tarfan_l', 'sarim')).refused).toBe('win mode not offered on this map for this matchup');
     });
-    expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual([]);   // and it is out again
+    expect(winModesOffered('wadi_tarfan_l', 'kdf')).toEqual(['camp']);   // and it is out again (the camp cell is the shipped one, GH-1381)
   });
   it('GH-976 relist (12 Nov): flag is offered on exactly wadi_tarfan, rujm_sawda, wadi_tarfan_l and milh_flats_l in the mirror, with the set-up rules, and nowhere else; milh_flats is delisted (12 Nov)', () => {
     const FIVE = ['wadi_tarfan', 'rujm_sawda', 'wadi_tarfan_l', 'milh_flats_l'];   // literals, not the table (the name is historical: four since 12 Nov)
@@ -302,11 +359,16 @@ describe('the win mode a lobby offers and the Worker accepts (GH-976 P2, P4)', (
     expect(winModeRequest('points', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', { ...versus('wadi_tarfan'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
   });
-  it('GH-976 P4: the Worker\'s question for a KDF-v-Sarim room is the faction table: every one of the 42 cells is refused today', () => {
+  it('GH-976 P4, GH-1381: the Worker\'s question for a KDF-v-Sarim room is the faction table: 4 of the 42 cells are offered (the camp on the two Wadi Tarfans, both hosts), every other is refused', () => {
     const why = 'win mode not offered on this map for this matchup';
+    const OPEN = ['camp wadi_tarfan kdf', 'camp wadi_tarfan sarim', 'camp wadi_tarfan_l kdf', 'camp wadi_tarfan_l sarim'];
+    const accepted: string[] = [];
     for (const map of SEVEN) for (const matchup of ['kdf', 'sarim'] as const) for (const mode of ['camp', 'points', 'flag']) {
-      expect(winModeRequest(mode, versus(map, matchup)).refused, `${mode} ${map} ${matchup}`).toBe(why);
+      const cell = `${mode} ${map} ${matchup}`;
+      const r = winModeRequest(mode, versus(map, matchup));
+      if (OPEN.includes(cell)) { expect(r, cell).toEqual({ mode }); accepted.push(cell); } else expect(r.refused, cell).toBe(why);
     }
+    expect(accepted).toEqual(OPEN);
     // The reasons the mirror and a sandbox give are unchanged.
     expect(winModeRequest('flag', versus('qarn_hadid')).refused).toBe('win mode not offered on this map');
     expect(winModeRequest('points', { ...versus('wadi_tarfan_l', 'kdf'), mode: 'sandbox' }).refused).toBe('win mode is for versus rooms');
@@ -366,5 +428,36 @@ describe('capture the flag v2: flagSetup, FLAG_SETUP_MAPS and the cap twin (GH-9
     expect(validateConfig(flagRoom({ flagSetup: true, winMode: 'points' }))).toBeNull();
     expect(validateConfig({ ...CONFIG, flagSetup: true, winMode: 'flag' })).toBeNull();
     for (const bad of [1, 'true', false, null, {}, [true]]) expect(validateConfig(flagRoom({ flagSetup: bad })), String(bad)).toBeNull();
+  });
+});
+
+describe('versus field works: the room option (the lead, 18 Nov 2026: annihilation, KDF vs KDF only)', () => {
+  const mirror = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...CONFIG, mode: 'versus', map: 'tel_marum',
+    seats: [{ ...CONFIG.seats[0], side: 0 }, { ...CONFIG.seats[1], side: 1 }],
+    ...extra,
+  });
+  it('an annihilation KDF-v-KDF room carries it, strictly true, and absent is off', () => {
+    const on = mirror({ fieldWorks: true });
+    expect(validateConfig(JSON.parse(JSON.stringify(on)))).toEqual(on);
+    expect(fieldWorksRoom(validateConfig(on) as MatchConfig)).toBe(true);
+    expect(fieldWorksRoom(validateConfig(mirror()) as MatchConfig)).toBe(false);
+    expect(FIELD_WORKS_LOGISTICS).toBe(1000);
+  });
+  it('refused anywhere else: a win mode, a Sarim seat, a sandbox room, and any value but true', () => {
+    expect(validateConfig(mirror({ fieldWorks: true, winMode: 'points' }))).toBeNull();
+    expect(validateConfig(mirror({ fieldWorks: true, seats: [{ ...CONFIG.seats[0], side: 0 }, { ...CONFIG.seats[1], side: 1, faction: 'sarim' }] }))).toBeNull();
+    expect(validateConfig(mirror({ fieldWorks: true, seats: [{ ...CONFIG.seats[0], side: 1, faction: 'sarim' }, { ...CONFIG.seats[1], side: 0 }] }))).toBeNull();
+    expect(validateConfig({ ...CONFIG, fieldWorks: true })).toBeNull();
+    for (const v of [false, 1, 'true', null]) expect(validateConfig(mirror({ fieldWorks: v })), String(v)).toBeNull();
+  });
+  it('fieldWorksRequest: off unless asked for with true; asked for where it is not allowed, refused (never dropped)', () => {
+    expect(fieldWorksRequest(undefined, { mode: 'versus', matchup: 'mirror' })).toEqual({ on: false });
+    expect(fieldWorksRequest('yes', { mode: 'versus', matchup: 'mirror' })).toEqual({ on: false });
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'mirror' })).toEqual({ on: true });
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'kdf' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'sarim' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'versus', matchup: 'mirror', winMode: 'flag' }).refused).toBeDefined();
+    expect(fieldWorksRequest(true, { mode: 'sandbox', matchup: 'mirror' }).refused).toBeDefined();
   });
 });

@@ -145,12 +145,13 @@ The header card takes the colour of the member's own crest, so the top-left card
 - **The rule and the rim.** The left rule and a larger 7rem crest rim (3px) take the crest's rim or charge colour.
 - **The keys.** The crest is read from the avatar's own `data-avatar` attribute (`avatar.ts:63`), so no TS change is
   needed: twelve `:has([data-avatar=…])` rules set `--crest-ground` and `--crest-rim`.
-  - `--crest-ground` is the crest's own ground from `tools/avatars/crest_geometry.mjs` (the §3.2 table). There are two
-    named exceptions, because their ground would wash the card black or white: `crest-chevrons` (ground `shadow.1`)
-    takes `dust.5`, and `crest-sprig` (ground `limestone.1`) takes its charge `scrub.1`.
+  - `--crest-ground` is the crest's own ground from `tools/avatars/crest_geometry.mjs` (the §3.2 table), except where
+    that ground would wash the card black or white. The shipped table, which follows the approved mock, has six
+    departures (four grounds, two rims): grounds `crest-chevrons` `dust.5`, `crest-sprig` `scrub.1`, `crest-track`
+    `gunmetal.3`, `crest-wave` `water.1`; rims `crest-sprig` `limestone.1`, `crest-claw` `terracotta.0`.
   - `--crest-rim` is the crest's brightest tone, its charge, not its rim ring, which is often darker than the ground.
     For example the lion is `olive.2` / `dust.0` and the claw is `terracotta.1` / `terracotta.0`.
-  - A shipped slice must pin the twelve pairs against `crest_geometry.mjs`'s table, with only those two exceptions, so
+  - A shipped slice must pin the twelve pairs against `crest_geometry.mjs`'s table, with only those six named entries, so
     a recoloured crest cannot drift from its card. A test must prove the pin fails on a one-key mutation.
 - **The rest.**
   - "Member since" moves from `--ink-mute` to `--ink`.
@@ -177,7 +178,7 @@ New semantic tokens (all in `theme.css`, the only file that names `--rl-*`):
 | `--tile-drawn` | `var(--rl-gunmetal-3)` | B |
 | `--tile-ink` | `var(--rl-limestone-0)` | B |
 | `--steam-fill` | `color-mix(in srgb, var(--rl-water-1) 75%, var(--rl-shadow-1))` | B |
-| `--crest-ground` / `--crest-rim` | per crest: its ground and its charge from `tools/avatars/crest_geometry.mjs` (e.g. lion `olive.2` / `dust.0`, claw `terracotta.1` / `terracotta.0`, wing `water.1` / `limestone.0`). Exceptions: chevrons `dust.5`, sprig `scrub.1` | C |
+| `--crest-ground` / `--crest-rim` | per crest: its ground and its charge from `tools/avatars/crest_geometry.mjs` (e.g. lion `olive.2` / `dust.0`, claw `terracotta.1` / `terracotta.0`, wing `water.1` / `limestone.0`). Departures (six, see §3 C): grounds chevrons `dust.5`, sprig `scrub.1`, track `gunmetal.3`, wave `water.1`; rims sprig `limestone.1`, claw `terracotta.0` | C |
 
 **Existing tokens reused:** `--accent`, `--title-accent`, `--good`, `--bad`, `--bad-text`, `--band-ink`, `--ink`,
 `--ink-dim`, `--ink-mute`, `--panel-bg`, `--panel-bg-solid`, `--well`.
@@ -228,7 +229,7 @@ golden scenario.
 | S1 | **The seven bugs (F)**: header rule, coloured digits, `--card-bg`, profile `accent-color`, privacy-link colour, perks marker, the guest-glyph specificity fix, chip frame and backing, the picker's olive DEFAULT tag | jsdom cannot compute colour, and no browser tool visits `/profile` today (`tools/src/ui-review/` and `tools/src/ci/` never name it). So the gate is a new `getComputedStyle` probe on the stubbed page this mock used: header `border-left-width` > 1px, Won digit colour ≠ `--ink`, link colour ≠ `rgb(0, 0, 238)`, glyph width > 30% of the roundel. Each check must fail on today's `theme.css`. It runs in CI only |
 | S2 | **Warm ground (A)**: `#stage:has(> .rl-menu--profile)` and the single frame | The `#stage` background differs from `--panel-bg-solid` on `/profile` and is unchanged on `/` (the menu's scene host owns that ground) |
 | S3 | **Roles (B)**: card heads, filled tiles and chips, the Steam fill, the guest card | A contrast test from `palette.json` over the §4 pairs, in the shape of `bad-text-contrast.test.ts`, per CVD variant. A one-step mutation (`olive.2` → `olive.1` on a head) goes red |
-| S4 | **Crest echo (C)**: twelve `--crest-*` rules, the 7rem rim, identity wells | A pin of the twelve pairs against `crest_geometry.mjs`'s table, with the two named exceptions. Recolouring one crest in the table goes red |
+| S4 | **Crest echo (C)**: twelve `--crest-*` rules, the 7rem rim, identity wells | A pin of the twelve pairs against `crest_geometry.mjs`'s table, with the six named table entries. Recolouring one crest in the table goes red |
 
 **Stopping points.** S1 alone closes the bugs and is the honest minimum. S1 and S2 is option A. S1 to S3 is option B.
 
@@ -256,7 +257,7 @@ not exist yet (§3, B).
 :root {
   --card-bg: color-mix(in srgb, var(--rl-shadow-0) 70%, transparent);
 }
-.rl-profile__card { background: var(--card-bg); }
+.rl-page-card { background: var(--card-bg); }
 .rl-profile__card--head { border-left: 0.1875rem solid var(--accent); }
 .rl-profile__avatar .rl-avatar { border-width: 2px; }
 .rl-profile__tile { flex-direction: row; align-items: baseline; gap: var(--s2); padding: var(--s2) var(--s3); background: transparent; }
@@ -314,7 +315,7 @@ not exist yet (§3, B).
   --tile-ink: var(--rl-limestone-0);
   --steam-fill: color-mix(in srgb, var(--rl-water-1) 75%, var(--rl-shadow-1));
 }
-.rl-profile__card-title {
+.rl-page-card__title {
   margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
   padding: var(--s1) var(--s4);
   border-bottom: 0;
@@ -322,11 +323,11 @@ not exist yet (§3, B).
   font-size: var(--t-body);
   font-weight: 700;
 }
-.rl-profile__card--record .rl-profile__card-title { background: var(--card-head-record); }
-.rl-profile__card--history .rl-profile__card-title { background: var(--card-head-history); }
-.rl-profile__card--signin .rl-profile__card-title { background: var(--card-head-signin); color: var(--card-head-signin-ink); }
-.rl-profile__card--data .rl-profile__card-title { background: var(--card-head-data); }
-.rl-profile__card--danger .rl-profile__card-title { background: var(--card-head-danger); color: var(--band-ink); }
+.rl-profile__card--record .rl-page-card__title { background: var(--card-head-record); }
+.rl-profile__card--history .rl-page-card__title { background: var(--card-head-history); }
+.rl-profile__card--signin .rl-page-card__title { background: var(--card-head-signin); color: var(--card-head-signin-ink); }
+.rl-profile__card--data .rl-page-card__title { background: var(--card-head-data); }
+.rl-profile__card--danger .rl-page-card__title { background: var(--card-head-danger); color: var(--band-ink); }
 .rl-profile__card--record { border-color: var(--card-head-record); }
 .rl-profile__card--signin { border-color: color-mix(in srgb, var(--card-head-signin) 45%, transparent); }
 .rl-profile__card--data { border-color: color-mix(in srgb, var(--rl-water-1) 50%, transparent); }

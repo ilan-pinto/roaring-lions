@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chatFilters } from './chat-filters';
 import {
+  doctrinePicks,
+  doctrines,
   formations,
   layouts,
   grades,
-  maps,
-  missions,
   paletteColor,
   paletteTeamColors,
   tutorials,
@@ -17,6 +18,7 @@ import {
   vfxMunitions,
   VFX_MUNITIONS_FILE,
 } from './index';
+import { maps, missions } from './content';
 
 const DATA_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data');
 
@@ -133,6 +135,30 @@ describe('formations is pinned to the directory it comes from', () => {
   });
 });
 
+describe('doctrinePicks is pinned to data/doctrines/picks (GH-1383 slice 1)', () => {
+  // The same shape as the formations pin above: a hand-kept record, so a pick file that ships without an import line
+  // is a doctrine no room could ever resolve. The base files (data/doctrines/*.json) are `doctrines`, never picks.
+  const picksDir = path.join(DATA_ROOT, 'doctrines', 'picks');
+
+  it('carries every pick file on disk, keyed by its own id', () => {
+    const onDisk = readdirSync(picksDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(path.join(picksDir, f), 'utf8')).id as string)
+      .sort();
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(Object.keys(doctrinePicks).sort()).toEqual(onDisk);
+    for (const [key, pick] of Object.entries(doctrinePicks)) expect(pick.id).toBe(key);
+  });
+
+  it('is in id order, three to a faction, and none of them is a base', () => {
+    const ids = Object.keys(doctrinePicks);
+    expect(ids).toEqual([...ids].sort());
+    expect(ids).toEqual(['kdf_airmobile', 'kdf_armour', 'kdf_urban', 'sarim_militia', 'sarim_raid', 'sarim_standoff']);
+    expect(Object.keys(doctrines).sort()).toEqual(['kdf', 'sarim']);
+    for (const id of ids) expect(Object.keys(doctrines)).not.toContain(id);
+  });
+});
+
 describe('layouts is pinned to its own directory, apart from formations (GH-1360 S3a)', () => {
   const layoutsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/layouts');
 
@@ -171,6 +197,34 @@ describe('grades is pinned to the directory it comes from', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toEqual(['dawn', 'dusk']);
+  });
+});
+
+describe('chatFilters is pinned to the directory it comes from (GH-1417 S2)', () => {
+  // The same shape as the grades pin above. data/chat/filter.*.json is read by nobody but this hand-kept array, so a file that
+  // ships without an import line is a language whose chat is never filtered, with a green validate:data. The array lives on the
+  // `@lions/data/chat-filters` subpath (`chat-filters.ts`), off the entry chunk; the index carries its type alone.
+  const chatDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/chat');
+
+  it('carries every filter file on disk, by lang, and each lang is its file name', () => {
+    const onDisk = readdirSync(chatDir)
+      .filter((f) => f.startsWith('filter.') && f.endsWith('.json'))
+      .map((f) => {
+        const lang = JSON.parse(readFileSync(path.join(chatDir, f), 'utf8')).lang as string;
+        expect(f).toBe(`filter.${lang}.json`);
+        return lang;
+      })
+      .sort();
+    expect(onDisk).toContain('en');
+    expect(chatFilters.map((c) => c.lang).sort()).toEqual(onDisk);
+  });
+
+  it('registers each exactly once, in sorted order, with English and no Chinese (held out, proposal W4)', () => {
+    const langs = chatFilters.map((c) => c.lang);
+    expect(new Set(langs).size).toBe(langs.length);
+    expect(langs).toEqual([...langs].sort());
+    expect(langs).toEqual(['de', 'en', 'es-ES', 'fr', 'ru']);
+    expect(langs.some((l) => l.startsWith('zh'))).toBe(false);
   });
 });
 

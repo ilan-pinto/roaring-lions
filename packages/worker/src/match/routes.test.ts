@@ -105,6 +105,21 @@ describe('/api/match', () => {
     // A sandbox room ignores the matchup altogether.
     expect((await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-1', build: 'b1', map: 'beit_sahwan_outskirts', matchup: 'sarim' }), env, NOW)).status).toBe(201);
   });
+  it('versus field works (the lead, 18 Nov 2026): reaches the room only for an annihilation KDF-v-KDF room; anything else is a 400 before a room is made', async () => {
+    const { env, createBodies } = fakeRooms();
+    const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'tel_marum', fieldWorks: true, ...over });
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({})), env, NOW)).status).toBe(201);
+    expect(createBodies[0]?.fieldWorks).toBe(true);
+    // Anything but `true` is off: the room is told nothing.
+    expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ fieldWorks: 'yes' })), env, NOW)).status).toBe(201);
+    expect('fieldWorks' in (createBodies[1] ?? {})).toBe(false);
+    for (const over of [{ matchup: 'kdf' }, { matchup: 'sarim' }, { winMode: 'points', map: 'wadi_tarfan' }, { mode: 'sandbox' }]) {
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, body(over)), env, NOW);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(await res.text(), JSON.stringify(over)).toBe('field works are for an annihilation room, KDF against KDF');
+    }
+    expect(createBodies).toHaveLength(2);
+  });
   it('GH-976 P2, P4: a win mode reaches the room only when it was read fair on the map in that pairing; anything else is a 400 before a room is made', async () => {
     const { env, createBodies } = fakeRooms();
     const body = (over: Record<string, unknown>) => ({ player: 'id-1', build: 'b1', mode: 'versus', map: 'wadi_tarfan', ...over });
@@ -125,12 +140,17 @@ describe('/api/match', () => {
     expect(createBodies.slice(SEVEN.length).map((b) => b.map)).toEqual(FLAG_THREE);
     expect(createBodies.length).toBe(SEVEN.length + FLAG_THREE.length);
     createBodies.splice(0, createBodies.length);
-    // GH-976 P4 review: no KDF-v-Sarim cell passed, so every faction pairing is a 400 below, whoever hosts.
+    // GH-976 P4 review: no points or flag KDF-v-Sarim cell passed, so every one is a 400 below, whoever hosts; the camp on the two
+    // Wadi Tarfans is the one faction mode offered (GH-1381), from either host, and reaches the room with its mode.
     // Annihilation by any of its spellings is no mode: the room is told nothing, as every room before.
     for (const winMode of [undefined, null, 'annihilation']) {
       expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode })), env, NOW)).status).toBe(201);
     }
     expect(createBodies.every((b) => !('winMode' in b))).toBe(true);
+    for (const map of ['wadi_tarfan', 'wadi_tarfan_l']) for (const matchup of ['kdf', 'sarim']) {
+      expect((await handleMatch(post(`${ORIGIN}/api/match`, body({ winMode: 'camp', map, matchup })), env, NOW)).status, `camp ${map} ${matchup}`).toBe(201);
+      expect(createBodies[createBodies.length - 1], `camp ${map} ${matchup}`).toMatchObject({ winMode: 'camp', map, matchup });
+    }
     const made = createBodies.length;
     const refuse = async (over: Record<string, unknown>, text: string): Promise<void> => {
       const res = await handleMatch(post(`${ORIGIN}/api/match`, body(over)), env, NOW);
@@ -151,7 +171,7 @@ describe('/api/match', () => {
       await refuse({ winMode: 'points', map: 'tel_marum', matchup }, unfair);                // fair on the lead, 26-29% decided by the goal
       await refuse({ winMode: 'flag', map: 'tel_marum', matchup }, unfair);
       await refuse({ winMode: 'flag', map: 'wadi_tarfan_l', matchup }, unfair);              // the KDF wins every raid
-      await refuse({ winMode: 'camp', map: 'wadi_tarfan_l', matchup }, unfair);
+      await refuse({ winMode: 'camp', map: 'milh_flats', matchup }, 'matchup not offered on this map');   // the camp's third map is mirror-only
       await refuse({ winMode: 'points', map: 'wadi_tarfan_l', matchup }, unfair);            // the one cell that passed at weight 10 was a kill race and is gone
     }
     // And a mirror-only map refuses the pairing itself before the mode is asked (the lead, 2026-10-14).

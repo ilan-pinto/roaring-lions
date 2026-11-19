@@ -15,7 +15,6 @@
 import { fx, Sim, type UnitTypeJson } from '@lions/sim';
 import {
   applyTerrain,
-  maps,
   paletteColor,
   parseMap,
   units,
@@ -25,7 +24,9 @@ import {
   type ParsedMap,
 } from '@lions/data';
 import type { EmitterSpec } from '@lions/render';
+import { isMapId, loadMap } from '@lions/data/content-lazy';
 import { standMapStructures } from '../map-sim';
+import { importWithRetry } from '../shell/chunk';
 import { meshManifestFor, meshPlanFor, type MeshPlan } from '../mesh-catalogue';
 import { rendererOptionsFor, type RendererSettings } from '../renderer-options';
 import type { SceneHostWorld } from '../ui/scene-host';
@@ -70,9 +71,12 @@ export interface DioramaWorld {
  * `data/maps` does not have, or a unit `data/units` does not have; either is
  * an authoring mistake in the diorama JSON, not a runtime condition to
  * recover from.
+ *
+ * `mapOf` answers the diorama's map by id (B6-6): the entry chunk holds no map JSON, so the menu loads the one map
+ * first (`loadDioramaSceneOptions`) and a test passes `@lions/data/content`'s eager `maps`. Undefined is the unknown map.
  */
-export function buildDioramaWorld(d: DioramaJson): DioramaWorld {
-  const mapJson = (maps as Record<string, MapJson | undefined>)[d.map];
+export function buildDioramaWorld(d: DioramaJson, mapOf: (id: string) => MapJson | undefined): DioramaWorld {
+  const mapJson = mapOf(d.map);
   if (mapJson === undefined) {
     throw new Error(`diorama "${d.id}" names map "${d.map}", which data/maps does not have`);
   }
@@ -153,10 +157,10 @@ export function hostQuality(player: Quality): Quality {
  * `bootBattlefield` hands `useEmitters` -- and a zoom that follows the cover
  * law (`hostZoom`) for whatever size the host's layer turns out to be.
  *
- * `base` is the deploy base, as `rendererOptionsFor` takes it.
+ * `base` is the deploy base, as `rendererOptionsFor` takes it; `mapOf` is `buildDioramaWorld`'s.
  */
-export function dioramaSceneOptions(d: DioramaJson, s: RendererSettings, base: string): SceneHostWorld {
-  const w = buildDioramaWorld(d);
+export function dioramaSceneOptions(d: DioramaJson, s: RendererSettings, base: string, mapOf: (id: string) => MapJson | undefined): SceneHostWorld {
+  const w = buildDioramaWorld(d, mapOf);
   return {
     sim: w.sim,
     renderer: {
@@ -171,4 +175,16 @@ export function dioramaSceneOptions(d: DioramaJson, s: RendererSettings, base: s
     camera: w.camera,
     zoomFor: (layerW, layerH) => hostZoom(layerW, layerH, w.zoomAtRef),
   };
+}
+
+/**
+ * `dioramaSceneOptions` for the menu (B6-6): the diorama's one map is loaded by id first, through `importWithRetry`
+ * like any chunk. An id no map has throws by name before anything loads; a map whose chunk will not load rejects.
+ * Either way the scene host's `world` rejects, and a rejected world is the host's `failed` path: the plate, never a
+ * blank backdrop (`ui/scene-host.ts`).
+ */
+export async function loadDioramaSceneOptions(d: DioramaJson, s: RendererSettings, base: string): Promise<SceneHostWorld> {
+  if (!isMapId(d.map)) throw new Error(`diorama "${d.id}" names map "${d.map}", which data/maps does not have`);
+  const json = await importWithRetry(() => loadMap(d.map));
+  return dioramaSceneOptions(d, s, base, (id) => (id === d.map ? json : undefined));
 }

@@ -116,7 +116,9 @@ export interface RenderQuality {
    * GH-1223: presentation-only physics (Rapier; `three/physics/`). `ragdolls` is how many dying infantry FIGURES may be
    * ragdolls at once; past it a death keeps the animated fall. **0 on every preset** (shipped dark, the lead's ruling
    * L4, 10 Nov 2026) until the lead has seen them: the sandbox flag `&ragdoll` raises it to 16 for a look. At 0 the
-   * WASM is never even fetched, so `low` pays nothing, ever. Absent reads 0.
+   * WASM is never even fetched, so `low` pays nothing, ever. Absent reads 0. GH-1400: the lead's caps (16 Nov 2026: `high` 16,
+   * `medium` 8, `low` 0) are wired in `three/preset-live.ts` behind `RAGDOLL_PRESETS_LIVE`, OFF until the Metal read; they are
+   * not written here because this table is on the entry's static closure, at its byte ceiling; the renderer's lazy chunk resolves them.
    */
   physics?: PhysicsQuality;
   /**
@@ -125,7 +127,8 @@ export interface RenderQuality {
    * flipbook's smoke pass fades its alpha by the scene depth where a billow
    * meets the ground or a wall. WebGL2 only. Absent or `false` builds nothing
    * and leaves every program byte for byte; NO preset sets it until the lead
-   * rules on the cost and the baseline move (the design's decisions table).
+   * rules on the cost and the baseline move (the design's decisions table). GH-1400: the lead's ruling (16 Nov 2026, `high`
+   * only, at a G-cost of 2 ms or less) is wired in `three/preset-live.ts` behind `SOFT_PARTICLES_PRESET_LIVE`, OFF.
    */
   softParticles?: boolean;
   /**

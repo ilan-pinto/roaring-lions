@@ -4,7 +4,8 @@
 // numbers included, is a catalogue key with params, so `?pseudo=1` brackets every text node in the panel. The panel
 // carries no Buy and reads no wallet: it takes the Stores' own `StoreInput` and the shipped data, nothing else.
 // Everything it makes is one element the caller mounts and removes.
-import { doctrines, missions, units, world } from '@lions/data';
+import { doctrines, units, world } from '@lions/data';
+import { missions } from '@lions/data/content';
 import { specialRefusal } from '@lions/net';
 import type { MissionJson } from '@lions/sim';
 import { t } from '../i18n/t';
@@ -22,6 +23,7 @@ import {
   type WhereLine,
 } from './stores-adds';
 import { unitItem, type StoreInput } from './stores-model';
+import { localizedUnit } from '../unit-text';
 
 const THREATS = threatTable as Readonly<Record<string, readonly string[]>>;
 /** The wounded type is a casualty, not a unit a brigade fields (spec §1.2 input). */
@@ -74,6 +76,7 @@ export function addsInput(unitId: string, input: StoreInput): AddsInput | null {
     enemies: s.enemies,
     open,
     ownedTiers: input.owned ?? {},
+    ownedPicks: input.ownedPicks ?? {},
     ledger: input.ledger,
     missions: s.missions,
     worldMissionIds: s.worldMissionIds,
@@ -223,7 +226,7 @@ export function buildAddsPanel(
   const ai = addsInput(unitId, input);
   if (ai === null) return null;
   const a = unitAdds(ai);
-  const name = ai.unit.name ?? ai.unit.id;
+  const name = localizedUnit(ai.unit).name ?? ai.unit.id;
 
   const panel = el('section', 'rl-stores__adds');
   panel.id = id;

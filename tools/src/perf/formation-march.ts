@@ -22,7 +22,8 @@
 
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, type Command, type SimEvent, type UnitTypeJson } from '@lions/sim';
-import { units, maps, structures as structureCatalogue, parseMap, applyTerrain, formations } from '@lions/data';
+import { units, structures as structureCatalogue, parseMap, applyTerrain, formations } from '@lions/data';
+import { maps } from '@lions/data/content';
 
 export const GROUPS = 15;
 export const PER_GROUP = 20;

@@ -38,13 +38,13 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown; accounts?: D1Like; member?: unknown; joinMember?: unknown; joinPlayer?: string; joinCallsign?: string; joinBotModel?: unknown }
+interface CreateOpts { map?: string; winMode?: unknown; flagSetup?: unknown; fieldWorks?: unknown; mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown; specials?: unknown; joinSpecials?: unknown; accounts?: D1Like; member?: unknown; joinMember?: unknown; joinPlayer?: string; joinCallsign?: string; joinBotModel?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, { ...env, ...(opts.db ? { DB: opts.db } : {}), ...(opts.accounts ? { ACCOUNTS: opts.accounts } : {}) } as Env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.flagSetup !== undefined ? { flagSetup: opts.flagSetup } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}), ...(opts.member !== undefined ? { member: opts.member } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: opts.map ?? 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.winMode !== undefined ? { winMode: opts.winMode } : {}), ...(opts.flagSetup !== undefined ? { flagSetup: opts.flagSetup } : {}), ...(opts.fieldWorks !== undefined ? { fieldWorks: opts.fieldWorks } : {}), ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}), ...(opts.specials !== undefined ? { specials: opts.specials } : {}), ...(opts.member !== undefined ? { member: opts.member } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
@@ -1402,7 +1402,7 @@ describe('advisor sockets (N4a task 7)', () => {
     const stBefore = await persisted(state);
     for (const m of [
       { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' }, { t: 'surrender' },
-      { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+      { t: 'chat', text: 'gg' }, { t: 'quick', id: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
     ]) await say(room, adv, m);
     expect(adv.closed).toBeNull();
     expect(state.storage.rowsWritten).toBe(before);
@@ -1702,6 +1702,50 @@ describe('win modes (GH-976 P2): the room records the host\'s pick and mints it 
     evict();
     const old = await hello(new MatchRoom(state, env, YIELD), 1);
     expect(ofType(old, 'lobby').at(-1)?.winMode).toBeUndefined();
+  });
+});
+
+describe('versus field works (the lead, 18 Nov 2026): the host\'s room option, annihilation KDF v KDF only', () => {
+  const WORKS = { mode: 'versus', map: 'tel_marum', fieldWorks: true };
+  it('a field-works room mints fieldWorks into both seats\' start config, and the lobby names it to both', async () => {
+    const { ws0, ws1 } = await running(WORKS);
+    expect(ofType(ws0, 'start')[0].config.fieldWorks).toBe(true);
+    expect(ofType(ws1, 'start')[0].config.fieldWorks).toBe(true);
+    expect(validateConfig(JSON.parse(JSON.stringify(ofType(ws0, 'start')[0].config)))?.fieldWorks).toBe(true);
+    const { room } = await created(new FakeState(), WORKS);
+    const l0 = await hello(room, 0);
+    const l1 = await hello(room, 1);
+    expect([ofType(l0, 'lobby').at(-1)?.fieldWorks, ofType(l1, 'lobby').at(-1)?.fieldWorks]).toEqual([true, true]);
+  });
+  it('a room without it names it nowhere', async () => {
+    const { ws0 } = await running({ mode: 'versus', map: 'tel_marum' });
+    expect('fieldWorks' in ofType(ws0, 'start')[0].config).toBe(false);
+    expect(ofType(ws0, 'lobby').every((l) => !('fieldWorks' in l))).toBe(true);
+  });
+  it('the room refuses it outside an annihilation KDF-v-KDF room, and makes no room', async () => {
+    for (const [over, status] of [
+      [{}, 200], [{ fieldWorks: 'yes' }, 200],
+      [{ matchup: 'kdf' }, 400], [{ matchup: 'sarim' }, 400], [{ winMode: 'points' }, 400], [{ mode: 'sandbox' }, 400],
+    ] as const) {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, YIELD);
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST',
+        body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', fieldWorks: true, ...over }),
+      }));
+      expect(res.status, JSON.stringify(over)).toBe(status);
+      expect((await state.storage.get('state')) === undefined, JSON.stringify(over)).toBe(status === 400);
+    }
+  });
+  it('a room persisted before field works revives without them', async () => {
+    const { state } = await created(new FakeState(), WORKS);
+    const meta = await state.storage.get<Record<string, unknown>>('meta');
+    expect(meta?.fieldWorks).toBe(true);
+    delete meta?.fieldWorks;
+    await state.storage.put('meta', meta);
+    evict();
+    const old = await hello(new MatchRoom(state, env, YIELD), 1);
+    expect(ofType(old, 'lobby').at(-1)?.fieldWorks).toBeUndefined();
   });
 });
 
@@ -2884,7 +2928,7 @@ describe('watch sockets (GH-954 W1)', () => {
   const watchHello = async (room: MatchRoom): Promise<FakeSocket> => hello(room, 0, await watchTicket());
   const EVERY_VERB: unknown[] = [
     { t: 'hello', ticket: 'x', build: BUILD }, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } }, { t: 'ready' }, { t: 'pause' }, { t: 'resume' },
-    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
+    { t: 'surrender' }, { t: 'chat', text: 'gg' }, { t: 'quick', id: 'gg' }, { t: 'hash', tick: 19, h: 1 }, { t: 'ack', tick: 20 }, { t: 'over', tick: 10 }, { t: 'done', round: 0 }, { t: 'bye' },
     { t: 'advisor', a: { kind: 'text', text: 'ridge' } }, { t: 'advisor', a: { kind: 'proposal', id: 1, cmd: { kind: 'halt', ids: [3] }, note: 'hold' } }, '{not json',
   ];
 
@@ -2917,6 +2961,28 @@ describe('watch sockets (GH-954 W1)', () => {
     expect(last(ws0)).toMatchObject({ t: 'frame', tick: 3 });
     // And it is told no lobby: it has no seat to describe.
     expect(ofType(w, 'lobby')).toEqual([]);
+  });
+
+  it('a spectator hears neither chat nor quick chat, though both seats do and the frames still reach it (GH-1417, D11)', async () => {
+    const { room, ws0, ws1 } = await running(BOTS);
+    await vi.advanceTimersByTimeAsync(3 * TICK_MS);
+    const w = await watchHello(room);
+    const frames = ofType(w, 'frame').length;
+    await say(room, ws0, { t: 'chat', text: 'hello from seat 0' });
+    await say(room, ws1, { t: 'quick', id: 'gg' });
+    await say(room, ws1, { t: 'chat', text: 'and a line from seat 1' }); // within 500 ms of its own phrase: dropped by the limit, not by the spectator rule
+    await vi.advanceTimersByTimeAsync(600);
+    await say(room, ws1, { t: 'chat', text: 'seat 1, later' });
+    await say(room, ws0, { t: 'quick', id: 'wp' });
+    // the seats heard the talk (control: the relay works) ...
+    for (const ws of [ws0, ws1]) {
+      expect(ofType(ws, 'chat').map((m) => m.text)).toEqual(['hello from seat 0', 'seat 1, later']);
+      expect(ofType(ws, 'quick').map((m) => m.id)).toEqual(['gg', 'wp']);
+    }
+    // ... the spectator heard neither, but still hears the match
+    expect(ofType(w, 'chat')).toEqual([]);
+    expect(ofType(w, 'quick')).toEqual([]);
+    expect(ofType(w, 'frame').length).toBeGreaterThan(frames);
   });
 
   it('every verb a client has, sent by a watcher, changes nothing: frames, rows, advisors and the observer stay as they were', async () => {

@@ -1,0 +1,162 @@
+// GH-1395 slice 1: amendments to the orders and the named challenge, as data (design
+// 2026-11-15-challenge-star-design.md §3-§5; the lead's rulings D1-D13 on PR 1459, 16 Nov 2026).
+//
+// An amendment is a list of operations from the CLOSED overlay set (`overlays.ts`), applied by `applyOverlays`
+// AFTER the difficulty posture, before the runtime is built: the sim never learns an amendment exists. A mission
+// offers three (D8); its challenge names the ones that must be on (extras allowed, D7) and a predicate over the
+// run's own result row. A beaten challenge pays 10 Roar coins ONCE PER ACCOUNT (D1, `@lions/economy`'s
+// `roarEarn`, the Worker's `victory`), pays no credits (D3), counts toward no unit unlock (D2), and is not
+// recorded on Easier (GH-1394 D9; `packages/app/src/challenge.ts`).
+//
+// Leaf package rule (CLAUDE.md): @lions/data imports no other @lions package, so the result row and the mission
+// are typed structurally here, and `TICKS_PER_TARGET_MINUTE` is a literal pinned against @lions/sim's
+// `TICKS_PER_SECOND` from outside this package (`tools/src/challenges.test.ts`).
+
+import amendmentsJson from '../../../data/challenges/amendments.json';
+// The pilot (D9): one mission per phase, in sorted file order. `index.test.ts` pins this list to the directory.
+import bsBreach from '../../../data/challenges/beit_sahwan_breach.json';
+import bs1 from '../../../data/challenges/beit_sahwan_1_recon.json';
+import bs2 from '../../../data/challenges/beit_sahwan_2_foothold.json';
+import bs3 from '../../../data/challenges/beit_sahwan_3_clearance.json';
+import bs4 from '../../../data/challenges/beit_sahwan_4_subterranean.json';
+import uz2 from '../../../data/challenges/umm_zeitoun_2_buildup.json';
+import type { OverlayOp } from './overlays';
+// The index the coin rules share and the ledger key live apart, so the entry chunk never carries this catalogue.
+export { CHALLENGE_LEDGER_KEY, challengeMissionIds, hasChallenge } from './challenge-ids';
+
+/** One generic amendment (`data/challenges/amendments.json`). */
+export interface AmendmentJson {
+  id: string;
+  /** English source text (data text, as a mission's name is; not an en.json key). */
+  label: string;
+  blurb: string;
+  ops: readonly OverlayOp[];
+}
+
+export interface AmendmentCatalogue {
+  amendments: readonly AmendmentJson[];
+}
+
+/** The CLOSED predicate set (§5.1). Every named field must hold. */
+export interface ChallengeWin {
+  conduct_at_least?: number;
+  lost_at_most?: number;
+  ticks_at_most_target?: true;
+  carries_all?: true;
+  /** The lead's ruling on PR 1568 (Whole Picture): this one SECONDARY objective of the mission is complete at the end.
+   *  `tools/validate_challenges.mjs` refuses an id that is not a secondary of the file's mission (never the primary,
+   *  which a win completes anyway). Like every term, it only adds to a victory: it can never make a challenge easier
+   *  than winning the mission. */
+  objective_done?: string;
+}
+
+/** One term of the closed set, by its JSON key. */
+export type ChallengeTerm = keyof Required<ChallengeWin>;
+
+/** A mission's offers and its one named challenge (`data/challenges/<mission>.json`). */
+export interface MissionChallengeJson {
+  mission: string;
+  offers: readonly string[];
+  /** D8's mission-specific amendment, where it earns its place: the library's shape, offered by this mission only. */
+  own?: readonly AmendmentJson[];
+  challenge: {
+    id: string;
+    label: string;
+    blurb: string;
+    amendments: readonly string[];
+    win: ChallengeWin;
+  };
+}
+
+/** The shipped library. */
+export const amendments: AmendmentCatalogue = amendmentsJson as unknown as AmendmentCatalogue;
+
+/** Every mission's challenge, sorted by mission id. */
+// Written in sorted order rather than sorted at load: a call at module top level is a side effect the bundler must keep,
+// and it kept this whole catalogue on the app's entry chunk through @lions/data's index (webgpu:bundle, +7.4 KB).
+// `challenges.test.ts` pins the order.
+export const missionChallenges: readonly MissionChallengeJson[] = [bs1, bs2, bs3, bs4, bsBreach, uz2] as unknown as MissionChallengeJson[];
+
+/** One mission's challenge mark: the challenge's id and the run's own row. */
+export interface ChallengeMark {
+  id: string;
+  roe: number;
+  ticks: number;
+  lost: number;
+}
+
+/** 60 s of 20 Hz sim ticks: the unit `target_minutes` is compared in. A literal, because this leaf package cannot
+ *  import @lions/sim; `tools/src/challenges.test.ts` pins it to `60 * TICKS_PER_SECOND`. */
+export const TICKS_PER_TARGET_MINUTE = 1200;
+
+export function challengeOf(missionId: string): MissionChallengeJson | undefined {
+  return missionChallenges.find((c) => c.mission === missionId);
+}
+
+
+/**
+ * The op lists a set of amendment ids applies, in LIBRARY order (then the mission's own) with duplicates dropped, so
+ * `['a', 'b']` and `['b', 'a']` build the same mission (a save or a replay that stores the ids reloads one mission,
+ * D10). `missionId` given: every id must be one that mission offers, and its `own` amendment is known. Throws on an
+ * unknown or unoffered id (a caller fault, never a player one: the deploy screen offers only the mission's three).
+ */
+export function amendmentOps(
+  ids: readonly string[],
+  missionId?: string,
+  catalogue: AmendmentCatalogue = amendments
+): readonly (readonly OverlayOp[])[] {
+  if (ids.length === 0) return [];
+  const c = missionId === undefined ? undefined : challengeOf(missionId);
+  const known: readonly AmendmentJson[] = [...catalogue.amendments, ...(c?.own ?? [])];
+  for (const id of ids) {
+    if (!known.some((a) => a.id === id)) throw new Error(`amendments: no amendment "${id}" in the library${missionId === undefined ? '' : ` or ${missionId}'s own`}`);
+    if (missionId !== undefined && !(c?.offers ?? []).includes(id)) throw new Error(`amendments: ${missionId} does not offer "${id}"`);
+  }
+  const on = new Set(ids);
+  return known.filter((a) => on.has(a.id)).map((a) => a.ops);
+}
+
+/** D7: the challenge is armed when every amendment it names is on; extra amendments on top are allowed. */
+export function challengeArmed(c: MissionChallengeJson, on: readonly string[]): boolean {
+  return c.challenge.amendments.every((id) => on.includes(id));
+}
+
+/** The run's own result row, as the runtime's end and the playtest harness both read it. */
+export interface ChallengeRun {
+  roe: number;
+  /** Sim ticks at the end (20 a second). */
+  ticks: number;
+  /** Player units that died, built ones included (the ledger's `lost`). */
+  lost: number;
+  /** Every `carries: true` secondary of the mission AS PLAYED is complete. */
+  carriesAll: boolean;
+  /** The ids of the mission's objectives that are complete at the end (`objective_done` reads it). */
+  objectivesDone: readonly string[];
+}
+
+/**
+ * The predicate (§5.1), term by term, on one run's row: one entry per field `win` names, in the closed set's order,
+ * with whether it held. `targetMinutes` is the mission's own `target_minutes` (no overlay moves it). The playtest's
+ * challenge reading counts these; `challengeMet` is "every one held".
+ */
+export function challengeTerms(win: ChallengeWin, run: ChallengeRun, targetMinutes: number): { term: ChallengeTerm; held: boolean }[] {
+  const out: { term: ChallengeTerm; held: boolean }[] = [];
+  if (win.conduct_at_least !== undefined) out.push({ term: 'conduct_at_least', held: run.roe >= win.conduct_at_least });
+  if (win.lost_at_most !== undefined) out.push({ term: 'lost_at_most', held: run.lost <= win.lost_at_most });
+  if (win.ticks_at_most_target === true) out.push({ term: 'ticks_at_most_target', held: run.ticks <= targetMinutes * TICKS_PER_TARGET_MINUTE });
+  if (win.carries_all === true) out.push({ term: 'carries_all', held: run.carriesAll });
+  if (win.objective_done !== undefined) out.push({ term: 'objective_done', held: run.objectivesDone.includes(win.objective_done) });
+  return out;
+}
+
+/** The predicate (§5.1), on one run's row: every term `win` names holds. */
+export function challengeMet(win: ChallengeWin, run: ChallengeRun, targetMinutes: number): boolean {
+  return challengeTerms(win, run, targetMinutes).every((t) => t.held);
+}
+
+/** Whether mark `a` should replace `b` as this campaign's best: faster, then higher Conduct (`betterResult`'s order
+ *  without the stars, which a challenge run grades separately). */
+export function betterMark(a: ChallengeMark, b: ChallengeMark): boolean {
+  if (a.ticks !== b.ticks) return a.ticks < b.ticks;
+  return a.roe > b.roe;
+}

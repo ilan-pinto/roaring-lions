@@ -27,7 +27,7 @@ function setup(opts: { floors?: Record<string, number>; failLate?: boolean } = {
 type S = ReturnType<typeof setup>;
 
 const start = (s: S, cookie: string, n: number, mission = M1) => s.h.call('POST', '/api/account/mission/start', { cookie, body: { op_id: op(n), missionId: mission } });
-const win = (s: S, cookie: string, n: number, o: { start?: number | null; stars?: number; base?: number; campaign?: unknown; mission?: string } = {}) =>
+const win = (s: S, cookie: string, n: number, o: { start?: number | null; stars?: number; base?: number; campaign?: unknown; mission?: string; challenge?: unknown } = {}) =>
   s.h.call('POST', '/api/account/victory', {
     cookie,
     body: {
@@ -37,6 +37,7 @@ const win = (s: S, cookie: string, n: number, o: { start?: number | null; stars?
       start: o.start === null ? null : op(o.start ?? n - 1),
       base: o.base ?? 0,
       campaign: o.campaign === undefined ? null : o.campaign,
+      ...(o.challenge === undefined ? {} : { challenge: o.challenge }),
     },
   });
 const seedCampaign = (s: S, revision: number) =>
@@ -254,5 +255,134 @@ describe('victory', () => {
     const r = await s.h.call('POST', '/api/account/victory', { cookie, body: { op_id: op(1), missionId: M1, stars: 'x', start: null, base: 0, campaign: null } });
     expect([r.status, await r.json()]).toEqual([400, { error: 'body' }]);
     expect((await snapshot(s)).ops).toEqual([]);
+  });
+});
+
+// GH-1395 slice 1 (lead ruling D1, check C13): a beaten challenge pays 10 Roar coins once per account, through this
+// route and nothing else; the body's `challenge` is a client fact at the trust of `stars`, gated like the coins it rides
+// with (a plausible nonce), by the challenge index, and by the LIFETIME record.
+describe('victory: the challenge coin', () => {
+  const PLAIN = 'khan_rafid_1_recon';
+  const floors = { [M1]: 1, [PLAIN]: 1 };
+  type Answer = { coins: number; awards: { source: string; coins: number; missionId?: string }[] };
+  const challengeAwards = (a: Answer) => a.awards.filter((x) => x.source === 'challenge');
+
+  it('pays exactly 10, once: a second challenge win of the mission pays 0', async () => {
+    const s = setup({ floors });
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now += MIN;
+    const first = (await (await win(s, cookie, 2, { start: 1, stars: 2, challenge: true })).json()) as Answer;
+    expect(challengeAwards(first)).toEqual([{ source: 'challenge', coins: 10, missionId: M1 }]);
+    expect(first.coins).toBe(100 + 10 + 10 + 10);
+    expect((await lifetimeOf(s)).missions[M1]).toEqual({ won: true, stars: 2, challenge: true });
+    await start(s, cookie, 3);
+    s.clock.now += MIN;
+    const second = (await (await win(s, cookie, 4, { start: 3, stars: 2, challenge: true })).json()) as Answer;
+    expect(second.coins).toBe(0);
+    expect(await freeOf(s)).toBe(130);
+    expect(await journalSum(s)).toBe(130);
+  });
+
+  it('a replay of the same op answers its stored result and writes no second journal row', async () => {
+    const s = setup({ floors });
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now += MIN;
+    const a = await (await win(s, cookie, 2, { start: 1, challenge: true })).json();
+    const rows = (await snapshot(s)).journal.length;
+    const b = await (await win(s, cookie, 2, { start: 1, challenge: true })).json();
+    expect(b).toEqual(a);
+    expect((await snapshot(s)).journal.length).toBe(rows);
+    expect(await freeOf(s)).toBe(130);
+  });
+
+  it('a reset of the free half does not reopen it: the lifetime record still holds the flag', async () => {
+    const s = setup({ floors });
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now += MIN;
+    await win(s, cookie, 2, { start: 1, challenge: true });
+    expect((await s.h.call('POST', '/api/account/reset-free', { cookie, body: { op_id: op(3) } })).status).toBe(200);
+    await start(s, cookie, 4);
+    s.clock.now += MIN;
+    const after = (await (await win(s, cookie, 5, { start: 4, challenge: true })).json()) as Answer;
+    // The reset gives the first win and the stars back to `earn` (the rule before GH-1395); the challenge, never.
+    expect(after.awards.map((x) => x.source)).toEqual(['welcome', 'first_win', 'star']);
+  });
+
+  it('a mission with no challenge pays no challenge coin, whatever the body says', async () => {
+    const s = setup({ floors });
+    const cookie = await member(s);
+    await start(s, cookie, 1, PLAIN);
+    s.clock.now += MIN;
+    const a = (await (await win(s, cookie, 2, { start: 1, mission: PLAIN, stars: 1, challenge: true })).json()) as Answer;
+    expect(challengeAwards(a)).toEqual([]);
+    expect(a.coins).toBe(100 + 10 + 5);
+    expect((await lifetimeOf(s)).missions[PLAIN]).toEqual({ won: true, stars: 1 });
+  });
+
+  it('no plausible nonce, no challenge coin; the next plausible win pays it', async () => {
+    const s = setup({ floors });
+    const cookie = await member(s);
+    s.clock.now += MIN;
+    const offline = (await (await win(s, cookie, 1, { start: null, challenge: true })).json()) as Answer;
+    expect(offline.coins).toBe(0);
+    await start(s, cookie, 2);
+    s.clock.now += MIN;
+    const later = (await (await win(s, cookie, 3, { start: 2, challenge: true })).json()) as Answer;
+    expect(challengeAwards(later)).toEqual([{ source: 'challenge', coins: 10, missionId: M1 }]);
+  });
+
+  it('an older client that sends no `challenge` is paid as before; a non-boolean is refused', async () => {
+    const s = setup({ floors });
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now += MIN;
+    const old = (await (await win(s, cookie, 2, { start: 1 })).json()) as Answer;
+    expect(challengeAwards(old)).toEqual([]);
+    expect(old.coins).toBe(120);
+    const bad = await win(s, cookie, 3, { start: 1, challenge: 'yes' });
+    expect([bad.status, await bad.json()]).toEqual([400, { error: 'body' }]);
+  });
+});
+
+// GH-1385: the earn journal and the answer checked against the rows. The victory tests read the journal's SUM and the answer's
+// coins only, so earn rows with no receipt, rows that lost their missionId, and an answer one revision off the wallet (the
+// next guarded write's expected revision) all passed.
+describe('what a paying victory writes and answers (GH-1385)', () => {
+  const walletRow = async (s: S) => (await s.h.db.prepare('SELECT revision FROM wallet').first<{ revision: number }>())?.revision ?? -1;
+  const earnRows = async (s: S) =>
+    (await s.h.db.prepare("SELECT free_delta AS d, detail FROM coin_journal WHERE kind = 'earn' ORDER BY id").all<{ d: number; detail: string }>()).results.map((r) => ({ d: r.d, ...(JSON.parse(r.detail) as object) }));
+
+  it('a first win journals one row per award, each with its source, mission and receipt, and answers the wallet row', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now = T0 + MIN;
+    const r = (await (await win(s, cookie, 2, { start: 1, stars: 2 })).json()) as { coins: number; wallet: { free: number; paid: number; revision: number } };
+    expect(r.coins).toBe(120);
+    expect(r.wallet.revision).toBe(await walletRow(s));
+    const at = T0 + MIN;
+    const receipt = (n: number, source: string, free: number, mission?: string) => ({
+      kind: 'earn', id: `${at}-${n}`, at, coins: { free, paid: 0 }, source, ...(mission === undefined ? {} : { missionId: mission }),
+    });
+    expect(await earnRows(s)).toEqual([
+      { d: 100, source: 'welcome', receipt: receipt(1, 'welcome', 100) },
+      { d: 10, source: 'first_win', missionId: M1, receipt: receipt(2, 'first_win', 10, M1) },
+      { d: 10, source: 'star', missionId: M1, receipt: receipt(3, 'star', 10, M1) },
+    ]);
+  });
+
+  it('a win that pays nothing answers the unchanged wallet row, paid 0', async () => {
+    const s = setup();
+    const cookie = await member(s);
+    await start(s, cookie, 1);
+    s.clock.now = T0 + MIN;
+    await win(s, cookie, 2, { start: 1, stars: 2 });
+    await start(s, cookie, 3);
+    s.clock.now += MIN;
+    const r = (await (await win(s, cookie, 4, { start: 3, stars: 2 })).json()) as { coins: number; wallet: { free: number; paid: number; revision: number } };
+    expect([r.coins, r.wallet.free, r.wallet.paid, r.wallet.revision]).toEqual([0, 120, 0, await walletRow(s)]);
   });
 });

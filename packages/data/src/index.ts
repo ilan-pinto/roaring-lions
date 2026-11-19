@@ -10,78 +10,15 @@ import worldJson from '../../../data/campaign/world.json';
 import countriesJson from '../../../data/campaign/countries.json';
 import commanderJson from '../../../data/campaign/commander.json';
 import namesJson from '../../../data/campaign/names.json';
-import beitSahwanOutskirts from '../../../data/maps/beit_sahwan_outskirts.json';
-// Beit Sahwan's per-mission variants (docs/campaign/map-variants-design.md
-// §3.2): same 48x48 frame, same markers/zones, same `tunnels` block, same
-// structure tiles a `garrison` stance points at by tile -- obstacles bent
-// around the town's own roads and buildings per mission. The base file is
-// untouched; I and the breach stay on it (recon learns the town as it is;
-// the yard's eight raid axes are the mission's own shape).
-import beitSahwan2Map from '../../../data/maps/beit_sahwan_2.json';
-import beitSahwan3Map from '../../../data/maps/beit_sahwan_3.json';
-import beitSahwan4Map from '../../../data/maps/beit_sahwan_4.json';
-import khanRafidMap from '../../../data/maps/khan_rafid.json';
-import khanRafid2Map from '../../../data/maps/khan_rafid_2.json';
-import khanRafid3Map from '../../../data/maps/khan_rafid_3.json';
-import deirAmunMap from '../../../data/maps/deir_amun.json';
-import deirAmun2Map from '../../../data/maps/deir_amun_2.json';
-import deirAmun3Map from '../../../data/maps/deir_amun_3.json';
-import einQasab from '../../../data/maps/ein_qasab.json';
-import einQasab3 from '../../../data/maps/ein_qasab_3.json';
-import jebelMatar from '../../../data/maps/jebel_matar.json';
-import marjPerimeter from '../../../data/maps/marj_perimeter.json';
-import qarnHadid from '../../../data/maps/qarn_hadid.json';
-import qarnHadid2Map from '../../../data/maps/qarn_hadid_2.json';
-import qarnHadid3Map from '../../../data/maps/qarn_hadid_3.json';
-import telMarum from '../../../data/maps/tel_marum.json';
-// Tel Marum's per-mission variants (docs/campaign/map-variants-design.md):
-// same 48x48 frame, same markers/zones, same rows 12-17 (the wall), obstacles
-// and elevation bent around it per mission. The base file is untouched.
-import telMarum1 from '../../../data/maps/tel_marum_1.json';
-import telMarum2 from '../../../data/maps/tel_marum_2.json';
-import telMarum3 from '../../../data/maps/tel_marum_3.json';
-// The two dedicated 1v1 versus maps (2026-10-14): point-symmetric about the
-// map centre, each seat's start named `versus_0` / `versus_1` (read by name by
-// `sandboxAnchors`). No mission references either.
-import milhFlats from '../../../data/maps/milh_flats.json';
-import wadiTarfan from '../../../data/maps/wadi_tarfan.json';
-import wadiTarfanL from '../../../data/maps/wadi_tarfan_l.json';
-import milhFlatsL from '../../../data/maps/milh_flats_l.json';
-// The large 80x80 network map (GH-913 L4, 2026-11-01): point-symmetric, seats named as above.
-// Registered so free play can walk it; no room offers it until L5's fairness runs and the lead.
-import rujmSawda from '../../../data/maps/rujm_sawda.json';
-// The four tile-study sandboxes (2026-09-03). Not campaign ground and no
-// mission references any of them: each exists to put ONE of the ground
-// albedos in front of the player at gameplay zoom, reachable from the
-// `?sandboxes` picker, which builds its list from this registry.
-import tileGreen from '../../../data/maps/tile_green.json';
-import tileKnoll from '../../../data/maps/tile_knoll.json';
-import tileOrchard from '../../../data/maps/tile_orchard.json';
-import tileRoad from '../../../data/maps/tile_road.json';
-import tileScrub from '../../../data/maps/tile_scrub.json';
-import tutorialGround from '../../../data/maps/tutorial_ground.json';
-import ummZeitoun from '../../../data/maps/umm_zeitoun.json';
-// Umm Zeitoun's per-mission variants (docs/campaign/map-variants-design.md
-// §3.4): same 48x48 frame, same markers/zones, same `stockpile`, `crest_top`,
-// `post_stone` and `hamlet` contents -- obstacles bent around them per
-// mission. The base file is untouched; I and II stay on it (the basin's
-// "no wall, no gate, crossable anywhere" briefing is the point of both).
-import ummZeitoun2 from '../../../data/maps/umm_zeitoun_2.json';
-import ummZeitoun3 from '../../../data/maps/umm_zeitoun_3.json';
-import ummZeitoun4 from '../../../data/maps/umm_zeitoun_4.json';
-import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
-// Wadi Halam's per-mission variants (docs/campaign/map-variants-design.md
-// §3.3): same 48x48 frame, same markers/zones, same depot compound and
-// poplar gallery, obstacles (and, for II, a first elevation grid) bent
-// around them per mission. I stays on the base file (the fords are the lesson
-// the base map already teaches); since GH-161 the base file carries its own east-bank crest
-// (a sparse elevation grid).
-import wadiHalam2 from '../../../data/maps/wadi_halam_2.json';
-import wadiHalam3 from '../../../data/maps/wadi_halam_3.json';
-import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';
-import wadiHalam5 from '../../../data/maps/wadi_halam_5.json';
 import kdfDoctrine from '../../../data/doctrines/kdf.json';
 import sarimDoctrine from '../../../data/doctrines/sarim.json';
+// GH-1383 slice 1: the doctrine picks, registered in sorted directory order (id order). Read by nothing yet.
+import pickKdfAirmobile from '../../../data/doctrines/picks/kdf_airmobile.json';
+import pickKdfArmour from '../../../data/doctrines/picks/kdf_armour.json';
+import pickKdfUrban from '../../../data/doctrines/picks/kdf_urban.json';
+import pickSarimMilitia from '../../../data/doctrines/picks/sarim_militia.json';
+import pickSarimRaid from '../../../data/doctrines/picks/sarim_raid.json';
+import pickSarimStandoff from '../../../data/doctrines/picks/sarim_standoff.json';
 import rujmSawdaVersus from '../../../data/versus/rujm_sawda.json';
 import telMarumVersus from '../../../data/versus/tel_marum.json';
 import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
@@ -104,39 +41,10 @@ import layoutAssembly from '../../../data/layouts/assembly.json';
 import gradeDawn from '../../../data/grades/dawn.json';
 import gradeDusk from '../../../data/grades/dusk.json';
 import type { DoctrineJson, VersusModeFileJson, VersusRulesJson } from './versus';
+import type { DoctrinePickJson } from './doctrines';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
 import minWinSecondsJson from '../../../data/accounts/min_win_seconds.json';
-import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
-import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
-import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
-import beitSahwan2 from '../../../data/missions/beit_sahwan_2_foothold.json';
-import beitSahwan3 from '../../../data/missions/beit_sahwan_3_clearance.json';
-import beitSahwan4 from '../../../data/missions/beit_sahwan_4_subterranean.json';
-import telMarum1Recon from '../../../data/missions/tel_marum_1_recon.json';
-import telMarum2Foothold from '../../../data/missions/tel_marum_2_foothold.json';
-import telMarum3Clearance from '../../../data/missions/tel_marum_3_clearance.json';
-import qarnHadid1Recon from '../../../data/missions/qarn_hadid_1_recon.json';
-import qarnHadid2Foothold from '../../../data/missions/qarn_hadid_2_foothold.json';
-import qarnHadid3Clearance from '../../../data/missions/qarn_hadid_3_clearance.json';
-import ummZeitoun1Recon from '../../../data/missions/umm_zeitoun_1_recon.json';
-import ummZeitoun2Buildup from '../../../data/missions/umm_zeitoun_2_buildup.json';
-import ummZeitoun3Clearance from '../../../data/missions/umm_zeitoun_3_clearance.json';
-import ummZeitoun4Clearance from '../../../data/missions/umm_zeitoun_4_clearance.json';
-import einQasab1Recon from '../../../data/missions/ein_qasab_1_recon.json';
-import einQasab2Foothold from '../../../data/missions/ein_qasab_2_foothold.json';
-import einQasab3Buildup from '../../../data/missions/ein_qasab_3_buildup.json';
-import wadiHalam1Fords from '../../../data/missions/wadi_halam_1_fords.json';
-import wadiHalam2Laager from '../../../data/missions/wadi_halam_2_laager.json';
-import wadiHalam3Counterraid from '../../../data/missions/wadi_halam_3_counterraid.json';
-import wadiHalam4Village from '../../../data/missions/wadi_halam_4_village.json';
-import wadiHalam5Depot from '../../../data/missions/wadi_halam_5_depot.json';
-import khanRafid1Recon from '../../../data/missions/khan_rafid_1_recon.json';
-import khanRafid2Foothold from '../../../data/missions/khan_rafid_2_foothold.json';
-import khanRafid3Clearance from '../../../data/missions/khan_rafid_3_clearance.json';
-import deirAmun1Recon from '../../../data/missions/deir_amun_1_recon.json';
-import deirAmun2Foothold from '../../../data/missions/deir_amun_2_foothold.json';
-import deirAmun3Subterranean from '../../../data/missions/deir_amun_3_subterranean.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
 import firstUseHintsJson from '../../../data/hints/first_use.json';
 
@@ -293,21 +201,94 @@ export {
 
 /** Brigade economy step 3 (spec 2026-09-15 §4.3): patches a unit's JSON
  *  with its bought upgrade tiers before @lions/sim registers the type. */
+export { BRANCHES_OPEN } from './branches-open';
 export {
   applyUpgrades,
+  branchedTable,
+  branchedTracks,
+  branchOf,
+  isBranchedTier,
   kitCounts,
   kitLevel,
+  maxPicks,
   maxTiers,
   nextTierPrice,
   readPath,
+  tierPatch,
   UPGRADE_PATHS,
+  type BranchedTable,
+  type BranchedTrack,
+  type BranchedTier,
+  type BranchPick,
+  type BranchPicks,
   type KitCounts,
   type KitLevel,
+  type OwnedPicks,
+  type PlainTier,
   type UpgradableUnit,
+  type UpgradeBranch,
   type UpgradeTier,
   type UpgradeTrack,
   type UpgradeTracks,
 } from './upgrades';
+
+/** GH-1394/GH-1395: the one pure pre-pass over a mission's JSON (difficulty postures, then amendments),
+ *  run before the runtime is built so the sim never learns a posture exists. */
+export {
+  applyOverlays,
+  applyOps,
+  postureOf,
+  postureOps,
+  postureApplies,
+  postures,
+  reliefTriggerIndices,
+  POSTURE_IDS,
+  DIFFICULTY_LEDGER_KEY,
+  RELIEF_TRIGGER_ID,
+  type OverlayOp,
+  type OverlayChoice,
+  type OverlayMission,
+  type OverlayOptions,
+  type OverlayWave,
+  type PostureId,
+  type PostureJson,
+  type PostureCatalogue,
+  FAIL_BELOW_CEILING,
+} from './overlays';
+
+/** GH-1389: the versus computer seat's three levels, each a stated handicap on its force size. */
+export {
+  computerLevels,
+  computerLevelOf,
+  withholdOf,
+  COMPUTER_LEVEL_IDS,
+  type ComputerLevelId,
+  type ComputerLevelJson,
+  type ComputerLevelCatalogue,
+} from './computer-levels';
+/** GH-1395: amendments to the orders and the named challenge (slice 1, no UI): the library, the six-mission pilot,
+ *  the challenge index the coin rules share, and the pure predicate. */
+export {
+  amendments,
+  amendmentOps,
+  betterMark,
+  challengeArmed,
+  challengeMet,
+  challengeOf,
+  challengeTerms,
+  missionChallenges,
+  TICKS_PER_TARGET_MINUTE,
+  type AmendmentCatalogue,
+  type AmendmentJson,
+  type ChallengeMark,
+  type ChallengeRun,
+  type ChallengeTerm,
+  type ChallengeWin,
+  type MissionChallengeJson,
+} from './challenges';
+// The coin rules' index and the ledger key, from their own module so @lions/economy (on the entry chunk) never pulls
+// the catalogue's JSON in (the posture-ids.ts arrangement).
+export { CHALLENGE_LEDGER_KEY, challengeMissionIds, hasChallenge } from './challenge-ids';
 
 export {
   versusMissionOf,
@@ -357,6 +338,29 @@ export const doctrines: Readonly<Record<'kdf' | 'sarim', DoctrineJson>> = {
   sarim: sarimDoctrine as DoctrineJson,
 };
 
+/** Doctrine picks (GH-1383 slice 1), keyed by id in id order: each extends `doctrines[pick.extends]` with the closed op
+ *  list `resolveDoctrine` applies. data/doctrines/picks/*.json against doctrine_pick.schema.json, P1-P10 and the cost-curve
+ *  gate in `pnpm validate:data`. Hand-kept, so `index.test.ts` pins it to the directory. Every pick reads `status: proposed`,
+ *  and nothing in the app reads this record until slices 2-3 (the pre-pass and the config). */
+export const doctrinePicks: Readonly<Record<string, DoctrinePickJson>> = {
+  kdf_airmobile: pickKdfAirmobile as DoctrinePickJson,
+  kdf_armour: pickKdfArmour as DoctrinePickJson,
+  kdf_urban: pickKdfUrban as DoctrinePickJson,
+  sarim_militia: pickSarimMilitia as DoctrinePickJson,
+  sarim_raid: pickSarimRaid as DoctrinePickJson,
+  sarim_standoff: pickSarimStandoff as DoctrinePickJson,
+};
+
+export {
+  resolveDoctrine,
+  applyDoctrine,
+  type DoctrineFaction,
+  type DoctrineOp,
+  type DoctrinePickJson,
+  type DoctrinableUnit,
+  type ResolvedDoctrine,
+} from './doctrines';
+
 /** Versus rules files (N3 Task 1), keyed by map id: each faction-matchup map's camps and
  *  income zones. data/versus/*.json against versus_rules.schema.json. */
 export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
@@ -402,52 +406,9 @@ export type { AvatarPreset, AvatarView, AvatarInput } from './avatar';
  *  would be silently inert. The renderer bakes the one the app picks (`gradeOf`) into a 32^3 LUT. */
 export const grades = [gradeDawn, gradeDusk] as const;
 
-/** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
-export const maps = {
-  beit_sahwan_outskirts: beitSahwanOutskirts,
-  beit_sahwan_2: beitSahwan2Map,
-  beit_sahwan_3: beitSahwan3Map,
-  beit_sahwan_4: beitSahwan4Map,
-  khan_rafid: khanRafidMap,
-  khan_rafid_2: khanRafid2Map,
-  khan_rafid_3: khanRafid3Map,
-  deir_amun: deirAmunMap,
-  deir_amun_2: deirAmun2Map,
-  deir_amun_3: deirAmun3Map,
-  ein_qasab: einQasab,
-  ein_qasab_3: einQasab3,
-  jebel_matar: jebelMatar,
-  marj_perimeter: marjPerimeter,
-  milh_flats: milhFlats,
-  milh_flats_l: milhFlatsL,
-  qarn_hadid: qarnHadid,
-  qarn_hadid_2: qarnHadid2Map,
-  qarn_hadid_3: qarnHadid3Map,
-  rujm_sawda: rujmSawda,
-  tel_marum: telMarum,
-  tel_marum_1: telMarum1,
-  tel_marum_2: telMarum2,
-  tel_marum_3: telMarum3,
-  tile_green: tileGreen,
-  tile_knoll: tileKnoll,
-  tile_orchard: tileOrchard,
-  tile_road: tileRoad,
-  tile_scrub: tileScrub,
-  tutorial_ground: tutorialGround,
-  umm_zeitoun: ummZeitoun,
-  umm_zeitoun_2: ummZeitoun2,
-  umm_zeitoun_3: ummZeitoun3,
-  umm_zeitoun_4: ummZeitoun4,
-  wadi_halam_basin: wadiHalamBasin,
-  wadi_halam_2: wadiHalam2,
-  wadi_halam_3: wadiHalam3,
-  wadi_halam_4: wadiHalam4,
-  wadi_halam_5: wadiHalam5,
-  wadi_tarfan: wadiTarfan,
-  wadi_tarfan_l: wadiTarfanL,
-} as const;
-
-export type MapId = keyof typeof maps;
+/** The chat word lists (GH-1417 S2) are NOT here: they live on the subpath `@lions/data/chat-filters`, loaded only with the app's
+ *  lazily imported word filter, so they stay out of the entry chunk (the main-chunk guard). Only the type is re-exported. */
+export type { ChatFilterJson } from './chat-filters';
 
 /** Building types, keyed by id. Shapes match structure.schema.json. */
 export const structures = structureCatalogue.types;
@@ -462,39 +423,11 @@ export const minWinSeconds: Readonly<Record<string, number>> = minWinSecondsJson
 
 export const coupons: readonly { id: string; sha256: string; credits?: number; coins?: number }[] = couponsJson.coupons;
 
-/** Missions, keyed by mission id. Shapes match mission.schema.json. */
-export const missions = {
-  beit_sahwan_breach: beitSahwanBreach,
-  beit_sahwan_0_tutorial: beitSahwan0,
-  beit_sahwan_1_recon: beitSahwan1,
-  beit_sahwan_2_foothold: beitSahwan2,
-  beit_sahwan_3_clearance: beitSahwan3,
-  beit_sahwan_4_subterranean: beitSahwan4,
-  khan_rafid_1_recon: khanRafid1Recon,
-  khan_rafid_2_foothold: khanRafid2Foothold,
-  khan_rafid_3_clearance: khanRafid3Clearance,
-  deir_amun_1_recon: deirAmun1Recon,
-  deir_amun_2_foothold: deirAmun2Foothold,
-  deir_amun_3_subterranean: deirAmun3Subterranean,
-  tel_marum_1_recon: telMarum1Recon,
-  tel_marum_2_foothold: telMarum2Foothold,
-  tel_marum_3_clearance: telMarum3Clearance,
-  qarn_hadid_1_recon: qarnHadid1Recon,
-  qarn_hadid_2_foothold: qarnHadid2Foothold,
-  qarn_hadid_3_clearance: qarnHadid3Clearance,
-  umm_zeitoun_1_recon: ummZeitoun1Recon,
-  umm_zeitoun_2_buildup: ummZeitoun2Buildup,
-  umm_zeitoun_3_clearance: ummZeitoun3Clearance,
-  umm_zeitoun_4_clearance: ummZeitoun4Clearance,
-  ein_qasab_1_recon: einQasab1Recon,
-  ein_qasab_2_foothold: einQasab2Foothold,
-  ein_qasab_3_buildup: einQasab3Buildup,
-  wadi_halam_1_fords: wadiHalam1Fords,
-  wadi_halam_2_laager: wadiHalam2Laager,
-  wadi_halam_3_counterraid: wadiHalam3Counterraid,
-  wadi_halam_4_village: wadiHalam4Village,
-  wadi_halam_5_depot: wadiHalam5Depot,
-} as const;
+/** The SYNCHRONOUS content manifest (B6-6): every map's name, and per mission the few fields the shell reads before one is
+ *  chosen. GENERATED from data/ by `pnpm content:manifest -- --write` (`validate:data` fails on drift). The JSON itself is no
+ *  longer here: the app loads a map or a mission by id through `@lions/data/content-lazy`, and Node (tools, tests, the sim
+ *  harnesses) reads every one synchronously from `@lions/data/content`'s `maps` and `missions`. */
+export { mapManifest, missionManifest, type MapId, type MapSummary, type MissionId, type MissionSummary } from './content-manifest';
 
 /** The campaign world. Shape matches world.schema.json; parsed by app/src/campaign.ts. */
 export const world = worldJson;
@@ -513,8 +446,6 @@ export const commander = commanderJson;
  *  three. Shape matches `@lions/app`'s `NamesJson`; the app assigns names,
  *  never the sim. */
 export const names = namesJson;
-
-export type MissionId = keyof typeof missions;
 
 /** Tutorial step lists, keyed by id. Shapes match tutorial.schema.json.
  *
@@ -857,6 +788,41 @@ export function variantAwareResolver(variant: ColorVisionVariant): (key: string)
 // `narrative-designer` write against, and a translator's file can go stale
 // or missing without touching it.
 
+/** The four named blocks of a sectioned briefing (`mission.schema.json` `briefing_sections[].id`), in their fixed order. */
+export const BRIEFING_SECTION_IDS = ['situation', 'mission', 'execution', 'notes'] as const;
+export type BriefingSectionId = (typeof BRIEFING_SECTION_IDS)[number];
+
+/**
+ * One mission's translatable text (GH-1406 parts 2 and 3). Every field is optional and falls back to the `en` source per field.
+ * Beyond the first four, which have been here from the start: `dispatch`, `aftermath` and `hostages_place` are the mission's own
+ * strings; `debrief` carries the two closing lines' TEXT (the speaker is never translated); `sections` the named blocks of a sectioned
+ * briefing; `objective_say`, `objective_say_on_fail` and `trigger_say` the radio lines of an objective's completion, its failure and a
+ * trigger, keyed by that objective's or trigger's own id; `wave_say` the line a wave speaks, keyed by the wave's INDEX in
+ * `enemy.waves` (a wave has no id), as a string. A key naming something the mission does not have is a validator failure, never a
+ * silent no-op (`tools/validate_narrative.mjs`).
+ */
+export interface MissionLocaleEntry {
+  name?: string;
+  briefing?: string;
+  objectives?: Record<string, string>;
+  triggers?: Record<string, string>;
+  dispatch?: string;
+  aftermath?: string;
+  hostages_place?: string;
+  debrief?: { victory?: string; defeat?: string };
+  sections?: Partial<Record<BriefingSectionId, string>>;
+  objective_say?: Record<string, string>;
+  objective_say_on_fail?: Record<string, string>;
+  trigger_say?: Record<string, string>;
+  wave_say?: Record<string, string>;
+  /**
+   * The stale-translation guard (GH-1406 part 5): `{ "<path of a translated string>": "<8 hex of its English source>" }`, written by
+   * the English generator and checked by `validate:data`. NOT text, and never read at runtime; it is declared so a typed overlay file
+   * may carry it.
+   */
+  src?: Record<string, string>;
+}
+
 /**
  * One locale's mission text, keyed by mission id. `objectives`/`triggers`
  * are keyed by THEIR OWN ids — an objective or trigger with no id of its own
@@ -865,12 +831,13 @@ export function variantAwareResolver(variant: ColorVisionVariant): (key: string)
  * elsewhere) already key everything else off.
  */
 export interface MissionLocaleOverlay {
-  [missionId: string]: {
-    name?: string;
-    briefing?: string;
-    objectives?: Record<string, string>;
-    triggers?: Record<string, string>;
-  };
+  [missionId: string]: MissionLocaleEntry;
+}
+
+/** A radio line as the schema has it (`$defs/say`): the speaker is a fixed enum and is never translated. */
+interface SayJson {
+  speaker: string;
+  text: string;
 }
 
 /**
@@ -887,22 +854,41 @@ export interface MissionJson {
   id: string;
   name?: string;
   briefing?: string;
-  objectives: readonly { id: string; text?: string }[];
-  triggers?: readonly { id?: string; label?: string }[];
+  dispatch?: string;
+  aftermath?: string;
+  hostages_place?: string;
+  debrief?: { victory?: SayJson; defeat?: SayJson };
+  briefing_sections?: readonly { id: string; text: string; image?: unknown }[];
+  objectives: readonly { id: string; text?: string; say?: SayJson; say_on_fail?: SayJson }[];
+  triggers?: readonly { id?: string; label?: string; say?: SayJson }[];
+  enemy?: { waves?: readonly { say?: SayJson }[] };
+}
+
+/** `say` with its text replaced, speaker and every other field kept. */
+function withSayText<S extends SayJson | undefined>(say: S, text: string | undefined): S {
+  return say !== undefined && text !== undefined ? ({ ...say, text } as S) : say;
 }
 
 /**
  * Overlays a locale's mission text onto a mission's own JSON, id-matched:
  * `name`/`briefing` replace whole-string, `objectives`/`triggers` by their
- * own ids. A field the overlay does not carry falls back to the mission's
+ * own ids, and (part 3) `dispatch`, `aftermath`, `hostages_place`, the two
+ * `debrief` lines, the briefing's `sections` and every radio line by the same
+ * rule. A field the overlay does not carry falls back to the mission's
  * own `en` text, so a partial translation degrades to English per-field
- * rather than per-mission.
+ * rather than per-mission. A `say`'s speaker and a section's image are never
+ * touched.
  *
  * A missing mission id in the overlay, or a null overlay (`main.ts`'s own
  * loader returns null for `en` and for a 404, rather than fetching a file
  * that would just be the source text again), is a no-op that returns
  * `mission` BY REFERENCE, unchanged — the common case (every mission, on
  * `en`) costs nothing.
+ *
+ * A translated `briefing` over a mission with `briefing_sections` that the
+ * overlay does not also translate leaves the sections in English; the deploy
+ * screen already falls back to the unsectioned beats whenever the sections
+ * no longer join to the briefing (`ui/briefing-sections.ts`).
  */
 export function applyMissionLocale<T extends MissionJson>(
   mission: T,
@@ -914,12 +900,78 @@ export function applyMissionLocale<T extends MissionJson>(
     ...(mission as Record<string, unknown>),
     name: o.name ?? mission.name,
     briefing: o.briefing ?? mission.briefing,
-    objectives: mission.objectives.map((ob) =>
-      o.objectives?.[ob.id] !== undefined ? { ...ob, text: o.objectives[ob.id] } : ob
-    ),
-    triggers: mission.triggers?.map((tr) =>
-      tr.id !== undefined && o.triggers?.[tr.id] !== undefined ? { ...tr, label: o.triggers[tr.id] } : tr
-    ),
+    objectives: mission.objectives.map((ob) => {
+      const text = o.objectives?.[ob.id];
+      const say = withSayText(ob.say, o.objective_say?.[ob.id]);
+      const sayOnFail = withSayText(ob.say_on_fail, o.objective_say_on_fail?.[ob.id]);
+      if (text === undefined && say === ob.say && sayOnFail === ob.say_on_fail) return ob;
+      return {
+        ...ob,
+        ...(text === undefined ? {} : { text }),
+        ...(say === ob.say ? {} : { say }),
+        ...(sayOnFail === ob.say_on_fail ? {} : { say_on_fail: sayOnFail }),
+      };
+    }),
+    triggers: mission.triggers?.map((tr) => {
+      if (tr.id === undefined) return tr;
+      const label = o.triggers?.[tr.id];
+      const say = withSayText(tr.say, o.trigger_say?.[tr.id]);
+      if (label === undefined && say === tr.say) return tr;
+      return { ...tr, ...(label === undefined ? {} : { label }), ...(say === tr.say ? {} : { say }) };
+    }),
   };
+  if (o.dispatch !== undefined && mission.dispatch !== undefined) out.dispatch = o.dispatch;
+  if (o.aftermath !== undefined && mission.aftermath !== undefined) out.aftermath = o.aftermath;
+  if (o.hostages_place !== undefined && mission.hostages_place !== undefined) out.hostages_place = o.hostages_place;
+  if (o.debrief !== undefined && mission.debrief !== undefined) {
+    out.debrief = {
+      ...mission.debrief,
+      ...(mission.debrief.victory === undefined || o.debrief.victory === undefined ? {} : { victory: withSayText(mission.debrief.victory, o.debrief.victory) }),
+      ...(mission.debrief.defeat === undefined || o.debrief.defeat === undefined ? {} : { defeat: withSayText(mission.debrief.defeat, o.debrief.defeat) }),
+    };
+  }
+  if (o.sections !== undefined && mission.briefing_sections !== undefined) {
+    out.briefing_sections = mission.briefing_sections.map((sec) => {
+      const text = (o.sections as Record<string, string | undefined>)[sec.id];
+      return text === undefined ? sec : { ...sec, text };
+    });
+  }
+  if (o.wave_say !== undefined && mission.enemy?.waves !== undefined) {
+    out.enemy = {
+      ...mission.enemy,
+      waves: mission.enemy.waves.map((w, i) => {
+        const say = withSayText(w.say, o.wave_say?.[String(i)]);
+        return say === w.say ? w : { ...w, say };
+      }),
+    };
+  }
   return out as T;
+}
+
+// --- unit-text locale overlay -----------------------------------------------
+//
+// A unit's `name` and `blurb` are DATA like a mission's text, authored in `en` on every file under `data/units/`. A shipped translation is
+// a separate optional file, `data/locales/<lang>/units.json` (`data/locales/README.md`), layered on at the point `@lions/app` REGISTERS a
+// unit for display. It is never written into `units` itself: the net content digest hashes `units` (names included), so two players in
+// different languages would otherwise disagree about the content and be refused a room. A unit's `role` label is chrome and already goes
+// through `t()` (`ui/role.ts`).
+
+/** One locale's unit text, keyed by unit id. A field the overlay does not carry keeps the `en` text, per field. */
+export interface UnitLocaleOverlay {
+  [unitId: string]: { name?: string; blurb?: string; src?: { name?: string; blurb?: string } };
+}
+
+/**
+ * Overlays a locale's name and blurb onto a unit's JSON. No entry for the unit, or a null overlay (`en`, or a locale nothing ships a file
+ * for), returns `unit` BY REFERENCE, unchanged. Generic, like `applyMissionLocale`, so a caller holding `@lions/sim`'s own unit type gets
+ * one back with no cast.
+ */
+export function applyUnitLocale<T extends { id: string; name?: string; blurb?: string }>(unit: T, overlay: UnitLocaleOverlay | null): T {
+  const o = overlay?.[unit.id];
+  if (!o || (o.name === undefined && o.blurb === undefined)) return unit;
+  return {
+    ...unit,
+    ...(o.name === undefined ? {} : { name: o.name }),
+    ...(o.blurb === undefined || unit.blurb === undefined ? {} : { blurb: o.blurb }),
+  };
 }

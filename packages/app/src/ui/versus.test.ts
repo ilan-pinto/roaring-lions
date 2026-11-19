@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { maps, paletteTeamColors } from '@lions/data';
+import { paletteTeamColors } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { FACTION_MATCHUP_MAPS, FLAG_SETUP_MAPS, VERSUS_FAIR_MAPS, WIN_MODE_FAIR_FACTION_CELLS, WIN_MODE_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
 import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
@@ -11,6 +12,8 @@ import { AdvisorRefused } from '../net/connect';
 import { missingKeys, setCatalogue } from '../i18n/t';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
+import { loadChatFilter, resetChatFilterGateForTests } from './chat-filter-gate';
+import { nameFrom } from '../net/seat-label';
 
 /** The methods the screens call on a transport, recorded. */
 function fakeTransport() {
@@ -560,7 +563,8 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
     expect(describedBy(sw)).toBe('Friends only: each player brings the upgrades and the Store special units they own. A bot fields the standard force');
     sw.click();
     expect(sw.getAttribute('aria-checked')).toBe('false');
-    expect(stage.querySelectorAll('.rl-versus__kit-toggle')).toHaveLength(1);
+    // The one brigade switch (the field-works row, a second switch on the form, is its own: `.rl-versus__works`).
+    expect(stage.querySelectorAll('.rl-versus__kit:not(.rl-versus__works) .rl-versus__kit-toggle')).toHaveLength(1);
     // The fine-print paragraph is gone: the hint is the whole of it.
     expect(stage.querySelector('.rl-versus__kit-note')).toBeNull();
     expect(missingKeys()).toEqual([]);
@@ -745,9 +749,9 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     pick(mapRadio(stage, 'wadi_tarfan_l'));
     pick(winRadios(stage).find((r) => r.value === 'flag')!);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('flag');
-    // KDF against Sarim is offered the points race alone on this map (a cell the test adds): the flag pick is dropped, annihilation is the default again.
+    // KDF against Sarim is offered the shipped camp (GH-1381) and the points race (a cell the test adds) on this map, not the flag: the flag pick is dropped, annihilation is the default again.
     pick(sideRadio(stage, 'kdf'));
-    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+    expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'camp', 'points']);
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     // ...and a map the pairing was not read fair on drops the points pick too: absent from the DOM, not merely hidden.
@@ -761,10 +765,10 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
 
   it('a faction pick on a map KDF-against-Sarim was not read fair on offers no mode and drops the pick', async () => {
     const { open, stage } = mount();
-    pick(mapRadio(stage, 'wadi_tarfan'));
+    pick(mapRadio(stage, 'tel_marum'));
     pick(winRadios(stage).find((r) => r.value === 'points')!);
     pick(sideRadio(stage, 'sarim'));
-    expect(checkedMap(stage)).toBe('wadi_tarfan');   // a map KDF-v-Sarim plays, so the ground stays
+    expect(checkedMap(stage)).toBe('tel_marum');   // a map KDF-v-Sarim plays, so the ground stays
     expect(winRadios(stage)).toEqual([]);
     const req = await created(stage, open);
     expect(req).toMatchObject({ matchup: 'sarim' });
@@ -772,6 +776,20 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
     // and back to the mirror: Annihilation again, not the dropped Points race
     pick(sideRadio(stage, 'mirror'));
     expect(winRadios(stage).find((r) => r.checked)?.value).toBe('annihilation');
+  });
+
+  it('GH-1381: KDF against Sarim on Wadi Tarfan is offered Destroy the camp alone, from either host, as shipped; a points pick is dropped', async () => {
+    asShipped();
+    for (const side of ['kdf', 'sarim'] as const) {
+      const { open, stage } = mount();
+      pick(mapRadio(stage, 'wadi_tarfan'));
+      pick(winRadios(stage).find((r) => r.value === 'points')!);
+      pick(sideRadio(stage, side));
+      expect(winRadios(stage).map((r) => r.value), side).toEqual(['annihilation', 'camp']);
+      expect(winRadios(stage).find((r) => r.checked)?.value, side).toBe('annihilation');
+      pick(winRadios(stage).find((r) => r.value === 'camp')!);
+      expect(await created(stage, open)).toMatchObject({ kind: 'create', map: 'wadi_tarfan', matchup: side, winMode: 'camp' });
+    }
   });
 
   it('GH-976 P4: a faction cell in the table is offered, the create carries it, and the economy line gives way to the placed-forces one', async () => withFactionPoints(['kdf', 'sarim'], async () => {
@@ -783,7 +801,7 @@ describe('how to win: the host\'s pick and the room\'s line (GH-976 P2)', () => 
       pick(sideRadio(stage, side));
       expect(checkedMap(stage)).toBe('wadi_tarfan_l');
       expect(winGroup(stage).hidden).toBe(false);
-      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'points']);
+      expect(winRadios(stage).map((r) => r.value)).toEqual(['annihilation', 'camp', 'points']);   // the camp is the shipped cell (GH-1381), points the test's
       // Annihilation on a faction pairing is the economy room: the economy line shows and the placed-forces line does not.
       expect(economy.hidden).toBe(false);
       expect(placed.hidden).toBe(true);
@@ -1074,6 +1092,17 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect(lines[0]!.textContent).toBe('Bo: <img src=x onerror=alert(1)><b>x</b>');
     expect(stage.querySelector('img[onerror]')).toBeNull();
     expect(stage.querySelector('b')).toBeNull();
+  });
+
+  it('the lobby log masks the other seat\'s mask word and leaves this player\'s own echo as typed (CR4)', async () => {
+    setCatalogue('en', en);
+    expect(await loadChatFilter()).toBe(true);
+    const { fake, stage } = await hostedRoom();
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum');
+    fake.hooks.onChat?.(0, 'well shit');
+    fake.hooks.onChat?.(1, 'well shit');
+    const lines = [...stage.querySelectorAll('.rl-versus__chat .rl-chat__line')].map((l) => l.textContent);
+    expect(lines).toEqual(['Ari: well shit', 'Bo: well ***']);
   });
 
   it('Escape typed into the lobby chat clears it and does not ask to leave', async () => {
@@ -1534,6 +1563,49 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     const bot = await hosted([{ seat: 0, callsign: 'Ari', connected: true, ready: false }, { seat: 1, callsign: 'B', connected: true, ready: false, kind: 'bot' }]);
     expect(bot.stage.querySelector('.rl-versus__seat[data-seat="1"] .rl-versus__tag')!.textContent).toBe('Bot');
   });
+  it('relabels the lobby when the word filter arrives: a name that read as the fallback while it loaded reads as typed (finding 5)', async () => {
+    setCatalogue('en', en);
+    const mod = await import('./chat-filter');
+    resetChatFilterGateForTests();
+    // The gate's one shared load, held open by the test: the lobby's own `loadChatFilter()` joins it.
+    let arrive: (m: typeof mod) => void = () => undefined;
+    const held = loadChatFilter(() => new Promise<typeof mod>((r) => { arrive = r; }));
+    try {
+      const { stage } = await hosted(MEMBER_SEATS);
+      const name = (n: 0 | 1) => stage.querySelector(`.rl-versus__seat[data-seat="${n}"] .rl-versus__name`)!.textContent;
+      expect([name(0), name(1)]).toEqual(['Lion', 'Lion · K7Q2M4XA']);
+      arrive(mod);
+      expect(await held).toBe(true);
+      await flush();
+      // Literal oracle: no onLobby has come since, so only the relabel on arrival can have changed them.
+      expect([name(0), name(1)]).toEqual(['Ari', 'Ilan · K7Q2M4XA']);
+    } finally {
+      arrive(mod);
+      await held;
+    }
+  });
+  it('a match that starts while the word filter loads reads the names as typed once it arrives, not the fallback name (CR5)', async () => {
+    setCatalogue('en', en);
+    const mod = await import('./chat-filter');
+    resetChatFilterGateForTests();
+    let arrive: (m: typeof mod) => void = () => undefined;
+    const held = loadChatFilter(() => new Promise<typeof mod>((r) => { arrive = r; }));
+    try {
+      const { fake } = await hosted(MEMBER_SEATS);
+      const config = { code: 'ABCDEF', map: 'tel_marum', mode: 'versus', seats: [{ callsign: 'Ari' }, { callsign: 'Lion' }] } as unknown as MatchConfig;
+      fake.hooks.onStart?.(config);
+      const handed = takeHanded('ABCDEF');
+      expect([nameFrom(handed?.labels, 0, ''), nameFrom(handed?.labels, 1, '')]).toEqual(['Lion', 'Lion · K7Q2M4XA']);
+      arrive(mod);
+      expect(await held).toBe(true);
+      await flush();
+      // Literal oracle: the tuple the battlefield was handed, read as the battlefield reads it (`seatName`), after the start.
+      expect([nameFrom(handed?.labels, 0, ''), nameFrom(handed?.labels, 1, '')]).toEqual(['Ari', 'Ilan · K7Q2M4XA']);
+    } finally {
+      arrive(mod);
+      await held;
+    }
+  });
   it('?pseudo=1 brackets every tag', async () => {
     setCatalogue('pseudo', en, pseudo);
     try {
@@ -1564,5 +1636,214 @@ describe('members, guests and bots (GH-1075 A3, Task 3.7)', () => {
     expect(handed?.transport).toBe(transport);
     expect(handed?.labels?.[1]?.text).toBe('Ilan · K7Q2M4XA');
     expect(handed?.labels?.[0]?.text).toBe('Ari');
+  });
+});
+
+// GH-1388: the basic computer opponent, offered in the lobby with no flag and no URL parameter.
+describe('the computer seat in the lobby', () => {
+  const cpuButton = (stage: ParentNode): HTMLButtonElement | null => stage.querySelector<HTMLButtonElement>('.rl-versus__cpu-start');
+
+  it('is offered when the build can arm one, labelled plainly as a basic opponent, with a note that says only what the script does', () => {
+    const stage = mountPick(deps({ playComputer: vi.fn().mockResolvedValue('OFFLINE') }));
+    const b = cpuButton(stage);
+    expect(b?.textContent).toBe(en['versus.cpu.start']);
+    expect(b?.textContent).toMatch(/basic/i);
+    expect(describedBy(b!)).toBe(en['versus.cpu.note']);
+    expect(missingKeys()).toEqual([]);
+  });
+
+  it('?pseudo=1: the heading, the note, the button and the failure line are bracketed, so none bypassed t()', async () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps({ playComputer: vi.fn().mockRejectedValue(new Error('x')) }));
+      cpuButton(stage)!.click();
+      await flush();
+      const shown = [
+        stage.querySelector('.rl-versus__cpu .rl-versus__join-lead'),
+        stage.querySelector('.rl-versus__cpu-note'),
+        cpuButton(stage),
+        stage.querySelector('.rl-versus__cpu-msg'),
+      ].map((e) => e?.textContent ?? '');
+      expect(shown.length).toBe(4);
+      for (const text of shown) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+    } finally {
+      setCatalogue('en', en);
+    }
+  });
+
+  it('is not drawn when the build cannot arm one', () => {
+    expect(cpuButton(mountPick(deps()))).toBeNull();
+  });
+
+  it('a click arms the match for the picked map, side and callsign and opens the battlefield on the offline code, with no room opened', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const d = deps({ playComputer });
+    const stage = mountPick(d);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    const arg = playComputer.mock.calls[0]![0] as { map: string; matchup: string; callsign: string };
+    expect(arg.matchup).toBe('mirror');
+    expect(arg.callsign).toBe('Ari');
+    expect(MAPS.some((m) => m.id === arg.map)).toBe(true);
+    expect(d.navigated).toEqual([[`/free-play/${arg.map}?net=OFFLINE`, undefined]]);
+    expect(d.open).not.toHaveBeenCalled();
+  });
+
+  const pickSide = (stage: ParentNode, m: 'mirror' | 'kdf' | 'sarim'): void => {
+    const r = stage.querySelector<HTMLInputElement>(`.rl-versus__side-radio[value="${m}"]`)!;
+    r.click();
+    r.dispatchEvent(new Event('change'));
+  };
+  const pickMap = (stage: ParentNode, id: string): void => {
+    const r = stage.querySelector<HTMLInputElement>(`.rl-versus__map-radio[value="${id}"]`)!;
+    r.click();
+    r.dispatchEvent(new Event('change'));
+  };
+
+  it('GH-1390: an economy pairing keeps the computer seat where the coverage probe read the cell clean, hides it where it is closed, and the mirror brings it back', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const stage = mountPick(deps({ playComputer }));
+    const section = stage.querySelector<HTMLElement>('.rl-versus__cpu')!;
+    expect(section.hidden).toBe(false);
+    // An economy pairing in annihilation is closed on every ground (the probe read the seat as stopped there); the camp race on Wadi Tarfan is open.
+    pickSide(stage, 'kdf');
+    for (const id of ['tel_marum', 'wadi_tarfan']) {
+      pickMap(stage, id);
+      expect(section.hidden, `${id} kdf annihilation`).toBe(true);
+      cpuButton(stage)!.click();
+      await flush();
+      expect(playComputer, `${id} kdf annihilation`).not.toHaveBeenCalled();
+    }
+    const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
+    camp.click();
+    camp.dispatchEvent(new Event('change'));
+    expect(section.hidden, 'wadi_tarfan kdf camp').toBe(false);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' });
+    pickSide(stage, 'mirror');
+    expect(section.hidden).toBe(false);
+  });
+
+  it('GH-1390: a win mode rides to the arming call (the mirror camp race on Wadi Tarfan), and the seat stays on offer there', async () => {
+    const playComputer = vi.fn().mockResolvedValue('OFFLINE');
+    const stage = mountPick(deps({ playComputer }));
+    pickMap(stage, 'wadi_tarfan');
+    const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
+    camp.click();
+    camp.dispatchEvent(new Event('change'));
+    expect(stage.querySelector<HTMLElement>('.rl-versus__cpu')!.hidden).toBe(false);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(playComputer.mock.calls[0]![0]).toMatchObject({ map: 'wadi_tarfan', matchup: 'mirror', winMode: 'camp' });
+  });
+
+  it('a failure to arm says so on its own line, re-enables the button, and navigates nowhere', async () => {
+    const d = deps({ playComputer: vi.fn().mockRejectedValue(new Error('chunk')) });
+    const stage = mountPick(d);
+    cpuButton(stage)!.click();
+    await flush();
+    expect(stage.querySelector('.rl-versus__cpu-msg')?.textContent).toBe(en['versus.cpu.failed']);
+    expect(cpuButton(stage)!.disabled).toBe(false);
+    expect(d.navigated).toEqual([]);
+  });
+
+  it('the screen left while the match arms: nothing is opened, and the armed match is dropped (the disposer contract)', async () => {
+    let release: (v: string) => void = () => {};
+    const discardComputer = vi.fn();
+    const d = deps({ playComputer: vi.fn(() => new Promise<string>((r) => { release = r; })), discardComputer });
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    const leave = showVersus(stage, d);
+    cpuButton(stage)!.click();
+    leave();
+    release('OFFLINE');
+    await flush();
+    expect(discardComputer).toHaveBeenCalledTimes(1);
+    expect(d.navigated).toEqual([]);
+  });
+
+  it('a second click while it arms is ignored', async () => {
+    const playComputer = vi.fn(() => new Promise<string>(() => {}));
+    const stage = mountPick(deps({ playComputer }));
+    const b = cpuButton(stage)!;
+    b.click();
+    b.click();
+    expect(playComputer).toHaveBeenCalledTimes(1);
+    expect(b.disabled).toBe(true);
+  });
+});
+
+// Versus field works (the lead's ruling, 18 Nov 2026): the host's switch, offered for an annihilation KDF-v-KDF room only.
+describe('field works: the host\'s switch and the room\'s line', () => {
+  const worksRow = (stage: ParentNode) => stage.querySelector<HTMLElement>('.rl-versus__works')!;
+  const worksSwitch = (stage: ParentNode) => worksRow(stage).querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const winRadios = (stage: ParentNode) => [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__win input.rl-versus__side-radio')];
+  const created = async (stage: HTMLElement, open: ReturnType<typeof vi.fn>): Promise<RoomRequest> => {
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    room(document.createElement('div'), 'ABCDEF', deps());
+    return (open.mock.calls[0] as [RoomRequest])[0];
+  };
+  const mount = () => {
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    return { open, stage: mountPick(deps({ open })) };
+  };
+
+  it('off by default, shown for the mirror in annihilation, and a create with it on asks for it', async () => {
+    const { open, stage } = mount();
+    expect(worksRow(stage).hidden).toBe(false);
+    expect(worksSwitch(stage).getAttribute('aria-checked')).toBe('false');
+    expect(worksSwitch(stage).textContent).toBe('Field works');
+    worksSwitch(stage).click();
+    expect(worksSwitch(stage).getAttribute('aria-checked')).toBe('true');
+    expect(describedBy(worksSwitch(stage))).toContain('1000 logistics');
+    expect(await created(stage, open)).toMatchObject({ kind: 'create', matchup: 'mirror', fieldWorks: true });
+  });
+
+  it('hidden, and switched off, for KDF against Sarim or a win mode; a create from there says nothing of it', async () => {
+    const { open, stage } = mount();
+    worksSwitch(stage).click();
+    pick(sideRadio(stage, 'kdf'));
+    expect(worksRow(stage).hidden).toBe(true);
+    pick(sideRadio(stage, 'mirror'));
+    expect(worksRow(stage).hidden).toBe(false);
+    expect(worksSwitch(stage).getAttribute('aria-checked')).toBe('false');
+    worksSwitch(stage).click();
+    const points = winRadios(stage).find((r) => r.value === 'points');
+    if (points !== undefined) {
+      pick(points);
+      expect(worksRow(stage).hidden).toBe(true);
+    }
+    pick(sideRadio(stage, 'kdf'));
+    expect('fieldWorks' in (await created(stage, open))).toBe(false);
+  });
+
+  it('the room screen names it to both seats when on, and says nothing when off', async () => {
+    for (const on of [true, false]) {
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'matched', ...(on ? { fieldWorks: true as const } : {}) } }));
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', deps({ open }));
+      stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      const line = stage.querySelector<HTMLElement>('.rl-versus__room-works');
+      expect(line?.hidden, String(on)).toBe(!on);
+      if (on) expect(line?.querySelector('.rl-versus__kit-name')?.textContent).toBe('On: 1000 logistics each, no income');
+    }
+  });
+
+  it('?pseudo=1: the switch, its hint and the room line are bracketed', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const stage = mountPick(deps());
+      for (const text of [worksSwitch(stage).textContent!, worksRow(stage).querySelector('.rl-versus__kit-hint')!.textContent!]) expect(text, text).toMatch(/^⟦[\s\S]*⟧$/);
+      expect(missingKeys()).toEqual([]);
+    } finally {
+      setCatalogue('en', en);
+    }
   });
 });

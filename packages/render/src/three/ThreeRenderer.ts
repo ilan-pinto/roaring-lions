@@ -122,6 +122,7 @@ import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEA
 import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS, debrisQualityOf, groundBlendQualityOf } from '../quality';
+import { PRESET_SWITCHES, liveRendererOptions } from './preset-live';
 import type { GrassFieldTones } from '../api';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import type { FlipbookLayerSpec } from '../vfx/emitters';
@@ -3301,6 +3302,9 @@ export class ThreeRenderer implements Renderer {
     // colour-vision variant's `teamColors`/`resolveColor` mid-mission.
     private opts: RendererOptions
   ) {
+    // GH-1400 (G2): the preset's switched-on features (`preset-live.ts`: ragdolls, soft particles), resolved ONCE, before
+    // anything reads `opts.quality`. Both switches are off: this hands back `opts` itself, so every preset builds today's frame.
+    opts = this.opts = liveRendererOptions(opts, PRESET_SWITCHES);
     // FIRST, before any loader can be built: every shipped GLB carries
     // `KHR_draco_mesh_compression` (level load time, step 4), and a
     // `GLTFLoader` constructed without a decoder throws on the first one.

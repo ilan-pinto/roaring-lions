@@ -24,15 +24,27 @@ import {
 } from '@lions/sim';
 import {
   units,
-  maps,
-  missions,
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
   roadMaskOf,
   applyUpgrades,
+  maxPicks,
   maxTiers,
+  applyOverlays,
+  amendmentOps,
+  challengeMet,
+  challengeOf,
+  challengeTerms,
+  type ChallengeTerm,
+  type BranchPick,
+  type PostureId,
 } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
+import { withReliefOnLoan } from '../../../packages/app/src/posture';
+import { runRowOf } from '../../../packages/app/src/challenge';
+import { reliefTriggerIndices } from '@lions/data';
+import { parsePosture } from './posture-ladder';
 import { PopulationCensus } from './population-census';
 import type { Banking } from './banking';
 import { START_LAYOUT } from '../mission-harness';
@@ -187,6 +199,12 @@ export interface RunRecord extends IntelRun {
   /** F4 Task 10 (R-F4-4): the most items side 0's production lines held at once over the run, the one
    *  in progress plus those waiting, summed across lines. Sampled every tick; report only. */
   maxQueue: number;
+  /** GH-1394: the difficulty posture the run was played at. */
+  posture: PostureId;
+  /** GH-1394: starting-force bodies lost (`startingCount - startingHome`), for the per-mission posture comparison. */
+  lost: number;
+  /** GH-1395: present only in a challenge child, on a mission with a challenge: whether this run beat it. */
+  challenge?: { met: boolean; terms: readonly { term: ChallengeTerm; held: boolean }[] };
   /** GH-277: numbers a plan recorded for this run through `runNotes` (the forward camp's completion second), carried to the
    *  parent of a sweep with the rest of the record. Absent when the plan wrote none. */
   notes?: Record<string, number>;
@@ -217,6 +235,49 @@ export function setSweep(seed: number | undefined, quiet: boolean): void {
  *  order, with the runtime and sim at that tick. Read-only by contract; `run()` prints and records
  *  exactly what it did before. */
 let missionEventTap: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined;
+/** GH-1394: the difficulty posture every `run()` in this process plays: `PT_POSTURE` (a seed child of the posture
+ *  ladder, `plan-sweep.ts`), or `setPosture` for the duration of one swept control (`passive-sweep.ts`). Standard,
+ *  the default, is the identity, so every run that sets neither builds byte for byte the world it always built. */
+let posture: PostureId = parsePosture(process.env.PT_POSTURE);
+export function setPosture(p: PostureId): void {
+  posture = p;
+}
+export function currentPosture(): PostureId {
+  return posture;
+}
+
+/** GH-1395 slice 1: whether this process plays every pilot mission with its CHALLENGE's named amendments on
+ *  (`PT_CHALLENGE=1`, a seed child of the report-only challenge reading in `plan-sweep.ts`). Off, the default, every
+ *  run builds byte for byte the world it always built. The amendments go on after the posture, in `applyOverlays`,
+ *  exactly where the app puts them (`amendedMission`, packages/app/src/challenge.ts). */
+const challengeReading = process.env.PT_CHALLENGE === '1';
+export function challengeReadingOn(): boolean {
+  return challengeReading;
+}
+/** GH-1395 slice 2 (C6/C7, design §8): set only by `challengeRun` for the duration of one labelled CHALLENGE PLAN's `run()`,
+ *  in every process. That one run plays the mission with its challenge's named amendments on, exactly as a challenge child
+ *  does, and records the challenge row, which the 30-seed sweep gates (`plan-sweep.ts`). Every other run is untouched. */
+let challengePlan = false;
+export function challengeRun<T>(fn: () => T): T {
+  challengePlan = true;
+  try {
+    return fn();
+  } finally {
+    challengePlan = false;
+  }
+}
+
+/** GH-1394 (PM, 16 Nov): whether a WINNING plan uses a posture's relief. `PT_RELIEF_JOIN=1` (a seed child of the ladder's
+ *  `easier+relief` reading). The scripted plans were written before the relief existed and never order it, so without
+ *  this the ladder measures Easier with two squads standing at the start line. With it, the harness plays the one order a
+ *  player would give: the relief attack-moves to the living body of the force (the starting unit nearest its centroid)
+ *  when it arrives, and again every 10 s. A
+ *  control (expect !== 'victory') never uses it: a passive player gives no orders. */
+const reliefJoin = process.env.PT_RELIEF_JOIN === '1';
+export function reliefJoinOn(): boolean {
+  return reliefJoin;
+}
+
 export function tapMissionEvents(fn: ((evs: readonly MissionEvent[], rt: MissionRuntime, sim: Sim) => void) | undefined): void {
   missionEventTap = fn;
 }
@@ -264,7 +325,7 @@ export function run(
    *  bought. Enemy (non-kdf) types are never patched, matching `main.ts` exactly.
    *  GH-1144: `{ unit, tracks }` patches ONLY that unit, and only those tracks, to their top tier
    *  (a bought unit one track at a time; every other type registers raw). */
-  tiers?: 'max' | { unit: string; tracks: readonly string[] },
+  tiers?: 'max' | { max: BranchPick } | { unit: string; tracks: readonly string[] },
   /** Written by the max-tier replay pass at the end of `playtest.ts` so it can read back
    *  what THIS run actually measured, without widening `run`'s return type -- every
    *  existing call site still gets back exactly the produced `LedgerData` it always
@@ -291,7 +352,12 @@ export function run(
 ): LedgerData {
   for (const k of Object.keys(runNotes)) delete runNotes[k];
   registeredUnits.clear();
-  const mission = missions[id] as unknown as MissionJson;
+  // GH-1394: the posture is applied to the mission JSON before anything reads it, exactly where the app applies it
+  // (`campaignMission` in main.ts): the runtime, the upgrades, the loans and the credit floor all see the overlaid run.
+  // GH-1395: and, in a challenge child or a labelled challenge plan (`challengeRun`), the mission's challenge amendments after it
+  // (none for a mission with no challenge). Applied once whichever of the two asked.
+  const challenge = challengeReading || challengePlan ? challengeOf(id) : undefined;
+  const mission = applyOverlays(missions[id] as unknown as MissionJson, { posture, amendments: amendmentOps(challenge?.challenge.amendments ?? [], id) });
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   // Matches the app. `spawn` never reuses a dead slot, so this is a budget for
   // everyone who ever appears, not for how many stand at once.
@@ -326,11 +392,14 @@ export function run(
   for (const u of [...Object.values(units), ...extraUnits] as (typeof units)[keyof typeof units][]) {
     // Mirrors main.ts's own pre-pass exactly (see the `tiers` doc comment above) --
     // enemy units never go through applyUpgrades, only a KDF unit can carry a tier.
+    // GH-1384: a branched last tier needs a branch. `'max'` is the uniform branch-1 vector and
+    // `{ max: 2 }` the branch-2 one (`maxPicks`); a one-unit track replay takes branch 1.
+    const maxBranch: BranchPick | null = tiers === 'max' ? 1 : tiers !== undefined && 'max' in tiers ? tiers.max : null;
     const registered =
-      tiers === 'max' && u.faction === 'kdf'
-        ? applyUpgrades(u, maxTiers(u))
-        : tiers !== undefined && tiers !== 'max' && u.id === tiers.unit
-          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))))
+      maxBranch !== null && u.faction === 'kdf'
+        ? applyUpgrades(u, maxTiers(u), maxPicks(u, maxBranch))
+        : tiers !== undefined && tiers !== 'max' && 'unit' in tiers && u.id === tiers.unit
+          ? applyUpgrades(u, Object.fromEntries(Object.entries(maxTiers(u)).filter(([track]) => tiers.tracks.includes(track))), maxPicks(u, 1))
           : u;
     registeredUnits.set(u.id, registered as unknown as UnitTypeJson);
     typeOf.set(u.id, sim.addUnitType(registered));
@@ -358,7 +427,7 @@ export function run(
   const rt = new MissionRuntime(sim, resolvedMission, {
     startLayout: START_LAYOUT, // GH-1360 S3b: shipped missions start in the assembly layout
     loaned,
-    loanedReinforce: loanedReinforcements(mission, ledger, unlockOf),
+    loanedReinforce: withReliefOnLoan(mission, loanedReinforcements(mission, ledger, unlockOf)),
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
@@ -391,6 +460,9 @@ export function run(
     },
   });
   rt.start();
+  /** Side 0 at the start: whatever arrives later and is not in here was brought by a trigger. */
+  const startedIds = new Set<number>();
+  for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0) startedIds.add(i);
   // F3 Task 5: read off the runtime once a tick, after the step; the start is what `start()` spawned.
   const census = new PopulationCensus();
   census.begin(rt);
@@ -418,6 +490,60 @@ export function run(
     if (list) list.push(fn);
     else timed.set(when, [fn]);
   });
+  // GH-1394: the relief joins the force (see `reliefJoin`). Read off the overlaid mission's own relief trigger, so a
+  // mission with no relief, and every Standard and Harder run, schedules nothing.
+  if (reliefJoin && expect === 'victory') {
+    for (const ti of reliefTriggerIndices(mission)) {
+      const trig = (mission.triggers ?? [])[ti];
+      const types = new Set((trig.do.units ?? []).map((u) => u.unit));
+      const from = Math.round(trig.on.value ?? 0) + 1;
+      const join = (): void => {
+        const relief: number[] = [];
+        let sx = 0;
+        let sy = 0;
+        let n = 0;
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] !== 0 || sim.state.alive[i] !== 1) continue;
+          if (!startedIds.has(i) && rt.isOnLoan(i) && types.has(sim.unitTypes[sim.state.typeIdx[i]].id)) relief.push(i);
+          else if (startedIds.has(i)) {
+            sx += sim.state.posX[i];
+            sy += sim.state.posY[i];
+            n++;
+          }
+        }
+        if (relief.length === 0 || n === 0) return;
+        // Integer centroid in Q16.16, as the sim reads it: no float reaches a command.
+        const cx = Math.trunc(sx / n);
+        const cy = Math.trunc(sy / n);
+        // The relief is sent to the living starting unit nearest that centroid, at its own position: a player joins a
+        // unit of the force, not the empty middle of it. With the force split (Wadi Halam IV: the infantry at the start
+        // line, the armour at the cache), the centroid lies between the two, here in the village between two held
+        // houses, and an attack-move there parked the relief medic 4.9 tiles from a garrison for the rest of the run,
+        // contesting `take_village` every tick (seed 7, Easier: withdrawn at 17.5 min).
+        let tx = cx;
+        let ty = cy;
+        let best = Infinity;
+        for (const i of startedIds) {
+          if (sim.state.alive[i] !== 1 || sim.state.side[i] !== 0) continue;
+          const dx = sim.state.posX[i] - cx;
+          const dy = sim.state.posY[i] - cy;
+          const d = dx * dx + dy * dy; // exact: |dx|, |dy| < 2^23 on any shipped map, so d < 2^47
+          if (d < best) {
+            best = d;
+            tx = sim.state.posX[i];
+            ty = sim.state.posY[i];
+          }
+        }
+        sim.queueCommand({ kind: 'attackMove', ids: relief, x: tx, y: ty });
+      };
+      for (let s = from; s <= 20 * 60; s += 10) {
+        const when = s * TICKS_PER_SECOND;
+        const list = timed.get(when);
+        if (list) list.push(join);
+        else timed.set(when, [join]);
+      }
+    }
+  }
   let produced: LedgerData = {};
   // F1 Task 9: what the run EARNED in intel, read off the held total tick by tick rather than summed from
   // the `intelEarned` events, so a source that moves the total without announcing itself (the retired
@@ -494,7 +620,19 @@ export function run(
     mission.resources === undefined
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
+  // GH-1395: the challenge predicate on this run's own row, as the app's `challengeMarkFor` reads it (the posture and
+  // open-at-boot halves are the app's; the reading runs at Standard on the harness's own ledgers), and term by term for
+  // the reading's "held on wins" counts.
+  const challengeRun = challenge === undefined ? undefined : runRowOf(rt, rt.roeScore, sim.tickCount);
+  const target = (missions[id] as unknown as { target_minutes?: number }).target_minutes ?? 0;
+  const challengeRow =
+    challenge === undefined || challengeRun === undefined
+      ? undefined
+      : {
+          met: rt.result === 'victory' && challengeMet(challenge.challenge.win, challengeRun, target),
+          terms: challengeTerms(challenge.challenge.win, challengeRun, target),
+        };
+  runLog.push({ id, label, posture, ...(challengeRow !== undefined ? { challenge: challengeRow } : {}), lost: rt.startingCount - rt.startingHome, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue, ...(Object.keys(runNotes).length > 0 ? { notes: { ...runNotes } } : {}) });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;

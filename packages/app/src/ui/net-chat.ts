@@ -23,8 +23,10 @@
  * chat is still released.
  */
 import type { Seat } from '@lions/net';
+import { QUICK_CHAT_IDS, quickChatText, type QuickChatId } from './quick-chat';
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
+import type { ChatInbox } from './chat-inbox';
 
 /** The room's own cap (`room-core.ts`'s `CHAT_MAX_CHARS`). */
 export const CHAT_MAX_CHARS = 280;
@@ -34,6 +36,13 @@ export const CHAT_LOG_LINES = 50;
 export interface ChatDeps {
   send(text: string): void;
   nameOf(seat: Seat): string;
+  /** GH-1417 S1: the room's inbox and the OTHER seat. With both, the chat shows a button that mutes that seat for the rest of the room,
+   *  and when the inbox says chat is off the chat shows a line saying so and offers no input. The lines themselves reach `receive`
+   *  only through the inbox (`chat-inbox.ts`); this class never decides what is shown. */
+  inbox?: ChatInbox;
+  peer?: Seat;
+  /** GH-1417 S1b: with it, the chat shows a "Quick chat" menu of preset phrases. It sends an id, never text. */
+  sendQuick?(id: QuickChatId): void;
 }
 
 export interface ChatOptions {
@@ -49,6 +58,12 @@ export class NetChat {
   private readonly entry: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly docked: boolean;
+  private readonly off: HTMLElement;
+  /** GH-1417 S2: why the last line was not sent (the filter would hide it on the other screen). Cleared by the next key. */
+  private readonly refused: HTMLElement;
+  private readonly muteBtn: HTMLButtonElement | null = null;
+  private readonly quick: HTMLSelectElement | null = null;
+  private readonly unsub: (() => void) | null = null;
 
   constructor(parent: HTMLElement, private readonly deps: ChatDeps, opts: ChatOptions = {}) {
     this.docked = opts.docked === true;
@@ -69,11 +84,81 @@ export class NetChat {
     this.input.placeholder = t('net.chat.placeholder');
     this.input.setAttribute('aria-label', t('net.chat.placeholder'));
     this.entry.appendChild(this.input);
+    this.off = document.createElement('p');
+    this.off.className = 'rl-chat__off';
+    this.off.textContent = t('net.chat.off');
+    this.off.hidden = true;
+    this.refused = document.createElement('p');
+    this.refused.className = 'rl-chat__refused';
+    this.refused.setAttribute('role', 'status');
+    this.refused.textContent = t('net.chat.refused');
+    this.refused.hidden = true;
+    const { inbox, peer } = deps;
+    if (inbox !== undefined && peer !== undefined) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'rl-chat__mute';
+      // A click must not take focus from the input first: that blur would close the match's input before the click lands.
+      btn.addEventListener('mousedown', (ev) => ev.preventDefault());
+      btn.addEventListener('click', () => {
+        inbox.toggleMuted(peer);
+      });
+      btn.addEventListener('keydown', this.onMuteKey);
+      if (!this.docked) btn.addEventListener('blur', this.onMuteBlur);
+      this.muteBtn = btn;
+      this.entry.appendChild(btn);
+      this.unsub = inbox.onChange(() => this.paintMute());
+      this.paintMute();
+    }
+    if (deps.sendQuick !== undefined) {
+      // A native select: keyboard and screen-reader complete for free, and it keeps focus inside the chat row.
+      const sel = document.createElement('select');
+      sel.className = 'rl-chat__quick';
+      sel.setAttribute('aria-label', t('net.quick.label'));
+      const head = document.createElement('option');
+      head.value = '';
+      head.textContent = t('net.quick.prompt');
+      sel.appendChild(head);
+      for (const id of QUICK_CHAT_IDS) {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = quickChatText(id);
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', this.onQuickChange);
+      sel.addEventListener('keydown', this.onMuteKey);
+      if (!this.docked) sel.addEventListener('blur', this.onMuteBlur);
+      this.quick = sel;
+      this.entry.appendChild(sel);
+    }
     this.entry.hidden = !this.docked;
-    this.root.append(this.log, this.entry);
+    this.root.append(this.off, this.log, this.refused, this.entry);
+    this.applyEnabled();
     this.input.addEventListener('keydown', this.onKey);
     if (!this.docked) this.input.addEventListener('blur', this.onBlur);
     parent.appendChild(this.root);
+  }
+
+  /** Whether the inbox lets chat show; true when this chat has no inbox. */
+  private get on(): boolean {
+    return this.deps.inbox?.isEnabled() ?? true;
+  }
+
+  /** Shows or hides the input, the log and the "chat is off" line to match the setting, read now. */
+  private applyEnabled(): void {
+    const on = this.on;
+    this.off.hidden = on;
+    this.log.hidden = !on;
+    if (!on) this.entry.hidden = true;
+    else if (this.docked) this.entry.hidden = false;
+  }
+
+  private paintMute(): void {
+    const { inbox, peer } = this.deps;
+    if (this.muteBtn === null || inbox === undefined || peer === undefined) return;
+    const muted = inbox.isMuted(peer);
+    this.muteBtn.textContent = t(muted ? 'net.chat.unmute' : 'net.chat.mute', { name: this.deps.nameOf(peer) });
+    this.muteBtn.setAttribute('aria-pressed', String(muted));
   }
 
   /** True while the input is shown and has focus. */
@@ -83,15 +168,20 @@ export class NetChat {
 
   /** Shows the input and focuses it. */
   open(): void {
+    this.applyEnabled();
+    if (!this.on) return;
     this.entry.hidden = false;
+    this.paintMute();
     this.input.focus();
   }
 
   /** Hides the input (the docked one stays) and gives the keys back to the game. */
   close(): void {
     this.input.value = '';
+    this.refused.hidden = true;
     if (!this.docked) this.entry.hidden = true;
-    if (document.activeElement === this.input) this.input.blur();
+    const active = document.activeElement;
+    if (active !== null && this.entry.contains(active)) (active as HTMLElement).blur();
   }
 
   /** Appends one line to this chat's own log (the lobby's). */
@@ -107,8 +197,23 @@ export class NetChat {
   dispose(): void {
     this.input.removeEventListener('keydown', this.onKey);
     this.input.removeEventListener('blur', this.onBlur);
+    this.muteBtn?.removeEventListener('keydown', this.onMuteKey);
+    this.muteBtn?.removeEventListener('blur', this.onMuteBlur);
+    this.quick?.removeEventListener('change', this.onQuickChange);
+    this.quick?.removeEventListener('keydown', this.onMuteKey);
+    this.quick?.removeEventListener('blur', this.onMuteBlur);
+    this.unsub?.();
     this.root.remove();
   }
+
+  /** The mute button, like the input, keeps the game's keys out (it may hold focus while the match runs) and lets Escape close the chat. */
+  private readonly onMuteKey = (ev: KeyboardEvent): void => {
+    ev.stopPropagation();
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      this.close();
+    }
+  };
 
   private readonly onKey = (ev: KeyboardEvent): void => {
     ev.stopPropagation();
@@ -117,6 +222,13 @@ export class NetChat {
     if (ev.key === 'Enter') {
       ev.preventDefault();
       const text = this.input.value.trim();
+      // The nudge (design 3.3): a line the filter would hide is not sent, and the text stays so the player can change it. The
+      // control is still the receiver's inbox; this only spares a well-meaning player a line that would vanish.
+      if (text !== '' && this.deps.inbox?.refuses(text) === true) {
+        this.refused.hidden = false;
+        return;
+      }
+      this.refused.hidden = true;
       if (text !== '') this.deps.send(text);
       this.input.value = '';
       if (!this.docked) this.close();
@@ -126,7 +238,28 @@ export class NetChat {
     }
   };
 
-  private readonly onBlur = (): void => {
+  /** A phrase chosen from the quick menu is sent by id and the menu goes back to its prompt; in the match the chat then closes, as a send does. */
+  private readonly onQuickChange = (): void => {
+    const sel = this.quick;
+    if (sel === null) return;
+    const id = QUICK_CHAT_IDS.find((x) => x === sel.value);
+    sel.value = '';
+    if (id === undefined) return;
+    this.deps.sendQuick?.(id);
+    if (!this.docked) this.close();
+  };
+
+  /** Focus leaving the mute button or the quick menu for anywhere else in the chat row keeps the chat open; anywhere else closes it. */
+  private readonly onMuteBlur = (ev: FocusEvent): void => {
+    const to = ev.relatedTarget;
+    if (to instanceof Node && this.entry.contains(to)) return;
+    if (!this.entry.hidden) this.close();
+  };
+
+  private readonly onBlur = (ev: FocusEvent): void => {
+    // Focus moving to the mute button, in the same row, is still the chat.
+    const to = ev.relatedTarget;
+    if (to instanceof Node && this.entry.contains(to) && to !== this.input) return;
     if (!this.entry.hidden) this.close();
   };
 }

@@ -591,6 +591,31 @@ describe('surrender (N1b task 2)', () => {
   });
 });
 
+describe('quick chat (GH-1417 S1b)', () => {
+  it('relays the id, with the seat, to both seats', () => {
+    const st = running();
+    expect(sends(seatMessage(st, 0, { t: 'quick', id: 'gg' }, 1000, mint)).map((s) => [s.to, s.msg])).toEqual([['all', { t: 'quick', seat: 0, id: 'gg' }]]);
+  });
+  it('shares the chat rate limit in both directions: a phrase within 500 ms of a line, or a line within 500 ms of a phrase, is dropped', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'chat', text: 'a' }, 1000, mint);
+    expect(sends(seatMessage(st, 0, { t: 'quick', id: 'gg' }, 1400, mint))).toEqual([]);
+    expect(sends(seatMessage(st, 0, { t: 'quick', id: 'gg' }, 1600, mint))).toHaveLength(1);
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: 'b' }, 1900, mint))).toEqual([]);
+    expect(sends(seatMessage(st, 0, { t: 'chat', text: 'c' }, 2200, mint))).toHaveLength(1);
+  });
+  it('limits each seat on its own, and the first phrase is never limited', () => {
+    const st = running();
+    expect(sends(seatMessage(st, 0, { t: 'quick', id: 'gl' }, 0, mint))).toHaveLength(1);
+    expect(sends(seatMessage(st, 1, { t: 'quick', id: 'gl' }, 100, mint))).toHaveLength(1);
+  });
+  it('says nothing once the match has ended', () => {
+    const st = running();
+    seatMessage(st, 0, { t: 'surrender' }, 500, mint);
+    expect(sends(seatMessage(st, 1, { t: 'quick', id: 'gg' }, 5000, mint))).toEqual([]);
+  });
+});
+
 describe('chat (N1b task 2)', () => {
   it('relays trimmed, control-free text to both seats', () => {
     const st = running();

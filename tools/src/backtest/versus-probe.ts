@@ -97,6 +97,7 @@
 //          --formation=<id>  --formation-end=<friendly|hostile>  --rescue-buy=<reserve|after|before|save|opening|off>
 //          --seed-from=<n>  --tunnel-cell=<off|noAnswer|answer|turtle>  --per-seed=<file>
 //          --mode=<camp|points|flag|all>  the win-mode arm (GH-976, versus-modes.ts): its own flags, --maps  --seeds  --seed-from  --passive=<on|off>
+//          --field-works  the field-works arm (versus-works.ts): KDF v KDF annihilation, the option on against off, --maps  --seeds
 //
 // Seed sets, one tunnel cell, per-seed files (GH-859 P1b Task 7; the instruments of the S4 gate, `s4-gate.ts`).
 // `--seed-from=<n>` plays seeds n .. n+seeds-1 (`seedOf` is unchanged: `seedOf(n)` is the n-th game), so set A
@@ -176,7 +177,8 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Sim, WOUND_DOWN, WOUND_STABILISED, MED_IDLE, fx, type SimEvent } from '@lions/sim';
-import { applyTerrain, doctrines, formations, maps, parseMap, units, versusCapacityOf, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
+import { applyTerrain, doctrines, formations, parseMap, units, versusCapacityOf, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
+import { maps } from '@lions/data/content';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, matchCapTicks, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
@@ -185,6 +187,7 @@ import { outcomeOf, productionOf, unitCost, type MatchResult, type OutcomeProduc
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { modeMain } from './versus-modes';
+import { worksMain } from './versus-works';
 import { PER_SEED_SCHEMA, type PerSeedCell, type PerSeedFile } from './per-seed';
 
 /** 20 Hz, like the sim. */
@@ -1397,6 +1400,8 @@ export function parsePair(name: string, raw: string): [number, number] {
 export function main(args: readonly string[] = process.argv.slice(2), playFn: PlayFn = play): number {
   // GH-976: `--mode=<camp|points|flag|all>` is the win-mode arm (`versus-modes.ts`), a room's own world and not this file's.
   if (flag(args, 'mode') !== undefined) return modeMain(args);
+  // Versus field works (the lead, 18 Nov 2026): `--field-works` is its own arm (`versus-works.ts`), on vs off in the KDF mirror.
+  if (args.includes('--field-works')) return worksMain(args);
   const tunnels = args.includes('--tunnels');
   const economy = tunnels || args.includes('--economy');
   const rulesArg = flag(args, 'rules') ?? 'room';

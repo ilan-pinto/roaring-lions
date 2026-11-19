@@ -41,19 +41,35 @@ const REPO = fileURLToPath(new URL('../../../', import.meta.url));
  * its `kit_*` nodes stripped by `stripKit`, then the encode pass's own draco()) is 1,965,212 after round 3's fists and
  * retints (1,950,160, then 1,953,472 before), 1,961,376 after round 4's capped fists; shipped with the kit 1,992,080
  * (+30,704 at about 2,700 kit triangles a figure, inside the +64 KiB; with the v7 kit, 7,200 a figure, +110,104 and the Rifle Squad's
- * budget is 128 KiB). `growthKiB` is PER TEAM: the Demolition squad's kit is unchanged and keeps 64 (+18,964 today).
- * `hosts` are the role primitives its kit joins: the Demolition squad's weapon primitive is a palette one with no UVs, so
- * its devices ride `uniform`. `leaderOnly` are the parts only the radio man carries.
+ * budget is 128 KiB). `growthKiB` is PER TEAM (the Combat Engineers' row says what theirs is).
+ * `hosts` are the role primitives its kit joins. `leaderOnly` are the parts only the radio man carries.
  */
 const TEAMS: Readonly<
-  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number; growthKiB: number }>
+  Record<string, { figures: string[]; hosts: string[]; leader: string; preKitEncodedBytes: number; growthKiB: number; radio?: string[]; noRadio?: string[] }>
 > = {
   inf_squad: { figures: ['f0', 'f1', 'f2'], hosts: ['uniform', 'weapon'], leader: 'f1', preKitEncodedBytes: 1_961_376, growthKiB: 128 },
-  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform'], leader: 'demo_b', preKitEncodedBytes: 1_018_964, growthKiB: 64 },
+  // GH-826 unit 1 (13 Nov 2026): the Combat Engineers are a skinned Meshy body with a textured carbine, so their devices ride
+  // `weapon` as the Rifle Squad's do, and their kit is the same v7 set (demo_a 6,735 and demo_b 6,931 triangles drawn). Pre-kit
+  // encode 1,559,820 (the shipped file with its kit stripped by `stripKit`, through the encode pass's draco()); with the kit
+  // 1,639,424: +79,604 bytes, 77.7 KiB, for two men where the Rifle Squad's three cost 107.5. The budget is the measured
+  // growth rounded up to 80 KiB, this team's own row (the lead's ruling of 13 Nov 2026: per team, never global).
+  demo_squad: { figures: ['demo_a', 'demo_b'], hosts: ['uniform', 'weapon'], leader: 'demo_b', preKitEncodedBytes: 1_559_820, growthKiB: 80 },
+  // GH-826 unit "Yahalom" (17 Nov 2026): the Combat Engineers' body, the same v7 set less the back radio (the pack holds its
+  // slot) plus the four specialist items (yah_a 6,655 and yah_b 6,910 triangles drawn). Pre-kit encode 1,638,380 (the same
+  // procedure: `stripKit`, then the encode pass's draco()); with the kit 1,715,220: +76,840 bytes, 75.0 KiB (round 2, 17 Nov:
+  // the 0.40 m pack and its conformed straps, the mast sensor a cylinder; round 1 read 1,637,336 and 1,714,364). Inside the
+  // Combat Engineers' 80 KiB, so the same row. `leader` here is who carries the radio parts: yah_b, not the team's leader;
+  // `radio` is what he alone carries (the pouch on his pack's side, the whips off its top) and `noRadio` what nobody does
+  // (the assault pack holds the back radio's slot: the 30 Oct "baked gear wins" rule).
+  yahalom_squad: {
+    figures: ['yah_a', 'yah_b'], hosts: ['uniform', 'weapon'], leader: 'yah_b', preKitEncodedBytes: 1_638_380, growthKiB: 80,
+    radio: ['whip_short', 'whip_long', 'radio_pouch'], noRadio: ['radio_panel', 'radio_pack'],
+  },
 };
 // 9 Nov 2026 (the v7 set, GH-746, lead-approved 7,200 triangles a figure): the Rifle Squad's encoded kit now adds 110,104 bytes
 // (107.5 KiB) to its pre-kit file, so ITS budget is 128 KiB (`growthKiB` above) and at 64 KiB this test goes red on the shipped
-// bytes. The budget is per team: demo_squad's kit did not change and its budget is back at 64 KiB (the fix round, review should-fix 3).
+// bytes. The budget is per team: demo_squad's stayed at 64 KiB while its kit was the procedural one (the fix round, review
+// should-fix 3) and is 80 KiB since it fits the v7 set (13 Nov, above).
 const GROWTH_BUDGET_BYTES = (team: string): number => TEAMS[team].growthKiB * 1024;
 
 type Packed = InfantryKitTag & { name: string; tris: number };
@@ -120,9 +136,10 @@ describe(`${team}: the kit in art/meshes`, () => {
 
   it('puts the radio whip and the pack on the leader only', async () => {
     const all = [...kitParts(await doc).values()].flat();
-    for (const part of ['whip_short', 'whip_long', 'radio_panel', 'radio_pack']) {
-      expect(all.filter((p) => p.part === part).map((p) => p.figure)).toEqual([spec.leader]);
+    for (const part of spec.radio ?? ['whip_short', 'whip_long', 'radio_panel', 'radio_pack']) {
+      expect(all.filter((p) => p.part === part).map((p) => p.figure), part).toEqual([spec.leader]);
     }
+    for (const part of spec.noRadio ?? []) expect(all.filter((p) => p.part === part), part).toEqual([]);
   });
 
   it('every vertex carries a part id that is a row of the table, and every row has its triangles', async () => {
@@ -192,8 +209,9 @@ describe(`${team}: the kit in assets/meshes`, () => {
 }
 
 describe('the encoded-growth budget is per team', () => {
-  it('the Demolition squad reads 64 KiB and the Rifle Squad 128 KiB', () => {
-    expect(GROWTH_BUDGET_BYTES('demo_squad')).toBe(64 * 1024);
+  it('the Combat Engineers read 80 KiB and the Rifle Squad 128 KiB', () => {
+    expect(GROWTH_BUDGET_BYTES('demo_squad')).toBe(80 * 1024);
+    expect(GROWTH_BUDGET_BYTES('yahalom_squad')).toBe(80 * 1024);
     expect(GROWTH_BUDGET_BYTES('inf_squad')).toBe(128 * 1024);
   });
 });

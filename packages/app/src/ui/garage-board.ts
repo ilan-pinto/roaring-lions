@@ -23,12 +23,13 @@
 // -- for a FUTURE rung only, and only once the widest layout has room to
 // spare -- a one-line gist.
 import { emblemSvg } from './kit-emblems';
-import { nextTierPrice, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
+import { nextTierPrice, type BranchPick, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
 import type { CreditAsk } from '../upgrade-pay';
 import { blockText, type CreditBlock } from './spend-gate';
 import { previewDeltas } from './garage-stats';
 import { formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
+import { forkRung, type ForkDeps } from './garage-fork';
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
   const e = document.createElement(tag);
@@ -133,7 +134,8 @@ export interface TrackDeps {
      *  single-player tier is at the top, whoever paid for it. Absent reads as the one-tier
      *  Buy off `owned`, the shape every caller had before the run (R0.1, R3). */
     readonly ask?: CreditAsk | null;
-    readonly onBuy: (tier: number, price: number, asked: string) => void;
+    /** `pick` is the branch chosen on a branched rung (GH-1384, `garage-fork.ts`); absent on every other rung. */
+    readonly onBuy: (tier: number, price: number, asked: string, pick?: BranchPick) => void;
     /** Signed in (GH-1142, §0.39): why the Buy is held although the credits cover it (`spend-gate.ts`); drawn disabled with
      *  that reason. Absent for a guest. */
     readonly block?: CreditBlock | null;
@@ -165,6 +167,10 @@ export interface TrackDeps {
    *  Absent or `null` -- no photograph for this type and track -- keeps the
    *  hatch, and so does a file that fails to load. */
   readonly closeup?: string | null;
+  /** GH-1384: this track's last tier is BRANCHED, and the board draws it as the fork (`garage-fork.ts`).
+   *  `brigade.ts` passes it only for a (unit, track) in the economy's shipped branched table, which is
+   *  empty while the branch switch is closed: absent, every rung draws exactly as it always has. */
+  readonly fork?: ForkDeps;
 }
 
 /**
@@ -281,6 +287,30 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   for (let tier = track.tiers.length; tier >= 1; tier--) {
     const state = rungState(tier, deps.owned);
     const owned = tier <= deps.owned;
+
+    if (deps.fork !== undefined && tier === deps.fork.tier) {
+      // GH-1384: the branched rung is the fork. Its credit Buy asks the same run a linear rung's would.
+      const single = track.tiers[tier - 1].price;
+      const forkAsk = deps.buy === undefined ? null : deps.buy.ask === undefined ? { from: tier, to: tier, price: single, again: 0 } : deps.buy.ask;
+      ladder.appendChild(
+        forkRung({
+          unit: deps.unit,
+          unitId: deps.unitId,
+          unitName: deps.unitName,
+          trackName,
+          trackLabel,
+          owned: deps.owned,
+          price: single,
+          state,
+          locked,
+          fork: deps.fork,
+          buy:
+            deps.buy === undefined ? undefined : { credits: deps.buy.credits, ask: forkAsk, block: deps.buy.block ?? null, onBuy: deps.buy.onBuy },
+          preview: deps.preview,
+        })
+      );
+      continue;
+    }
 
     const rung = el('div', 'rl-garage__rung');
     rung.dataset.tier = String(tier);

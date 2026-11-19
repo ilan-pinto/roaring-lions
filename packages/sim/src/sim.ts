@@ -68,10 +68,15 @@ import {
   AFFECTS_VEHICLE,
   AFFECTS_PASSENGERS,
   areaEffectsFromJson,
+  GATE_CLOSED,
+  GATE_OPENING,
+  GATE_OPEN,
+  GATE_CLOSING,
   type AreaEffect,
   type AreaEffectJson,
   type StructureAid,
   type StructureAura,
+  type StructureGate,
   type StructureType,
   type StructureTypeJson,
 } from './structures';
@@ -1475,6 +1480,10 @@ export type SimEvent =
   | { kind: 'revealed'; tick: number; side: number; count: number }
   | { kind: 'structureHit'; tick: number; structure: number; by: number; damage: Fx; hpLeft: Fx }
   | { kind: 'structureDestroyed'; tick: number; structure: number; by: number }
+  /** GH-1438 E1: gate `structure` finished swinging open: its tiles are passable from this tick. */
+  | { kind: 'gateOpened'; tick: number; structure: number }
+  /** GH-1438 E1: gate `structure` finished swinging shut: its tiles are blocked from this tick. */
+  | { kind: 'gateClosed'; tick: number; structure: number }
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'ventOpened'; tick: number; tunnel: number }
@@ -1573,7 +1582,7 @@ export type SimEvent =
  */
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung', 'formationContact', 'formationReleased', 'formationCall',
-  'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
+  'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'gateOpened', 'gateClosed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
@@ -2238,6 +2247,18 @@ export class Sim {
    *  columns only while set (the deferred fold, field works' D1 shape), so no world without a
    *  placed-charge type moves any pin. */
   private placedLive = false;
+  /** GH-1438 E1: the gate's state, one of GATE_CLOSED, GATE_OPENING, GATE_OPEN, GATE_CLOSING (0 for every
+   *  structure that is not a gate, which is CLOSED and never read). Hashed behind `gateLive`. */
+  private readonly stGateState: Uint8Array;
+  /** GH-1438 E1: ticks left on the swing under way (OPENING or CLOSING), 0 otherwise. Hashed behind `gateLive`. */
+  private readonly stGateTimer: Int32Array;
+  /** GH-1438 E1: hold-open ticks left since the last opening unit was near. Hashed behind `gateLive`. */
+  private readonly stGateHold: Int32Array;
+  /** GH-1438 E1: true once a structure of a type with a `gate` block is raised (not when the type is
+   *  registered: every world registers the whole catalogue). hash() folds the three gate columns only while
+   *  set (the deferred fold, field works' D1 shape), and `stepGates` returns at once while it is false, so a
+   *  world with no gate runs exactly the code it ran before and moves no pin. Never cleared. */
+  private gateLive = false;
   // --- field works (#277) state block. Every array is declared and hashed
   // here (Task 2) even where a later task is its only writer; see hash() for
   // why the block folds only once `fwLive` is set (D1).
@@ -2514,6 +2535,11 @@ export class Sim {
     readonly known: Uint8Array;
     /** Field works: construction progress, ONE when complete. */
     readonly progress: Int32Array;
+    /** GH-1438 E1: a gate's state (GATE_CLOSED 0, GATE_OPENING 1, GATE_OPEN 2, GATE_CLOSING 3); 0 for
+     *  anything that is not a gate. The renderer animates the swing from this and `gateTimer`. */
+    readonly gate: Uint8Array;
+    /** GH-1438 E1: ticks left on a gate's swing under way, 0 when it is not swinging. */
+    readonly gateTimer: Int32Array;
   };
 
   /** Read-only view of the field-works construction-site table (#277). */
@@ -2725,6 +2751,9 @@ export class Sim {
     this.stOccupants = new Uint8Array(sc);
     this.stChargeTicks = new Int32Array(sc);
     this.stChargeBy = new Int32Array(sc).fill(-1);
+    this.stGateState = new Uint8Array(sc);
+    this.stGateTimer = new Int32Array(sc);
+    this.stGateHold = new Int32Array(sc);
     this.stOwner = new Int8Array(sc).fill(-1);
     this.stKnown = new Uint8Array(2 * sc);
     this.stProgress = new Int32Array(sc);
@@ -2863,6 +2892,8 @@ export class Sim {
       owner: this.stOwner,
       known: this.stKnown,
       progress: this.stProgress,
+      gate: this.stGateState,
+      gateTimer: this.stGateTimer,
     };
     this.works = {
       alive: this.siteAlive,
@@ -3188,6 +3219,11 @@ export class Sim {
       this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
       this.stHp[id] = this.stMaxHp[id];
       this.stOccupants[id] = 0;
+      // GH-1438 E1: a gate is raised shut, its tiles blocked above like any structure's.
+      this.stGateState[id] = GATE_CLOSED;
+      this.stGateTimer[id] = 0;
+      this.stGateHold[id] = 0;
+      if (type.gate !== null) this.gateLive = true;
       // Centroid of the footprint, tile centres.
       this.stCx[id] = fx.add(fx.div(fx.fromInt(sumX), fx.fromInt(tiles.length)), HALF);
       this.stCy[id] = fx.add(fx.div(fx.fromInt(sumY), fx.fromInt(tiles.length)), HALF);
@@ -3268,6 +3304,146 @@ export class Sim {
       if (!flipped) this.abortFlips();
     }
     this.recomputeFields('opened');
+  }
+
+  /**
+   * GH-1438 E1: the compound gates, once a tick, directly after the commands (docs/campaign/civilian-drama.md
+   * section 2.3). Nothing while no gate has been raised (`gateLive`). Gates are visited in ascending structure
+   * id and units in ascending entity id; there is no draw. For each living gate:
+   *   1. near: a unit of side `opensFor` within the radius (`gateNear`);
+   *   2. hold: reset to `holdTicks` while near, else counted down; it wants to be open while near or held;
+   *   3. the swing: CLOSED goes OPENING when it wants to be open. OPENING counts its timer down and at 0 opens
+   *      (the tiles unblock, the fields are repaired, `gateOpened`); it always completes. OPEN goes CLOSING when
+   *      it no longer wants to be open and nothing stands in it (`gateOccupied`). CLOSING goes back to OPEN when
+   *      it wants to be open again, holds while anything stands in it, and otherwise counts down and at 0 shuts
+   *      (the tiles block, the fields are repaired, `gateClosed`). The tiles stay passable all the way through
+   *      CLOSING, so nothing can be shut inside one.
+   * A destroyed gate is `stAlive` 0 and skipped: `destroyStructure` has already unblocked it for good.
+   */
+  private stepGates(): void {
+    if (!this.gateLive) return;
+    for (let g = 0; g < this.structureCount_; g++) {
+      if (this.stAlive[g] === 0) continue;
+      const gate = this.structureTypes[this.stTypeIdx[g]].gate;
+      if (gate === null) continue;
+      const near = this.gateNear(g, gate);
+      let hold = this.stGateHold[g];
+      if (near) hold = gate.holdTicks;
+      else if (hold > 0) hold--;
+      this.stGateHold[g] = hold;
+      const wantOpen = near || hold > 0;
+      const state = this.stGateState[g];
+      if (state === GATE_CLOSED) {
+        if (wantOpen) {
+          this.stGateState[g] = GATE_OPENING;
+          this.stGateTimer[g] = gate.swingTicks;
+        }
+      } else if (state === GATE_OPENING) {
+        const left = this.stGateTimer[g] - 1;
+        this.stGateTimer[g] = left > 0 ? left : 0;
+        if (left <= 0) {
+          this.stGateState[g] = GATE_OPEN;
+          this.flipGate(g, 0);
+          this.pendingEvents.push({ kind: 'gateOpened', tick: this.tickCount, structure: g });
+        }
+      } else if (state === GATE_OPEN) {
+        if (!wantOpen && !this.gateOccupied(g)) {
+          this.stGateState[g] = GATE_CLOSING;
+          this.stGateTimer[g] = gate.swingTicks;
+        }
+      } else if (wantOpen) {
+        // CLOSING, and wanted again: back to OPEN at once (the tiles never shut). The renderer reverses the swing.
+        this.stGateState[g] = GATE_OPEN;
+        this.stGateTimer[g] = 0;
+      } else if (!this.gateOccupied(g)) {
+        const left = this.stGateTimer[g] - 1;
+        this.stGateTimer[g] = left > 0 ? left : 0;
+        if (left <= 0) {
+          this.stGateState[g] = GATE_CLOSED;
+          this.flipGate(g, 1);
+          this.pendingEvents.push({ kind: 'gateClosed', tick: this.tickCount, structure: g });
+        }
+      }
+    }
+  }
+
+  /**
+   * GH-1438 E1: is a unit that opens gate `g` near it? A living unit of side `opensFor` that is on the surface
+   * (`tunnelIn` < 0), not carried (the carrier itself counts), not garrisoned (a man at a window is not at the
+   * gate), not an aircraft by type (one overhead opens nothing, as with GH-279 ruling a; a landed one neither),
+   * and not down (`isDown`, the rule `livingIn` uses), within the radius of the gate's centroid:
+   * `((dx >> 8)^2 + (dy >> 8)^2) <= radiusSq`, the Q8.8 squared form of `civilians.ts`'s shepherd test. Integer
+   * throughout; the per-axis reject keeps every product below 2^31 on any map size.
+   */
+  private gateNear(g: number, gate: StructureGate): boolean {
+    const cx = this.stCx[g];
+    const cy = this.stCy[g];
+    const r = gate.radiusQ8;
+    const side = gate.opensFor;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || this.side[i] !== side) continue;
+      if (this.tunnelIn[i] >= 0 || this.carriedBy[i] >= 0 || this.garrisonedIn[i] >= 0) continue;
+      if (this.unitTypes[this.typeIdx[i]].isAir) continue;
+      if (this.woundLive && this.horsDeCombat(i)) continue;
+      const dx = fx.sub(this.posX[i], cx) >> 8;
+      if (dx > r || dx < -r) continue;
+      const dy = fx.sub(this.posY[i], cy) >> 8;
+      if (dy > r || dy < -r) continue;
+      if (dx * dx + dy * dy <= gate.radiusSq) return true;
+    }
+    return false;
+  }
+
+  /**
+   * GH-1438 E1: does anything stand in gate `g`? Any living entity of ANY side -- a soldier, an enemy, a
+   * civilian, a man down -- whose position tile is one of the gate's tiles, unless it is not on that ground:
+   * buried, carried, garrisoned, or an aircraft in the air (one settling onto the tile is not airborne, and does
+   * stand there). The position tile only: a hull overlapping the gate from the next tile does not hold it (the
+   * sim has no vehicle footprint). Not `stOccupants`, which is a garrison count.
+   */
+  private gateOccupied(g: number): boolean {
+    const w = this.width;
+    const minX = this.stMinX[g];
+    const minY = this.stMinY[g];
+    const maxX = this.stMaxX[g];
+    const maxY = this.stMaxY[g];
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const tx = this.posX[i] >> 16;
+      const ty = this.posY[i] >> 16;
+      if (tx < minX || tx > maxX || ty < minY || ty > maxY) continue;
+      if (this.structureOfTile[ty * w + tx] !== g) continue;
+      if (this.tunnelIn[i] >= 0 || this.carriedBy[i] >= 0 || this.garrisonedIn[i] >= 0 || this.isAirborne(i)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * GH-1438 E1: block (`to` 1) or unblock (`to` 0) every tile of gate `g`, in one flip window, and repair the
+   * cached fields: the path `addStructure` (`closed`) and `removeStructure` (`opened`) take. `structureOfTile`
+   * keeps naming the gate either way: an open gate is still a structure that can be shot and brought down.
+   */
+  private flipGate(g: number, to: 0 | 1): void {
+    const tiles = this.stTiles[g];
+    this.beginFlips(tiles.length);
+    let flipped = false;
+    try {
+      for (let k = 0; k < tiles.length; k++) {
+        const t = tiles[k];
+        const footWas = this.blocked[t];
+        const vehWas = this.blockedVehicleMask[t];
+        this.blocked[t] = to;
+        // A boulder under the same tile does not stop being a boulder.
+        this.syncVehicleTile(t);
+        this.noteFlip(t, footWas, vehWas);
+      }
+      flipped = true;
+    } finally {
+      // A throw inside the window must not leave `flipDepth` raised for the rest of the process.
+      if (!flipped) this.abortFlips();
+    }
+    this.recomputeFields(to === 0 ? 'opened' : 'closed');
   }
 
   /**
@@ -4655,6 +4831,9 @@ export class Sim {
       this.resnapBlockedGoals();
     }
     this.applyCommands();
+    // GH-1438 E1: directly after the commands and before anything reads `blocked` (digging, detection, movement,
+    // the fields), so passability is fixed for the whole tick.
+    this.stepGates();
     this.stepDigging();
     this.stepDetection();
     this.stepSurfacing();
@@ -13118,11 +13297,7 @@ export class Sim {
           // blocked one.
           if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
           this.sepLast[i] = 0;
-        } else if (wait >= SEP_VALVE_TICKS) {
-          // Ghost: today's step, while the valve is open (it closes once the count decays).
-          this.sepLast[i] = 1;
         } else {
-          this.sepLast[i] = 1;
           const jStill = this.sepHitStationary;
           // A leg that ends in a range test (demolish, focus, garrison, board, charge) is not finished
           // by the goal being taken: the hull keeps trying, and the valve frees it in the end.
@@ -13132,108 +13307,119 @@ export class Sim {
             this.garrisonGoal[i] >= 0 ||
             this.boardGoal[i] >= 0 ||
             this.chargeOrder[i] >= 0;
-          if (!rangeGoal && this.sepAtContact(i, bj, jStill)) {
-            nx = px;
-            ny = py;
-            finishHere = true;
-            this.sepWait[i] = 0;
-            if (this.sepDiag.on) this.sepNote(i, 2, bj);
+          // GH-1360 S5a-2 (§3.3 item 4): B+ runs BEFORE the valve when this is the final leg (nothing queued), so a
+          // unit whose valve opened while it queued ends at contact with the goal another holds, and does not ghost
+          // into it and rest inside. On a leg with more to come the valve still goes first.
+          const atContact =
+            !rangeGoal && (wait < SEP_VALVE_TICKS || this.wpCount[i] === 0) && this.sepAtContact(i, bj, jStill);
+          if (wait >= SEP_VALVE_TICKS && !atContact) {
+            // Ghost: today's step, while the valve is open (it closes once the count decays).
+            this.sepLast[i] = 1;
           } else {
-            const mx = fx.sub(nx, px);
-            const my = fx.sub(ny, py);
-            const headOn = !jStill && fx.cos(fx.sub(this.facing[i], this.facing[bj]) & 0xffff) < 0;
-            // A same-way mover AHEAD is waited for (follow). Beside or behind, or ahead but also
-            // regarding i as ahead (two hulls converging on one lane), the pair must not both wait:
-            // i steers unless it is the higher id, which yields (the lower id has right of way).
-            let notAhead = false;
-            if (!jStill && !headOn) {
-              const ahead = fx.add(fx.mul(mx, fx.sub(this.posX[bj], px)), fx.mul(my, fx.sub(this.posY[bj], py))) > 0;
-              if (!ahead) {
-                notAhead = true;
-              } else if (i < bj) {
-                const jAhead =
-                  fx.add(
-                    fx.mul(fx.cos(this.facing[bj]), fx.sub(px, this.posX[bj])),
-                    fx.mul(fx.sin(this.facing[bj]), fx.sub(py, this.posY[bj]))
-                  ) > 0;
-                notAhead = jAhead;
-              }
-            }
-            let steered = false;
-            let followed = false;
-            if (!jStill && !headOn && !notAhead) {
-              // Following a same-way mover ahead: close up to contact with it, no further. The largest
-              // fraction of the step (to 1/32, five halvings) that is not blocked; a tick that gains
-              // ground is following, not standing, and costs the valve nothing.
-              let lo = 0;
-              let hi = ONE;
-              for (let k = 0; k < SEP_FOLLOW_HALVINGS; k++) {
-                const mid = (lo + hi) >> 1;
-                if (this.sepBlockedBy(i, px, py, fx.add(px, fx.mul(mx, mid)), fx.add(py, fx.mul(my, mid))) < 0) lo = mid;
-                else hi = mid;
-              }
-              const fxn = fx.add(px, fx.mul(mx, lo));
-              const fyn = fx.add(py, fx.mul(my, lo));
-              if (lo > 0 && (fxn !== px || fyn !== py)) {
-                nx = fxn;
-                ny = fyn;
-                followed = true;
-              }
-            }
-            if (jStill || headOn || notAhead) {
-              // Turn the step toward the normal that leads away from j's hull (from j's closest point to i's),
-              // not away from j's centre: a step aimed past j's bearing would otherwise flip the side every
-              // tick and the hull would creep along j's flank instead of going round it.
-              const ti = this.unitTypes[this.typeIdx[i]];
-              const tj = this.unitTypes[this.typeIdx[bj]];
-              const cap = this.sepCap;
-              let nX: Fx;
-              let nY: Fx;
-              if (ti.sepHalfLen <= ti.sepHalfWid || tj.sepHalfLen <= tj.sepHalfWid) {
-                // GH-1360 §3.3 item 1: with a circle in the pair only the SIGN of the cross product is read, so the
-                // un-normalised vector between the closest points will do: no fx.sqrt, no fx.div for the normal.
-                this.sepPlace(px, py, this.facing[i], ti, 0);
-                this.sepPlace(this.posX[bj], this.posY[bj], this.facing[bj], tj, 10);
-                closestSegmentPoints(cap, 0, 10, this.sepOut);
-                nX = fx.sub(this.sepOut[0], this.sepOut[2]);
-                nY = fx.sub(this.sepOut[1], this.sepOut[3]);
-              } else {
-                hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
-                hullCapsule(this.posX[bj], this.posY[bj], this.facing[bj], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
-                capsuleOverlap(cap, 0, 10, this.sepOut);
-                nX = this.sepOut[0];
-                nY = this.sepOut[1];
-              }
-              let cross = fx.sub(fx.mul(mx, nY), fx.mul(my, nX));
-              if (cross === 0) cross = fx.sub(fx.mul(my, fx.sub(this.posX[bj], px)), fx.mul(mx, fx.sub(this.posY[bj], py)));
-              const away = cross > 0 ? 1 : -1;
-              for (let k = 0; k < 2 && !steered; k++) {
-                const c = k === 0 ? SEP_COS_45 : 0;
-                const sn = (k === 0 ? SEP_COS_45 : ONE) * away;
-                const cx = this.clampX(fx.add(px, fx.sub(fx.mul(mx, c), fx.mul(my, sn))));
-                const cy = this.clampY(fx.add(py, fx.add(fx.mul(mx, sn), fx.mul(my, c))));
-                const ctx = cx >> 16;
-                const cty = cy >> 16;
-                if (clip[cty * w + ctx] !== 0 || clip[tileY * w + ctx] !== 0 || clip[cty * w + tileX] !== 0) continue;
-                if (this.sepBlockedBy(i, px, py, cx, cy) >= 0) continue;
-                nx = cx;
-                ny = cy;
-                steered = true;
-                // Going round is progress, not waiting: a tick spent standing costs two, a tick spent
-                // steering one (a pass of a parked hull takes thirty-odd blocked ticks at full speed).
-                this.sepWait[i] = wait + 1;
-              }
-            }
-            if (followed) {
-              // Closing up on its leader: a free tick for the valve (it decays after a free tick, as above).
-              if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
-              this.sepLast[i] = 0;
+            this.sepLast[i] = 1;
+            if (atContact) {
+              nx = px;
+              ny = py;
+              finishHere = true;
+              this.sepWait[i] = 0;
+              if (this.sepDiag.on) this.sepNote(i, 2, bj);
             } else {
-              if (!steered) {
-                nx = px;
-                ny = py;
-                this.sepWait[i] = wait + 2 > 255 ? 255 : wait + 2;
-                if (wait < SEP_VALVE_TICKS && this.sepWait[i] >= SEP_VALVE_TICKS && this.sepDiag.on) this.sepNote(i, 1, bj);
+              const mx = fx.sub(nx, px);
+              const my = fx.sub(ny, py);
+              const headOn = !jStill && fx.cos(fx.sub(this.facing[i], this.facing[bj]) & 0xffff) < 0;
+              // A same-way mover AHEAD is waited for (follow). Beside or behind, or ahead but also
+              // regarding i as ahead (two hulls converging on one lane), the pair must not both wait:
+              // i steers unless it is the higher id, which yields (the lower id has right of way).
+              let notAhead = false;
+              if (!jStill && !headOn) {
+                const ahead = fx.add(fx.mul(mx, fx.sub(this.posX[bj], px)), fx.mul(my, fx.sub(this.posY[bj], py))) > 0;
+                if (!ahead) {
+                  notAhead = true;
+                } else if (i < bj) {
+                  const jAhead =
+                    fx.add(
+                      fx.mul(fx.cos(this.facing[bj]), fx.sub(px, this.posX[bj])),
+                      fx.mul(fx.sin(this.facing[bj]), fx.sub(py, this.posY[bj]))
+                    ) > 0;
+                  notAhead = jAhead;
+                }
+              }
+              let steered = false;
+              let followed = false;
+              if (!jStill && !headOn && !notAhead) {
+                // Following a same-way mover ahead: close up to contact with it, no further. The largest
+                // fraction of the step (to 1/32, five halvings) that is not blocked; a tick that gains
+                // ground is following, not standing, and costs the valve nothing.
+                let lo = 0;
+                let hi = ONE;
+                for (let k = 0; k < SEP_FOLLOW_HALVINGS; k++) {
+                  const mid = (lo + hi) >> 1;
+                  if (this.sepBlockedBy(i, px, py, fx.add(px, fx.mul(mx, mid)), fx.add(py, fx.mul(my, mid))) < 0) lo = mid;
+                  else hi = mid;
+                }
+                const fxn = fx.add(px, fx.mul(mx, lo));
+                const fyn = fx.add(py, fx.mul(my, lo));
+                if (lo > 0 && (fxn !== px || fyn !== py)) {
+                  nx = fxn;
+                  ny = fyn;
+                  followed = true;
+                }
+              }
+              if (jStill || headOn || notAhead) {
+                // Turn the step toward the normal that leads away from j's hull (from j's closest point to i's),
+                // not away from j's centre: a step aimed past j's bearing would otherwise flip the side every
+                // tick and the hull would creep along j's flank instead of going round it.
+                const ti = this.unitTypes[this.typeIdx[i]];
+                const tj = this.unitTypes[this.typeIdx[bj]];
+                const cap = this.sepCap;
+                let nX: Fx;
+                let nY: Fx;
+                if (ti.sepHalfLen <= ti.sepHalfWid || tj.sepHalfLen <= tj.sepHalfWid) {
+                  // GH-1360 §3.3 item 1: with a circle in the pair only the SIGN of the cross product is read, so the
+                  // un-normalised vector between the closest points will do: no fx.sqrt, no fx.div for the normal.
+                  this.sepPlace(px, py, this.facing[i], ti, 0);
+                  this.sepPlace(this.posX[bj], this.posY[bj], this.facing[bj], tj, 10);
+                  closestSegmentPoints(cap, 0, 10, this.sepOut);
+                  nX = fx.sub(this.sepOut[0], this.sepOut[2]);
+                  nY = fx.sub(this.sepOut[1], this.sepOut[3]);
+                } else {
+                  hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
+                  hullCapsule(this.posX[bj], this.posY[bj], this.facing[bj], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
+                  capsuleOverlap(cap, 0, 10, this.sepOut);
+                  nX = this.sepOut[0];
+                  nY = this.sepOut[1];
+                }
+                let cross = fx.sub(fx.mul(mx, nY), fx.mul(my, nX));
+                if (cross === 0) cross = fx.sub(fx.mul(my, fx.sub(this.posX[bj], px)), fx.mul(mx, fx.sub(this.posY[bj], py)));
+                const away = cross > 0 ? 1 : -1;
+                for (let k = 0; k < 2 && !steered; k++) {
+                  const c = k === 0 ? SEP_COS_45 : 0;
+                  const sn = (k === 0 ? SEP_COS_45 : ONE) * away;
+                  const cx = this.clampX(fx.add(px, fx.sub(fx.mul(mx, c), fx.mul(my, sn))));
+                  const cy = this.clampY(fx.add(py, fx.add(fx.mul(mx, sn), fx.mul(my, c))));
+                  const ctx = cx >> 16;
+                  const cty = cy >> 16;
+                  if (clip[cty * w + ctx] !== 0 || clip[tileY * w + ctx] !== 0 || clip[cty * w + tileX] !== 0) continue;
+                  if (this.sepBlockedBy(i, px, py, cx, cy) >= 0) continue;
+                  nx = cx;
+                  ny = cy;
+                  steered = true;
+                  // Going round is progress, not waiting: a tick spent standing costs two, a tick spent
+                  // steering one (a pass of a parked hull takes thirty-odd blocked ticks at full speed).
+                  this.sepWait[i] = wait + 1;
+                }
+              }
+              if (followed) {
+                // Closing up on its leader: a free tick for the valve (it decays after a free tick, as above).
+                if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
+                this.sepLast[i] = 0;
+              } else {
+                if (!steered) {
+                  nx = px;
+                  ny = py;
+                  this.sepWait[i] = wait + 2 > 255 ? 255 : wait + 2;
+                  if (wait < SEP_VALVE_TICKS && this.sepWait[i] >= SEP_VALVE_TICKS && this.sepDiag.on) this.sepNote(i, 1, bj);
+                }
               }
             }
           }
@@ -13341,6 +13527,8 @@ export class Sim {
   private sepMoves(j: number): boolean {
     return (
       this.moving[j] === 1 &&
+      // GH-1360 S5a-2 (§3.3 item 2): a member held at a formation checkpoint keeps `moving` 1 but goes nowhere.
+      this.fmDuty[j] !== FM_DUTY_WAIT &&
       this.mobilityKilled[j] === 0 &&
       this.brace[j] === BRACE_NONE &&
       !(this.attackMove[j] === 1 && this.engaging[j] === 1) &&
@@ -14047,6 +14235,15 @@ export class Sim {
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);
     h = hashArray(h, this.stOccupants);
+    // GH-1438 E1: the gate block, the deferred fold (`placedLive`'s shape). Nothing, no marker and no length word,
+    // is folded before a gate is raised, so no golden, versus, net or economy pin moves. `blocked` is hashed above
+    // already; these are the words that say where each swing is.
+    if (this.gateLive) {
+      h = hashWord(h, 0x47540438); // 'GT' GH-1438
+      h = hashArray(h, this.stGateState);
+      h = hashArray(h, this.stGateTimer);
+      h = hashArray(h, this.stGateHold);
+    }
     // Field works (#277), D1: the FW state block is folded only once `fwLive`
     // is set, and NOTHING at all is folded before that -- no marker, no length
     // word. hashArray folds by XOR-then-multiply, so even an all-default array

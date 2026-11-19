@@ -7,8 +7,8 @@ import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
 import { handleArenaResults, isArenaPath } from './arena-results';
 import { handlePrivacy } from './privacy-page';
-import { handleAccount } from './account/routes';
-import { reconcileTombstones, sweepAccounts } from './account/sweep';
+import { accountDepsFor, handleAccount, type WaitUntilCtx } from './account/routes';
+import { accountCron } from './account/sweep';
 import { sweepAdminViews } from './admin/view-sweep';
 import { handleMatch } from './match/routes';
 import { purgeDesyncs } from './match/desync-log';
@@ -18,12 +18,13 @@ import { purgeSnapMismatches } from './match/snap-mismatch-log';
 export { MatchRoom } from './match/match-room';
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  /** `ctx` is the Workers `ExecutionContext`; optional so a test may call `fetch(req, env)`. */
+  async fetch(req: Request, env: Env, ctx?: WaitUntilCtx): Promise<Response> {
     const { pathname } = new URL(req.url);
     // #559 L-5: every response the Worker writes carries the security headers.
     if (pathname === '/api/events') return withSecurityHeaders(await handleIngest(req, env, Date.now()));
     if (pathname === '/api/feedback') return withSecurityHeaders(await handleFeedback(req, env, Date.now()));
-    if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now()));
+    if (pathname.startsWith('/api/account/')) return withSecurityHeaders(await handleAccount(req, env, Date.now(), accountDepsFor(ctx)));
     if (pathname === '/api/match' || pathname.startsWith('/api/match/')) return withSecurityHeaders(await handleMatch(req, env, Date.now()));
     // GH-1075 A1: the privacy page. No D1, no cookie; closed (503) until the lead supplies the contact and age.
     if (pathname === '/privacy') return withSecurityHeaders(handlePrivacy(req));
@@ -40,12 +41,12 @@ export default {
    *  fails the run. */
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const now = Date.now();
-    // One chain, so reconciliation sees the tombstones the sweep just wrote; it runs even if the sweep fails.
+    // GH-1432: the sweep and the reconciler share ONE member delete batch (a delete is 17 statements), and the reconciler's scan runs
+    // even if the sweep fails. Every share of the 50 D1 queries an invocation may make is pinned by `cron-budget.test.ts`. A member
+    // whose delete keeps failing is isolated by `accountCron`'s fallback (GH-1530), whose runs reject here while it is recorded, so it is seen.
     const accountDb = env.ACCOUNTS;
     const tombs = env.ACCOUNT_TOMBSTONES;
-    const accounts = accountDb !== undefined && tombs !== undefined
-      ? [(async () => { try { await sweepAccounts(accountDb, now, tombs); } finally { await reconcileTombstones(accountDb, tombs); } })(), sweepAdminViews(accountDb, now)]
-      : [];
+    const accounts = accountDb !== undefined && tombs !== undefined ? [accountCron(accountDb, now, tombs), sweepAdminViews(accountDb, now)] : [];
     const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgePlayers(env.DB, now), purgeRateDays(env.DB, now), ...accounts]);
     for (const r of runs) if (r.status === 'rejected') throw r.reason;
   },

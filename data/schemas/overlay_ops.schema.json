@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/overlay_ops.schema.json",
+  "title": "Mission overlay operations",
+  "description": "The CLOSED set of operations a mission overlay may apply to a mission's JSON before the runtime is built (GH-1394 difficulty postures, GH-1395 challenge amendments: one applier, `applyOverlays` in packages/data/src/overlays.ts). There is no generic 'set any path': every operation names the one field it moves, and none touches tuning, a primary objective's seconds, Conduct scoring, an objective's id, type or target, or a tag. The POSTURES (data/difficulty/postures.json) never touch `roe.fail_below`, `starting_force` or `resources`. The AMENDMENTS (data/challenges/) may, through `raise_fail_below`, `remove_starting`, `scale_resources` and `set_intel_start`, and only in the restricting direction: tools/validate_challenges.mjs (`restrictionFailure`) refuses any amendment operation that points the other way, for every operation in this set. A new operation is a change to this schema AND to the applier's exhaustive switch, made once. Integers and keys only.",
+  "$defs": {
+    "ratio": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "op": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "num", "den"],
+          "description": "time_limit_s := ceil(time_limit_s * num / den). Only the `withdrawn` backstop moves; a primary's own clock does not. A posture's operation alone: no amendment may carry it, in either direction (the lead dropped Tight clock, PR 1524; tools/validate_challenges.mjs refuses it).",
+          "properties": {
+            "op": { "const": "scale_time_limit" },
+            "num": { "$ref": "#/$defs/ratio" },
+            "den": { "$ref": "#/$defs/ratio" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "num", "den", "skip_tagged"],
+          "description": "The mission's enemy wave BODIES scaled by num / den: walking every untagged wave unit in authored order, each entry gets what brings the running total to round-half-up(running authored total * num / den), never below 1 (rounding each entry alone does not keep the ratio: almost every shipped entry is 1 or 2 bodies). A grown entry keeps its count and its extra bodies follow as a second entry at the same spawn point, so the spread never walks off the map. A tagged unit (an eliminate_hvt or locate target) is never scaled: skip_tagged is required and can only be true.",
+          "properties": {
+            "op": { "const": "scale_waves" },
+            "num": { "$ref": "#/$defs/ratio" },
+            "den": { "$ref": "#/$defs/ratio" },
+            "skip_tagged": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "seconds"],
+          "description": "Every clock-timed enemy wave's at_seconds := max(0, at_seconds + seconds). A wave keyed to an objective (`trigger`) does not fire on the clock and is left alone.",
+          "properties": {
+            "op": { "const": "shift_waves" },
+            "seconds": { "type": "integer", "minimum": -120, "maximum": 120 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "at_seconds", "units", "label_key"],
+          "description": "Appends one `reinforce` trigger (id `posture_relief`) on `timer_s` at_seconds, bringing `units` in at the map's player_start. A reinforced body is never in the starting-force snapshot, so it moves no credit, and the caller lends it (never joins the roster). label_key is an en.json key; the app resolves it, the harness leaves the trigger unlabelled.",
+          "properties": {
+            "op": { "const": "reinforce_player" },
+            "at_seconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+            "label_key": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_.]*$" },
+            "units": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["unit", "count"],
+                "properties": {
+                  "unit": { "type": "string" },
+                  "count": { "type": "integer", "minimum": 1, "maximum": 2 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op"],
+          "description": "Clears `carries` on every objective: no secondary carries, so the third star and the carried-secondary credit are out of reach (starsFor, creditsFor).",
+          "properties": {
+            "op": { "const": "uncarry" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "wave"],
+          "description": "A per-mission amendment (GH-1395 `own`): appends one enemy wave, in mission.schema.json's wave shape (`$ref` to it here, and the overlaid mission is validated against mission.schema.json again by tools/src/challenges.test.ts). Amendments run AFTER the posture, so an added wave is never thinned by Easier.",
+          "properties": {
+            "op": { "const": "add_wave" },
+            "wave": { "$ref": "mission.schema.json#/properties/enemy/properties/waves/items" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "by"],
+          "description": "GH-1395 amendment (Clean hands): roe.fail_below := min(80, fail_below + by), so the two-star Conduct floor (fail_below + 20) never passes 100. Only ever UP: a lower floor would pay more Conduct credit (creditsFor reads Conduct over the floor). A mission that declares no fail_below is left alone, and the challenge validator refuses to offer it there.",
+          "properties": {
+            "op": { "const": "raise_fail_below" },
+            "by": { "type": "integer", "minimum": 1, "maximum": 20 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "unit", "count"],
+          "description": "GH-1395 amendment (Light order, Medics stay back): removes `count` bodies of `unit` from the starting force, from the LAST untagged top-level placements of that unit first; a placement brought to 0 is dropped. A tagged placement is never touched (rule A3), nor a passenger. It only ever lowers creditsFor's `fielded`. Throws when the mission has fewer untagged bodies of `unit` than `count` (an authoring error).",
+          "properties": {
+            "op": { "const": "remove_starting" },
+            "unit": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+            "count": { "type": "integer", "minimum": 1, "maximum": 4 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "num", "den"],
+          "description": "GH-1395 amendment (Thin purse): resources.logistics_start and resources.logistics_rate_per_min := floor(x * num / den), each where declared. Income zones and the supply corridor are untouched. The challenge validator holds num < den.",
+          "properties": {
+            "op": { "const": "scale_resources" },
+            "num": { "$ref": "#/$defs/ratio" },
+            "den": { "$ref": "#/$defs/ratio" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "value"],
+          "description": "GH-1395 amendment (No eyes): resources.intel_start := min(intel_start, value), where declared. Only ever down.",
+          "properties": {
+            "op": { "const": "set_intel_start" },
+            "value": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -15,11 +15,23 @@ export interface SeatConfig {
    *  room. Structural checks only (`isTiers`); the room cannot check a claim
    *  against an account. */
   tiers: Record<string, Record<string, number>>;
+  /** GH-1384: the branch this seat fields on each branched track its `tiers` hold at that track's branched (last)
+   *  tier: unit type id -> track -> 1 or 2, keyed by (unit, track) as `tiers` is. Minted only by a build with
+   *  branched tiers open (the branch switch in `@lions/data`, which this package cannot read: the Worker mints the key, and
+   *  only while open), and then always, `{}` for a matched room and a Sarim seat. OPTIONAL on read, absent reading as
+   *  `{}`, so a config stored or replayed from before it still parses. Structural checks only (`isPicks`, bounded as
+   *  `tiers` is); the world cleans it again against the data and the seat's own tiers. */
+  picks?: Record<string, Record<string, 1 | 2>>;
   /** GH-1102: the Store specials this seat brings into a brigade room (`specials.ts`), as the
    *  room minted them: its cleaned claim minus `VERSUS_REFUSED_SPECIALS`, for a human KDF seat
    *  in a `brigade` room only. `[]` everywhere else, as it was in every room before. At most
    *  `SPECIALS_MAX` strings; the world cleans it again against the data (`seatSpecials`). */
   unlocks: string[];
+  /** GH-1389: the units this seat's placed force leaves at home, unit type id -> how many, the STATED force handicap of
+   *  a computer level (data/computer/levels.json). Only on a `bot` seat in a versus config, and only an OFFLINE match
+   *  against the computer seat sets it (`offlineConfig`); the room never mints it. Absent is the whole force, as every
+   *  room before it. It names units to leave out and nothing else: no purse, income or vision field exists here. */
+  withhold?: Record<string, number>;
   player: string;
   callsign: string;
   kind: 'human' | 'bot';
@@ -153,7 +165,7 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
  *  inside 60/40 over all the games and over the decisive games alone, the passive seat lost every game from either end,
  *  and at least 70% of the games decided by the goal.
  *
- *  - Nothing is listed (GH-976 P4 review). The one cell that passed, `points` on wadi_tarfan_l at 10 points per 100 value and a
+ *  - Nothing was listed after the GH-976 P4 review, until GH-1381 (below). The one cell that passed, `points` on wadi_tarfan_l at 10 points per 100 value and a
  *    target of 400 (4000-4287: 130 / 158 and 125 / 163, 54.9% and 56.6%), was a kill race, not a points race: about 80% of its
  *    points came from kills (held ground 20%, against 87-91% on the other maps), and at the real race (1 per 100, target 600) the
  *    faction cells read Sarim 63.2% and 64.2% on 9000-9287. It was removed, and the mirror file went back to 1 per 100.
@@ -163,9 +175,27 @@ export const WIN_MODE_FAIR_MAPS: Readonly<Record<WinMode, readonly string[]>> = 
  *    (Sarim; the two forces annihilate each other first), on tel_marum 72.9% and 94.8% / 24.3% and 4.9% (Sarim). The full table,
  *    with the fitting reads and the levers screened, is in the PR that added this list.
  *
+ *  - **GH-1381, 16 Nov (the lead's ruling GH-1378 Q11: the probe runs report-only, and an opening that passes the existing bar may
+ *    proceed, no tuning): `camp` on wadi_tarfan and wadi_tarfan_l, both hosts.** Read once on 4000-4287 with the shipped mode files
+ *    (forward camps, `wipe: after_camp`), every arm of the camp room's gates (`pnpm versus:probe -- --mode=camp --maps=<id>
+ *    --arr=kdf/sarim,sarim/kdf --seed-from=4000 --seeds=288`); west / east, leader, by the goal, then the passive and defend arms:
+ *
+ *    | map | host | active W / E | leader | by the goal | passive lost (W / E end) | G4 holds W / E | G5 active mean raze |
+ *    |---|---|---|---|---|---|---|---|
+ *    | wadi_tarfan | kdf | 159 / 129 | 55.2% | 100% | 288 / 288 | 3 / 6 | 23 s of 120 |
+ *    | wadi_tarfan | sarim | 144 / 144 | 50.0% | 100% | 288 / 288 | 1 / 0 | 23 s of 120 |
+ *    | wadi_tarfan_l | kdf | 139 / 149 | 51.7% | 100% | 288 / 288 | 0 / 7 | 55 s of 240 |
+ *    | wadi_tarfan_l | sarim | 155 / 133 | 53.8% | 100% | 288 / 288 | 6 / 0 | 55 s of 240 |
+ *
+ *    No draw, no cap in an active or passive arm, no wiped-but-unrazed game. A race, like the mirror's (median win 160-210 s; 44 and
+ *    51 of 288 won inside 120 s on wadi_tarfan, 3 and 4 on wadi_tarfan_l: report only, no camp gate reads it). Read on the same
+ *    seeds and NOT fair, so still not listed: `points` on wadi_tarfan (Sarim 89.2% / 94.4%, 13-16% by the goal), on wadi_tarfan_l
+ *    (Sarim 70.5% / 68.4%, 76% by the goal), on tel_marum (48-seed screen: 75.0% / 100%, 2-19% by the goal); `flag` on wadi_tarfan (48-seed screen:
+ *    0-2% by the goal) and on wadi_tarfan_l (48-seed screen: 2.1% by the goal).
+ *
  *  Absent maps and absent hosts are not offered, and the Worker answers 400 for them (`winModeRequest`). */
 export const WIN_MODE_FAIR_FACTION_CELLS: Readonly<Record<WinMode, Readonly<Record<string, readonly ('kdf' | 'sarim')[]>>>> = {
-  camp: {},
+  camp: { wadi_tarfan: ['kdf', 'sarim'], wadi_tarfan_l: ['kdf', 'sarim'] },
   points: {},
   flag: {},
 };
@@ -241,6 +271,36 @@ export interface MatchConfig {
    *  Worker alone, from `FLAG_SETUP_MAPS` and the room's `winMode` -- never from a client value. Strictly `true` or absent
    *  (`validateConfig`); absent is today's flag raid, byte for byte. */
   flagSetup?: true;
+  /** Versus field works (the lead's ruling, 18 Nov 2026: "add it to play with a friend, Annihilation mode option", "KDF vs KDF
+   *  only"): the host opened the room with field works on. Each seat then raises the shipped KDF works from its own purse of
+   *  `FIELD_WORKS_LOGISTICS` (no income), through a works-only runtime (`buildMatchWorld`). Strictly `true` or absent, and
+   *  only in an annihilation room (no `winMode`) of two KDF seats (`validateConfig`, `fieldWorksAllowed`). Absent is today's
+   *  room, byte for byte. Both machines build from the config, so a world built without it differs in the runtime digest
+   *  from tick 0 (`matchDigest`). */
+  fieldWorks?: true;
+}
+
+/** The logistics each seat of a field-works room starts with (the lead's ruling, 18 Nov 2026), whole logistics. No income. */
+export const FIELD_WORKS_LOGISTICS = 1000;
+
+/** Whether a room may carry `fieldWorks`: a versus room, annihilation (no win mode), both seats KDF. The one predicate the
+ *  validator, the Worker's `/create` and the lobby's toggle read. */
+export function fieldWorksAllowed(c: { readonly mode: 'sandbox' | 'versus'; readonly winMode?: WinMode | null; readonly factions: readonly [Faction, Faction] }): boolean {
+  return c.mode === 'versus' && (c.winMode ?? undefined) === undefined && c.factions[0] === 'kdf' && c.factions[1] === 'kdf';
+}
+
+/** Whether a config plays field works: `fieldWorks: true` (which `validateConfig` admits only where `fieldWorksAllowed`). */
+export function fieldWorksRoom(c: Pick<MatchConfig, 'fieldWorks'>): boolean {
+  return c.fieldWorks === true;
+}
+
+/** What `/create` asked for: `true` on, anything else off. A request for it where it is not allowed is refused (the Worker
+ *  answers 400), never quietly dropped, so a host is never shown a room without the works they asked for. */
+export type FieldWorksRequest = { on: boolean; refused?: undefined } | { on?: undefined; refused: string };
+export function fieldWorksRequest(v: unknown, room: { mode: 'sandbox' | 'versus'; matchup: Matchup; winMode?: WinMode }): FieldWorksRequest {
+  if (v !== true) return { on: false };
+  if (!fieldWorksAllowed({ mode: room.mode, winMode: room.winMode, factions: factionsOfMatchup(room.matchup) })) return { refused: 'field works are for an annihilation room, KDF against KDF' };
+  return { on: true };
 }
 
 /** The cadence the room mints, in frame ticks: one a minute at 20 Hz (D2). */
@@ -466,13 +526,33 @@ function isTiers(v: unknown): v is Record<string, Record<string, number>> {
     Object.entries(t).every(([track, n]) => !RESERVED_KEYS.has(track) && isInt(n) && n >= 0 && n <= TIERS_MAX_TIER));
 }
 
+/** `picks` is `{ typeId: { track: 1 | 2 } }`, under the same bounds and the same reserved-key rule as `isTiers`: at
+ *  most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks an id, every leaf exactly 1 or 2 (a branch, never a tier). */
+function isPicks(v: unknown): v is Record<string, Record<string, 1 | 2>> {
+  if (!isRecord(v) || Object.keys(v).length > TIERS_MAX_TYPES) return false;
+  return Object.entries(v).every(([id, t]) => !RESERVED_KEYS.has(id) && isRecord(t) &&
+    Object.keys(t).length <= TIERS_MAX_TRACKS &&
+    Object.entries(t).every(([track, p]) => !RESERVED_KEYS.has(track) && (p === 1 || p === 2)));
+}
+
+/** Bounds on a seat's `withhold` (GH-1389): at most `WITHHOLD_MAX_TYPES` type ids, each a positive count of at most
+ *  `WITHHOLD_MAX_COUNT`. The placed force is 15 units of 10 types, so neither bound refuses a real level. */
+export const WITHHOLD_MAX_TYPES = 16;
+export const WITHHOLD_MAX_COUNT = 64;
+function isWithhold(v: unknown): v is Record<string, number> {
+  if (!isRecord(v) || Object.keys(v).length > WITHHOLD_MAX_TYPES) return false;
+  return Object.entries(v).every(([id, n]) => !RESERVED_KEYS.has(id) && isInt(n) && n >= 1 && n <= WITHHOLD_MAX_COUNT);
+}
+
 function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
-    (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
+    (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) && (s.picks === undefined || isPicks(s.picks)) &&
     Array.isArray(s.unlocks) && s.unlocks.length <= SPECIALS_MAX && s.unlocks.every(isStr) &&
-    isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
+    isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot') &&
+    // GH-1389: a force handicap is a computer level's, so only a bot seat carries one.
+    (s.withhold === undefined || (s.kind === 'bot' && isWithhold(s.withhold)));
 }
 
 function isPace(v: unknown): v is Pace {
@@ -488,11 +568,18 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (!isStr(c.matchId) || !isStr(c.code) || !isInt(c.seed) || !isStr(c.map)) return null;
   if (c.mode !== 'sandbox' && c.mode !== 'versus') return null;
   if (!Array.isArray(c.seats) || c.seats.length !== 2 || !isSeatConfig(c.seats[0], 0) || !isSeatConfig(c.seats[1], 1)) return null;
+  // GH-1389: a placed force is a versus room's, so a sandbox config carries no handicap on one.
+  if (c.mode !== 'versus' && (c.seats as Record<string, unknown>[]).some((s) => s.withhold !== undefined)) return null;
   if (!isPace(c.pace) || !isInt(c.hashEveryTicks) || c.hashEveryTicks < 1 || !isInt(c.bufferTicks) || c.bufferTicks < 0) return null;
   if (!isStr(c.build) || !isInt(c.dataDigest)) return null;
   if (c.winMode !== undefined && (c.mode !== 'versus' || winModeField(c.winMode) === undefined)) return null;
   // GH-976 R0.25: strictly `true`, and only in a flag room. `1`, `'true'` and `false` are refused, not coerced.
   if (c.flagSetup !== undefined && (c.flagSetup !== true || c.winMode !== 'flag')) return null;
+  // Versus field works: strictly `true`, and only in an annihilation room of two KDF seats. `1`, `'true'` and `false` are refused.
+  if (c.fieldWorks !== undefined) {
+    const seats = c.seats as [SeatConfig, SeatConfig];
+    if (c.fieldWorks !== true || !fieldWorksAllowed({ mode: c.mode, winMode: c.winMode as WinMode | undefined, factions: [seats[0].faction, seats[1].faction] })) return null;
+  }
   if (c.snapshotEveryTicks !== undefined) {
     const e = c.snapshotEveryTicks;
     if (!isInt(e) || e < 0 || e > SNAPSHOT_EVERY_TICKS_MAX || (e !== 0 && e % c.hashEveryTicks !== 0)) return null;

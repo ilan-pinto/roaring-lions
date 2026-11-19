@@ -12,11 +12,23 @@ import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { MissionLog } from '../mission-log';
 import type { EarnAward } from '../roar-earn';
+import { causeText } from '../kill-cause';
+import type { LoggedLoss } from '../mission-log';
 import type { InvoiceLine } from './conduct-invoice';
 import type { GroundPin } from './ground-view';
 
 /** Losses closer than this, in tiles, share one pin on the ground. */
 export const PIN_MERGE_TILES = 2;
+
+/** The "Lost at …" line under a named loss, with the cause when the events gave one (GH-1380). */
+function lostSub(l: LoggedLoss, replacement: string | undefined, typeName: (id: string) => string): string {
+  const at = mmss(l.tick);
+  if (l.cause === undefined) {
+    return replacement !== undefined ? t('aar.poor.lostAtReplaced', { at, name: replacement }) : t('aar.poor.lostAt', { at });
+  }
+  const cause = causeText(l.cause, typeName);
+  return replacement !== undefined ? t('aar.poor.lostAtReplacedCause', { at, cause, name: replacement }) : t('aar.poor.lostAtCause', { at, cause });
+}
 
 const mmss = (ticks: number): string => {
   const s = Math.floor(ticks / 20);
@@ -86,6 +98,9 @@ export interface AfterActionInputs {
   marked?: number;
   /** A unit type's display name. */
   typeName(type: string): string;
+  /** GH-1395 slice 2: the challenge rung, already worded by the lazy challenge code (`challengeRung`); present only on a
+   *  run played with amendments on. Drawn after the three stars, on a win only. Not a star (D2). */
+  challenge?: ChallengeRung | null;
 }
 
 /** One Roar-coin payout as the report words it. A function, never a table resolved at
@@ -102,6 +117,8 @@ export function coinAwardText(a: EarnAward): string {
       return t('debrief.coins.campaign');
     case 'backfill':
       return t('debrief.coins.backfill');
+    case 'challenge':
+      return t('debrief.coins.challenge');
   }
 }
 
@@ -126,9 +143,17 @@ export interface LadderRung {
   text: string;
 }
 
+/** GH-1395 slice 2: the challenge's rung, beside the ladder and never in it: `LadderRung.stars` stays 1 to 3. */
+export interface ChallengeRung {
+  met: boolean;
+  text: string;
+}
+
 export interface AfterAction {
   reason: string[];
   ladder: LadderRung[];
+  /** The challenge rung (a win played with amendments on), else absent. */
+  challenge?: ChallengeRung;
   well: AfterActionItem[];
   poor: AfterActionItem[];
   changed: AfterActionItem[];
@@ -235,13 +260,17 @@ export function afterAction(i: AfterActionInputs): AfterAction {
       mark: '',
       tone: 'bad',
       text: t('aar.poor.lostNamed', { name: l.name as string, type: i.typeName(l.type) }),
-      sub: took ? t('aar.poor.lostAtReplaced', { at: mmss(l.tick), name: took.name }) : t('aar.poor.lostAt', { at: mmss(l.tick) }),
+      sub: lostSub(l, took?.name, i.typeName),
       person: { type: l.type, lost: true },
     });
   }
-  const fresh = new Map<string, number>();
-  for (const l of i.log.losses) if (l.name === undefined) fresh.set(l.type, (fresh.get(l.type) ?? 0) + 1);
-  for (const [type, n] of fresh) poor.push({ mark: `−${n}`, tone: 'bad', text: t('aar.poor.lostFresh', { type: i.typeName(type), n }) });
+  const fresh = new Map<string, { n: number; first: LoggedLoss }>();
+  for (const l of i.log.losses) if (l.name === undefined) fresh.set(l.type, { n: (fresh.get(l.type)?.n ?? 0) + 1, first: fresh.get(l.type)?.first ?? l });
+  for (const [type, { n, first }] of fresh) {
+    // One crew lost of that type names its cause; several would need a summary of their causes, which this report does not make.
+    const sub = n === 1 && first.cause !== undefined ? causeText(first.cause, i.typeName) : undefined;
+    poor.push({ mark: `−${n}`, tone: 'bad', text: t('aar.poor.lostFresh', { type: i.typeName(type), n }), ...(sub !== undefined ? { sub } : {}) });
+  }
   if (won) {
     for (const o of i.objectives.filter((x) => !x.primary && x.status !== 'complete')) {
       poor.push({ mark: o.carries ? '★★★' : '—', tone: 'bad', text: t('aar.poor.missed', { text: o.text }) });
@@ -333,7 +362,7 @@ export function afterAction(i: AfterActionInputs): AfterAction {
     pins.push({ kind: 'deduction', x: d.x, y: d.y, label: t('aar.pin.deduction', { n: d.penalty, at: mmss(d.tick) }) });
   }
 
-  return { reason, ladder, well, poor, changed, pins };
+  return { reason, ladder, ...(won && i.challenge ? { challenge: i.challenge } : {}), well, poor, changed, pins };
 }
 
 /**

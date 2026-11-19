@@ -8,12 +8,12 @@ import { describe, expect, it } from "vitest";
 import { DOMAIN_VEHICLE, Sim } from "@lions/sim";
 import {
   applyTerrain,
-  maps,
   parseMap,
   units,
   versusRules,
   type MapId,
 } from "@lions/data";
+import { maps } from "@lions/data/content";
 import type { Faction, SpawnEnd } from "@lions/net";
 import { sandboxUnitTypes } from "./sandbox-force";
 import { sandboxSpawns } from "./sandbox-spawn";

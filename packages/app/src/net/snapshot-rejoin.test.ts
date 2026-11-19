@@ -56,13 +56,30 @@ const EVERY = 1200;
  * the premise (2, 6 and 8 fail it), so seed 1 stands. Was seed 3. Sim hash and runtime digest are untouched; only `shippedContentDigest()` moved.
  * GH-976 (5 Nov, camp wipe): `modes.camp.wipe: "after_camp"` in `data/versus/modes/milh_flats.json` is content too, and moves `shippedContentDigest()`.
  * Seed 1 went positive; seeds 2, 5, 6, 7 and 9 pass the premise (3, 4 and 8 fail it), so seed 2 stands. Was seed 1.
+ * Qasr Liwan (15 Nov, GH-1438/GH-1452): five maps and five missions are content too. Seed 2 went positive; seed 1 fails the premise, seed 3 passes it
+ * (4, 5 and 6 not tried), so seed 3 stands. Was seed 2.
+ * Beit Sahwan IV (18 Nov, GH-1438, the civilian drama): `data/missions/beit_sahwan_4_subterranean.json` (fifteen people, two objectives, eight
+ * triggers) and `data/maps/beit_sahwan_4.json` (four markers) are content too. Seed 3 went positive; seeds 1, 4 and 5 pass the premise (2, 6 and 7
+ * fail it), so seed 1 stands. Was seed 3. The sim hash and the runtime digest are untouched; only `shippedContentDigest()` moved.
+ * Beit Sahwan IV, E3 (19 Nov, PR 1610's second commit): the group-scoped `bring_back_the_four` objective is mission JSON too, and it landed
+ * AFTER that re-pick, so PR 1610's own squash (0f81bbf57) already read seed 1 positive (+713744997) and dev went red. Bisected by a scratch
+ * copy of this file's `play` and `digestOf` over seeds 1-9 at 0f81bbf57^, 0f81bbf57, 0a309c65f, 8c1baba40, 0e2c58753 and 30cca0749: every
+ * seed's sim hash is byte-identical at all six (seed 1: 653408182), the economy room too (4122981481, runtime 99394177); only
+ * `shippedContentDigest()` moved (709053114 -> -2118037492), and nothing after 0f81bbf57 moved it. Seeds 4 (-184191682), 5, 7 and 8 read
+ * negative there (1, 2, 3, 6 and 9 positive; the economy room +2078838377).
+ * SO THE SEED IS NO LONGER HAND-PICKED. Twenty-odd re-picks above say every content edit is a coin flip on this sign, so the mirror room
+ * takes the FIRST seed of `MIRROR_SEEDS` whose digest at 1,199 is negative (seed 4 on today's data). Sixteen independent flips all
+ * landing positive is about 1 in 65,000, so a content edit no longer turns dev red by chance; if none of them is negative, `mirrorRoom`
+ * hands back seed 1's room and the premise test still goes red, as it must. The premise assertion itself is unchanged.
  */
-function mirrorConfig(): MatchConfig {
+const MIRROR_SEEDS: readonly number[] = Array.from({ length: 16 }, (_, i) => i + 1);
+
+function mirrorConfig(seed: number): MatchConfig {
   const factions = ['kdf', 'kdf'] as const;
   const sides = sidesOfFactions([...factions]);
   const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({
-    matchId: CODE, code: CODE, seed: 2, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
+    matchId: CODE, code: CODE, seed, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)],
     pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b-1', dataDigest: 0, snapshotEveryTicks: EVERY,
   });
   if (c === null) throw new Error('bad fixture');
@@ -148,12 +165,24 @@ function playRoom(name: string, config: MatchConfig, framesOf: (w: MatchWorld) =
   };
 }
 
+/** The mirror room on the first seed of `MIRROR_SEEDS` that plays to a negative digest at 1,199 (see `mirrorConfig`); seed 1's room if none does. */
+function mirrorRoom(): Played {
+  let fallback: Played | null = null;
+  for (const seed of MIRROR_SEEDS) {
+    const config = mirrorConfig(seed);
+    const r = playRoom('mirror', config, (w) => mirrorFrames(config, w));
+    if (r.digest < 0) return r;
+    fallback ??= r;
+  }
+  if (fallback === null) throw new Error('MIRROR_SEEDS is empty');
+  return fallback;
+}
+
 let rooms: Played[] = [];
 beforeAll(() => {
-  const mirror = mirrorConfig();
   const economy = economyConfig();
   rooms = [
-    playRoom('mirror', mirror, (w) => mirrorFrames(mirror, w)),
+    mirrorRoom(),
     playRoom('economy', economy, () => economyStreamFrames()),
   ];
 }, 120_000);

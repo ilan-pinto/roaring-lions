@@ -1,0 +1,136 @@
+# B5-1: the weekly promotion PR, dev -> main (the lead's ruling of 17 Nov 2026).
+#
+# Every PR merges into `dev`. `main` is production (Cloudflare deploys every push to it) and moves only through ONE
+# promotion PR from dev, which the lead approves and merges with a MERGE commit. This workflow opens that PR, or brings
+# its title and body up to date. It NEVER merges, never pushes, and changes nothing when the open PR already says
+# exactly what it would write.
+#
+# The body (tools/ci/promotion-pr.mjs, tested in tools/src/ci/promotion-pr.test.ts) is a changelog of
+# `git log --first-parent main..dev`, one line per PR grouped by subject prefix, every ref written "PR NNN" (never a hash
+# and digits: the UI palette gate reads that as a colour), plus the latest dev `ci` result and a note that this PR
+# has no ci run of its own: a PR opened or edited with GITHUB_TOKEN triggers no workflow. A "Release notes" line
+# (GH-1622) states how many entries dev's data/release-notes/next.json holds per section, or that it is empty and must
+# be drafted before promoting (docs/agent-notes/release-notes.md); the lead approves the wording in the PR's diff.
+# It also runs a read-only `git merge-tree --write-tree` of main and dev (no ref, index or working-tree change) and says
+# so when next.json would conflict: main was not merged back into dev after the last release.
+#
+# A dev -> main PR that a person opened (no marker line in its body) is left alone.
+#
+# Like every scheduled or dispatched workflow, this runs from the DEFAULT branch's copy (main), so it first runs once a
+# promotion has carried this file to main. That first promotion is opened by hand.
+#
+# Needs the repository setting "Allow GitHub Actions to create and approve pull requests" (Settings, Actions, General,
+# Workflow permissions) to CREATE the PR; without it the job fails red and names the setting, because a scheduled run
+# that quietly did nothing is the failure nobody sees.
+
+name: promotion-pr
+
+on:
+  schedule:
+    # Mondays 04:23 UTC: off the nightlies (02:17 postures, 03:00 visual) and ahead of the working week.
+    - cron: '23 4 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promotion-pr
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # contents: read to check out and read the history; pull-requests: write to open or edit the one PR; actions: read
+      # to read dev's ci runs. Nothing else: no contents write, so this job cannot push or merge.
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      # The whole history of every branch: `main..dev` needs both sides. dev explicitly, because a schedule checks out
+      # the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Read dev's ci result and the open promotion PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          TIP="$(git rev-parse origin/dev)"
+          git rev-parse --verify origin/main >/dev/null
+          # The ci run on dev's tip sha, and the newest ci push run on dev as the fallback. A failed read is reported
+          # in the body as "unknown", never guessed.
+          runs() { gh api "repos/${REPO}/actions/workflows/ci.yml/runs?branch=dev&event=push&per_page=1$1" --jq '.workflow_runs[0] // null' 2>/dev/null || echo null; }
+          runs "&head_sha=${TIP}" > "$RUNNER_TEMP/tip.json"
+          runs "" > "$RUNNER_TEMP/latest.json"
+          jq -n --slurpfile t "$RUNNER_TEMP/tip.json" --slurpfile l "$RUNNER_TEMP/latest.json" \
+            '{tip: $t[0], latest: $l[0]}' > "$RUNNER_TEMP/ci.json"
+          # A failure here must stop the job: an empty list would read as "none open" and open a second PR.
+          gh api "repos/${REPO}/pulls?state=open&base=main&head=${OWNER}:dev&per_page=100" \
+            --jq '[.[] | {number, title, body}]' > "$RUNNER_TEMP/open.json"
+          echo "dev tip ${TIP}; open dev -> main PRs: $(jq length "$RUNNER_TEMP/open.json")"
+
+      - name: Build the body
+        id: body
+        run: |
+          set -euo pipefail
+          node tools/ci/promotion-pr.mjs --base=origin/main --head=origin/dev \
+            --ci="$RUNNER_TEMP/ci.json" --open="$RUNNER_TEMP/open.json" \
+            --repo="${{ github.repository }}" --server="${{ github.server_url }}" \
+            --out="$RUNNER_TEMP/body.md" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the promotion PR (never merge)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTION: ${{ steps.body.outputs.action }}
+          NUMBER: ${{ steps.body.outputs.number }}
+          TITLE: ${{ steps.body.outputs.title }}
+        run: |
+          set -euo pipefail
+          payload() { jq -n --arg title "$TITLE" --rawfile body "$RUNNER_TEMP/body.md" "{title: \$title, body: \$body$1}"; }
+          case "$ACTION" in
+            empty)
+              echo "::notice title=Nothing to promote::dev holds nothing main does not already have."
+              echo "Nothing to promote: \`main\` already has everything on \`dev\`." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            none)
+              echo "::notice title=Promotion PR current::PR ${NUMBER} already carries this title and body; nothing changed."
+              echo "Promotion PR ${NUMBER} is already current; nothing changed." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            foreign)
+              echo "::notice title=Hand-opened promotion PR::PR ${NUMBER} (dev -> main) was opened by a person and carries no marker; it is left as it is."
+              echo "PR ${NUMBER} (dev -> main) was opened by hand; left alone." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            update)
+              URL="$(payload '' | gh api -X PATCH "repos/${REPO}/pulls/${NUMBER}" --input - --jq .html_url)"
+              echo "::notice title=Promotion PR updated::${URL}"
+              echo "Promotion PR updated: ${URL}" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            create)
+              if ! URL="$(payload ', base: "main", head: "dev"' \
+                    | gh api -X POST "repos/${REPO}/pulls" --input - --jq .html_url 2>"$RUNNER_TEMP/pr-error.txt")"; then
+                cat "$RUNNER_TEMP/pr-error.txt"
+                echo "::error title=Promotion PR not opened::GitHub refused the PR. Most likely the setting 'Allow GitHub Actions to create and approve pull requests' (Settings, Actions, General, Workflow permissions) is off. Open it by hand: ${{ github.server_url }}/${REPO}/compare/main...dev"
+                { echo "### Promotion PR NOT opened"; echo ""; echo "The body it would have carried:"; echo ""; cat "$RUNNER_TEMP/body.md"; } >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+              echo "::notice title=Promotion PR opened::${URL}"
+              echo "Promotion PR opened: ${URL}" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::error title=Unknown action::promotion-pr.mjs printed action '${ACTION}'."
+              exit 1
+              ;;
+          esac

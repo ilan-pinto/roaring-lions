@@ -35,7 +35,8 @@
 // First Light's passive control is seed-sensitive (see
 // `first_light_fence.test.ts`) and 424242 is the seed its verdict is pinned at.
 
-import { applyTerrain, assemblyLayout, maps, missions, parseMap, roadMaskOf, structures as structureCatalogue, units } from '@lions/data';
+import { applyTerrain, assemblyLayout, parseMap, roadMaskOf, structures as structureCatalogue, units } from '@lions/data';
+import { maps, missions } from '@lions/data/content';
 import type { ParsedMap } from '@lions/data';
 import {
   compileFormation,

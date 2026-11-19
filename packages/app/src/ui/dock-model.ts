@@ -159,7 +159,7 @@ export function lockLabel(unlock: UnlockGate | undefined, ledger: LedgerData | u
  * can bring one down.
  *
  * `kamikaze` is deliberately absent: `roleBucket` already returns that word, so
- * an entry here would make `attack_drone` read `kamikaze · one-way`.
+ * an entry here would make `attack_drone` read `one-way · one-way` (the bucket's label is "one-way" since the naming review).
  *
  * Values are catalogue KEYS, not English text — `doctrineTags` below calls
  * `t()` on each one it selects. This table is module-level (lesson from

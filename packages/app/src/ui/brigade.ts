@@ -35,11 +35,14 @@
 //     purchase an event (§3.5).
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
-import { applyUpgrades, maxTiers, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
+import { applyUpgrades, maxPicks, maxTiers, readPath, type BranchPick, type BranchPicks, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence, gateShort } from '../gate-sentence';
 import { expandedTrack, trackEl, type TrackDeps } from './garage-board';
+import { branchName, type ForkDeps, type ForkLegacy } from './garage-fork';
+import { confirmDialog, type ConfirmHandle, type ConfirmOptions } from './confirm';
+import { shippedBranched, type BranchedTable } from '@lions/economy';
 import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
 import { creditAsk } from '../upgrade-pay';
@@ -72,6 +75,7 @@ import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } f
 import { showStores, type CoinAsk, type StoresShelf, type StoresWallet } from './stores';
 import { blockText, creditBlock, netText, type SpendGate } from './spend-gate';
 import type { CoinHalf } from './stores-model';
+import { localizedUnit } from '../unit-text';
 
 export interface BrigadeUnit {
   id: string;
@@ -116,6 +120,12 @@ export interface GarageState {
    *  Buy fills the earned path, so its ask is `creditAsk(prices, earned, owned)`. Absent reads
    *  as `owned` (no coin tier ahead of the account), the one-tier Buy. */
   readonly earned?: Record<string, Record<string, number>>;
+  /** GH-1384: the branch owned per branched (unit, track) held at its branched tier, from the
+   *  same read as `owned` (`accountView`'s `ownedPicks`). Absent reads as none. */
+  readonly picks?: Record<string, Record<string, BranchPick>>;
+  /** GH-1384: per branched (unit, track) with a standing legacy marker, what its owner is offered
+   *  (`garage-legacy.ts`'s `legacyOffers`). Read only beside `BrigadeOptions.onLegacy`. */
+  readonly legacy?: Record<string, Record<string, ForkLegacy>>;
   /** Whether the purchase this answers is the one the store made -- the
    *  caller's own `ok`, never inferred from the account (final review M1).
    *  The account alone cannot say it: with two tabs open, tab B buys armour
@@ -203,11 +213,22 @@ export interface BrigadeOptions {
   /** The account's own `upgrades`, apart from `owned` (the single-player view, which coins can
    *  run ahead of). See `GarageState.earned`. */
   earned?: Record<string, Record<string, number>>;
+  /** GH-1384: `GarageState.picks` as the screen opens. */
+  picks?: Record<string, Record<string, BranchPick>>;
+  /** GH-1384: `GarageState.legacy` as the screen opens. */
+  legacy?: Record<string, Record<string, ForkLegacy>>;
+  /** GH-1384: the legacy owner's Switch or Return on (unit, track), asked after the player confirmed.
+   *  The caller writes both stores and answers, as `onBuyUpgrade` does. Absent (a member, whose
+   *  Switch and Return are server routes, or no storage): the notice and the controls are not drawn. */
+  onLegacy?: (unitId: string, track: string, action: 'switch' | 'return') => GarageState | void;
+  /** GH-1384: which (unit, track)s draw the fork. Defaults to the economy's shipped table, which is
+   *  EMPTY while the branch switch is closed, so a closed build draws no fork; a test passes its own. */
+  branched?: BranchedTable;
   /** Called when the player clicks a rung's Buy control. The caller buys,
    *  saves and answers, exactly as `onBuy` does; this screen only asks. Rendered only
    *  alongside `credits` -- both present or neither, the same rule the unit-unlock Buy
    *  control follows. */
-  onBuyUpgrade?: (unitId: string, track: string, tier: number, price: number) => GarageState | void;
+  onBuyUpgrade?: (unitId: string, track: string, tier: number, price: number, pick?: BranchPick) => GarageState | void;
   /** Sounded once per purchase the store actually made (§3.5) -- never on a
    *  refusal, never on a reset. The screen names the cue; the caller owns the
    *  audio (`CUE_SET` maps each to its manifest set). */
@@ -417,7 +438,23 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The account this screen is drawing. Opens as the options hand it in and
    *  is replaced whole by each answer a purchase or a reset gets back
    *  (`answer()` below); nothing here edits it. */
-  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned };
+  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned, earned: opts.earned, picks: opts.picks, legacy: opts.legacy };
+  /** GH-1384: the (unit, track)s that draw the fork (empty while the switch is closed). */
+  const branched: BranchedTable = opts.branched ?? shippedBranched();
+  /** The fork's one open confirm (a choice is final, Q2), closed by the disposer. */
+  let forkDialog: ConfirmHandle | null = null;
+  const askConfirm = (o: ConfirmOptions): Promise<boolean> => {
+    forkDialog?.close();
+    const h = confirmDialog(host, o);
+    forkDialog = h;
+    return h.answer.then((yes) => {
+      if (forkDialog === h) forkDialog = null;
+      // An answer that lands after the screen went asks for nothing.
+      return yes && !gone;
+    });
+  };
+  /** GH-1384: the branch this account owns per branched track of `unitId` (none below the branched tier). */
+  const picksOf = (unitId: string): BranchPicks => state.picks?.[unitId] ?? {};
   const wrap = el('div', 'rl-menu rl-menu--garage');
   // Signed in (GH-1075 A2): a coin Buy, a coupon and the reset are server calls that may answer later. `busy` is the Stores
   // key of the coin Buy in flight; `serverBusy` a coupon or reset. Both read false for a guest, whose handlers answer at once.
@@ -651,19 +688,23 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   for (const row of rows) {
     const base = opts.baseOf(row.u.id);
     const merged: UpgradableUnit = { ...base, id: row.u.id, upgrades: row.u.upgrades };
-    let kitted: UpgradableUnit;
-    try {
-      kitted = applyUpgrades(merged, maxTiers(merged));
-    } catch {
-      // Same fault `renderBay` already tolerates: a patch path the unit does
-      // not itself declare. Falling back to the unmodified unit still gives
-      // every OTHER unit's bar something honest to measure against.
-      kitted = merged;
-    }
-    for (const path of PANEL_PATHS) {
-      const v = readPath(kitted, path);
-      if (v === undefined) continue;
-      rosterMax.set(path, Math.max(rosterMax.get(path) ?? 0, v));
+    // GH-1384: a branched track is kitted at EITHER branch, so the bar's ceiling is the
+    // larger of the two, per path: no owned branch can draw past a full bar.
+    for (const pick of [1, 2] as const) {
+      let kitted: UpgradableUnit;
+      try {
+        kitted = applyUpgrades(merged, maxTiers(merged), maxPicks(merged, pick));
+      } catch {
+        // Same fault `renderBay` already tolerates: a patch path the unit does
+        // not itself declare. Falling back to the unmodified unit still gives
+        // every OTHER unit's bar something honest to measure against.
+        kitted = merged;
+      }
+      for (const path of PANEL_PATHS) {
+        const v = readPath(kitted, path);
+        if (v === undefined) continue;
+        rosterMax.set(path, Math.max(rosterMax.get(path) ?? 0, v));
+      }
     }
   }
 
@@ -722,6 +763,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     renderCards();
     syncTabs();
     renderBay();
+    renderNotice();
     syncServerControls();
   }
   /** Redraw what the server state changes (a Buy, coupon or reset in flight, the outbox draining, the connection): the board,
@@ -776,7 +818,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
           : (ask) => {
               const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
               // The control that asked is the one reading `stores.pending`; focus lands on the NEXT tier's once it answers.
-              const own = ask.kind === 'unit' ? key : `tier:${ask.unitId}.${ask.track}.${ask.tier}`;
+              // GH-1384: a branch Buy's own key carries its branch.
+              const own =
+                ask.kind === 'unit' ? key : `tier:${ask.unitId}.${ask.track}.${ask.tier}${ask.branch === undefined ? '' : `:${ask.branch}`}`;
               storesAnswered(onBuy(ask), key, own);
             },
       // The Garage's own purchase, at the unit's credit price (GH-317).
@@ -787,7 +831,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       onBuyTierCredits:
         opts.onBuyUpgrade === undefined
           ? undefined
-          : (unitId, track, to, price) => storesAnswered(opts.onBuyUpgrade?.(unitId, track, to, price), `credits:${unitId}.${track}`),
+          : (unitId, track, to, price, pick) =>
+              storesAnswered(
+                pick === undefined ? opts.onBuyUpgrade?.(unitId, track, to, price) : opts.onBuyUpgrade?.(unitId, track, to, price, pick),
+                `credits:${unitId}.${track}`
+              ),
+      // GH-1384: a branched tier row's two Buys (none while the switch is closed) ask through the Garage's one confirm.
+      branched,
+      confirm: askConfirm,
       units: state.units,
       ledger: opts.ledger,
       credits: state.credits,
@@ -898,7 +949,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // loop, since the kit-level sort (GH-243) orders by it.
     const drawn = rows.map((row) => {
       const merged: UpgradableUnit = { ...opts.baseOf(row.u.id), id: row.u.id, upgrades: row.u.upgrades };
-      return { row, kit: kitSummary(merged, ownedTiers(row.u, state.owned)) };
+      return { row, kit: kitSummary(merged, ownedTiers(row.u, state.owned), picksOf(row.u.id)) };
     });
     for (const { row, kit } of sortKit ? sortByKit(drawn, (d) => d.kit.level) : drawn) {
       const { u } = row;
@@ -1136,7 +1187,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   function asOwnedOf(u: BrigadeUnit): UpgradableUnit {
     const merged: UpgradableUnit = { ...opts.baseOf(u.id), id: u.id, upgrades: u.upgrades };
     try {
-      return applyUpgrades(merged, ownedTiers(u, state.owned));
+      return applyUpgrades(merged, ownedTiers(u, state.owned), picksOf(u.id));
     } catch {
       return merged;
     }
@@ -1291,6 +1342,53 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     }
   };
 
+  /** GH-1384: the fork deps for (unit, track), or nothing: only a (unit, track) in `branched`. */
+  function forkFor(unitId: string, track: string): { fork?: ForkDeps } {
+    const b = branched[unitId]?.[track];
+    if (b === undefined) return {};
+    const onLegacy = opts.onLegacy;
+    const fork: ForkDeps = {
+      tier: b.tier,
+      pick: picksOf(unitId)[track],
+      confirm: askConfirm,
+      legacy: onLegacy === undefined ? null : (state.legacy?.[unitId]?.[track] ?? null),
+      ...(onLegacy === undefined
+        ? {}
+        : { onLegacy: (action: 'switch' | 'return') => answer(onLegacy(unitId, track, action), `rung:${track}:${b.tier}`) }),
+    };
+    return { fork };
+  }
+
+  /** GH-1384: the one notice naming every (unit, track) whose old Tier 3 became a choice, while its
+   *  marker stands (Switch or Return clears it). Drawn only beside `onLegacy`, and only when one stands. */
+  let notice: HTMLElement | null = null;
+  function renderNotice(): void {
+    notice?.remove();
+    notice = null;
+    if (opts.onLegacy === undefined) return;
+    const items: string[] = [];
+    for (const u of state.units) {
+      for (const track of Object.keys(state.legacy?.[u.id] ?? {})) {
+        const pick = picksOf(u.id)[track];
+        if (pick === undefined || u.upgrades?.[track] === undefined) continue;
+        const merged: UpgradableUnit = { ...opts.baseOf(u.id), id: u.id, upgrades: u.upgrades };
+        const key = `garage.track.${track}`;
+        const label = t(key);
+        items.push(t('garage.branch.notice.item', { name: u.name, track: label === key ? track.replace(/_/g, ' ') : label, branch: branchName(merged, track, pick) }));
+      }
+    }
+    if (items.length === 0) return;
+    const n = el('div', 'rl-garage__branch-notice');
+    n.setAttribute('role', 'status');
+    n.appendChild(el('div', 'rl-garage__branch-notice-title', t('garage.branch.notice.title')));
+    const list = el('ul', 'rl-garage__branch-notice-list');
+    for (const text of items) list.appendChild(el('li', '', text));
+    n.appendChild(list);
+    n.appendChild(el('div', 'rl-garage__branch-notice-hint', t('garage.branch.notice.hint')));
+    notice = n;
+    wrap.insertBefore(n, body);
+  }
+
   function renderBay(): void {
     bay.replaceChildren();
     board.replaceChildren();
@@ -1328,7 +1426,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // drawing base numbers, and this screen is reached between missions.
     let asOwned = upgradable;
     try {
-      asOwned = applyUpgrades(upgradable, tiers);
+      asOwned = applyUpgrades(upgradable, tiers, picksOf(u.id));
     } catch (err) {
       console.warn(`[lions] garage: ${u.id}'s owned tiers do not fit its own JSON:`, err);
     }
@@ -1336,14 +1434,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // One reading of "how kitted is this unit" drives both the plate's mark
     // and the credits line below it -- never two arithmetics for one idea.
     // `spent` counts credits PAID, so it reads the earned tiers (GH-1143); absent `earned` reads owned.
-    const kit = kitSummary(upgradable, tiers, state.earned === undefined ? tiers : (state.earned[u.id] ?? {}));
+    const kit = kitSummary(upgradable, tiers, picksOf(u.id), state.earned === undefined ? tiers : (state.earned[u.id] ?? {}));
 
     // M3 (lead ruling L2): a locked unit that still OWNS tiers -- one a gate
     // re-locked after it was kitted -- keeps them, dormant; the sim's
     // pre-pass applies them regardless. The board draws them owned and
     // read-only, and this says why nothing on it can be bought. Absent for a
     // locked unit that owns nothing, which has nothing kept to explain.
-    if (row.locked && kitSummary(upgradable, tiers).spent > 0) {
+    if (row.locked && kitSummary(upgradable, tiers, picksOf(u.id)).spent > 0) {
       board.appendChild(el('div', 'rl-garage__kept', t('garage.locked.kitKept')));
     }
 
@@ -1487,8 +1585,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
                   Math.min(state.earned === undefined ? owned : (state.earned[u.id]?.[trackName] ?? 0), track.tiers.length),
                   owned
                 ),
-                onBuy: (tier, price, asked) => {
-                  answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked, {
+                onBuy: (tier, price, asked, pick) => {
+                  // GH-1384: a fork card's Choose names its branch; every other rung asks as it always has.
+                  const next =
+                    pick === undefined ? opts.onBuyUpgrade?.(u.id, trackName, tier, price) : opts.onBuyUpgrade?.(u.id, trackName, tier, price, pick);
+                  answer(next, asked, {
                     kind: 'upgrade',
                     unitId: u.id,
                     track: trackName,
@@ -1507,6 +1608,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             buy,
             locked: row.locked,
             closeup: opts.closeup?.(u.id, trackName) ?? null,
+            ...forkFor(u.id, trackName),
             // Held off while `answer()` puts focus back (M2): the rung it
             // lands on is the NEXT tier's, and its `focusin` would paint that
             // tier's preview over the purchase that just landed.
@@ -1533,6 +1635,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
   syncTabs();
   renderBay();
+  renderNotice();
 
   // --- footer ---------------------------------------------------------------
   // The one footer row (`foot.ts`, GH-498): the way back first, at the rail's
@@ -1682,6 +1785,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     renderCards();
     syncTabs();
     renderBay();
+    renderNotice();
     resetUi();
     // Children replaced under a scroller clamp its offset to the new height
     // for a frame; put it back after the content is whole again.
@@ -1841,6 +1945,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // BEFORE the node goes, so nothing this screen started writes to it after.
   return () => {
     gone = true;
+    forkDialog?.close();
+    forkDialog = null;
     unsubscribe?.();
     window.removeEventListener('keydown', onShiftDown);
     window.removeEventListener('keyup', onShiftUp);
@@ -1859,6 +1965,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
  *  the field structurally rather than widening that type with a display
  *  field the data package has no use for. */
 function readBlurb(unit: UpgradableUnit): string | undefined {
-  const v = (unit as unknown as Record<string, unknown>).blurb;
+  const v = localizedUnit(unit as unknown as { id: string; blurb?: string }).blurb;
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }

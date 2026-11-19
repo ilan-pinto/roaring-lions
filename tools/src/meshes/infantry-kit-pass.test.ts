@@ -300,8 +300,8 @@ describe('applyInfantryKitGraft', () => {
     it('a v7 part over 1.10x its own count on the Rifle Squad', () =>
       refuses((t) => makeSource(t, [{ track: 'armour', tier: 1, part: 'carrier', figure: 'f0', bone: 'spine', tris: Math.floor(2299 * 1.1) + 1 }]), /over 1.1x the approved 2299 for "carrier"/, {}, 'inf_squad'));
 
-    it('demo_squad still reads the shared per-part limit (the v7 override is the Rifle Squad\'s alone)', () =>
-      refuses((t) => makeSource(t, [{ track: 'armour', tier: 1, part: 'carrier', figure: 'f0', bone: 'spine', tris: 2299 }]), /over 1.1x the approved 190 for "carrier"/, {}, 'demo_squad'));
+    it('demo_squad reads the v7 row too since GH-826 unit 1 (13 Nov 2026): a v7 part over 1.10x its own count on the Combat Engineers', () =>
+      refuses((t) => makeSource(t, [{ track: 'armour', tier: 1, part: 'carrier', figure: 'f0', bone: 'spine', tris: Math.floor(2299 * 1.1) + 1 }]), /over 1.1x the approved 2299 for "carrier"/, {}, 'demo_squad'));
 
     it('the Rifle Squad inherits the shared limit for a part v7 does not carry (the yoke)', () =>
       refuses((t) => makeSource(t, [{ track: 'armour', tier: 3, part: 'yoke', figure: 'f0', bone: 'spine', tris: Math.floor(32 * 1.1) + 1 }]), /over 1.1x the approved 32 for "yoke"/, {}, 'inf_squad'));

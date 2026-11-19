@@ -13,13 +13,17 @@
  *
  * No DOM. The runtime is read, never written.
  */
-import type { Command, WorksRefusal } from '@lions/sim';
+import type { Command, MissionRuntime, WorksRefusal } from '@lions/sim';
 
-/** The slice of `MissionRuntime` a works click reads. */
+/** The slice of `MissionRuntime` a works click reads. The questions are ONE side's: a mission's runtime answers for side 0
+ *  by default, and a versus field-works room hands a view bound to the seat's side (`net/room-works.ts`). */
 export interface WorksRuntime {
   constructReason(typeId: string, tx?: number, ty?: number, builders?: readonly number[]): WorksRefusal | null;
   canCancelWorks(site: number): boolean;
 }
+
+/** Everything the battlefield asks of the runtime its field works are raised through, for one side. */
+export type WorksSeat = WorksRuntime & Pick<MissionRuntime, 'worksOffers' | 'worksAt' | 'unstakedWorksAt' | 'unstakedWorksAtSite'>;
 
 export type WorksOutcome = { ok: true } | { ok: false; why: WorksRefusal | null };
 
@@ -32,18 +36,20 @@ export function callWorks(
   typeId: string,
   tx: number,
   ty: number,
-  builders: readonly number[]
+  builders: readonly number[],
+  /** The side the command acts for: the one `rt` answers for (0 off a field-works room). */
+  side: 0 | 1 = 0
 ): WorksOutcome {
   const why = rt.constructReason(typeId, tx, ty, builders.length > 0 ? builders : undefined);
   if (why !== null) return { ok: false, why };
-  sink.queueCommand({ kind: 'raiseWorks', side: 0, works: typeId, x: tx, y: ty, ids: [...builders] });
+  sink.queueCommand({ kind: 'raiseWorks', side, works: typeId, x: tx, y: ty, ids: [...builders] });
   return { ok: true };
 }
 
 /** Take down the player's own site `site`: one `cancelWorks` command when the
  *  runtime would accept it now, nothing otherwise. */
-export function callCancelWorks(rt: WorksRuntime, sink: { queueCommand(cmd: Command): void }, site: number): boolean {
+export function callCancelWorks(rt: WorksRuntime, sink: { queueCommand(cmd: Command): void }, site: number, side: 0 | 1 = 0): boolean {
   if (!rt.canCancelWorks(site)) return false;
-  sink.queueCommand({ kind: 'cancelWorks', side: 0, site });
+  sink.queueCommand({ kind: 'cancelWorks', side, site });
   return true;
 }

@@ -127,10 +127,24 @@
         },
         {
           "price": 305,
-          "patch": {
-            "weapons[0].accuracy": 0.1,
-            "weapons[0].penetration": 2
-          }
+          "branches": [
+            {
+              "id": "red_dot",
+              "label": "garage.branch.inf_squad.red_dot",
+              "patch": {
+                "weapons[0].accuracy": 0.1,
+                "weapons[0].penetration": 1
+              }
+            },
+            {
+              "id": "steel_core",
+              "label": "garage.branch.inf_squad.steel_core",
+              "patch": {
+                "weapons[0].accuracy": 0.06,
+                "weapons[0].penetration": 2
+              }
+            }
+          ]
         }
       ]
     }

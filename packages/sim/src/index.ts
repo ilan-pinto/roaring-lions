@@ -48,7 +48,7 @@ export {
   MED_CARRYING,
   MED_DELIVERING,
 } from './tuning';
-export type { StructureType } from './structures';
+export type { StructureType, StructureGate } from './structures';
 // GH-707: the one reading of a down wounded's bleed clock (ring arc and card countdown both call it).
 export { bleedClock, bleedFullTicks, bleedSecondsLeft, type BleedClock, type BleedClockSource, type BleedClockType } from './bleed';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
@@ -88,7 +88,7 @@ export { creditsFor, creditInputFrom, CREDIT_WEIGHTS, type CreditInput } from '.
 // The mosque threshold. The sim keeps units from levelling a protected site on
 // their own initiative; the app needs the same number to keep an ambiguous
 // right-click from manufacturing the explicit order that bypasses that rule.
-export { PROTECTED_ROE } from './structures';
+export { PROTECTED_ROE, GATE_CLOSED, GATE_OPENING, GATE_OPEN, GATE_CLOSING } from './structures';
 export {
   routeLength,
   pointAtDistance,

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DEFAULT_SETTINGS, SETTINGS_KEY, applySettings, loadSettings, parseSettings, saveSettings, settingsBus } from './settings';
+import { PSEUDO_RTL, applyLocale, sessionLangOverride } from './i18n/locales';
 
 function memStore(): { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void; map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -115,6 +118,44 @@ describe('parseSettings', () => {
       motion: 'reduce', colorVision: 'default', captions: true,
     });
   });
+  it('chat is ON by default (GH-1417 S1), off persists through the one writer, a bad or missing value reads as on, and a save from before it loses nothing', () => {
+    expect(DEFAULT_SETTINGS.chat.enabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).chat).toEqual({ enabled: true, mask: true });
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).audio.radio).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: false } })).chat.enabled).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: 'no' } })).chat.enabled).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: 7 })).chat.enabled).toBe(true);
+    // Round trip through saveSettings and a blocked store: the write is swallowed, the read is the default.
+    const store = memStore();
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), chat: { enabled: false, mask: true } });
+    expect(loadSettings(store).chat.enabled).toBe(false);
+    const blocked = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => undefined };
+    expect(() => saveSettings(blocked, structuredClone(DEFAULT_SETTINGS))).not.toThrow();
+    expect(loadSettings(blocked).chat.enabled).toBe(true);
+  });
+  it('the filter\'s mask tier is ON by default (GH-1417 S2), off persists, a bad value reads as on, and no setting exists for the hide tier (D2)', () => {
+    expect(DEFAULT_SETTINGS.chat.mask).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { enabled: true } })).chat.mask).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { mask: false } })).chat).toEqual({ enabled: true, mask: false });
+    expect(parseSettings(JSON.stringify({ version: 1, chat: { mask: 0 } })).chat.mask).toBe(true);
+    const store = memStore();
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), chat: { enabled: true, mask: false } });
+    expect(loadSettings(store).chat.mask).toBe(false);
+    // A stored `hide: false` (a hand-edited blob, or a future build's) is dropped: the hide tier has no switch to reach.
+    const smuggled = parseSettings(JSON.stringify({ version: 1, chat: { enabled: true, mask: false, hide: false, filter: false } }));
+    expect(Object.keys(smuggled.chat).sort()).toEqual(['enabled', 'mask']);
+    expect(Object.keys(DEFAULT_SETTINGS.chat).sort()).toEqual(['enabled', 'mask']);
+  });
+  it('hints.software is unanswered by default (GH-1413), an answer persists through the one writer, and a bad or missing value reads as unanswered', () => {
+    expect(DEFAULT_SETTINGS.hints.software).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: false } })).hints).toEqual({ software: false });
+    expect(parseSettings(JSON.stringify({ version: 1, hints: { software: true } })).hints.software).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, hints: { software: 'yes', extra: 1 } })).hints).toEqual({ software: false });
+    expect(parseSettings(JSON.stringify({ version: 1, hints: 7 })).hints.software).toBe(false);
+    const store = memStore();
+    saveSettings(store, { ...structuredClone(DEFAULT_SETTINGS), hints: { software: true } });
+    expect(loadSettings(store).hints.software).toBe(true);
+  });
 });
 
 describe('applySettings', () => {
@@ -132,6 +173,40 @@ describe('applySettings', () => {
     expect(root.dataset.cvd).toBe('tritanopia');
     applySettings(DEFAULT_SETTINGS, root);
     expect(root.style.getPropertyValue('--ui-scale')).toBe('');
+  });
+
+  // GH-1413 review F2: the boot order of main.ts (stored settings, then the session locale, then a settings change).
+  const changed = { ...DEFAULT_SETTINGS, video: { ...DEFAULT_SETTINGS.video, textSize: 1.3 as const } };
+  it('a settings change keeps a session ?lang= override instead of re-applying the stored language', () => {
+    const root = document.createElement('html');
+    applySettings(DEFAULT_SETTINGS, root);
+    applyLocale(root, 'pseudo');
+    applySettings(changed, root, sessionLangOverride('pseudo', null));
+    expect(root.getAttribute('lang')).toBe('pseudo');
+    expect(root.style.getPropertyValue('--text-size')).toBe('1.3');
+  });
+  it('a settings change keeps ?pseudo=rtl: the mirrored tag and dir=rtl both survive', () => {
+    const root = document.createElement('html');
+    applySettings(DEFAULT_SETTINGS, root);
+    applyLocale(root, PSEUDO_RTL);
+    applySettings(changed, root, sessionLangOverride(null, PSEUDO_RTL));
+    expect([root.getAttribute('lang'), root.dir]).toEqual(['qps-plocm', 'rtl']);
+  });
+  it('with no override (no ?lang=, an unshipped id, plain ?pseudo=1) the stored language is applied, as before', () => {
+    expect(sessionLangOverride(null, null)).toBeNull();
+    expect(sessionLangOverride('xx', null)).toBeNull();
+    expect(sessionLangOverride('', null)).toBeNull();
+    expect(sessionLangOverride(null, 'pseudo')).toBeNull();
+    expect(sessionLangOverride('en', null)).toBe('en');
+    const root = document.createElement('html');
+    root.setAttribute('lang', 'pseudo');
+    applySettings(changed, root, sessionLangOverride('xx', null));
+    expect(root.getAttribute('lang')).toBe('en');
+  });
+  it('main.ts hands the session override to the settings writer (source guard)', () => {
+    const main = readFileSync(join(__dirname, 'main.ts'), 'utf8');
+    expect(main).toContain("sessionLang = sessionLangOverride(q.get('lang'), pseudoMode);");
+    expect(main).toContain('applySettings(next, document.documentElement, sessionLang);');
   });
 });
 
