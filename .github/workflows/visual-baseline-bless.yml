@@ -69,6 +69,8 @@ permissions:
 jobs:
   bless:
     runs-on: ubuntu-latest
+    # last 12 runs 4-19 min; 1.8x the slowest
+    timeout-minutes: 35
     permissions:
       contents: write
       pull-requests: write

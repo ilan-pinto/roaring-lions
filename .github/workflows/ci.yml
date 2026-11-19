@@ -32,6 +32,8 @@ concurrency:
 jobs:
   gates:
     runs-on: ubuntu-latest
+    # last 20 runs 43-81 min (median 61); 1.6x the slowest
+    timeout-minutes: 130
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -256,6 +258,8 @@ jobs:
   # the SPRITE_MAP failure mode this repo already knows.
   visual:
     runs-on: ubuntu-latest
+    # last 20 runs 40-93 min (median 56); 1.5x the slowest
+    timeout-minutes: 140
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -500,6 +504,8 @@ jobs:
   # nightly-only if the wgpu arm needs more than 3x the legacy arm's time.
   visual-backends:
     runs-on: ubuntu-latest
+    # last 20 runs 9-44 min (webgpu arm slowest); 1.6x the slowest
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
@@ -629,6 +635,8 @@ jobs:
     needs: visual-backends
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    # last 20 runs 17-35 min; 1.6x the slowest
+    timeout-minutes: 55
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -718,6 +726,8 @@ jobs:
   # `memory-budgets.ts` measured on this runner type.
   memory:
     runs-on: ubuntu-latest
+    # last 20 runs 9-23 min; 1.5x the slowest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -776,6 +786,8 @@ jobs:
   # lists the PR's whole diff against its base, not the last push's.
   changes:
     runs-on: ubuntu-latest
+    # last 20 runs under 1 min
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -818,6 +830,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' || needs.changes.outputs.sim != 'false') && matrix.os || 'ubuntu-latest' }}
+    # last 20 runs 1-3 min on every OS; five times the slowest leg
+    timeout-minutes: 15
     env:
       RUN_LEG: ${{ github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' || needs.changes.outputs.sim != 'false' }}
     steps:
@@ -864,6 +878,8 @@ jobs:
     needs: [gates, visual, determinism]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    # last 8 main runs 32-58 s; main only; it pushes a commit and a tag
+    timeout-minutes: 10
     permissions:
       # contents to push the bump and the tag, and to publish the GitHub release (GH-1622). Nothing broader.
       contents: write
