@@ -106,6 +106,20 @@ describe('censusVerdict', () => {
   it('two pages must agree on the shadow count too', () => {
     const a = report([100, 100, 100], [3100, 3100, 3100]);
     expect(censusRepeatsAgree([a, report([100, 100, 100], [3100, 3100, 3100], 250, 1031)], 300)).not.toBeNull();
+    // ...and on the EMPTY scene's shadow count, which the per-unit figure subtracts.
+    // mutation: the repeats key drops the empty scene's shadowCalls
+    const b = report([100, 100, 100], [3100, 3100, 3100]);
+    b.emptyCensus.shadowCalls = [31, 31, 31];
+    expect(censusRepeatsAgree([a, b], 300)).not.toBeNull();
+  });
+
+  it('an unpinned shadow budget is an instrument failure, never a silent pass', () => {
+    // A NaN budget makes every comparison false, so without the guard the verdict would read pass.
+    // mutation: the NaN guard drops shadowPerUnit, or drops maxEmptyShadowCalls
+    const r = report([100, 100, 100], [3100, 3100, 3100]);
+    expect(censusVerdict(r, BUDGET, []).kind).toBe('pass');
+    expect(censusVerdict(r, { ...BUDGET, shadowPerUnit: NaN }, []).kind).toBe('instrument');
+    expect(censusVerdict(r, { ...BUDGET, maxEmptyShadowCalls: NaN }, []).kind).toBe('instrument');
   });
 
   it('the shipped budget is pinned (no NaN), with a band no wider than +-10%', () => {
