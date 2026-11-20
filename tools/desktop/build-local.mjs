@@ -1,43 +1,51 @@
 #!/usr/bin/env node
-// GH-1418 desktop spike: package `pnpm build` output into an UNSIGNED local Linux Electron bundle (`pnpm desktop:spike`).
+// GH-1418: package the production web build into an UNSIGNED local Electron desktop build (`pnpm desktop:package`).
 //
 // What it does, in order:
-//   1. `pnpm build` (skip with --skip-build to reuse an existing packages/app/dist);
-//   2. stages a throwaway Electron app in dist-desktop/stage/: a package.json, tools/desktop/main.mjs and resolve.mjs,
-//      and the build copied to web/ unchanged;
-//   3. runs @electron/packager (a tools-only devDependency, pinned exactly) for linux/<this arch> at ELECTRON_VERSION,
-//      caching the Electron zip under dist-desktop/cache/ (@electron/get checks it against the release's SHASUMS256);
-//   4. writes dist-desktop/roaring-lions-linux-<arch>.tar.gz, the stand-in for an installer, and prints the sizes;
-//   5. with --smoke, launches the bundle once headlessly (xvfb-run when there is no $DISPLAY) with RL_DESKTOP_SMOKE=1,
-//      which loads index.html, probes WebGL2 and WebGPU, writes dist-desktop/smoke.png and prints one RL_SMOKE line.
-//      The run's Chromium profile is dist-desktop/profile/, emptied first, never ~/.config/Roaring Lions.
+//   1. `pnpm build` (skip with --skip-build to reuse an existing packages/app/dist), VITE_BASE cleared;
+//   2. reads the demo's content cut (`tools/desktop/demo.json`, HOLD FOR LEAD: `missions: null`, the whole build) and
+//      refuses a build whose `_headers` has no Content-Security-Policy (`policy.mjs`'s `requireCsp`);
+//   3. stages the app code (package.json, main.mjs, policy.mjs, resolve.mjs, desktop-build.json) and, beside it, the web
+//      build copied unchanged;
+//   4. runs @electron/packager (pinned exactly) for linux/<this arch> at ELECTRON_VERSION: the code in `app.asar`, the web
+//      build as loose files in `resources/web/` (`extraResource`), the Electron zip cached under dist-desktop/cache/ and
+//      checked against the SHA-256 pinned in policy.mjs (never a mirror: ELECTRON_MIRROR and friends are cleared);
+//   5. flips the Electron fuses (`policy.mjs`'s FUSES, all nine) with @electron/fuses (pinned exactly) and reads the
+//      wire back, refusing a binary whose wire differs;
+//   6. writes dist-desktop/roaring-lions-linux-<arch>.tar.gz (the stand-in for a depot or an installer), prints sizes;
+//   7. with --smoke: launches the shipped bundle once (it must print RL_DESKTOP_READY with smoke:false, its environment
+//      asking for the smoke run notwithstanding), then packages a SEPARATE smoke bundle (manifest `smoke: true`) and runs
+//      the headless check in it (xvfb-run when there is no $DISPLAY): WebGL2, the policy from inside the page, a
+//      screenshot. Every process it starts, it starts in its own process group and stops by that group.
+//   8. with --report-commercial: runs `tools/commercial_asset_cut.py --dist` (report only, nothing stripped) and records
+//      the count in the manifest.
+//   9. with --crash-reports (GH-1414): the SHIPPED bundle's manifest says `crashReports: true`, so it sends crash reports
+//      to the Worker (`crash.mjs`). Without the flag no bundle sends any; the smoke bundle never does. The shipped-bundle
+//      launch check runs with RL_DESKTOP_NO_CRASH_REPORTS=1 whatever the flag. With --smoke-crash the smoke run also
+//      forces a page error and a renderer crash and checks the reports it recorded (never sent).
 //
-// What it never does: sign, notarise, read a secret, upload to a store, publish or auto-update. Nothing in packages/
-// is touched; the app's entry chunk is whatever `pnpm build` makes. Linux only, on purpose: the spike's question is
-// whether the build runs in the wrapper at all, and the other targets need signing (see the spike doc).
+// What it never does: sign, notarise, read a secret, upload to a store, publish or auto-update. Nothing in packages/ is
+// touched. Linux only, on purpose: the other targets need signing (spec, section 9).
 //
-// Flags: --skip-build, --smoke, --no-tar. Output: dist-desktop/ at the repo root (gitignored; eslint ignores dist-*/).
-// Spec: docs/superpowers/specs/2026-11-17-desktop-wrapper-spike.md.
+// Flags: --skip-build, --smoke, --no-tar, --report-commercial, --crash-reports, --smoke-crash. Output: dist-desktop/ at the repo root (gitignored; eslint
+// ignores dist-*/). Spec: docs/superpowers/specs/2026-11-17-desktop-wrapper-spike.md, section 9.
 
-import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-// Exact, and at least two weeks old when chosen (45.2.1 was published 2026-10-31). Bumping it is its own change.
-export const ELECTRON_VERSION = '45.2.1';
+import { ELECTRON_SHA256, ELECTRON_VERSION, FUSES, parseStaticHeaders, readDemoConfig, requireCsp } from './policy.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
 const APP_DIST = path.join(ROOT, 'packages', 'app', 'dist');
 const OUT = path.join(ROOT, 'dist-desktop');
-const STAGE = path.join(OUT, 'stage');
-const BUNDLES = path.join(OUT, 'out');
 const CACHE = path.join(OUT, 'cache');
 const EXECUTABLE = 'roaring-lions';
+const PRODUCT = 'Roaring Lions';
 
 const args = new Set(process.argv.slice(2));
-const known = new Set(['--skip-build', '--smoke', '--no-tar']);
+const known = new Set(['--skip-build', '--smoke', '--no-tar', '--report-commercial', '--crash-reports', '--smoke-crash']);
 for (const a of args) {
   if (!known.has(a)) {
     console.error(`[desktop] unknown flag ${a}; known: ${[...known].join(' ')}`);
@@ -68,9 +76,9 @@ function run(cmd, argv, opts = {}) {
   return r.status ?? 1;
 }
 
-if (process.platform !== 'linux') fail(`the spike builds a Linux bundle only (this is ${process.platform})`);
+if (process.platform !== 'linux') fail(`the desktop build packages Linux only (this is ${process.platform}); see the spec, section 9`);
 // The two Linux arches the packager builds here; anything else is refused, never silently built as x64.
-if (process.arch !== 'x64' && process.arch !== 'arm64') fail(`unsupported arch ${process.arch}: the spike builds linux-x64 or linux-arm64`);
+if (process.arch !== 'x64' && process.arch !== 'arm64') fail(`unsupported arch ${process.arch}: linux-x64 or linux-arm64 only`);
 const arch = process.arch;
 
 // 1. The web build, exactly as it deploys. VITE_BASE must be '/': the custom scheme maps '/' to the bundle.
@@ -81,98 +89,242 @@ if (!args.has('--skip-build')) {
 }
 if (!existsSync(path.join(APP_DIST, 'index.html'))) fail(`no build at ${APP_DIST}; run without --skip-build`);
 
-// 2. Stage.
-rmSync(STAGE, { recursive: true, force: true });
-mkdirSync(STAGE, { recursive: true });
-const rootPkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-writeFileSync(
-  path.join(STAGE, 'package.json'),
-  `${JSON.stringify(
-    {
-      name: 'roaring-lions-desktop-spike',
-      productName: 'Roaring Lions',
-      version: rootPkg.version,
-      private: true,
-      type: 'module',
-      main: 'main.mjs',
-      license: rootPkg.license,
-      description: 'GH-1418 desktop spike: unsigned local bundle. Not for distribution.',
-    },
-    null,
-    2,
-  )}\n`,
-);
-cpSync(path.join(HERE, 'main.mjs'), path.join(STAGE, 'main.mjs'));
-cpSync(path.join(HERE, 'resolve.mjs'), path.join(STAGE, 'resolve.mjs'));
-cpSync(APP_DIST, path.join(STAGE, 'web'), { recursive: true });
-const webBytes = bytesUnder(path.join(STAGE, 'web'));
-console.log(`[desktop] staged ${mib(webBytes)} of web build`);
-
-// 3. Package. A dynamic import, so a bad flag or a missing build fails before the packager loads.
-const { packager } = await import('@electron/packager');
-mkdirSync(CACHE, { recursive: true });
-let appPaths;
+// 2. The content cut and the CSP, both fail closed.
+let demo;
 try {
-  appPaths = await packager({
-    dir: STAGE,
-    out: BUNDLES,
-    name: 'Roaring Lions',
-    executableName: EXECUTABLE,
-    platform: 'linux',
-    arch,
-    electronVersion: ELECTRON_VERSION,
-    overwrite: true,
-    // Loose files, no asar: Steam's depot diff works per chunk either way, and loose files keep the spike debuggable.
-    asar: false,
-    prune: false,
-    quiet: true,
-    download: { cacheRoot: CACHE },
-  });
+  demo = readDemoConfig(JSON.parse(readFileSync(path.join(HERE, 'demo.json'), 'utf8')));
+  const headersFile = path.join(APP_DIST, '_headers');
+  requireCsp(parseStaticHeaders(existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : ''));
 } catch (err) {
-  // A blocked or failed Electron download lands here. Do not work around it (no mirror, no proxy change): report it.
-  fail(`@electron/packager failed (an Electron download blocked by the network ends here): ${err?.message ?? err}`);
+  fail(String(err?.message ?? err));
 }
-if (!Array.isArray(appPaths) || appPaths.length === 0) fail('@electron/packager returned no bundle path');
-const bundle = appPaths[0];
-const bundleBytes = bytesUnder(bundle);
-const runtimeBytes = bundleBytes - bytesUnder(path.join(bundle, 'resources', 'app'));
-console.log(`[desktop] bundle ${bundle}`);
-console.log(`[desktop]   on disk ${mib(bundleBytes)} (Electron ${ELECTRON_VERSION} runtime ${mib(runtimeBytes)}, game ${mib(bundleBytes - runtimeBytes)})`);
+console.log('[desktop] demo content cut: NONE (demo.json missions: null; the whole build ships). HOLD FOR LEAD, GH-1379.');
 
-// 4. The installer stand-in: a gzip tarball, roughly what a Steam depot download or an AppImage costs.
-if (!args.has('--no-tar')) {
-  const tarball = path.join(OUT, `roaring-lions-linux-${arch}.tar.gz`);
-  rmSync(tarball, { force: true });
-  if (run('tar', ['-czf', tarball, '-C', path.dirname(bundle), path.basename(bundle)]) !== 0) fail('tar failed');
-  console.log(`[desktop]   tar.gz ${mib(statSync(tarball).size)} at ${tarball}`);
+const rootPkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const gitHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+const commit = gitHead.status === 0 ? gitHead.stdout.trim() : null;
+
+let commercial = null;
+if (args.has('--report-commercial')) {
+  const reportFile = path.join(OUT, 'commercial-cut.json');
+  mkdirSync(OUT, { recursive: true });
+  const r = spawnSync('python3', [path.join(ROOT, 'tools', 'commercial_asset_cut.py'), '--dist', APP_DIST, '--json', reportFile], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
+  if (r.status !== 0) fail(`commercial_asset_cut.py failed (exit ${r.status}): ${r.stderr}`);
+  const report = JSON.parse(readFileSync(reportFile, 'utf8'));
+  const inBuild = Object.values(report.dist ?? {}).filter((b) => typeof b === 'number');
+  commercial = {
+    failing: Object.keys(report.excluded ?? {}).length,
+    failingInBuild: inBuild.length,
+    failingBytesInBuild: inBuild.reduce((a, b) => a + b, 0),
+  };
+  console.log(`[desktop] commercial gate (REPORT ONLY, nothing stripped; GH-1415): ${JSON.stringify(commercial)}; full list ${reportFile}`);
 }
 
-// 5. Headless launch check.
-if (args.has('--smoke')) {
+/** Stage, package and fuse one bundle. `smoke` is written into its manifest; only a smoke bundle can run the check. */
+async function packageBundle({ smoke }) {
+  const kind = smoke ? 'smoke' : 'shipped';
+  const stage = path.join(OUT, `stage-${kind}`);
+  const appDir = path.join(stage, 'app');
+  const webDir = path.join(stage, 'web');
+  rmSync(stage, { recursive: true, force: true });
+  rmSync(path.join(OUT, kind), { recursive: true, force: true });
+  mkdirSync(appDir, { recursive: true });
+  writeFileSync(
+    path.join(appDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'roaring-lions-desktop',
+        productName: PRODUCT,
+        version: rootPkg.version,
+        private: true,
+        type: 'module',
+        main: 'main.mjs',
+        license: rootPkg.license,
+        description: 'GH-1418 desktop build: unsigned, local only. Not for distribution.',
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  for (const f of ['main.mjs', 'policy.mjs', 'resolve.mjs', 'crash.mjs']) cpSync(path.join(HERE, f), path.join(appDir, f));
+  // GH-1414: only a shipped bundle packaged with --crash-reports sends crash reports.
+  const crashReports = !smoke && args.has('--crash-reports');
+  const manifest = { version: rootPkg.version, commit, electron: ELECTRON_VERSION, smoke, crashReports, demo, commercial };
+  writeFileSync(path.join(appDir, 'desktop-build.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  cpSync(APP_DIST, webDir, { recursive: true });
+  console.log(`[desktop] ${kind}: staged ${mib(bytesUnder(webDir))} of web build`);
+
+  // A dynamic import, so a bad flag or a missing build fails before the packager loads.
+  const { packager } = await import('@electron/packager');
+  mkdirSync(CACHE, { recursive: true });
+  // The runtime comes from GitHub's release or from the cache, never from a mirror the environment names.
+  for (const k of ['ELECTRON_MIRROR', 'ELECTRON_CUSTOM_DIR', 'ELECTRON_CUSTOM_FILENAME', 'npm_config_electron_mirror']) delete process.env[k];
+  let appPaths;
+  try {
+    appPaths = await packager({
+      dir: appDir,
+      out: path.join(OUT, kind),
+      name: PRODUCT,
+      executableName: EXECUTABLE,
+      platform: 'linux',
+      arch,
+      electronVersion: ELECTRON_VERSION,
+      overwrite: true,
+      // The code in an asar (the OnlyLoadAppFromAsar fuse needs one); the 180 MiB of assets loose beside it, so a
+      // Steam depot diff or a patch moves only the files that changed.
+      asar: true,
+      extraResource: [webDir],
+      prune: false,
+      quiet: true,
+      download: { cacheRoot: CACHE, checksums: ELECTRON_SHA256 },
+    });
+  } catch (err) {
+    // A blocked or failed Electron download, or a checksum mismatch, lands here. Report it; never work around it.
+    fail(`@electron/packager failed (a blocked download or a checksum mismatch ends here): ${err?.message ?? err}`);
+  }
+  if (!Array.isArray(appPaths) || appPaths.length === 0) fail('@electron/packager returned no bundle path');
+  const bundle = appPaths[0];
+  // The packager leaves the bundle's top directory 0700 (measured); an install readable only by its builder is not one.
+  chmodSync(bundle, 0o755);
+  rmSync(stage, { recursive: true, force: true });
+
   const binary = path.join(bundle, EXECUTABLE);
-  // Chromium refuses to run as root with its sandbox on; a container smoke run is root. A player never is.
+  const { flipFuses, getCurrentFuseWire, FuseV1Options, FuseVersion, FuseState } = await import('@electron/fuses');
+  const names = Object.keys(FuseV1Options).filter((k) => Number.isNaN(Number(k)));
+  for (const name of Object.keys(FUSES)) if (!names.includes(name)) fail(`policy.mjs names a fuse @electron/fuses does not know: ${name}`);
+  for (const name of names) if (!(name in FUSES)) fail(`@electron/fuses knows a fuse policy.mjs does not set: ${name}`);
+  const config = { version: FuseVersion.V1, strictlyRequireAllFuses: true };
+  for (const [name, on] of Object.entries(FUSES)) config[FuseV1Options[name]] = on;
+  await flipFuses(binary, config);
+  const wire = await getCurrentFuseWire(binary);
+  for (const [name, on] of Object.entries(FUSES)) {
+    const want = on ? FuseState.ENABLE : FuseState.DISABLE;
+    if (wire[FuseV1Options[name]] !== want) fail(`fuse ${name} reads ${wire[FuseV1Options[name]]} after the flip, want ${want}`);
+  }
+  const bundleBytes = bytesUnder(bundle);
+  const gameBytes = bytesUnder(path.join(bundle, 'resources'));
+  console.log(`[desktop] ${kind}: ${bundle}`);
+  console.log(
+    `[desktop]   on disk ${mib(bundleBytes)} (Electron ${ELECTRON_VERSION} runtime ${mib(bundleBytes - gameBytes)}, resources ${mib(gameBytes)}); fuses flipped and read back`,
+  );
+  return { bundle, binary, bundleBytes };
+}
+
+/**
+ * Launch a bundle headlessly in its OWN process group and stop it by that group: xvfb-run, Xvfb and Electron's helpers
+ * all go, and nothing else is touched. Resolves with the output when `doneWhen(stdout)` is true, the process exits, or
+ * `timeoutMs` passes.
+ */
+function launch(binary, env, { doneWhen, timeoutMs }) {
+  // Chromium refuses to run as root with its sandbox on; a container run is root. A player never is.
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
   const electronArgs = isRoot ? ['--no-sandbox'] : [];
-  // main.mjs keeps the smoke run's profile in OUT/profile; start each run from an empty one.
-  rmSync(path.join(OUT, 'profile'), { recursive: true, force: true });
-  const env = { ...process.env, RL_DESKTOP_SMOKE: '1', RL_DESKTOP_SMOKE_OUT: OUT };
   let cmd = binary;
   let argv = electronArgs;
   if (!process.env.DISPLAY) {
     const xvfb = spawnSync('sh', ['-c', 'command -v xvfb-run'], { encoding: 'utf8' });
-    if (xvfb.status !== 0) fail('no $DISPLAY and no xvfb-run: cannot run the headless launch check');
+    if (xvfb.status !== 0) fail('no $DISPLAY and no xvfb-run: cannot run the headless launch');
     cmd = 'xvfb-run';
     argv = ['-a', '-s', '-screen 0 1600x900x24', binary, ...electronArgs];
   }
-  console.log(`[desktop] smoke: ${cmd} ${argv.join(' ')}`);
-  const r = spawnSync(cmd, argv, { cwd: ROOT, env, encoding: 'utf8', timeout: 180_000 });
-  const line = (r.stdout ?? '').split('\n').find((l) => l.startsWith('RL_SMOKE '));
-  if (line === undefined) {
-    console.error(r.stdout);
-    console.error(r.stderr);
-    fail(`smoke run printed no RL_SMOKE line (exit ${r.status}, signal ${r.signal})`);
+  console.log(`[desktop] launch: ${cmd} ${argv.join(' ')}`);
+  return new Promise((resolve) => {
+    const child = spawn(cmd, argv, { cwd: ROOT, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (why) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // The group has already gone.
+      }
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve({ stdout, stderr, why });
+    };
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+    child.stdout.on('data', (d) => {
+      stdout += d;
+      if (doneWhen(stdout)) finish('done');
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d;
+    });
+    child.on('exit', () => setTimeout(() => finish('exit'), 200));
+  });
+}
+
+const lineOf = (stdout, tag) => {
+  const line = stdout.split('\n').find((l) => l.startsWith(`${tag} `));
+  return line === undefined ? null : JSON.parse(line.slice(tag.length + 1));
+};
+
+// 3-5. The shipped bundle.
+const shipped = await packageBundle({ smoke: false });
+
+// 6. The installer stand-in: a gzip tarball, roughly what a Steam depot download or an AppImage costs.
+if (!args.has('--no-tar')) {
+  const tarball = path.join(OUT, `roaring-lions-linux-${arch}.tar.gz`);
+  rmSync(tarball, { force: true });
+  if (run('tar', ['-czf', tarball, '-C', path.dirname(shipped.bundle), path.basename(shipped.bundle)]) !== 0) fail('tar failed');
+  console.log(`[desktop]   tar.gz ${mib(statSync(tarball).size)} at ${tarball}`);
+}
+
+// 7. The launch checks.
+if (args.has('--smoke')) {
+  // (a) The SHIPPED bundle, asked for the smoke run by its environment, must start as itself and ignore it. Its own
+  // HOME, so it never writes into this machine's ~/.config/Roaring Lions.
+  const home = path.join(OUT, 'shipped-home');
+  rmSync(home, { recursive: true, force: true });
+  mkdirSync(home, { recursive: true });
+  const shippedRun = await launch(
+    shipped.binary,
+    {
+      ...process.env,
+      HOME: home,
+      XDG_CONFIG_HOME: path.join(home, '.config'),
+      RL_DESKTOP_SMOKE: '1',
+      RL_DESKTOP_SMOKE_OUT: OUT,
+      // A launch check never sends a crash report, even from a bundle packaged with --crash-reports.
+      RL_DESKTOP_NO_CRASH_REPORTS: '1',
+    },
+    { doneWhen: (s) => s.includes('RL_DESKTOP_READY ') || s.includes('RL_SMOKE '), timeoutMs: 90_000 },
+  );
+  const ready = lineOf(shippedRun.stdout, 'RL_DESKTOP_READY');
+  const smokeLine = lineOf(shippedRun.stdout, 'RL_SMOKE');
+  rmSync(home, { recursive: true, force: true });
+  if (ready === null || smokeLine !== null || ready.smoke !== false) {
+    console.error(shippedRun.stdout);
+    console.error(shippedRun.stderr.slice(-4000));
+    fail(
+      `shipped bundle: want RL_DESKTOP_READY with smoke:false and no RL_SMOKE; got ready=${JSON.stringify(ready)} smoke line=${smokeLine !== null} (${shippedRun.why})`,
+    );
   }
-  const result = JSON.parse(line.slice('RL_SMOKE '.length));
+  console.log(`[desktop] shipped bundle launched: ${JSON.stringify(ready)} (the smoke variable was ignored)`);
+
+  // (b) The smoke bundle: the same code and web build; its manifest says smoke:true.
+  const smokeBundle = await packageBundle({ smoke: true });
+  rmSync(path.join(OUT, 'profile'), { recursive: true, force: true });
+  const r = await launch(
+    smokeBundle.binary,
+    { ...process.env, RL_DESKTOP_SMOKE: '1', RL_DESKTOP_SMOKE_OUT: OUT, ...(args.has('--smoke-crash') ? { RL_DESKTOP_SMOKE_CRASH: '1' } : {}) },
+    { doneWhen: (s) => s.includes('RL_SMOKE '), timeoutMs: 180_000 },
+  );
+  const result = lineOf(r.stdout, 'RL_SMOKE');
+  // The smoke bundle is a test fixture, not a deliverable.
+  rmSync(path.join(OUT, 'smoke'), { recursive: true, force: true });
+  if (result === null) {
+    console.error(r.stdout);
+    console.error(r.stderr.slice(-4000));
+    fail(`smoke run printed no RL_SMOKE line (${r.why})`);
+  }
   console.log(`[desktop] smoke ${result.pass ? 'PASS' : 'FAIL'}`);
   console.log(JSON.stringify(result, null, 2));
   writeFileSync(path.join(OUT, 'smoke.json'), `${JSON.stringify(result, null, 2)}\n`);

@@ -12,7 +12,7 @@ import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { MissionLog } from '../mission-log';
 import type { EarnAward } from '../roar-earn';
-import { causeText } from '../kill-cause';
+import { causeSummary, causeText, type KillCause } from '../kill-cause';
 import type { LoggedLoss } from '../mission-log';
 import type { InvoiceLine } from './conduct-invoice';
 import type { GroundPin } from './ground-view';
@@ -264,11 +264,17 @@ export function afterAction(i: AfterActionInputs): AfterAction {
       person: { type: l.type, lost: true },
     });
   }
-  const fresh = new Map<string, { n: number; first: LoggedLoss }>();
-  for (const l of i.log.losses) if (l.name === undefined) fresh.set(l.type, { n: (fresh.get(l.type)?.n ?? 0) + 1, first: fresh.get(l.type)?.first ?? l });
-  for (const [type, { n, first }] of fresh) {
-    // One crew lost of that type names its cause; several would need a summary of their causes, which this report does not make.
-    const sub = n === 1 && first.cause !== undefined ? causeText(first.cause, i.typeName) : undefined;
+  const fresh = new Map<string, (KillCause | undefined)[]>();
+  for (const l of i.log.losses) if (l.name === undefined) fresh.set(l.type, [...(fresh.get(l.type) ?? []), l.cause]);
+  for (const [type, causes] of fresh) {
+    const n = causes.length;
+    // One crew lost of that type names its cause, when there is one. Several print a tally of their causes (GH-1380), unless none was
+    // recorded at all (a log from before the kill-cause line), which says nothing rather than "n× Cause not recorded".
+    const lone = causes[0];
+    const sub =
+      n === 1
+        ? lone === undefined ? undefined : causeText(lone, i.typeName)
+        : causes.every((c) => c === undefined) ? undefined : causeSummary(causes, i.typeName);
     poor.push({ mark: `−${n}`, tone: 'bad', text: t('aar.poor.lostFresh', { type: i.typeName(type), n }), ...(sub !== undefined ? { sub } : {}) });
   }
   if (won) {

@@ -1380,6 +1380,19 @@ function withIds<T extends { ids: number[] }>(cmd: T, ids: number[]): T {
 
 export type ContactLevel = 'suspected' | 'identified' | 'lost';
 export type FacingArc = 'front' | 'side' | 'rear';
+/**
+ * GH-1380: how a unit died, on its `destroyed` event. Read by the app's kill-cause line; nothing in the sim reads it back, and no event is
+ * folded into `hash()`, so it moves no byte of state.
+ *  - `direct`: the round, beam or kamikaze strike that named it (`weaponId` set);
+ *  - `splash`: inside a blast radius (`weaponId` set when a weapon made the blast; a placed charge has none);
+ *  - `strike`: a called fire-support strike (`by` is the caller; no weapon);
+ *  - `bleed`: a down wounded's bleed ran out (`by` is who downed him);
+ *  - `collapse`: a building or a tunnel came down with it inside;
+ *  - `carrier`: it went down with its carrier (an air carrier shot down, or a rider's bail-out injuries);
+ *  - `spent`: a munition spent itself on its target (a kamikaze's strike, a swarm's last dive);
+ *  - `other`: a dev or test kill (`debugKill`).
+ */
+export type DeathCause = 'direct' | 'splash' | 'strike' | 'bleed' | 'collapse' | 'carrier' | 'spent' | 'other';
 export type ComponentResult =
   | 'crew_shaken'
   | 'mobility_kill'
@@ -1512,7 +1525,9 @@ export type SimEvent =
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
-  | { kind: 'destroyed'; tick: number; entity: number; by: number }
+  /** `cause` and `weaponId` (GH-1380) say how: the sim always sets `cause`, and `weaponId` whenever a weapon dealt the killing damage.
+   *  Optional in the type only so a hand-built event stays legal. Never read by the sim, never hashed. */
+  | { kind: 'destroyed'; tick: number; entity: number; by: number; cause?: DeathCause; weaponId?: string }
   /** GH-707: a man fell wounded. `entity` is the wounded (a new `wounded`-role unit, or the
    *  unit itself when it went down in place); `parent` the squad he fell from, -1 in place or
    *  for the squad's last man (ruling 5); `by` who downed him, -1 for nobody. */
@@ -2259,6 +2274,15 @@ export class Sim {
    *  set (the deferred fold, field works' D1 shape), and `stepGates` returns at once while it is false, so a
    *  world with no gate runs exactly the code it ran before and moves no pin. Never cleared. */
   private gateLive = false;
+  /** GH-1438 E6: 1 for an entity whose placement is marked `fires_on_civilians` (`setCivFire`, from the mission
+   *  runtime's `spawnPlacement` only). Such a shooter, with no target of the fighting sides in reach, takes the nearest
+   *  identified, standing civilian (side 2) instead (`selectTarget`'s second scan). 0 for everyone else. Hashed behind
+   *  `civFireLive`. Never cleared: the flag is the placement's, for the entity's life. */
+  private readonly civFire: Uint8Array;
+  /** GH-1438 E6: true once one entity is flagged (`setCivFire`). hash() folds `civFire` only while set (the deferred
+   *  fold), and the second scan never runs while it is false, so a world with no flagged placement runs exactly the
+   *  code it ran before and moves no pin. Never cleared. */
+  private civFireLive = false;
   // --- field works (#277) state block. Every array is declared and hashed
   // here (Task 2) even where a later task is its only writer; see hash() for
   // why the block folds only once `fwLive` is set (D1).
@@ -2657,6 +2681,7 @@ export class Sim {
     this.woundParent = new Int32Array(n).fill(-1);
     this.woundBy = new Int32Array(n).fill(-1);
     this.woundState = new Uint8Array(n);
+    this.civFire = new Uint8Array(n);
     this.bleedTicks = new Int32Array(n);
     this.woundTimer = new Int32Array(n);
     this.medState = new Uint8Array(n);
@@ -4798,9 +4823,28 @@ export class Sim {
     this.posY[id] = y;
   }
 
+  /**
+   * GH-1438 E6 (the lead's ruling D18, Option A, 18 Nov 2026): mark `id` as a shooter that fires on civilians when it has
+   * no target of the fighting sides in reach. Called by `MissionRuntime.spawnPlacement` for a side-1 placement marked
+   * `fires_on_civilians`, and by nothing else: it is authored content, never a command, so no `Command` carries it and
+   * no versus room can send it. Refuses a dead or a non-enemy entity (the schema and validate:data refuse the field on a
+   * player or civilian placement; this is the same rule where the column is written).
+   */
+  setCivFire(id: number): void {
+    if (id < 0 || id >= this.count || this.alive[id] === 0) throw new Error(`setCivFire: ${id} is not a living entity`);
+    if (this.side[id] !== 1) throw new Error(`setCivFire: ${id} is side ${this.side[id]}; only side 1 fires on civilians`);
+    this.civFire[id] = 1;
+    this.civFireLive = true;
+  }
+
+  /** GH-1438 E6: whether `id` is flagged to fire on civilians (`setCivFire`). Read-only. */
+  firesOnCivilians(id: number): boolean {
+    return this.civFire[id] === 1;
+  }
+
   /** Dev/test hook: remove a unit as if destroyed (sandbox tooling). */
   debugKill(id: number): void {
-    if (this.alive[id] === 1) this.destroy(id, -1);
+    if (this.alive[id] === 1) this.destroy(id, -1, 'other', '');
   }
 
   /** Dev/test hook: disable a unit's firepower as if its weapons were
@@ -4816,7 +4860,7 @@ export class Sim {
 
   /** Detonate a bare splash at a point. Tests and the sandbox only. */
   debugSplash(x: Fx, y: Fx, radius: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
-    this.splashDirect(x, y, radius, dmg, supp, by, exclude);
+    this.splashDirect(x, y, radius, dmg, supp, by, exclude, '');
   }
 
   /** Advance exactly one 20 Hz tick. Returns the events it produced. */
@@ -8198,11 +8242,15 @@ export class Sim {
    * the scan ranks an unhurtable target as a last resort rather than
    * excluding it, and the focus paths add `weaponHurts` themselves.
    */
-  private engageable(shooter: number, w: WeaponStats, t: number): boolean {
+  private engageable(shooter: number, w: WeaponStats, t: number, civilians = false): boolean {
     const sSide = this.side[shooter];
     // Civilians (side 2) are never targets — collateral comes from
-    // ordnance, not aimpoints. That asymmetry is what ROE scores.
-    if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) return false;
+    // ordnance, not aimpoints. That asymmetry is what ROE scores. The one
+    // exception (GH-1438 E6) is `selectTarget`'s second scan for a shooter
+    // flagged `fires_on_civilians`, which passes `civilians` and asks about
+    // side 2 alone; every other caller asks about the fighting sides only.
+    if (this.alive[t] === 0 || this.side[t] === sSide) return false;
+    if (civilians ? this.side[t] !== 2 : this.side[t] > 1) return false;
     // GH-707: a wounded man is hors de combat -- nobody picks him (splash still finds him).
     if (this.woundLive && this.horsDeCombat(t)) return false;
     // Men inside a building cannot be shot at: the building is in the way,
@@ -8298,6 +8346,19 @@ export class Sim {
         best = t;
         bestHurts = hurts;
         bestDistSq = rank;
+      }
+    }
+    // GH-1438 E6: nothing of the fighting sides in reach, and this shooter's placement fires on civilians: the nearest
+    // identified, standing civilian this weapon may engage (`engageable`'s whole filter, side 2 instead of the enemy: a
+    // man down is hors de combat and never picked, so the fallen lie still). Ascending ids, nearest first, ties to the
+    // lower id. No draw: the shot resolves through the same per-entity stream as any other.
+    if (best === -1 && this.civFireLive && this.civFire[shooter] === 1) {
+      for (let t = 0; t < this.count; t++) {
+        if (!this.engageable(shooter, w, t, true)) continue;
+        if (best === -1 || this.engageDSq < bestDistSq) {
+          best = t;
+          bestDistSq = this.engageDSq;
+        }
       }
     }
     return best;
@@ -9063,7 +9124,9 @@ export class Sim {
 
     this.cooldown[shooter * 2 + slot] = w.ticksBetweenShots;
     this.lastFired[shooter] = this.tickCount;
-    if (this.fmLive) this.fmPend(shooter, tx, ty); // GH-859 P1b: a member that opens fire reports contact at its target (selectTarget is hostile-only, so every shot is at an enemy)
+    // GH-859 P1b: a member that opens fire reports contact at its target. selectTarget is hostile-only but for one case,
+    // GH-1438 E6's flagged shooter firing on a civilian (side 2): that is no contact, so it is kept out by the side test.
+    if (this.fmLive && this.side[target] <= 1) this.fmPend(shooter, tx, ty);
     // A shot is definitely being taken. Meter the surfacing burst — only a
     // unit up from a route has one; an ordinary surface unit never carries
     // volley bookkeeping.
@@ -9158,7 +9221,10 @@ export class Sim {
     this.beamTgt[k] = target;
     this.beamAt[k] = now;
     this.lastFired[shooter] = now; // a beam is a firing signature like any shot
-    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]); // GH-859 P1b: a beam never reaches fireAt (its target is chosen by selectTarget: hostile-only)
+    // GH-859 P1b: a beam never reaches fireAt, so it reports its own contact. Its target comes from selectTarget, which is
+    // hostile-only but for GH-1438 E6's flagged side-1 shooter, who may pick a civilian (side 2). Unlike fireAt's, this
+    // call has no side test: a flagged shooter's beam on a civilian would report contact. No shipped beam is flagged.
+    if (this.fmLive) this.fmPend(shooter, this.posX[target], this.posY[target]);
     this.beamHeat[k]++;
     if (++this.beamDwell[k] >= b.dwellTicks) {
       this.beamDwell[k] = 0;
@@ -9186,7 +9252,7 @@ export class Sim {
       kind: 'beam', tick: this.tickCount, shooter, target, weaponId: w.id, phase: 'struck', until: 0,
     });
     if (this.unitTypes[this.typeIdx[target]].isSoft) {
-      this.applyDamage(target, w.damage, shooter);
+      this.applyDamage(target, w.damage, shooter, 'direct', w.id);
       return;
     }
     const armor = this.presentedArmor(target, ox, oy, w.cls);
@@ -9200,7 +9266,7 @@ export class Sim {
       return;
     }
     // GH-560 (S-1): a beam penetration costs what a gun penetration costs (penetrationHpCost).
-    this.applyDamage(target, penetrationHpCost(this.unitTypes[this.typeIdx[target]].hp, w.damage, overmatchShift(z)), shooter);
+    this.applyDamage(target, penetrationHpCost(this.unitTypes[this.typeIdx[target]].hp, w.damage, overmatchShift(z)), shooter, 'direct', w.id);
     if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
@@ -9342,8 +9408,8 @@ export class Sim {
         if (dSq > splashSq) continue;
         const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), p.splash));
         const stSwarm = this.unitTypes[this.typeIdx[i]].swarm;
-        if (stSwarm !== null) this.swarmSplash(i, stSwarm, p.splash, p.damage, s.by); // E6: a called strike is a splash
-        else this.applyDamage(i, fx.mul(p.damage, falloff), s.by);
+        if (stSwarm !== null) this.swarmSplash(i, stSwarm, p.splash, p.damage, s.by, 'strike', ''); // E6: a called strike is a splash
+        else this.applyDamage(i, fx.mul(p.damage, falloff), s.by, 'strike', '');
         this.applySuppression(
           i,
           fx.mul(p.suppression, falloff),
@@ -9471,7 +9537,7 @@ export class Sim {
         this.prOriginY[pr],
         w.coverIgnore,
       );
-      this.applyDamage(target, this.prDamage[pr], shooter);
+      this.applyDamage(target, this.prDamage[pr], shooter, 'direct', w.id);
       if (this.prSplash[pr] > 0) this.splashAt(pr, this.posX[target], this.posY[target], target);
       return;
     }
@@ -9528,7 +9594,7 @@ export class Sim {
 
     // GH-560 (lead ruling 1, 27 Oct): HP alone ends a vehicle, so a penetration of a hard hull costs
     // at least a third of its bar (penetrationHpCost). The weapon's own damage still counts when it is more.
-    this.applyDamage(target, penetrationHpCost(tType.hp, this.prDamage[pr], overmatchShift(z)), shooter);
+    this.applyDamage(target, penetrationHpCost(tType.hp, this.prDamage[pr], overmatchShift(z)), shooter, 'direct', w.id);
     if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
@@ -9666,7 +9732,7 @@ export class Sim {
       const x = fx.add(cx, fx.mul(fx.cos(ang), rad));
       const y = fx.add(cy, fx.mul(fx.sin(ang), rad));
       this.pendingEvents.push({ kind: 'submunition', tick: this.tickCount, by: shooter, weaponId, x, y, index: k, count: sub.count });
-      this.splashDirect(x, y, sub.splash, sub.damage, sub.supp, shooter, -1);
+      this.splashDirect(x, y, sub.splash, sub.damage, sub.supp, shooter, -1, weaponId);
     }
   }
 
@@ -9676,6 +9742,7 @@ export class Sim {
     const dmg = this.prDamage[pr];
     const shooter = this.prShooter[pr];
     const coverIgnore = this.weaponOf(pr).coverIgnore;
+    const weaponId = this.weaponOf(pr).id;
     // `count` read once: a man this blast wounds (GH-707) is not hit by it again.
     const n = this.count;
     for (let i = 0; i < n; i++) {
@@ -9688,9 +9755,9 @@ export class Sim {
       const iType = this.unitTypes[this.typeIdx[i]];
       if (iType.swarm !== null) {
         // E6: a diver is not hurt by its own bomblet (it has already paid with the member).
-        if (i !== shooter) this.swarmSplash(i, iType.swarm, splash, dmg, shooter);
+        if (i !== shooter) this.swarmSplash(i, iType.swarm, splash, dmg, shooter, 'splash', weaponId);
       } else if (iType.isSoft) {
-        this.applyDamage(i, scaled, shooter);
+        this.applyDamage(i, scaled, shooter, 'splash', weaponId);
       }
       this.applySuppression(
         i,
@@ -9704,8 +9771,9 @@ export class Sim {
     }
   }
 
-  /** Splash from something that detonated in place rather than in flight. */
-  private splashDirect(x: Fx, y: Fx, splash: Fx, dmg: Fx, supp: Fx, by: number, exclude: number): void {
+  /** Splash from something that detonated in place rather than in flight. `weaponId` is the weapon that made the blast, '' for none
+   *  (a placed charge, a tunnel coming down); it reaches only a `destroyed` event (GH-1380). */
+  private splashDirect(x: Fx, y: Fx, splash: Fx, dmg: Fx, supp: Fx, by: number, exclude: number, weaponId: string): void {
     const splashSq = fx.mul(splash, splash);
     // The source: whoever set it off, where they stand -- or, with nobody to
     // credit, the blast point itself.
@@ -9721,8 +9789,8 @@ export class Sim {
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
       const iType = this.unitTypes[this.typeIdx[i]];
-      if (iType.swarm !== null) this.swarmSplash(i, iType.swarm, splash, dmg, by);
-      else if (iType.isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
+      if (iType.swarm !== null) this.swarmSplash(i, iType.swarm, splash, dmg, by, 'splash', weaponId);
+      else if (iType.isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by, 'splash', weaponId);
       this.applySuppression(i, fx.mul(supp, BOUNCE_SUPP_MULT), true, srcSide, srcX, srcY);
     }
   }
@@ -9747,7 +9815,7 @@ export class Sim {
    * A blast that deals no damage removes none. Hp drops to the new member boundary; none left
    * and the swarm is gone.
    */
-  private swarmSplash(target: number, sw: SwarmStats, splash: Fx, dmg: Fx, by: number): void {
+  private swarmSplash(target: number, sw: SwarmStats, splash: Fx, dmg: Fx, by: number, how: DeathCause, weaponId: string): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
     if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
     const live = this.swarmLive(target, sw);
@@ -9758,7 +9826,7 @@ export class Sim {
     this.lastDamagedTick[target] = this.tickCount;
     if (left <= 0) {
       this.hp[target] = 0;
-      this.destroy(target, by);
+      this.destroy(target, by, how, weaponId);
       return;
     }
     const cap = left * sw.memberHp;
@@ -9778,7 +9846,7 @@ export class Sim {
     const left = live - 1;
     if (left <= 0) {
       this.hp[shooter] = 0;
-      this.destroy(shooter, -1);
+      this.destroy(shooter, -1, 'spent', w.id);
       return;
     }
     const cap = left * sw.memberHp;
@@ -9786,7 +9854,8 @@ export class Sim {
     this.cooldown[shooter * 2 + slot] = ((w.ticksBetweenShots * sw.count + live - 1) / live) | 0; // x count / live: 1 at full strength
   }
 
-  private applyDamage(target: number, dmg: Fx, by: number): void {
+  /** `how` and `weaponId` say what dealt it; they reach only the `destroyed` event if this kills (GH-1380). */
+  private applyDamage(target: number, dmg: Fx, by: number, how: DeathCause, weaponId: string): void {
     if (dmg <= 0 || this.alive[target] === 0) return;
     // Inside a building or a vehicle, the hull takes it. Kill that first.
     // Underground there is no hull to kill: the earth itself is the armour,
@@ -9801,7 +9870,7 @@ export class Sim {
       const left = fx.sub(this.hp[target], dmg);
       this.hp[target] = left < floor ? floor : left;
       this.lastDamagedTick[target] = this.tickCount;
-      if (this.hp[target] <= 0) this.destroy(target, by);
+      if (this.hp[target] <= 0) this.destroy(target, by, how, weaponId);
       return;
     }
     this.hp[target] = fx.sub(this.hp[target], dmg);
@@ -9812,11 +9881,11 @@ export class Sim {
     if (this.woundLive) {
       const w = this.unitTypes[this.typeIdx[target]].wounds;
       if (w !== null && this.woundState[target] === WOUND_NONE) {
-        this.woundCrossings(target, by, w.inPlace);
+        this.woundCrossings(target, by, w.inPlace, how, weaponId);
         return;
       }
     }
-    if (this.hp[target] <= 0) this.destroy(target, by);
+    if (this.hp[target] <= 0) this.destroy(target, by, how, weaponId);
   }
 
   /**
@@ -9840,7 +9909,7 @@ export class Sim {
    * airborne carrier taking its passengers with it (`destroy`'s `takesAll`) -- rolls no falls
    * by design, and every man in that team dies with it.
    */
-  private woundCrossings(target: number, by: number, inPlace: boolean): void {
+  private woundCrossings(target: number, by: number, inPlace: boolean, how: DeathCause, weaponId: string): void {
     const type = this.unitTypes[this.typeIdx[target]];
     const standing = figuresStanding(this.hp[target], type.hp, type.figures);
     const floor = standing > 1 ? standing : 1;
@@ -9849,7 +9918,7 @@ export class Sim {
     while (this.figuresUp[target] > floor) this.fallMan(target, by, false, group);
     if (this.hp[target] > 0) return;
     if (inPlace && this.downInPlace(target, by)) return;
-    this.destroy(target, by);
+    this.destroy(target, by, how, weaponId);
     if (!inPlace) this.fallMan(target, by, true, group);
   }
 
@@ -10210,7 +10279,7 @@ export class Sim {
       if (this.bleedTicks[i] <= 0) {
         this.bleedTicks[i] = 0;
         this.pendingEvents.push({ kind: 'bledOut', tick: this.tickCount, entity: i });
-        this.destroy(i, this.woundBy[i]);
+        this.destroy(i, this.woundBy[i], 'bleed', '');
         continue;
       }
       this.crawlWounded(i);
@@ -11017,7 +11086,7 @@ export class Sim {
     // the stretcher, not the man, came off the hull.
     if (shaken && !(this.woundLive && this.horsDeCombat(id))) {
       const type = this.unitTypes[this.typeIdx[id]];
-      this.applyDamage(id, fx.mul(type.hp, BAILOUT_DAMAGE_FRAC), -1);
+      this.applyDamage(id, fx.mul(type.hp, BAILOUT_DAMAGE_FRAC), -1, 'carrier', '');
       this.applySuppression(id, BAILOUT_SHOCK, false);
     }
     this.pendingEvents.push({
@@ -11785,7 +11854,7 @@ export class Sim {
       // Terminal. Hit the target directly, splash the rest, and be gone.
       const tType = this.unitTypes[this.typeIdx[target]];
       if (tType.isSoft) {
-        this.applyDamage(target, w.damage, i);
+        this.applyDamage(target, w.damage, i, 'direct', w.id);
       } else {
         const z = penZ(w.penetration, tType.armorSide);
         const pPen = fx.normCdf(z);
@@ -11806,7 +11875,7 @@ export class Sim {
         });
         if (penetrated) {
           // GH-560 (S-1): a loitering munition's penetration costs what a gun penetration costs.
-          this.applyDamage(target, penetrationHpCost(tType.hp, w.damage, overmatchShift(z)), i);
+          this.applyDamage(target, penetrationHpCost(tType.hp, w.damage, overmatchShift(z)), i, 'direct', w.id);
           if (this.alive[target] === 1) this.rollComponent(target, i, z);
         } else {
           // GH-560 (S-1): a bounce that could have come through restarts the regen delay (gun-path test).
@@ -11822,9 +11891,9 @@ export class Sim {
         }
       }
       if (w.splash > 0) {
-        this.splashDirect(this.posX[target], this.posY[target], w.splash, w.damage, w.suppPerMiss, i, target);
+        this.splashDirect(this.posX[target], this.posY[target], w.splash, w.damage, w.suppPerMiss, i, target, w.id);
       }
-      this.destroy(i, target);
+      this.destroy(i, target, 'spent', w.id);
     }
   }
 
@@ -12413,7 +12482,7 @@ export class Sim {
       const cy = this.stCy[s];
       this.destroyStructure(s, by);
       this.pendingEvents.push({ kind: 'chargeDetonated', tick: this.tickCount, structure: s, by });
-      this.splashDirect(cx, cy, pc.blast, pc.damage, pc.suppression, by, -1);
+      this.splashDirect(cx, cy, pc.blast, pc.damage, pc.suppression, by, -1, '');
     }
   }
 
@@ -12498,14 +12567,14 @@ export class Sim {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 1 && this.tunnelIn[i] === r) {
         this.tunnelIn[i] = -1;
-        this.destroy(i, by);
+        this.destroy(i, by, 'collapse', '');
       }
       // Anyone currently up from this route simply loses their hole.
       if (this.homeTunnel[i] === r) this.homeTunnel[i] = -1;
     }
     this.tnOccupants[r] = 0;
     const [cx, cy] = this.ventPos(r);
-    this.splashDirect(cx, cy, TUNNEL_COLLAPSE_RADIUS, 0, TUNNEL_COLLAPSE_SHOCK, by, -1);
+    this.splashDirect(cx, cy, TUNNEL_COLLAPSE_RADIUS, 0, TUNNEL_COLLAPSE_SHOCK, by, -1, '');
     this.pendingEvents.push({ kind: 'tunnelCollapsed', tick: this.tickCount, tunnel: r, by });
   }
 
@@ -12606,7 +12675,7 @@ export class Sim {
         if (this.alive[i] === 0) continue;
         if (this.garrisonedIn[i] === s) {
           this.garrisonedIn[i] = -1;
-          this.destroy(i, by);
+          this.destroy(i, by, 'collapse', '');
           continue;
         }
         if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
@@ -12625,7 +12694,8 @@ export class Sim {
     this.recomputeFields('opened');
   }
 
-  private destroy(target: number, by: number): void {
+  /** `how` and `weaponId` (GH-1380) ride on the `destroyed` event only: the sim never reads them back. `weaponId` '' is "no weapon". */
+  private destroy(target: number, by: number, how: DeathCause, weaponId: string): void {
     // Anyone riding in it comes out now, hurt and shaken -- unless it is an
     // air carrier shot down in the air (GH-698 R5): AIRBORNE or LIFTING, which
     // is exactly `isAirborne` for an air type (Q-C). Then everyone aboard dies
@@ -12639,7 +12709,7 @@ export class Sim {
         if (takesAll) {
           this.carriedBy[i] = -1;
           this.passengers[target]--;
-          this.destroy(i, by);
+          this.destroy(i, by, 'carrier', weaponId);
         } else {
           this.disembark(i, true);
         }
@@ -12656,7 +12726,11 @@ export class Sim {
     this.moving[target] = 0;
     this.engaging[target] = 0;
     this.fieldRef[target] = -1;
-    this.pendingEvents.push({ kind: 'destroyed', tick: this.tickCount, entity: target, by });
+    this.pendingEvents.push(
+      weaponId === ''
+        ? { kind: 'destroyed', tick: this.tickCount, entity: target, by, cause: how }
+        : { kind: 'destroyed', tick: this.tickCount, entity: target, by, cause: how, weaponId },
+    );
   }
 
   /**
@@ -14243,6 +14317,12 @@ export class Sim {
       h = hashArray(h, this.stGateState);
       h = hashArray(h, this.stGateTimer);
       h = hashArray(h, this.stGateHold);
+    }
+    // GH-1438 E6: the civilian-fire flags, the deferred fold. Nothing before the first flag is set, so no golden,
+    // versus, net or economy pin moves.
+    if (this.civFireLive) {
+      h = hashWord(h, 0x43460438); // 'CF' GH-1438
+      h = hashArray(h, this.civFire);
     }
     // Field works (#277), D1: the FW state block is folded only once `fwLive`
     // is set, and NOTHING at all is folded before that -- no marker, no length

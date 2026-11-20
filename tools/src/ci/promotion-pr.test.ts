@@ -12,6 +12,7 @@ import {
   END,
   MARKER,
   ciLine,
+  mainLine,
   decide,
   entriesOf,
   entryOf,
@@ -460,6 +461,13 @@ describe('the CLI on a real repository', () => {
     const updated = readFileSync(out, 'utf8');
     expect(updated.startsWith(body.trimEnd())).toBe(true);
     expect(updated.endsWith(`${END}\n\nbot summary\n`)).toBe(true);
+
+    // GH-1409 (c): with no --ci the body says main's result is unknown; with a failed main run in --ci it says NOT GREEN, and still exits 0.
+    expect(body).toContain('**Main CI:** unknown.');
+    const ci = path.join(dir, 'ci.json');
+    writeFileSync(ci, JSON.stringify({ tip: null, latest: null, main: { status: 'completed', conclusion: 'failure', html_url: 'https://x/9', head_sha: 'abcdef1234567' } }));
+    execFileSync('node', [SCRIPT, '--base=main', '--head=dev', `--ci=${ci}`, `--out=${out}`], { cwd: dir, encoding: 'utf8' });
+    expect(readFileSync(out, 'utf8')).toContain('**Main CI: NOT GREEN.** The newest `ci` run on `main` is **failure** on `abcdef123`: https://x/9');
   });
 });
 
@@ -512,5 +520,76 @@ describe('the CLI: next.json conflicting after a release', () => {
     // Read-only: the check moved no ref and left the working tree clean.
     expect(git('status', '--porcelain')).toBe('');
     expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('dev');
+  });
+});
+
+describe('mainLine (GH-1409 c: main green before a promotion, report-only)', () => {
+  const run = (status: string, conclusion: string | null) => ({ status, conclusion, html_url: 'https://github.com/o/r/actions/runs/9', head_sha: 'a1b2c3d4e5f6' });
+  it('green only for a completed success', () => {
+    expect(mainLine({ main: run('completed', 'success') })).toBe(
+      '**Main CI:** green. The newest `ci` run on `main` is **success** on `a1b2c3d4e`: https://github.com/o/r/actions/runs/9',
+    );
+  });
+  it('failure, timed_out and cancelled are each NOT GREEN, name the conclusion, and say it is a report', () => {
+    for (const c of ['failure', 'timed_out', 'cancelled']) {
+      const line = mainLine({ main: run('completed', c) });
+      expect(line).toContain('**Main CI: NOT GREEN.**');
+      expect(line).toContain(`**${c}**`);
+      expect(line).toContain('docs/agent-notes/main-green.md');
+      expect(line).toContain('it does not block the merge');
+    }
+  });
+  it('a run still going is not green and says to wait', () => {
+    const line = mainLine({ main: run('in_progress', null) });
+    expect(line).toContain('**in_progress** (not finished)');
+    expect(line).toContain('Wait for it before merging.');
+    expect(line).not.toContain('green');
+  });
+  it('a completed run with no conclusion is not green', () => {
+    expect(mainLine({ main: run('completed', null) })).toContain('NOT GREEN');
+  });
+  it('unknown when nothing could be read, including no ci at all', () => {
+    const unknown = '**Main CI:** unknown. No `ci` push run on `main` could be read. Check main before merging.';
+    expect(mainLine({ main: null })).toBe(unknown);
+    expect(mainLine({})).toBe(unknown);
+    expect(mainLine(null)).toBe(unknown);
+  });
+  it('the body carries the line right after the dev CI line, and still without a main run', () => {
+    const base = { entries: entriesOf(REAL), headSha: 'h'.repeat(12), baseSha: 'b'.repeat(12) };
+    const body = renderBody({ ...base, ci: { tip: { status: 'completed', conclusion: 'success', html_url: 'u' }, main: run('completed', 'failure') } });
+    const dev = body.indexOf('**Latest dev CI:**');
+    const main = body.indexOf('**Main CI: NOT GREEN.**');
+    expect(dev).toBeGreaterThan(0);
+    expect(main).toBeGreaterThan(dev);
+    expect(main).toBeLessThan(body.indexOf('**This PR has no `ci` run of its own.**'));
+    expect(renderBody({ ...base, ci: null })).toContain('**Main CI:** unknown.');
+  });
+});
+
+describe('the promotion workflow reads main\'s own ci run (GH-1409 c)', () => {
+  const wf = readFileSync(new URL('../../../.github/workflows/promotion-pr.yml', import.meta.url), 'utf8');
+  it('queries ci.yml push runs on main and hands them to the body as `main`', () => {
+    expect(wf).toContain('ci.yml/runs?branch=main&event=push&per_page=1');
+    expect(wf).toContain("'{tip: $t[0], latest: $l[0], main: $m[0]}'");
+  });
+
+  // The two strings above stay true if `main` is fed dev's newest run (`--slurpfile m ".../latest.json"`), and the body
+  // would then report dev's run as main's. So pin the plumbing end to end: main's query writes main.json, and `m` reads
+  // main.json and nothing else.
+  it('writes the main-branch query to main.json, and `m` is slurped from main.json alone', () => {
+    const lines = wf.split('\n');
+    const at = lines.findIndex((l) => l.includes('ci.yml/runs?branch=main&event=push&per_page=1'));
+    expect(at, 'the main-branch query').toBeGreaterThanOrEqual(0);
+    // The query's whole command: its line and every continuation (a trailing backslash) after it.
+    let end = at;
+    while (lines[end].trimEnd().endsWith('\\')) end++;
+    const query = lines.slice(at, end + 1).join('\n');
+    // Every file the command writes (the query's own redirect and the "unknown" fallback's) is main.json.
+    expect(query.match(/> "\$RUNNER_TEMP\/[^"]*"/g)).toEqual(['> "$RUNNER_TEMP/main.json"', '> "$RUNNER_TEMP/main.json"']);
+    expect(query).not.toMatch(/(tip|latest)\.json/);
+    expect(wf).toContain('--slurpfile m "$RUNNER_TEMP/main.json"');
+    expect(wf.match(/--slurpfile m "[^"]*"/g)).toEqual(['--slurpfile m "$RUNNER_TEMP/main.json"']);
+    // And dev's two files are still dev's: t from tip.json, l from latest.json.
+    expect(wf).toContain('--slurpfile t "$RUNNER_TEMP/tip.json" --slurpfile l "$RUNNER_TEMP/latest.json"');
   });
 });

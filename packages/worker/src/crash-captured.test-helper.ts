@@ -1,0 +1,10 @@
+// GH-1414: test data only (imported by crash-meta.test.ts and crash-ingest.test.ts, never by the Worker).
+/** The four bodies Electron 45.2.1 POSTed in the crash smoke run of 19 Nov 2026 (`desktop:package --smoke --smoke-crash`, a
+ *  stand-in page, a loopback sink), byte for byte. It sent them with `origin: app://roaring-lions.local`,
+ *  `content-type: application/json`, `user-agent: roaring-lions-desktop` and no cookie. */
+export const CAPTURED = [
+  '{"v":1,"t":1795117908988,"kind":"page_exception","launch":"2283823e-74f2-43b5-8dd6-23960d8e7252","uptimeS":2,"version":"0.134.1","electron":"45.2.1","platform":"linux","arch":"x64","gpu":"Software (no GPU)","chrome":"156.0.8078.75","commit":"a8b15c4244d36190dcd906751d90697c1b6e5f88","screen":"menu","name":"RangeError","message":"boot boom reading <path> Lions/save.json","stack":["bootBoom (web/assets/boot.js:4:40)"]}',
+  '{"v":1,"t":1795117912613,"kind":"page_exception","launch":"2283823e-74f2-43b5-8dd6-23960d8e7252","uptimeS":5,"version":"0.134.1","electron":"45.2.1","platform":"linux","arch":"x64","gpu":"Software (no GPU)","chrome":"156.0.8078.75","commit":"a8b15c4244d36190dcd906751d90697c1b6e5f88","screen":"menu","name":"TypeError","message":"smoke crash <path> <email> <q>","stack":["<anon> (<other>:0:0)"]}',
+  '{"v":1,"t":1795117912623,"kind":"page_rejection","launch":"2283823e-74f2-43b5-8dd6-23960d8e7252","uptimeS":5,"version":"0.134.1","electron":"45.2.1","platform":"linux","arch":"x64","gpu":"Software (no GPU)","chrome":"156.0.8078.75","commit":"a8b15c4244d36190dcd906751d90697c1b6e5f88","screen":"menu","name":"Error","message":"smoke rejection <path>","stack":["<anon> (<other>:0:0)"]}',
+  '{"v":1,"t":1795117914122,"kind":"renderer_gone","launch":"2283823e-74f2-43b5-8dd6-23960d8e7252","uptimeS":7,"version":"0.134.1","electron":"45.2.1","platform":"linux","arch":"x64","gpu":"Software (no GPU)","chrome":"156.0.8078.75","commit":"a8b15c4244d36190dcd906751d90697c1b6e5f88","screen":"menu","reason":"crashed","exitCode":2}',
+];

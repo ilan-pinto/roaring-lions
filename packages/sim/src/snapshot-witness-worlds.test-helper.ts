@@ -10,6 +10,7 @@ import {
   type EconomyWorld,
 } from './golden-worlds.test-helper';
 import type { MissionRuntime } from './mission';
+import { ABD_TICKS, abductAdvance, abductWorld } from './runtime-abduct-world.test-helper';
 import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
 import { sinkAdvance, sinkDrive, sinkWorld } from './runtime-sink-world.test-helper';
 import { VW_TICKS, versusWorksAdvance, versusWorksDrive, versusWorksWorld } from './runtime-versus-works-world.test-helper';
@@ -150,6 +151,28 @@ export const VERSUS_WORKS_WORLD: RuntimeWorldSpec = {
     },
     advance: (w) => {
       versusWorksAdvance({ sim: w.sim, rt: w.runtime });
+    },
+    hashEvery: 20,
+  },
+};
+
+/**
+ * The abduct world (GH-1438 E8 pacing): the only runtime here whose mission has an `abduct` trigger, so the only one that carries
+ * the `when: 'abduct'` row `abductPace`. The escort outwalks its captive, so pacing halts it (a positive word) and walks it on
+ * (0) every 42 ticks from 51; a `withdraw_to` at 600 turns it OFF (-2). A cut at 3 (before the abduct), 60 (a halt), 80
+ * (walking on) and 610 (off) restores each state.
+ */
+export const ABDUCT_WORLD: RuntimeWorldSpec = {
+  name: `the abduct world (${ABD_TICKS} ticks)`,
+  ticks: ABD_TICKS,
+  hooks: {
+    build: (): RuntimeWorld => {
+      const { sim, rt } = abductWorld();
+      return { sim, runtime: rt };
+    },
+    drive: () => {},
+    advance: (w) => {
+      abductAdvance({ sim: w.sim, rt: w.runtime });
     },
     hashEvery: 20,
   },

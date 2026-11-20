@@ -65,6 +65,7 @@ import { FWD_TICKS, forwardAdvance, forwardDrive, forwardWorld } from '../../../
 import { VW_TICKS, versusWorksAdvance, versusWorksDrive, versusWorksWorld } from '../../../packages/sim/src/runtime-versus-works-world.test-helper';
 import { WORKS_ORDER, padFor } from '../backtest/versus-works';
 import { GATE_WORLD_TICKS, gateWorld as simGateWorld } from '../../../packages/sim/src/gate-world.test-helper';
+import { CIV_FIRE_WORLD_TICKS, civFireWorld as simCivFireWorld } from '../../../packages/sim/src/civ-fire-world.test-helper';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -410,6 +411,16 @@ export function gateWorld(): SnapWorld {
   return simWorld(w.sim, w.drive);
 }
 /**
+ * The fires-on-civilians world (GH-1438 E6): cell A is flagged `fires_on_civilians` at tick 40 and shoots the crowd down,
+ * nearest first; at tick 300 a KDF squad walks into both cells' reach. The only world in which a shooter is flagged, and
+ * so the one in which `civFire` and `civFireLive` move (both are set mid-run, at tick 40, the way a wave's are). The world
+ * is the sim package's own (`civ-fire-world.test-helper.ts`, which `CIV_FIRE_WORLD_PIN` and `civ-fire.test.ts` also run).
+ */
+export function civFireWorld(): SnapWorld {
+  const w = simCivFireWorld();
+  return simWorld(w.sim, w.drive);
+}
+/**
  * The forward-camp world (GH-277 follow-on): an engineer raises a production work beside the authored camp, it completes at
  * tick 136 and opens a second production line at the tail of side 0's lines, and both lines take builds (one refused: a tank
  * is off the forward line's menu), a rally and a cancel. The only world in which a field work is staked, completed and
@@ -639,6 +650,18 @@ export function worldSpecs(): WorldSpec[] {
     exercised: (a) => {
       const it = internals(a.sim) as unknown as { gateLive: boolean };
       if (!it.gateLive) return 'the gate world stopped raising a gate: gateLive is false at its end';
+      return null;
+    },
+  });
+  out.push({
+    id: `fires on civilians (${CIV_FIRE_WORLD_TICKS})`,
+    // Before the flag (20), the flag set with the crowd standing (42), mid-crowd (56), the crowd down (100), the KDF squad
+    // walking in (320) and the firefight (450). The horizon is 120 so the last cut ends inside the run.
+    plan: { Ts: [0, 20, 42, 56, 100, 320, 450], horizon: 120, tailFrom: 200, end: CIV_FIRE_WORLD_TICKS },
+    build: civFireWorld,
+    exercised: (a) => {
+      const it = internals(a.sim) as unknown as { civFireLive: boolean };
+      if (!it.civFireLive) return 'the fires-on-civilians world stopped flagging a shooter: civFireLive is false at its end';
       return null;
     },
   });
@@ -1015,6 +1038,12 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ...rows(
     'runtime.firedTriggers runtime.spawnedWaves runtime.ended runtime.externallyCompleted runtime.resultValue runtime.withdrawnValue',
     'the mission script and its end: no witness world has a trigger, a wave or a mission that ends inside its horizon (a versus room is played to a tick count, not to a result). Covered by a campaign mission replay played to victory'
+  ),
+  ...rows(
+    'runtime.abductPace',
+    'an abduct\'s escort pacing (GH-1438 E8), a `when: \'abduct\'` row: only a runtime whose mission has an abduct carries it, no witness world here has a trigger, ' +
+      'let alone an abduct, and no shipped mission authors one. Its restore is forked in the sim package (`ABDUCT_WORLD` in `snapshot-witness-runtime.test.ts`: poisoned, cut ' +
+      'mid-halt and at OFF, and a self-check) and cut mid-halt in `abduct-pace.test.ts`. Covered by a mission replay whose script abducts'
   ),
 ];
 

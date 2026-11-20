@@ -29,6 +29,7 @@ describe('the wording per journal kind (spec 2.2)', () => {
     expect(coinWhatText({ kind: 'unit', unitId: 'sniper_team', moved: true }, -60, names)).toBe('Carried over in the move: Sniper Team');
     expect(coinWhatText({ kind: 'tier', unitId: 'sniper_team', track: 'armour', tier: 2, moved: false }, -40, names)).toBe('Bought: Sniper Team Armour, tier 2');
     expect(coinWhatText({ kind: 'tier', unitId: 'sniper_team', track: 'armour', tier: 2, moved: true }, -40, names)).toBe('Carried over in the move: Sniper Team Armour, tier 2');
+    expect(coinWhatText({ kind: 'tier', unitId: 'sniper_team', track: 'armour', tier: 3, moved: false, refund: true }, 95, names)).toBe('Returned: Sniper Team Armour, tier 3');
     expect(coinWhatText({ kind: 'coupon' }, 100, names)).toBe('Code redeemed');
     expect(coinWhatText({ kind: 'reset' }, -30, names)).toBe('Brigade reset: free coins cleared');
     expect(coinWhatText({ kind: 'team' }, 50, names)).toBe('From the team');
@@ -45,6 +46,7 @@ describe('the wording per journal kind (spec 2.2)', () => {
       coinWhatText({ kind: 'unit', unitId: 'gone_unit_x', moved: true }, -5, names),
       coinWhatText({ kind: 'tier', unitId: 'sniper_team', track: 'no_such_track', tier: 1, moved: false }, -5, names),
       coinWhatText({ kind: 'tier', unitId: 'gone_unit_x', track: 'armour', tier: 1, moved: false }, -5, names),
+      coinWhatText({ kind: 'tier', unitId: 'gone_unit_x', track: 'armour', tier: 3, moved: false, refund: true }, 95, names),
     ];
     expect(texts).toEqual([
       'First win of a mission',
@@ -54,6 +56,7 @@ describe('the wording per journal kind (spec 2.2)', () => {
       'Carried over in the move: an item',
       'Bought: an upgrade',
       'Bought: an upgrade',
+      'Returned: an upgrade',
     ]);
     for (const x of texts) expect(x).not.toMatch(/retired_mission_x|gone_unit_x|no_such_track/);
   });

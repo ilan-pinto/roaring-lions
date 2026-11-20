@@ -52,8 +52,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   keeps paying for units that died an hour ago.
 - Rigged mesh units cap out around **420-460** of the same infantry type, measured
   against a real export on a real `WebGLRenderer` with hardware acceleration
-  confirmed, across repeated runs. That clears the GDD's 300-unit target with
-  margin, so it is not blocking. The bottleneck is **draw-call submission**
+  confirmed, across repeated runs. That ceiling is FIGURES of one type on a bare
+  renderer, not the game's frame: the shipped roster at 300 units, lit chain,
+  `high`, reads 21.8-23.2 ms submit p95 and 33.4-35.8 ms synced on the M3 Pro
+  (`docs/PERFORMANCE.md`, R1, 2026-11-19), over the 16.7 ms frame. The bottleneck is **draw-call submission**
   (74-84% of `renderer.render()`), NOT `AnimationMixer` update and NOT
   bone-matrix computation — which matters, because it means vertex count is
   comparatively cheap (the rifle went 144 → 612 verts for zero new draw calls)
@@ -84,7 +86,11 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   run's billboard-vs-mesh comparison -- a quarter of a mixed roster swapped to
   meshes, +~1 ms p95 at 320 -- is history: since WP-A3.3 the harness loads
   every roster type's GLB, and that all-mesh curve read render p95 30.0 ms at
-  266 living / 39.7 ms at 320 on ANGLE/Metal M3 Pro, `docs/PERFORMANCE.md`.)
+  266 living / 39.7 ms at 320 on ANGLE/Metal M3 Pro on 4 Oct, and 21.8-23.2 /
+  27.2-29.6 ms at 267 / 324 when re-read on 19 Nov (R1, `docs/PERFORMANCE.md`).
+  CI now gates the 300-unit draw-call census, 12.35 calls a living unit on
+  `high` (`pnpm perf:census`, `tools/src/perf/draw-census.ts`): submissions,
+  the measured bottleneck, counted identically on SwiftShader and Metal.)
 - **The flow-field pool is bounded, since 2026-09-15** (group formations,
   `MAX_FLOW_FIELDS = 128`, `sim.ts`): `fieldFor` reuses the least-recently-issued
   field no living unit still follows once the pool is full, with a same-tick

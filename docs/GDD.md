@@ -325,7 +325,7 @@ Flow fields, not per-unit A*. Per-unit A* collapses above roughly 50 units and t
 
 ### Performance budget
 
-Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over typed arrays in the sim; no per-entity object allocation in the hot loop. If the ceiling is hit, the flow-field pass moves to WASM — the sim's isolation makes that a contained change.
+Target 300–600 simultaneous units at 60 fps. This is a design target, not a measured result: the shipped roster at 300 units does not hold 60 fps on the reference Mac today (`docs/PERFORMANCE.md`, "The 300-unit figure, reconciled"), and no claim of it may be made until a measured figure supports it. Struct-of-arrays layout over typed arrays in the sim; no per-entity object allocation in the hot loop. If the ceiling is hit, the flow-field pass moves to WASM — the sim's isolation makes that a contained change.
 
 ---
 

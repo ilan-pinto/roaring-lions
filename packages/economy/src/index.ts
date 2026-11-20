@@ -14,3 +14,4 @@ export * from './canonical';
 export * from './claim';
 export * from './branches';
 export * from './branch-legacy';
+export * from './branch-sticky';

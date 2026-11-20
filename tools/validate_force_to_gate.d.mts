@@ -11,6 +11,7 @@ export declare function authoredBodies(
   playerStart: unknown,
   keep?: (p: never) => boolean
 ): ClearPoint[];
+export declare function civilianOnlyGroups(mission: unknown): Set<string>;
 export declare function musterPoints(mission: unknown, markers: unknown): ClearPoint[];
 export declare function gateCentres(mission: unknown, map: unknown, types: unknown): ClearPoint[];
 export declare function forceToGateFailures(

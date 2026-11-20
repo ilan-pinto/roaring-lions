@@ -7,6 +7,8 @@ import { deleteIdentity } from './identity';
 import { deleteAccount, gone } from './delete';
 import { exportAccount } from './export';
 import { claim } from './claim';
+import { BRANCHES_OPEN } from '@lions/data/branches-open';
+import { branchReturn, branchSwitch } from './branch';
 import { getState, putCampaign } from './campaign';
 import { coins } from './coin-history';
 import { matches } from './matches';
@@ -85,6 +87,13 @@ export const ACCOUNT_ROUTES: readonly AccountRoute[] = [
   { method: 'POST', pattern: 'spend', handler: spend },
   { method: 'POST', pattern: 'coupon', handler: coupon },
   { method: 'POST', pattern: 'reset-free', handler: resetFreeRoute },
+  // GH-1384: a member's one-time Switch or Return of a track whose branched tier predates branching. Closed, the table is dev's.
+  ...(BRANCHES_OPEN
+    ? ([
+        { method: 'POST', pattern: 'branch/switch', handler: branchSwitch },
+        { method: 'POST', pattern: 'branch/return', handler: branchReturn },
+      ] as const satisfies readonly AccountRoute[])
+    : []),
   { method: 'POST', pattern: 'steam/start', handler: steamStart },
   { method: 'GET', pattern: 'steam/return', handler: steamReturn },
   { method: 'POST', pattern: 'google/start', handler: googleStart },

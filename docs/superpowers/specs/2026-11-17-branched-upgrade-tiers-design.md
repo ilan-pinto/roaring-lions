@@ -755,8 +755,11 @@ choice is no longer final.
   per unit: for each branched (unit, track), where the stored row holds a pick at the branched
   tier and the incoming body holds the same tier on that track with no pick, the stored pick and
   the stored marker state for that track are KEPT. A pick leaves only with its tier (Return, or a
-  reset). A pick that CHANGES is accepted only where the stored row held a marker on that track (a
-  Switch). The body's own `legacy` is never read. A body with tier 3 on a track and no pick, where
+  reset). A pick that CHANGES is never accepted, marker or none: the stored pick and marker stand.
+  (As built, GH-1384 Q11: the design first accepted a change where the stored row held a marker, as
+  a Switch; that switched the credits store alone and left the wallet's marker for a paid Return,
+  so a member's Switch is the `branch/switch` route's only, both stores in one write.) The body's
+  own `legacy` is never read. A body with tier 3 on a track and no pick, where
   the stored row held tier 2 or less on that track, is an old build buying the old linear tier 3,
   which is a genuine legacy purchase, and it gets a marker on that track. So a body that strips
   the picks of a two-track unit keeps both stored picks, and a stored row with a pick on one
@@ -948,8 +951,8 @@ is intended: Switch is then withheld (Q11), and Return refunds only the legacy s
      This is where B6 is checked; B7 then holds it on every `validate:data`.
 8. **The server's sticky pick (members, §4.4).** A stored `campaign_state.brigade` at tier 3 with
    pick `b` and no marker, and an incoming body at tier 3 with no `picks` (an old build's strip):
-   the merged result keeps pick `b` and has no marker. A body that changes the pick with no stored
-   marker is refused. **Per track:** a stored row for `fx_tank` with firepower pick `b` and
+   the merged result keeps pick `b` and has no marker. A body that changes the pick is refused, with
+   a stored marker or without one (the marker then stands: the Switch is route-only, Q11). **Per track:** a stored row for `fx_tank` with firepower pick `b` and
    armour pick `a`, both at tier 3 with no marker, and an incoming body with both tiers and no
    `picks`, keeps `firepower: b` and `armour: a`; a stored row with firepower pick `b` and armour
    at tier 2, and a body with both at tier 3 and no picks, keeps `firepower: b` and gives armour

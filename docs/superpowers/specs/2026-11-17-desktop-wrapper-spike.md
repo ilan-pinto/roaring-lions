@@ -4,9 +4,13 @@
 open questions in section 5 stay open. Nothing here signs, uploads, publishes or registers anything, and no app code
 changed.
 
+**The packaged demo build (19 Nov 2026) is section 9**: `pnpm desktop:package` replaced `pnpm desktop:spike`, and
+section 7's carry-over list is built there except the two items that need a lead decision. Sections 1 to 8 are the
+spike's record as it was written; where they name `desktop:spike`, read `desktop:package`.
+
 - Issue: GH-1418 (the demo: its own appID, a packaged build, a Next Fest registration). No comments and no linked PRs
   at the time of writing (`gh api search/issues "repo:ilan-pinto/roaring-lions 1418 is:pr"` returns nothing).
-- Prototype: `pnpm desktop:spike` (`tools/desktop/build-local.mjs` + `tools/desktop/main.mjs`), output in
+- Prototype: `pnpm desktop:spike`, now `pnpm desktop:package` (section 9) (`tools/desktop/build-local.mjs` + `tools/desktop/main.mjs`), output in
   `dist-desktop/` (gitignored; eslint already ignores `**/dist-*/**`).
 - Conventions: every claim carries its source URL. **(est.)** marks an estimate or inference of mine. **(measured)**
   marks a number from the spike run in section 2, with its conditions. Three documentation hosts were not reachable
@@ -244,7 +248,8 @@ re-packaged on a schedule to stay inside security support.
 
 ## 7. Carry into the real demo build
 
-The spike leaves these out on purpose; the demo build must not:
+The spike leaves these out on purpose; the demo build must not. **Built in section 9** except the last item (versus),
+which needs a lead decision:
 
 - **Permissions denied by default**: `session.setPermissionRequestHandler` and `setPermissionCheckHandler` answer no to
   everything the game does not use (camera, microphone, geolocation, notifications, ...).
@@ -264,15 +269,194 @@ The spike leaves these out on purpose; the demo build must not:
 
 ## 8. Running the spike
 
+Superseded by section 9: the command is now `pnpm desktop:package`.
+
+## 9. The packaged demo build (GH-1418, 19 Nov 2026)
+
+LOCAL BUILD ONLY. Nothing here signs, notarises, uploads, publishes, registers or auto-updates, and nothing reads a
+secret. No app code changed: the bundle carries `packages/app/dist` exactly as `pnpm build` makes it.
+
+### 9.1 Building it
+
 ```bash
-pnpm desktop:spike                      # pnpm build, stage, package, tar.gz
-pnpm desktop:spike --skip-build --smoke # reuse packages/app/dist, then the headless launch check
+pnpm desktop:package                                # pnpm build, then package, fuse and tar the Linux bundle
+pnpm desktop:package --skip-build --smoke           # reuse packages/app/dist; then the two launch checks (9.3)
+pnpm desktop:package --skip-build --report-commercial --no-tar   # also count the files the commercial gate fails
 ```
 
-`--smoke` runs the bundle under `xvfb-run` when there is no `$DISPLAY` and writes `dist-desktop/smoke.json` and
-`dist-desktop/smoke.png`. A smoke run keeps its Chromium profile in `dist-desktop/profile/` (emptied before each run; a
-direct run with no `RL_DESKTOP_SMOKE_OUT` uses a fresh temp directory), never `~/.config/Roaring Lions`.
-`RL_DESKTOP_SMOKE_PATH=/free-play` (set on a direct run of the bundle with `RL_DESKTOP_SMOKE=1`) opens a deep route
-instead of the menu. The Electron zip is downloaded once into `dist-desktop/cache/` by `@electron/get`, which checks it
-against the release's SHASUMS256; if the network proxy blocks that download, the script fails with the packager's
-message and does nothing else. It never signs, uploads or publishes, and it refuses to run on a non-Linux host.
+Output, all in `dist-desktop/` (gitignored; eslint ignores `dist-*/`): `shipped/Roaring Lions-linux-<arch>/` (run
+`roaring-lions` in it), `roaring-lions-linux-<arch>.tar.gz`, and with `--smoke` `smoke.json` and `smoke.png`. The
+Electron zip is cached in `dist-desktop/cache/`. Nothing in `dist-desktop/` is ever committed; delete it when done (it
+is about 1 GB after a `--smoke` run). The script is Linux only and refuses another host.
+
+What the script does, in order (`tools/desktop/build-local.mjs`):
+
+1. `pnpm build` with `VITE_BASE` cleared (the scheme maps `/` to the build).
+2. Reads the demo content cut (`tools/desktop/demo.json`, 9.4) and refuses a build whose `_headers` has no
+   Content-Security-Policy for `/*`.
+3. Stages the code (`main.mjs`, `policy.mjs`, `resolve.mjs`, a `package.json`, and a `desktop-build.json` manifest with
+   the version, commit, Electron version and the `smoke` flag) and packages it with `@electron/packager` 20.3.0 into
+   `resources/app.asar`; the web build goes beside it as loose files in `resources/web/` (`extraResource`), so a depot
+   diff or a patch moves only the files that changed.
+4. Downloads Electron 45.2.1 through `@electron/get` against SHA-256 sums pinned in `policy.mjs` (`ELECTRON_SHA256`,
+   from the release's SHASUMS256.txt), with `ELECTRON_MIRROR` and its relatives cleared, so neither a mirror nor a
+   swapped release asset can supply the runtime.
+5. Flips all nine Electron fuses (`policy.mjs`'s `FUSES`, `@electron/fuses` 2.1.3, pinned) and reads the wire back,
+   refusing a binary whose wire differs and a fuse list that differs from the library's.
+6. Writes the tarball, the stand-in for a depot or an installer.
+
+### 9.2 The security policy
+
+Every rule is data or a pure function in `tools/desktop/policy.mjs`; `main.mjs` only wires it into Electron.
+`tools/src/desktop_policy.test.ts` pins each rule with literal oracles AND reads `main.mjs` and `build-local.mjs`
+(comments stripped) for the wiring, because neither can run under vitest.
+
+| Rule | Where |
+|---|---|
+| `contextIsolation: true`, `nodeIntegration: false` (and in workers and subframes), `sandbox: true`, `webSecurity: true`, no insecure content, no `<webview>`, no preload | `WEB_PREFERENCES`, the only `webPreferences` in `main.mjs` |
+| Every renderer sandboxed (`app.enableSandbox()`), unless the launch already passed `--no-sandbox` | `main.mjs` (see 9.3 for why) |
+| Navigation and redirects stay on `app://roaring-lions.local`; no `<webview>`; for EVERY web contents | `isAppUrl`, `lockDown` on `web-contents-created` |
+| A link opens in the player's browser only over `https:`, to an exact host on the allow-list (`github.com`, `threejs.org`, `rapier.rs`, `creativecommons.org`: the Credits screen's links; a test fails when a credit links another host), no credentials or port | `EXTERNAL_HOSTS`, `externalUrlAllowed` |
+| Permissions: only `fullscreen` (the settings toggle) and `clipboard-sanitized-write` (copying a share code or public id), only for the bundle's own origin; device permissions refused | `ALLOWED_PERMISSIONS`, `permissionAllowed` |
+| No CSP, no page: package time AND launch refuse a `_headers` without one | `requireCsp` |
+| No application menu (no reload, devtools or zoom accelerators) | `main.mjs` |
+| Fuses: `RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, `EnableNodeCliInspectArguments`, `LoadBrowserProcessSpecificV8Snapshot`, `GrantFileProtocolExtraPrivileges` off; `EnableEmbeddedAsarIntegrityValidation`, `OnlyLoadAppFromAsar`, `WasmTrapHandlers` on; `EnableCookieEncryption` off (the game keeps no cookies, and on Linux it asks the desktop keyring, which can prompt) | `FUSES` |
+| The smoke run (SwiftShader switches, a scripted probe, a forced exit) only in a bundle PACKAGED as a smoke bundle (`desktop-build.json` `smoke: true`) AND asked for by `RL_DESKTOP_SMOKE=1`; the shipped bundle ignores the variable | `smokeAllowed` |
+
+**The page's host, and telemetry.** The page runs at `app://roaring-lions.local`. The app's host gate
+(`telemetry/enabled.ts`'s `LOCAL`, shared by `account/enabled.ts` and mirrored by `feedback/gate.ts`) reads `*.local`
+as this machine, so the packaged build sends no telemetry, never reaches `/api/account/*` and never posts feedback.
+`desktop_policy.test.ts` runs the three gates on the desktop host (off) and on the deployed host (on), so a gate that
+read "off" for every input would fail it. Three player-facing helpers share that gate and are also off in the desktop
+build: the software-renderer notice (`ui/no-gpu.ts`), the slow-frames Low suggestion (`ui/quality-hint.ts`), and What's
+new opening on its own (`ui/whats-new.ts`; the menu button still works). See 9.5.
+
+### 9.3 What was run (19 Nov 2026)
+
+`pnpm desktop:package --smoke --report-commercial` at `a002916f3` (dev), then `--skip-build` re-runs; linux-x64,
+Electron 45.2.1 (Chromium 156.0.8078.75), 4-core container, no GPU, Xvfb 1600x900x24, root, so `--no-sandbox`:
+
+| Measure | Value **(measured)** |
+|---|---|
+| Web build staged | 181.9 MiB |
+| Shipped bundle on disk | 455.3 MiB (runtime 273.4 MiB, `resources/` 182.0 MiB) |
+| `tar.gz` | 275.8 MiB |
+| Shipped bundle launch, its environment asking for the smoke run | `RL_DESKTOP_READY {"href":"app://roaring-lions.local/","smoke":false,...}`: started, served the menu, ignored the variable |
+| Smoke bundle | PASS: title "Roaring Lions", secure context, WebGL2 on SwiftShader, the menu diorama drew, 0 console errors; from inside the page: no `require`/`process`/`module`, `geolocation` and `notifications` `denied`, of three `window.open` calls only the allow-listed `https://github.com/...` would have opened, `location.assign('https://example.com/')` left the page on `app://roaring-lions.local/` |
+| The same smoke bundle as user `nobody`, NO `--no-sandbox` (so `app.enableSandbox()` ran) | PASS, the same readings |
+| Commercial gate (report only) | 26 files under `assets/` fail it, all 26 in the build, 11.4 MB (`tools/commercial_asset_cut.py`, GH-1415). NOT stripped. |
+
+`app.enableSandbox()` is skipped when the command line carries `--no-sandbox`: the first run called it
+unconditionally, and as root with `--no-sandbox` the network service crash-looped ("Running as root without
+--no-sandbox is not supported", 3,131 times in 90 s) and the page never loaded. With `--no-sandbox` Chromium's sandbox
+is off whatever the app says; the same collision is the one reported for the Steam Linux Runtime (question 6).
+
+**Watched going red** (each a one-line mutation, run, then restored by copy and `cmp`):
+
+- `desktop_policy.test.ts`, 22 mutations, 22 red: each of `contextIsolation`, `nodeIntegration`, `sandbox` flipped in
+  `WEB_PREFERENCES`; `main.mjs` overriding `webPreferences`; `enableSandbox` removed; `externalUrlAllowed` returning
+  true or accepting subdomains; `isAppUrl` ignoring the host; navigation not refused; `openExternal` on any URL; `HOST`
+  not `.local`; every permission granted; device permissions granted; `requireCsp` never throwing; `main.mjs` ignoring a
+  missing CSP; `smokeAllowed` ignoring the manifest; `main.mjs` reading the variable alone; the shipped bundle packaged
+  as a smoke bundle; `RunAsNode` on; no asar; no checksum pin; a non-null demo cut accepted.
+- The packaged smoke check, one run with four mutations in `main.mjs` (Node in the page with isolation and sandbox off;
+  every permission check granted; every `window.open` passed out; navigation not refused): FAIL, with
+  `noNodeInPage`, `permissionsDenied`, `externalOnlyAllowListed` and `navigationRefused` each `false`
+  (`node: true`, `geolocation: granted`, three URLs out, `afterNavigate: https://example.com/`).
+- The shipped-bundle check with the shipped bundle packaged `smoke: true`: FAIL (`ready.smoke` true), exit 1.
+- `_headers` moved out of `packages/app/dist`: the package step refused ("no Content-Security-Policy"), exit 1.
+
+### 9.4 The demo content cut: HOLD FOR LEAD
+
+The slice is undecided: GH-1379 proposes the tutorial plus Beit Sahwan I to IV, and choosing it is a lead action. Its
+one config point is `tools/desktop/demo.json`, `"missions": null`, which means the whole build ships. `readDemoConfig`
+REFUSES any other value until the cut is built, so the file can never claim a cut the bundle does not make. Building
+the cut needs app work this change does not do (the menu and router offer every screen; a filtered asset set), and so
+does the commercial strip (9.3's 26 files, GH-1415).
+
+### 9.5 Untested, open, and next
+
+- **Windows and macOS: not built, not run.** The packager call differs by `platform` (`win32` cross-builds from Linux
+  through `resedit`; `darwin` needs a Mac for signing), and `ELECTRON_SHA256` would gain those zips' sums. The
+  `EnableEmbeddedAsarIntegrityValidation` fuse is only enforced on Windows and macOS, where the packager embeds the
+  hash; it has never been launched there. GH-1418's done-line is a Windows executable: that is the next build.
+- **Linux asar integrity**: Electron validates it on Windows and macOS only, so the Linux bundle's `app.asar` is not
+  integrity-checked.
+- **Versus** (question 3): the menu still offers Play with a friend; the lobby reaches the scheme's `/api/` 404 and
+  fails cleanly. Hiding it is an app change and a lead call.
+- **Gated-off notices** (9.2): a desktop player gets no software-renderer notice, no slow-frames hint, and What's new
+  does not open by itself. Whether the desktop build should be a "real host" for those three (and not for telemetry)
+  is a lead call; it needs an app change.
+- **In-app licence links**: the Credits screen opens a library's bundled licence text with `target="_blank"` on the
+  app's own origin; the window-open handler drops it (it is not an external https link), so the link does nothing on
+  desktop. The URI stays readable on the screen.
+- **Crash reporting** (GH-1414): built, off unless packaged with `--crash-reports`, and the Worker endpoint is closed
+  until the lead opens it. See 9.6.
+- Real GPU, Steam overlay switches, Steam Linux Runtime and the Deck: questions 2, 4 and 6, unchanged.
+- Not trimmed (question 7): the `.m4a` fallbacks and `sw.js` still ship.
+
+### 9.6 Crash reports (GH-1414, 19 Nov 2026)
+
+The lead's rulings: no third-party service (our own Worker, the `/api/feedback` pattern); no personal data.
+
+**No minidump.** Electron's `crashReporter` is never started. A minidump is a copy of process memory, which holds save
+data, text the player typed and file paths; scrubbing one is not possible. What is sent is a small whitelisted JSON
+record, `data/schemas/crash_report.schema.json`, built by `tools/desktop/crash.mjs`:
+
+| Field | What |
+|---|---|
+| `kind` | `renderer_gone`, `child_gone` (GPU, utility), `main_exception`, `main_rejection`, `page_exception`, `page_rejection` |
+| `reason`, `exitCode`, `process`, `service` | a process that went away: Electron's reason (`crashed`, `oom`, ...; a clean exit is no report), its exit code, its type and service name |
+| `name`, `message`, `stack` | a JavaScript error: its class name, ONE line scrubbed by rule (the twin of the app's GH-1410 scrubber, pinned on its corpus), and up to 16 frames `fn (where:line:col)` |
+| `version`, `commit`, `electron`, `chrome`, `platform`, `arch` | from `desktop-build.json` and `process` |
+| `gpu` | the graphics card's FAMILY (`gpuFamily`, the twin of `@lions/data`'s), never its raw string |
+| `screen`, `mission` | the page path's first segment, and the mission id on `/mission/<id>`; no query |
+| `launch`, `uptimeS`, `t` | a random id made at launch and kept in memory only (it groups one launch's reports), seconds since launch, the clock |
+
+A stack location is only ever `web/<path>` (the page's own file: `app://roaring-lions.local/` and any query dropped),
+`asar/<path>` (the main process's own file: everything up to `app.asar/` dropped, so the install directory and the user
+name in it never leave), `node:<module>`, `<native>` or `<other>`. The Worker refuses a frame of any other shape, and a
+message that still holds an email, a URL, a path of two segments or more, a drive path or a UNC share (the second lock).
+
+**How each kind is seen, with nothing added to the page.** `app.on('render-process-gone')` and `child-process-gone`;
+`process.on('uncaughtExceptionMonitor')` for the main process (it observes and changes nothing, and also sees unhandled
+rejections); the page's uncaught exceptions and rejections through the DevTools protocol (`webContents.debugger`,
+`Runtime.exceptionThrown`), so there is still no preload and no IPC. The graphics card is read once after the first load
+from a throwaway 1x1 WebGL context (Electron 45.2.1's `app.getGPUInfo` carries no renderer string: measured, no
+`glRenderer`), and reduced to its family in the main process.
+
+**Who sends, and where.** The MAIN process POSTs (`net.request`, Origin `app://roaring-lions.local`, no cookie, no
+redirect, User-Agent `roaring-lions-desktop`) to one compile-time constant, `https://roaring-lions.pint12.workers.dev/api/crash`
+(pinned against the Worker's own origin). The page sends nothing and its CSP and navigation rules are unchanged.
+
+**When.** `crashMode` sends only when EVERY one holds: a packaged app, a manifest packaged with `--crash-reports`
+(`crashReports: true`; a plain `pnpm desktop:package` sends nothing), not a smoke bundle, no `CI`, no
+`RL_DESKTOP_NO_CRASH_REPORTS`, no `--no-crash-reports` launch option. On top of that, the player's Settings switch
+("Anonymous usage and crash reports", `lions.telemetry.optout`, GH-1410) is read from the page on every load and screen
+change and every 15 s; off, no report is made and none is sent, and the outbox is emptied. A launch makes at most 6
+reports (3 from the page), never the same one twice. A report waits in `crash-outbox.json` in the profile (at most 5,
+7 days) when the network or the Worker cannot take it, so one made as the main process dies goes at the next launch;
+410 (closed) and any 4xx drop it, 429, 5xx and a network failure keep it.
+
+**The Worker** (`packages/worker/src/crash-ingest.ts`, `crash-meta.ts`): POST only; CLOSED unless the D1 `flags` row
+`crash` reads `'open'` (no row is closed), and `CRASH_CLOSED` closes it with no database; Origin must be the desktop
+build's, the Worker's own or `ALLOWED_ORIGINS`; `CRASH_LIMIT` 5 a minute per address (in the binding, used only if bound: the binding is NOT in `wrangler.jsonc`, HOLD FOR LEAD, so until the lead adds it the per-minute limit is skipped and the D1 day caps below are the only bound); a body of at most
+6144 bytes of `application/json`; then 10 a day per launch, 20 per address (a keyed daily hash, `rate-day.ts`) and 200
+in all. No IP and no header is stored. Rows live in `crash_report` (migration `0008_crash_report.sql`, NOT applied by
+this change) for 90 days, deleted on the ingest path (25 per insert) rather than by the daily cron, whose D1 budget is
+at 48 of 50. `/stats` shows the newest 50 with their stacks and a count by kind, version and GPU family.
+
+**Measured, 19 Nov 2026** (linux-x64, Electron 45.2.1, Xvfb, SwiftShader, root so `--no-sandbox`): `pnpm desktop:package
+--skip-build --smoke --smoke-crash --no-tar` against a stand-in web build (an index page whose script throws once from
+`assets/boot.js`), with `RL_DESKTOP_SMOKE_CRASH_SINK` pointing at a loopback server: PASS. The run recorded and POSTed
+four reports, `page_exception` (from `bootBoom (web/assets/boot.js:4:40)`), `page_exception` and `page_rejection`
+(forced from the page with a home path, an email, a query and a Windows user path in their messages, all scrubbed) and
+`renderer_gone` (`crashed`, exit code 2, from `forcefullyCrashRenderer`); GPU family `Software (no GPU)`. Each arrived
+with `origin: app://roaring-lions.local`, `content-type: application/json`, no cookie, and each is stored by the Worker's
+handler as sent (`crash-captured.test-helper.ts`, byte for byte). The shipped bundle's launch check still passed.
+
+**Not done, and open (HOLD FOR LEAD):** opening the endpoint (apply 0008, then the `crash` flag); a privacy-page line
+before it opens; the crash-free-session RATE for the desktop build needs a count of launches, which this change does not
+send (telemetry is off on the desktop host, 9.2); a main-process exception was tested by unit tests only (Electron
+shows its own error box, which a headless run cannot dismiss); Windows and macOS not run.
+

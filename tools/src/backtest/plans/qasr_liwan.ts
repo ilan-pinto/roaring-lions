@@ -79,14 +79,31 @@ export const ql1Plan: Plan = (sim, rt, ids, at) => {
 // transports MUST drive their riders to the refuge, because a civilian who boards a hull is carried where the hull goes (the
 // first build parked the Eitan beside the people and never delivered them: 28 of 32 seeds lost `residents_through`); the
 // squads stand off the Cut's two-tile lane, which civilians walk through; the Spike and the 60 mm stay home, because a
-// stray beside `south_quarter` bills 5 each (six of them took Conduct to the 70 floor). The camp buys rifle squads. 30 of 30
-// sweep seeds win (slowest 5.8 min), two stars, Conduct 100.
+// stray beside `south_quarter` bills 5 each (six of them took Conduct to the 70 floor). The camp buys rifle squads. The LAST starting
+// squad is not part of the force split above: it is the coast road's runner (the secondary `take_the_coast_road`, GH-1438), walks the
+// south edge to the zone, and once the hold is done (legs at +0, +24 and +48 s after it completes; there is no earlier fallback) walks home the same way to the Cut's east side (left on the coast road
+// it was lost to the 270 s wave on 10 of 30 seeds). 30 of 30 sweep seeds win (slowest 5.1 min), two stars, Conduct 100.
 export const ql2Plan: Plan = (sim, rt, ids, at) => {
   const apcs = ids('apc_eitan');
   const north = [...apcs.slice(0, 1), ...ids('ifv_namer')];
   // The Spike and the 60 mm bill a stray beside a house (`south_quarter` is flagged), so the AT team and the mortar stay home.
-  const feet = [...ids('inf_squad'), ...ids('inf_medic_squad'), ...apcs.slice(1)];
+  // The last starting squad is the coast road's runner (the secondary `take_the_coast_road`, GH-1438): it walks the south edge, never the Cut's checkpoint, and stands in the
+  // zone. The direct line dies at the Cut (0 of 30 seeds), and the jeep is the residents' transport.
+  const coast = ids('inf_squad').slice(-1);
+  const feet = [...ids('inf_squad').slice(0, -1), ...ids('inf_medic_squad'), ...apcs.slice(1)];
   const jeep = ids('jeep_shoded');
+  at(0, () => sim.queueCommand({ kind: 'move', ids: coast, ...M(30, 45.5) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(8, 45.5) }));
+  at(60, () => sim.queueCommand({ kind: 'attackMove', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(3, 40) }));
+  // Home by the same south edge the moment the hold is done (the 270 s technical comes down the coast road, and a militia cell at (7,39) fires on the runner for the whole 15 s on some seeds): legs at +0, +24 and +48 s.
+  let done = -1;
+  for (let s = 60; s <= 240; s += 2)
+    at(s, () => {
+      if (done < 0 && rt.objectiveStatus('take_the_coast_road') === 'complete') done = s;
+      if (done < 0) return;
+      const leg = s - done === 0 ? [8, 45.5] : s - done === 24 ? [30, 45.5] : s - done === 48 ? [33.5, 42.5] : null;
+      if (leg !== null) sim.queueCommand({ kind: 'move', ids: coast.filter((i) => sim.state.alive[i] === 1), ...M(leg[0], leg[1]) });
+    });
   at(0, () => {
     sim.queueCommand({ kind: 'attackMove', ids: north, ...M(8, 3) });
     sim.queueCommand({ kind: 'attackMove', ids: feet.filter((i) => !apcs.includes(i)), ...M(34.5, 40.5) });
@@ -157,7 +174,13 @@ export const ql3Plan: Plan = (sim, rt, ids, at) => {
   at(92, () => sim.queueCommand({ kind: 'move', ids: [...rescue, ...jeep], ...M(12.5, 40) }));
   // A civilian who has boarded the jeep rides where the jeep goes: it goes to the refuge.
   at(104, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(12, 45.5) }));
-  at(125, () => sim.queueCommand({ kind: 'move', ids: [...rescue, ...jeep], ...M(29.5, 38.5) }));
+  // The rescue squad has nothing left to do at the handover from 125 s: it walks home by the water point (the secondary `take_the_water_point`, GH-1438), stands on it for the 15 s the hold takes (the
+  // handover party's militia stand outside the zone and do not contest it) and then goes to the line. A squad sent there from the start instead was alone at (17,38) when the pause ended and was lost.
+  at(125, () => {
+    sim.queueCommand({ kind: 'move', ids: jeep, ...M(29.5, 38.5) });
+    sim.queueCommand({ kind: 'move', ids: rescue, ...M(17, 38) });
+  });
+  at(155, () => sim.queueCommand({ kind: 'move', ids: rescue.filter((i) => sim.state.alive[i] === 1), ...M(29.5, 38.5) }));
   at(232, () => sim.queueCommand({ kind: 'move', ids: heavy.filter((i) => sim.state.alive[i] === 1), ...M(31.5, 39.5) }));
   const seen = new Set<number>([...squads, ...heavy, ...ids('inf_medic_squad'), ...apc, ...jeep]);
   for (let s = 1; s < 500; s += 10)

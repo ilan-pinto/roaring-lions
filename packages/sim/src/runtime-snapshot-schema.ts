@@ -155,10 +155,14 @@ export interface RuntimeRow {
   readonly cls: RuntimeClass;
   readonly kind: RuntimeKind;
   /** A top-level row that belongs to ONE kind of runtime only: `worksOnly` is a works-only runtime's (versus field works,
-   *  `MissionContext.worksOnly`). Elsewhere the row is not written, not read and not folded into `runtimeSchemaDigest`, so a
-   *  runtime of any other kind has the section and the digest it had before the row existed. */
-  readonly when?: 'worksOnly';
+   *  `MissionContext.worksOnly`), `abduct` one whose mission has an `abduct` trigger (GH-1438 E8 pacing). Elsewhere the row is
+   *  not written, not read and not folded into `runtimeSchemaDigest`, so a runtime of any other kind has the section and the
+   *  digest it had before the row existed. */
+  readonly when?: RuntimeWhen;
 }
+
+/** The kinds of runtime a `when` row can belong to (`RuntimeRow.when`). */
+export type RuntimeWhen = 'worksOnly' | 'abduct';
 
 // --- kind builders ---------------------------------------------------------------------
 
@@ -412,6 +416,11 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'externallyCompleted', cls: 'state', kind: array(str()) },
   { name: 'resultValue', cls: 'state', kind: str(RESULTS) },
   { name: 'withdrawnValue', cls: 'state', kind: BOOL },
+  // GH-1438 E8 pacing: one word per trigger (the length `start()` builds, as `firedTriggers`), an abduct's escort state:
+  // walking, off, or a halt or a walk-on with its tick. Written by `stepAbductPace` and `abductOrdered`, read next tick.
+  // Every runtime HAS it; only one whose mission has an `abduct` trigger writes it, so only that one carries it: no shipped
+  // mission authors an abduct, and every shipped mission's runtime digest stays the one an earlier build wrote (65675699).
+  { name: 'abductPace', cls: 'state', kind: array(SCALAR), when: 'abduct' },
 ];
 
 // --- the objects a runtime owns -------------------------------------------------------------

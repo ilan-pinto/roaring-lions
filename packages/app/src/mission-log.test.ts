@@ -18,6 +18,16 @@ describe('mission log (GH-417, L-6)', () => {
     ]);
   });
 
+  // GH-1380 (the PR 1648 review): a man taken out of play is not a loss. The runtime's `removed` carries an entity and a unit
+  // id exactly as `unitLost` does, so only its KIND keeps it out of the debrief's losses. The `unitLost` beside it is the
+  // control. Falsified: taking `removed` as a loss too in `logMissionEvent`.
+  it('never counts a removed unit among the losses; the unitLost beside it is one', () => {
+    const log = newMissionLog();
+    logMissionEvent(log, { kind: 'removed', tick: 400, entity: 7, side: 0, unit: 'inf_squad' } as { kind: string; tick: number }, ctx);
+    logMissionEvent(log, { kind: 'unitLost', tick: 2600, entity: 3, unit: 'jeep_shoded' }, ctx);
+    expect(log.losses.map((l) => l.entity)).toEqual([3]);
+  });
+
   // GH-1380. Falsified: dropping `causeOf` from the push leaves the debrief and the memorial with no cause.
   it('keeps the cause the tracker gave a loss, and leaves the field off when it gave none', () => {
     const log = newMissionLog();
