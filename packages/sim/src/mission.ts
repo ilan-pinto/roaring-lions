@@ -2714,14 +2714,16 @@ export class MissionRuntime {
    * Is unit `id` lost to the player? Only a death is a loss: `alive` 0 with `removed` 0.
    *
    * The lead's ruling of 20 Nov 2026 (GH-1380): a side-0 unit removed from play by a script is NOT
-   * lost anywhere -- a `remove` trigger, an abduction, an evacuation -- so the score agrees with the
-   * debrief, whose `unitLost` feed is raised for `destroyed` alone and whose `casualties_pct` already
-   * skips `removed`. `removed` 1 is set by `removeFromPlay` (a `remove` trigger, an abduction) and by
-   * the GH-707 rescue paths (a wounded man admitted at an aid post, ADMITTED, or evacuated, GONE);
-   * none of them is a loss. A patient whose post fell (`woundLost`) has `removed` put back to 0, so
-   * he is lost. This is the SCORING predicate: `lostByType` (the debrief count, the challenge's
-   * `lost`, telemetry), `startingHome` (credits' "brought home") and the ledger's
-   * `campaign.mission_results.lost` all read it. The all-lost WIPE does not: see `outOfTheFight`.
+   * lost anywhere, so the score agrees with the debrief, whose `unitLost` feed is raised for
+   * `destroyed` alone and whose `casualties_pct` already skips `removed`. `removed` 1 is set by
+   * `removeFromPlay` and by the GH-707 rescue paths (a wounded man admitted at an aid post, ADMITTED,
+   * or evacuated, GONE, which were already not lost); none of them is a loss. The one side-0 caller
+   * of `removeFromPlay` is a `remove` trigger (its riders go with a carrier); an abduction takes
+   * side-2 civilians only (`stepAbductions`), so it never reaches a side-0 count. A patient whose
+   * post fell (`woundLost`: GONE with `removed` put back to 0) is lost. This is the SCORING
+   * predicate: `lostByType` (the debrief count, the challenge's `lost`, telemetry), `startingHome`
+   * (credits' "brought home") and the ledger's `campaign.mission_results.lost` all read it. The
+   * all-lost WIPE does not: see `outOfTheFight`.
    */
   private isLost(id: number): boolean {
     const st = this.sim.state;

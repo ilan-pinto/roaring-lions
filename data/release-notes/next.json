@@ -10,6 +10,6 @@
   "fixes": [
     "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on.",
     "On a short window, the end-of-mission report can now be scrolled with the keyboard.",
-    "Units taken off the field by a mission event, such as an evacuation, no longer count as lost in your score and credits."
+    "A unit a mission takes off the field by script no longer counts as lost in your score, stars challenge and credits."
   ]
 }

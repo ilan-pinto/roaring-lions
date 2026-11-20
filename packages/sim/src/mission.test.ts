@@ -8196,9 +8196,56 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
     (w.sim.state.woundState as Uint8Array)[0] = 3; // ADMITTED
     expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
-    // A patient whose post fell is lost again (`removed` back to 0).
+    // A patient whose post fell is lost again, in the state `stepAidPosts`' `woundLost` leaves: GONE, `removed` back to 0.
+    (w.sim.state.woundState as Uint8Array)[0] = 4; // GONE
     (w.sim.state.removed as Uint8Array)[0] = 0;
     expect([s.startingHome, s.lostByType()]).toEqual([0, { cg_squad: 1 }]);
+  });
+
+  // The `woundLost` path end to end (the PR 1683 review, N1): a player unit admitted at an aid post that is then levelled
+  // is LOST -- in `lostByType`, `startingHome` and the ledger's `campaign.mission_results.lost` -- and, as the only man,
+  // wipes the force. The first half (admitted: home, not lost) is the control. Falsified: `isLost` also requiring
+  // `woundState !== WOUND_GONE` (GONE, `removed` 0 is exactly the state `woundLost` leaves) turns this red.
+  it('a player unit admitted at a post that then falls is lost, end to end: lostByType, startingHome and the ledger', () => {
+    const sim = new Sim({ seed: 0x707, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [CG_SQUAD, CG_WOUNDED, CG_SCOUT, CG_AMBULANCE]) ids.set(t.id, sim.addUnitType(t));
+    const post = sim.addStructure(sim.addStructureType(CG_POST), [5 * 28 + 16, 5 * 28 + 17, 6 * 28 + 16, 6 * 28 + 17], { owner: 0 });
+    const rt = new MissionRuntime(
+      sim,
+      baseMission({
+        starting_force: [{ unit: 'cg_scout', count: 1, at: [15, 5] }],
+        enemy: { garrison: [{ unit: 'cg_squad', count: 1, at: [26, 10] }] },
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      { typeIdOf: (u) => ids.get(u) ?? -1, markers: {}, zones: {} }
+    );
+    rt.start();
+    (sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(0, fx.fromInt(30), 1);
+    const amb = sim.spawn(ids.get('cg_ambulance') ?? -1, 0, fx.from(15.5), fx.from(6.5));
+    expect(sim.embarkAtSpawn(amb, 0)).toBe(true);
+    const events: MissionEvent[] = [];
+    const simEvents: SimEvent[] = [];
+    const run = (ticks: number): void => {
+      for (let k = 0; k < ticks; k++) {
+        const se = sim.tick();
+        simEvents.push(...se);
+        events.push(...rt.step(se));
+      }
+    };
+    run(5);
+    expect([sim.state.alive[0], sim.state.removed[0], sim.state.woundState[0]]).toEqual([0, 1, 3]);
+    expect([rt.startingHome, rt.lostByType()]).toEqual([1, {}]);
+    sim.debugDestroyStructure(post);
+    run(2);
+    expect(simEvents.filter((e) => e.kind === 'woundLost').map((e) => e.entity)).toEqual([0]);
+    expect([sim.state.alive[0], sim.state.removed[0], sim.state.woundState[0]]).toEqual([0, 0, 4]);
+    expect([rt.startingHome, rt.lostByType()]).toEqual([0, { cg_scout: 1 }]);
+    const end = events.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect([end.result, rt.defeatCause]).toEqual(['defeat', 'force_destroyed']);
+    expect((end.ledger['campaign.mission_results'] as Record<string, { lost: number }>).test_mission.lost).toBe(1);
   });
 
   it('a player unit downed in place and admitted, end to end: home, not lost, and no wipe', () => {

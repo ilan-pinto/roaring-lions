@@ -1,5 +1,5 @@
-// GH-1380, the lead's ruling of 20 Nov 2026: a side-0 unit removed from play by a script (a `remove` trigger, an
-// abduction, an evacuation) is NOT lost anywhere, so the score agrees with the debrief. These are the app's reads of a
+// GH-1380, the lead's ruling of 20 Nov 2026: a side-0 unit removed from play by a mission script (a `remove` trigger)
+// is NOT lost anywhere, so the score agrees with the debrief. These are the app's reads of a
 // REAL finished runtime, through the same calls the victory handler in main.ts makes: the challenge row (`runRowOf`, and
 // a no-loss challenge's mark through `victoryMark`), the credits (`creditsFor(creditInputFrom(...))`) and the ledger write
 // (`applyRosterCarryover` merging the runtime's `missionEnd` ledger). The sim side, and the debrief's `unitLost` feed, are
