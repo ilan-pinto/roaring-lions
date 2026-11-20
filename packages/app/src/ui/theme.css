@@ -506,6 +506,27 @@
   --side-friend: var(--rl-team-tritanopia-hostile);
 }
 
+/* --- prefers-contrast: more (GH-1408) --------------------------------
+ * The system's "increase contrast" setting. Three tokens carry the quiet half of
+ * the interface, and by the palette's own numbers over the panel ground
+ * (--panel-bg-solid, shadow-1) they sit low: --ink-dim (gunmetal-1) 5.94:1,
+ * --panel-frame (gunmetal-3) 1.61:1, --panel-rule (the same gunmetal at 70%
+ * alpha) lower still. A hairline frame that faint is not a boundary a low-vision
+ * player can find. Under the preference each moves one rung up its own ramp:
+ * the dim ink to gunmetal-0 (10.74:1) and the frame and the rule to gunmetal-1
+ * (5.94:1, past the 3:1 a UI boundary needs). --ink and --ink-mute (7.39:1)
+ * already clear 7:1 and are left alone; no hue changes, so no team colour, tone
+ * or colour-vision variant moves. tools/src/prefers-contrast.test.ts reads the
+ * palette and holds the numbers above. Placed after the :root block (same
+ * specificity, later wins). */
+@media (prefers-contrast: more) {
+  :root {
+    --ink-dim: var(--rl-gunmetal-0);
+    --panel-frame: var(--rl-gunmetal-1);
+    --panel-rule: var(--rl-gunmetal-1);
+  }
+}
+
 /* Breakpoint widths stay in raw viewport px, not rem: they SET --ui-scale
    (and therefore the root font-size rem resolves against), so expressing
    them in rem would be circular. */
