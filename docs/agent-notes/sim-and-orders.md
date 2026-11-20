@@ -1083,3 +1083,23 @@ naming an open gate (it can still be shot and destroyed; a destroyed gate is ski
   never on a map with a `data/versus/<map>.json`.
 - Not shipped yet: the `compound_gate` row in `data/structures.json` waits on the lead (Q8, a yellow palette
   key; Q10, the GLB and its `_wreck`, which `mesh_roster.test.ts` requires of every structure type).
+
+## Fires on civilians (GH-1438 E6)
+
+The lead's ruling D18 (Option A, adults only, 18 Nov 2026): enemy troops may fire toward running civilians, who
+fall and lie still. Data: `fires_on_civilians: true` on an ENEMY placement (`$defs/placement`: a garrison, a
+`spawn` trigger's units; and a wave unit, passed through by `stepWaves`). `spawnPlacement` calls
+`sim.setCivFire(id)` for each body; `start()` and `validate_civ_fire.mjs` refuse it on the starting force, the
+crowd and a `reinforce` trigger, and `setCivFire` refuses anything not a living side-1 entity.
+
+- The rule lives in `selectTarget`, after the normal scan: only when that scan found NOTHING (`best === -1`),
+  the shooter's `civFire` is 1 and `civFireLive` is set, a second ascending scan takes the nearest side-2
+  entity `engageable` passes with its `civilians` argument (side 2 instead of the enemy; every other filter
+  unchanged: identified, in reach, line of fire, not hors de combat). So the fighting sides always come first,
+  a civilian who is down is never shot again, and a civilian nobody of side 1 has identified is safe.
+- Conduct needs nothing: `stepRoe` charges a civilian's death to side 0's fire only (`destroyed.by`, also on a
+  bleed-out). `isEnemyFire` already ignores a side-2 target, so the shots are not `first_contact`. A shot at a
+  civilian is not formation contact either (`fireAt`'s `fmPend` call tests the target's side).
+- Hash: `civFire` folds behind `civFireLive` (marker 'CF'). `CIV_FIRE_WORLD_PIN` is the one replay that sees it
+  (`civ-fire-world.test-helper.ts`, also the census world `fires on civilians (600)`). Two snapshot rows
+  appended; `restoreSim` refuses a flag outside 0..1 and a set flag with the fold off. Epoch 3.

@@ -104,6 +104,11 @@ export interface PlacementJson {
    *  (the runtime would let a buried body work the dig). An unknown id
    *  throws at load. */
   digs?: string;
+  /** GH-1438 E6 (D18, Option A): an ENEMY placement (garrison, wave, `spawn` trigger) whose bodies, with no target of
+   *  the fighting sides in reach, fire on the nearest identified, standing civilian (`Sim.setCivFire`). Refused on any
+   *  other side, at load (here) and in validate:data. The civilians fall in place (`down`, the shipped pose); a civilian
+   *  downed by side 1 costs the player no Conduct, since `stepRoe` charges side 0's fire alone. */
+  fires_on_civilians?: boolean;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking
    * in. The only way an AI-driven transport ever has passengers: every other
@@ -405,7 +410,8 @@ export interface MissionJson {
       at_seconds: number;
       trigger?: string;
       to?: string;
-      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string }[];
+      /** `fires_on_civilians` (GH-1438 E6) passes through to the spawn, as `group` and `tag` do. */
+      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string; fires_on_civilians?: boolean }[];
       /** Spoken when the wave spawns (G12, 2026-09-06): the same say a
        *  trigger carries, emitted right after the wave event. */
       say?: SayJson;
@@ -2950,6 +2956,25 @@ export class MissionRuntime {
    *  `onLayout` (GH-1360 S3b, tests and tools): told where the starting layout stood each body and how (`slot`,
    *  `free` or `authored`), in spawn order. Not called for a mission with no `start_layout`. */
   start(onLayout?: (placements: readonly StartPlacement[]) => void): void {
+    // GH-1438 E6: `fires_on_civilians` is an enemy placement's. On a player or a civilian placement, refuse it here, at
+    // load: a `reinforce` carrying it would otherwise throw from `spawnPlacement` in the middle of the mission. A
+    // carrier's `passengers` spawn on the carrier's side (`embarkPassengers`), so they are walked too, at any depth.
+    const friendly: { where: string; list: readonly PlacementJson[] }[] = [
+      { where: 'starting_force', list: this.mission.starting_force ?? [] },
+      { where: 'civilians.groups', list: this.mission.civilians?.groups ?? [] },
+      ...(this.mission.triggers ?? []).flatMap((t, i) =>
+        t.do.kind === 'reinforce' ? [{ where: `trigger "${t.id ?? `trigger_${i}`}" reinforce`, list: t.do.units ?? [] }] : []
+      ),
+    ];
+    const refuseCivFire = (where: string, list: readonly PlacementJson[]): void => {
+      for (const p of list) {
+        if (p.fires_on_civilians === true) {
+          throw new Error(`mission ${this.mission.id}: ${where} ${p.unit} carries fires_on_civilians, which only an enemy placement takes`);
+        }
+        if (p.passengers !== undefined) refuseCivFire(`${where} ${p.unit} passenger`, p.passengers);
+      }
+    };
+    for (const { where, list } of friendly) refuseCivFire(where, list);
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
@@ -4173,6 +4198,13 @@ export class MissionRuntime {
       this.assertGroundClear(p.unit, bx, by, drawn.length);
     }
 
+    // GH-1438 E6: only an enemy placement fires on civilians. `start()` refuses the flag on every player and civilian
+    // placement it can see (the starting force, the crowd, every `reinforce`, and every passenger of any of them), so this
+    // guard is never reached mid-mission.
+    if (p.fires_on_civilians === true && side !== 1) {
+      throw new Error(`mission ${this.mission.id}: ${p.unit} is a side-${side} placement; only an enemy placement takes fires_on_civilians`);
+    }
+
     const ids: number[] = [];
     for (let k = 0; k < drawn.length; k++) {
       const ox = (k % 3) * SPREAD;
@@ -4201,6 +4233,8 @@ export class MissionRuntime {
       // route, so on an unvalidated count > 1 the last body silently wins —
       // validate_data.mjs refuses such a placement before it ships.
       if (digsIdx >= 0) this.sim.assignDigger(digsIdx, id);
+      // GH-1438 E6: the enemy's fire on the crowd, by placement (side checked above, before any body spawned).
+      if (p.fires_on_civilians === true) this.sim.setCivFire(id);
       // Carry-over, consumed. A placement recon marked last mission is already known:
       // it spawns visible, and it does not get to spring an ambush. This is what makes
       // a thorough recon worth doing -- and why one mission file plays differently by
@@ -5096,7 +5130,7 @@ export class MissionRuntime {
         // through `timer_s` triggers instead (#88).
         spawned.push(
           ...this.spawnPlacement(
-            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
+            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag, fires_on_civilians: u.fires_on_civilians },
             1,
             undefined,
             true

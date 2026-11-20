@@ -20,6 +20,7 @@ import {
 } from './mission';
 import { corridorCut, corridorRoute, makeRouteSource } from './corridor';
 import type { TunnelRouteJson } from './tunnels';
+import { CF_CELL, CF_CIV, CF_KDF, CF_WOUNDED } from './civ-fire-world.test-helper';
 
 // Mission runtime tests: the declarative vocabulary (GDD §6) interpreted
 // deterministically. Small worlds, headless, seconds of sim time.
@@ -8566,5 +8567,111 @@ describe('E12: counts_rescued, a rescued civilian counts as saved', () => {
 
   it('counts_rescued on any other objective type throws at load', () => {
     expect(() => rcWorld({ type: 'capture', counts_rescued: true })).toThrow(/takes no counts_rescued/);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E6: `fires_on_civilians` on an enemy placement (the sim half is civ-fire.test.ts). The runtime flags the
+// placement's bodies, a wave passes the flag through, the player's side and the crowd may not carry it, and the shots
+// at the crowd neither cost the player Conduct (the civilians fall to side 1's fire, and bleed out to it) nor count as
+// the fighting sides meeting (`first_contact`).
+describe('E6: fires_on_civilians on a placement', () => {
+  function cfWorld(partial: Partial<MissionJson> = {}): World {
+    const sim = new Sim({ seed: 0x14386, width: 32, height: 12, capacity: 24 });
+    const ids = new Map<string, number>();
+    for (const t of [CF_WOUNDED, CF_CELL, CF_KDF, CF_CIV]) ids.set(t.id, sim.addUnitType(t));
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 120 }],
+        starting_force: [{ unit: 'cf_kdf', count: 1, at: [1, 10] }],
+        enemy: {
+          garrison: [
+            { unit: 'cf_cell', count: 1, at: [16, 4], group: 'grove', fires_on_civilians: true },
+            { unit: 'cf_cell', count: 1, at: [16, 8], group: 'quiet' },
+          ],
+          waves: [{ at_seconds: 1, units: [{ unit: 'cf_cell', count: 1, from: 'east', group: 'late', fires_on_civilians: true }] }],
+        },
+        civilians: { groups: [{ unit: 'cf_civ', count: 3, at: [19, 3], group: 'crowd' }] },
+        roe: { enabled: true },
+        triggers: [{ id: 'contact', label: 'Contact', on: { kind: 'first_contact' }, do: { kind: 'dismount', group: 'grove' } }],
+        ...partial,
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers: { east: [27, 10] },
+        zones: {},
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  /** Ids by placement order: 0 the KDF squad, 1 the grove cell, 2 the quiet cell, 3..5 the crowd; 6 the wave's cell. */
+  const GROVE = 1;
+  const QUIET = 2;
+  const CROWD = [3, 4, 5];
+  const WAVE = 6;
+
+  it('flags the marked placement and the marked wave, and nobody else', () => {
+    const w = cfWorld();
+    expect([0, GROVE, QUIET, ...CROWD].map((id) => w.sim.firesOnCivilians(id))).toEqual([false, true, false, false, false, false]);
+    w.step(25); // the wave at 1 s
+    expect(w.sim.state.side[WAVE]).toBe(1);
+    expect(w.sim.firesOnCivilians(WAVE)).toBe(true);
+  });
+
+  it('the crowd falls to the grove cell; it costs no Conduct and is not first contact, then or when they bleed out', () => {
+    const w = cfWorld();
+    const early = w.step(10 * TICKS_PER_SECOND);
+    expect(early.sim.some((e) => e.kind === 'fire' && e.shooter === GROVE && CROWD.includes(e.target))).toBe(true);
+    expect(CROWD.map((id) => w.sim.state.woundState[id] !== 0)).toEqual([true, true, true]);
+    // 60 s of bleed, then the deaths: each `destroyed` names side 1's shooter, and stepRoe charges side 0's alone.
+    const late = w.step(62 * TICKS_PER_SECOND);
+    expect(CROWD.map((id) => w.sim.state.alive[id])).toEqual([0, 0, 0]);
+    expect(late.sim.filter((e) => e.kind === 'destroyed' && CROWD.includes(e.entity)).length).toBe(3);
+    const all = [...early.mission, ...late.mission];
+    expect(all.filter((e) => e.kind === 'roe')).toEqual([]);
+    expect(w.runtime.roeScore).toBe(100);
+    expect(all.some((e) => e.kind === 'trigger' && e.id === 'contact')).toBe(false);
+  });
+
+  it('refuses the flag on the starting force, the crowd and a reinforce trigger, at load', () => {
+    expect(() => cfWorld({ starting_force: [{ unit: 'cf_kdf', count: 1, at: [1, 10], fires_on_civilians: true }] })).toThrow(
+      /starting_force cf_kdf carries fires_on_civilians/
+    );
+    expect(() => cfWorld({ civilians: { groups: [{ unit: 'cf_civ', count: 1, at: [19, 3], fires_on_civilians: true }] } })).toThrow(
+      /civilians.groups cf_civ carries fires_on_civilians/
+    );
+    expect(() =>
+      cfWorld({
+        triggers: [{ id: 'relief', label: 'Relief', on: { kind: 'timer_s', value: 60 }, do: { kind: 'reinforce', units: [{ unit: 'cf_kdf', count: 1, at: [1, 8], fires_on_civilians: true }] } }],
+      })
+    ).toThrow(/trigger "relief" reinforce cf_kdf carries fires_on_civilians/);
+  });
+
+  // A passenger spawns on its carrier's side (`embarkPassengers`). Unchecked, a flagged rider of a `reinforce` carrier
+  // loaded clean and threw from `spawnPlacement` when the trigger fired, 60 s in. Mutation: drop the passengers walk.
+  it('refuses the flag on a passenger of a reinforce carrier or a starting-force carrier, at load', () => {
+    const rider = { unit: 'cf_kdf', count: 1, at: [1, 8] as [number, number], passengers: [{ unit: 'cf_kdf', count: 1, fires_on_civilians: true }] };
+    expect(() =>
+      cfWorld({ triggers: [{ id: 'relief', label: 'Relief', on: { kind: 'timer_s', value: 60 }, do: { kind: 'reinforce', units: [rider] } }] })
+    ).toThrow(/trigger "relief" reinforce cf_kdf passenger cf_kdf carries fires_on_civilians/);
+    expect(() => cfWorld({ starting_force: [rider] })).toThrow(/starting_force cf_kdf passenger cf_kdf carries fires_on_civilians/);
   });
 });
