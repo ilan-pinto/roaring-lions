@@ -11,6 +11,7 @@ import {
   MissionRuntime,
   type SupportKind,
   type LedgerData,
+  type LedgerMissingEntry,
   type LedgerRosterEntry,
   type MissionContext,
   type MissionEvent,
@@ -6150,7 +6151,9 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
     });
   });
 
-  it('a removed player unit is absent from roster.surviving_units', () => {
+  // Before the lead's roster ruling of 20 Nov 2026 (GH-1380) this pinned the opposite: the removed man was absent. A man a
+  // `remove` trigger takes now comes back onto the brigade roster, alive, and is a survivor.
+  it('a removed player unit comes back onto roster.surviving_units (GH-1380, the lead, 20 Nov 2026)', () => {
     const w = makeWorld(
       baseMission({
         starting_force: [
@@ -6167,10 +6170,11 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
     expect(end?.kind).toBe('missionEnd');
     if (end?.kind !== 'missionEnd') return;
     expect(end.result).toBe('victory');
-    expect(end.survivors).toEqual(['m_squad']); // the captured one is gone
+    expect([w.sim.state.alive[0], w.sim.state.removed[0]]).toEqual([0, 1]); // he WAS taken off the field
+    expect(end.survivors).toEqual(['m_squad', 'm_squad']);
     const roster = end.ledger['roster.surviving_units'];
     expect(Array.isArray(roster)).toBe(true);
-    if (Array.isArray(roster)) expect(roster).toHaveLength(1);
+    if (Array.isArray(roster)) expect(roster).toHaveLength(2);
   });
 
   it('casualties_pct ignores removed units — only an actual kill counts', () => {
@@ -6620,6 +6624,101 @@ describe('a removal is not a loss (GH-1380)', () => {
     expect([end.result, w.runtime.defeatCause]).toEqual(['defeat', 'force_destroyed']);
     expect([w.runtime.startingHome, w.runtime.lostByType()]).toEqual([1, { m_squad: 1 }]);
     expect((end.ledger['campaign.mission_results'] as Record<string, { lost: number }>).test_mission.lost).toBe(1);
+  });
+
+  // The lead's roster ruling of 20 Nov 2026: a side-0 man a `remove` trigger takes off the field comes BACK onto the brigade
+  // roster, alive; an abducted one is MISSING (no memorial, off the roster). The control in each world is a DESTROYED man,
+  // who is neither on the roster nor missing. Ids: 0 is taken by the trigger (or, in the abduction world, abducted), 1 is
+  // destroyed, 2 holds.
+  // Falsified: dropping the kept-removal line in `checkEnd` (a body off the board is skipped, as before), and marking an
+  // abducted man lost (`isTaken` read as `isLost`), each turn these red.
+  function rosterWin(o: { loaned?: number[]; abducted?: boolean; prior?: LedgerMissingEntry[] } = {}): {
+    w: World;
+    end: Extract<MissionEvent, { kind: 'missionEnd' }>;
+    events: MissionEvent[];
+  } {
+    const abducted = o.abducted === true;
+    const w = makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3], group: 'taken' },
+          { unit: 'm_squad', count: 1, at: [3, 6] },
+          { unit: 'm_squad', count: 1, at: [3, 9] },
+        ],
+        ...(abducted
+          ? {
+              enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [24, 2], group: 'takers' }] },
+              civilians: { groups: [{ unit: 'm_civ', count: 1, at: [24, 4], group: 'villagers' }] },
+            }
+          : {}),
+        ledger: { requires: [], produces: ['roster.surviving_units'] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 10 }],
+        triggers: abducted
+          ? [{ id: 'led_away', on: { kind: 'timer_s', value: 0 }, do: { kind: 'abduct', group: 'takers', captives: 'villagers', to: 'exit', zone: 'exit_zone' } }]
+          : [{ id: 'take_one', on: { kind: 'timer_s', value: 0 }, do: { kind: 'remove', group: 'taken' } }],
+      }),
+      {
+        ...(o.loaned !== undefined ? { loaned: o.loaned } : {}),
+        ...(o.prior !== undefined ? { ledger: { 'roster.missing': o.prior } } : {}),
+        markers: { exit: [26, 9] },
+        zones: { exit_zone: [25, 8, 3, 3] },
+      },
+    );
+    if (abducted) {
+      // SYNTHETIC: `start()` refuses a side-0 captive and `stepAbductions` takes side 2 alone, so no shipped path can
+      // abduct a KDF soldier. Man 0 is written into the captives group after `start()` and taken the way `stepAbductions`
+      // takes (`removeFromPlay`) once the trigger has fired.
+      (w.runtime as unknown as { groups: Map<string, number[]> }).groups.get('villagers')?.push(0);
+    }
+    w.sim.debugKill(1);
+    const events = w.step(1).mission;
+    if (abducted) w.sim.removeFromPlay(0);
+    events.push(...w.step(11 * TICKS_PER_SECOND).mission);
+    const end = events.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.result).toBe('victory');
+    expect([w.sim.state.alive[0], w.sim.state.removed[0], w.sim.state.alive[1], w.sim.state.removed[1]]).toEqual([0, 1, 0, 0]);
+    return { w, end, events };
+  }
+  const rosterOf = (end: Extract<MissionEvent, { kind: 'missionEnd' }>) => end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+
+  it('a man a remove trigger took comes back onto the roster, alive; the destroyed one does not', () => {
+    const { end } = rosterWin();
+    // Two of three: the removed man and the one who held (a stripe: he stood when the hold completed). Both came back.
+    expect(rosterOf(end)).toEqual([
+      { type: 'm_squad', veterancy: 0, missions: 1, kills: 0 },
+      { type: 'm_squad', veterancy: 1, missions: 1, kills: 0 },
+    ]);
+    expect(end.survivors).toEqual(['m_squad', 'm_squad']);
+    expect('roster.missing' in end.ledger).toBe(false);
+  });
+
+  it('a LOANED man a remove trigger took goes back to the lender, not onto the roster (L-1)', () => {
+    const { end, w } = rosterWin({ loaned: [0] });
+    expect(rosterOf(end)).toHaveLength(1);
+    expect(w.runtime.isOnLoan(0)).toBe(true);
+    // ...and he is still not lost.
+    expect([w.runtime.startingHome, w.runtime.lostByType()]).toEqual([2, { m_squad: 1 }]);
+  });
+
+  it('an abducted man is MISSING: on roster.missing, off the roster, no unitLost; the destroyed one is a loss, not missing', () => {
+    const { end, w, events } = rosterWin({ abducted: true });
+    expect(rosterOf(end)).toEqual([{ type: 'm_squad', veterancy: 1, missions: 1, kills: 0 }]);
+    expect(end.ledger['roster.missing']).toEqual([{ type: 'm_squad', veterancy: 0, missions: 0, kills: 0, missionId: 'test_mission' }]);
+    expect(end.survivors).toEqual(['m_squad']);
+    // No memorial: `roster.lost` is fed by `unitLost`, raised for the destroyed man alone.
+    expect(events.flatMap((e) => (e.kind === 'unitLost' ? [e.entity] : []))).toEqual([1]);
+    expect(w.runtime.lostByType()).toEqual({ m_squad: 1 });
+  });
+
+  it('roster.missing is appended to what came in, and a loaned abducted man is not on it', () => {
+    const prior: LedgerMissingEntry[] = [{ type: 'm_tank', veterancy: 2, missions: 3, kills: 4, name: 'Ari', missionId: 'earlier' }];
+    expect(rosterWin({ abducted: true, prior }).end.ledger['roster.missing']).toEqual([
+      ...prior,
+      { type: 'm_squad', veterancy: 0, missions: 0, kills: 0, missionId: 'test_mission' },
+    ]);
+    // Loaned: nothing to add, so the key is not written at all (the prior rides `ctx.ledger`, untouched).
+    expect('roster.missing' in rosterWin({ abducted: true, loaned: [0], prior }).end.ledger).toBe(false);
   });
 });
 
@@ -8216,7 +8315,7 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
       baseMission({
         starting_force: [{ unit: 'cg_scout', count: 1, at: [15, 5] }],
         enemy: { garrison: [{ unit: 'cg_squad', count: 1, at: [26, 10] }] },
-        ledger: { requires: [], produces: ['campaign.mission_results'] },
+        ledger: { requires: [], produces: ['campaign.mission_results', 'roster.surviving_units'] },
         objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
       }),
       { typeIdOf: (u) => ids.get(u) ?? -1, markers: {}, zones: {} }
@@ -8246,6 +8345,46 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     if (end?.kind !== 'missionEnd') throw new Error('no end');
     expect([end.result, rt.defeatCause]).toEqual(['defeat', 'force_destroyed']);
     expect((end.ledger['campaign.mission_results'] as Record<string, { lost: number }>).test_mission.lost).toBe(1);
+    // Lost, so not on the roster (the lead's roster ruling keeps a rescued man, never a lost one).
+    expect(end.ledger['roster.surviving_units']).toEqual([]);
+  });
+
+  // The lead's roster ruling of 20 Nov 2026 (GH-1380): a man taken out ALIVE by a rescue comes back onto the roster. Before
+  // it, `checkEnd` skipped every body off the board, so a unit downed in place and still under treatment (ADMITTED) at the
+  // end, or evacuated (GONE), left the brigade. A squad's shed wounded man is not a roster unit (his squad is); only a
+  // unit downed IN PLACE (`hull.wounds.in_place`, civilians alone in shipped data) is. The control is the post-falls test
+  // above: GONE with `removed` 0 is lost and off the roster.
+  it('a player unit still ADMITTED at the end, or evacuated (GONE), comes back onto the roster', () => {
+    const run = (gone: boolean): unknown => {
+      const sim = new Sim({ seed: 0x707, width: 28, height: 12, capacity: 32 });
+      const ids = new Map<string, number>();
+      for (const t of [CG_SQUAD, CG_WOUNDED, CG_SCOUT, CG_AMBULANCE]) ids.set(t.id, sim.addUnitType(t));
+      sim.addStructure(sim.addStructureType(CG_POST), [5 * 28 + 16, 5 * 28 + 17, 6 * 28 + 16, 6 * 28 + 17], { owner: 0 });
+      const rt = new MissionRuntime(
+        sim,
+        baseMission({
+          starting_force: [{ unit: 'cg_scout', count: 1, at: [15, 5] }, { unit: 'cg_squad', count: 1, at: [2, 10] }],
+          enemy: { garrison: [{ unit: 'cg_squad', count: 1, at: [26, 10] }] },
+          ledger: { requires: [], produces: ['roster.surviving_units'] },
+          objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 3 }],
+        }),
+        { typeIdOf: (u) => ids.get(u) ?? -1, markers: {}, zones: {} }
+      );
+      rt.start();
+      (sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(0, fx.fromInt(30), 1);
+      const amb = sim.spawn(ids.get('cg_ambulance') ?? -1, 0, fx.from(15.5), fx.from(6.5));
+      expect(sim.embarkAtSpawn(amb, 0)).toBe(true);
+      let end: MissionEvent | undefined;
+      for (let k = 0; k < 5; k++) rt.step(sim.tick());
+      expect([sim.state.alive[0], sim.state.removed[0], sim.state.woundState[0]]).toEqual([0, 1, 3]);
+      if (gone) (sim.state.woundState as Uint8Array)[0] = 4; // as an evacuation leaves him
+      for (let k = 0; k < 4 * TICKS_PER_SECOND && end === undefined; k++) end = rt.step(sim.tick()).find((e) => e.kind === 'missionEnd');
+      if (end?.kind !== 'missionEnd') throw new Error('no end');
+      expect(end.result).toBe('victory');
+      return (end.ledger['roster.surviving_units'] as LedgerRosterEntry[]).map((r) => r.type).sort();
+    };
+    expect(run(false)).toEqual(['cg_scout', 'cg_squad']);
+    expect(run(true)).toEqual(['cg_scout', 'cg_squad']);
   });
 
   it('a player unit downed in place and admitted, end to end: home, not lost, and no wipe', () => {

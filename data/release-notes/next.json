@@ -10,6 +10,6 @@
   "fixes": [
     "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on.",
     "On a short window, the end-of-mission report can now be scrolled with the keyboard.",
-    "A unit a mission takes off the field by script no longer counts as lost in your score, stars challenge and credits."
+    "A unit a mission takes off the field by script no longer counts as lost and stays in your brigade."
   ]
 }
