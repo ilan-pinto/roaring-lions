@@ -6,6 +6,7 @@ import { palettePlugin } from './vite-plugin-palette.ts';
 import { cursorsPlugin } from './vite-plugin-cursors.ts';
 import { assetWatchPlugin } from './vite-plugin-asset-watch.ts';
 import { localesPlugin } from './vite-plugin-locales.ts';
+import { DEMO_CUT_ENV, demoCutDefine, demoCutFromEnv, demoCutPlugin } from './vite-plugin-demo-cut.ts';
 
 // The version shown in the menu and the HUD. Root package.json is the single
 // source of truth; only major.minor is displayed, so a patch bump is invisible.
@@ -36,6 +37,8 @@ function appCommit(): string {
   return /^[0-9a-f]{7,40}$/.test(sha) ? sha : '';
 }
 const APP_COMMIT = appCommit();
+// GH-1418: the desktop demo's content cut, set only by `tools/desktop/build-local.mjs`; null (the full game) otherwise.
+const DEMO_CUT = demoCutFromEnv(process.env[DEMO_CUT_ENV]);
 
 export default defineConfig({
   // The palette reaches CSS as --rl-* custom properties, from the same
@@ -53,12 +56,15 @@ export default defineConfig({
     // (the publicDir is `assets/`, which holds no locales). Dev middleware and build assets; the set is derived from the directory.
     // ...and the chrome catalogue `loadLocale` fetches at `/locales/<id>.json`, a sibling of `src/i18n/en.json` (none ships yet).
     localesPlugin(new URL('../../data/locales/', import.meta.url), new URL('./src/i18n/', import.meta.url)),
+    // GH-1418: `demo-cut.json` beside index.html in a demo build (nothing otherwise), for the packager's check.
+    demoCutPlugin(DEMO_CUT),
   ],
   // Build-time constant: no runtime fetch, and it works the same on Pages.
   define: {
     __GAME_VERSION__: JSON.stringify(GAME_VERSION),
     __APP_BUILD__: JSON.stringify(APP_BUILD),
     __APP_COMMIT__: JSON.stringify(APP_COMMIT),
+    __DEMO_MISSIONS__: demoCutDefine(DEMO_CUT),
   },
   // GitHub Pages serves the app from /<repo>/, so asset URLs need that
   // prefix; local dev and the preview harness stay at the root.

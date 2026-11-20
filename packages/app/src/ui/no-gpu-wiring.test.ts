@@ -17,6 +17,8 @@ describe('wiring in main.ts (pinned as text, the way the repo pins a copy)', () 
   it('is gated on the production build flag and the real hostname, and reads the cached feedback renderer', () => {
     expect(call).toContain('prod: import.meta.env.PROD');
     expect(call).toContain('hostname: location.hostname');
+    // GH-1418: and the scheme, which is how `playerHost` knows the desktop build's page.
+    expect(call).toContain('protocol: location.protocol');
     expect(call).toContain('renderer: gpuName');
   });
 });

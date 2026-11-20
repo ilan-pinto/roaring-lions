@@ -28,6 +28,7 @@ import { encodeSim, restoreSim, SIM_EPOCH, SNAPSHOT_FORMAT, SnapshotRefused, typ
 import { missionManifest } from '@lions/data';
 import { canonicalJson } from './net/canonical-json';
 import { importWithRetry } from './shell/chunk';
+import { missionInDemo } from './shell/demo-cut';
 
 /** The record format. Bump it when the record's own shape changes; a different value is refused as `older_version`. */
 export const MISSION_SAVE_VERSION = 1;
@@ -251,7 +252,8 @@ export interface ParseOptions {
   knownMission?: (id: string) => boolean;
 }
 
-const shippedMission = (id: string): boolean => Object.hasOwn(missionManifest, id);
+/** GH-1418: the desktop demo ships its cut only (`shell/demo-cut.ts`); a save of any other mission is one this build does not ship. */
+const shippedMission = (id: string): boolean => Object.hasOwn(missionManifest, id) && missionInDemo(id);
 
 export function parseSuspended(text: string, opts: ParseOptions = {}): ParseResult {
   let o: unknown;

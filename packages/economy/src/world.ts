@@ -35,6 +35,9 @@ export interface ParsedWorld {
    *  first morning. Absent means the world declares no account of the taken at all --
    *  distinct from zero, which would mean nobody was. */
   taken?: number;
+  /** GH-1418: true for the desktop demo's cut of the campaign (`packages/app/src/shell/demo-cut.ts`), which is never a
+   *  finished war (`campaignComplete`). Never authored in world.json; absent everywhere else. */
+  cut?: true;
 }
 
 interface TownJson {
@@ -60,6 +63,7 @@ interface WorldJson {
   name: string;
   art: string;
   taken?: number;
+  cut?: boolean;
   regions: RegionJson[];
 }
 
@@ -104,6 +108,7 @@ export function parseWorld(json: unknown): ParsedWorld {
     }),
   };
   if (typeof w.taken === 'number') world.taken = w.taken;
+  if (w.cut === true) world.cut = true;
   return world;
 }
 
