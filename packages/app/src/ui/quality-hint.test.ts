@@ -105,7 +105,7 @@ function setup(over: Partial<QualityHintDeps> = {}, quality: Quality = 'high') {
 beforeEach(() => document.body.replaceChildren());
 afterEach(() => document.body.replaceChildren());
 
-describe('qualityHintAllowed: the same gate as telemetry, feedback and the no-graphics notice', () => {
+describe('qualityHintAllowed: the no-graphics notice\'s gate (playerHost; the desktop build: shell/player-host.test.ts)', () => {
   it('a production build on a real host', () => expect(qualityHintAllowed(prodEnv)).toBe(true));
   it('never in dev (pnpm dev, ui:routes, ui:shots, the golden gate)', () => expect(qualityHintAllowed({ ...prodEnv, prod: false })).toBe(false));
   it.each(['localhost', '127.0.0.1', '[::1]', 'mac.local', 'app.localhost', 'game.test'])('never on %s, even in a production build', (hostname) =>

@@ -11,7 +11,8 @@ export const SCHEME = 'app';
  * The page's host. It MUST end in `.local`: the app's own host gate (`packages/app/src/telemetry/enabled.ts`'s `LOCAL`,
  * shared by `account/enabled.ts`, mirrored by `feedback/gate.ts`) reads `*.local` as this machine, so the packaged build
  * sends no telemetry, never reaches `/api/account/*` and never posts feedback. `desktop_policy.test.ts` runs those three
- * gates against this constant.
+ * gates against this constant. The three player-facing helpers ask `packages/app/src/shell/player-host.ts`'s
+ * `playerHost` instead, which knows this scheme and host as the desktop build (the lead's ruling of 20 Nov 2026).
  */
 export const HOST = 'roaring-lions.local';
 export const ORIGIN = `${SCHEME}://${HOST}`;
@@ -148,17 +149,56 @@ export const FUSES = Object.freeze({
 });
 
 /**
- * The demo's content cut, read from `tools/desktop/demo.json`. HOLD FOR LEAD: the slice is undecided (GH-1379 proposes the
- * tutorial plus Beit Sahwan I to IV), so `missions` is `null` and the bundle carries the whole build. A non-null value is
- * REFUSED until the cut is built, so the config can never claim a cut the bundle does not make.
+ * The demo's content cut, read from `tools/desktop/demo.json` (GH-1418; the lead's rulings of 20 Nov 2026: the tutorial,
+ * First Light, then Beit Sahwan I to IV). `missions` is a list of mission ids, or `null` for the whole build. A list must be non-empty,
+ * name only missions in `missionIds` (data/missions: `build-local.mjs` reads them, this module does no I/O) and name none
+ * twice. The list goes to the web build as `RL_DEMO_MISSIONS` (`DEMO_CUT_ENV`), which bakes it into the bundle
+ * (`packages/app/vite-plugin-demo-cut.ts`) and writes `demo-cut.json` beside index.html (`checkBundleCut`).
  */
-export function readDemoConfig(json) {
+export function readDemoConfig(json, missionIds) {
   if (json === null || typeof json !== 'object' || Array.isArray(json)) throw new Error('demo.json: expected an object');
   const known = new Set(['$comment', 'missions']);
   for (const k of Object.keys(json)) if (!known.has(k)) throw new Error(`demo.json: unknown key ${k}`);
   if (!('missions' in json)) throw new Error('demo.json: missing "missions"');
-  if (json.missions !== null) {
-    throw new Error('demo.json: "missions" must be null until the demo content cut is built (HOLD FOR LEAD, GH-1379)');
+  const m = json.missions;
+  if (m === null) return { missions: null };
+  if (!Array.isArray(m)) throw new Error('demo.json: "missions" must be null or a list of mission ids');
+  if (m.length === 0) throw new Error('demo.json: "missions" is empty (null ships the whole build)');
+  const shipped = new Set(missionIds);
+  const seen = new Set();
+  for (const id of m) {
+    if (typeof id !== 'string') throw new Error(`demo.json: not a mission id: ${JSON.stringify(id)}`);
+    if (!shipped.has(id)) throw new Error(`demo.json: no mission ${id} in data/missions`);
+    if (seen.has(id)) throw new Error(`demo.json: ${id} is listed twice`);
+    seen.add(id);
   }
-  return { missions: null };
+  return { missions: [...m] };
+}
+
+/** The environment variable the web build reads the cut from (`packages/app/vite-plugin-demo-cut.ts`'s twin). */
+export const DEMO_CUT_ENV = 'RL_DEMO_MISSIONS';
+/** The file a cut build writes beside index.html (the same plugin's `DEMO_CUT_FILE`). */
+export const DEMO_CUT_FILE = 'demo-cut.json';
+
+/**
+ * Fail closed: the web build must carry exactly the cut the manifest names. `text` is the build's `demo-cut.json`, or
+ * null when it has none (a full build). A cut build packaged as the full game, a full build packaged as the demo
+ * (`--skip-build` over a stale `dist`) and a cut that differs are each refused.
+ */
+export function checkBundleCut(demo, text) {
+  if (text === null) {
+    if (demo.missions !== null) throw new Error(`the web build carries no content cut (no ${DEMO_CUT_FILE}) but demo.json names one: rebuild without --skip-build`);
+    return;
+  }
+  let built;
+  try {
+    built = JSON.parse(text);
+  } catch {
+    throw new Error(`the web build's ${DEMO_CUT_FILE} is not JSON`);
+  }
+  const got = Array.isArray(built?.missions) ? built.missions : null;
+  if (demo.missions === null) throw new Error(`the web build carries a content cut (${DEMO_CUT_FILE}) but demo.json names none: rebuild without --skip-build`);
+  if (got === null || got.length !== demo.missions.length || got.some((id, i) => id !== demo.missions[i])) {
+    throw new Error(`the web build's cut ${JSON.stringify(got)} is not demo.json's ${JSON.stringify(demo.missions)}: rebuild without --skip-build`);
+  }
 }
