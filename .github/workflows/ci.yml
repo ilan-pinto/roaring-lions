@@ -898,12 +898,15 @@ jobs:
   # makes that true. A version that cannot survive the determinism matrix is
   # not a version anyone should be able to point at.
   #
-  # The rule lives in tools/next_version.mjs and is tested: any feat is a
-  # minor, any other player-facing type (fix, sim, app, net, worker, polish,
-  # art, data, vfx, audio, perf ...; the table is BUMP_BY_TYPE there) is a
-  # patch, and docs/chore/test/ci/tools alone cut NOTHING. That
-  # last case is the common one here — a spec, a plan and a ledger correction
-  # are a normal merge, and they change nothing a player can see.
+  # The rule lives in tools/next_version.mjs and is tested: the stronger of
+  # two signals (lead, 19 Nov 2026). The release notes at the pushed commit
+  # (data/release-notes/next.json): any units or rules entry is a minor, only
+  # fixes a patch. The commits: any feat is a minor, any other player-facing
+  # type (fix, sim, app, net, worker, polish, art, data, vfx, audio, perf ...;
+  # the table is BUMP_BY_TYPE there) is a patch, and docs/chore/test/ci/tools
+  # alone cut NOTHING. Empty notes leave the commit rule as it was. That last
+  # case is the common one here — a spec, a plan and a ledger correction are a
+  # normal merge, and they change nothing a player can see.
   version:
     needs: [gates, visual, determinism]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -945,13 +948,15 @@ jobs:
             echo "::notice title=Release skipped::main moved on to ${tip:0:8} after ${GITHUB_SHA:0:8}; the newest commit's own run releases both."
           fi
 
+      # Reads next.json from HEAD (the pushed promotion merge) BEFORE the next
+      # step renames it; tools/src/decide_version.test.ts pins that order.
       - id: decide
         name: Decide the next version
         if: steps.tip.outputs.is_tip == 'true'
         run: node tools/decide_version.mjs >> "$GITHUB_OUTPUT"
 
-      # Everything below is skipped when the range holds no feat and no other
-      # player-facing type (see BUMP_BY_TYPE in tools/next_version.mjs).
+      # Everything below is skipped when the notes are empty and the range holds
+      # no feat and no other player-facing type (see tools/next_version.mjs).
       - name: Write, commit and tag
         if: steps.decide.outputs.next != ''
         env:
