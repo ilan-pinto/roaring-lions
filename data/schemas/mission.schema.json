@@ -730,7 +730,8 @@
                   "casualties_pct",
                   "timer_s",
                   "zone_entered",
-                  "group_in_zone"
+                  "group_in_zone",
+                  "group_fired"
                 ]
               },
               "value": {
@@ -743,7 +744,7 @@
               },
               "group": {
                 "type": "string",
-                "description": "group_in_zone: the placement group (garrison, wave or spawn) watched. True once one living member stands in `zone`; a group not yet spawned waits (GH-912)."
+                "description": "group_in_zone: the placement group (garrison, wave or spawn) watched. True once one living member stands in `zone`; a group not yet spawned waits (GH-912). group_fired: the group whose first shot fires the trigger, once: the step of the first `fire` event whose shooter is a member, at any target (GH-1438 E7). Being shot at is not firing. A Remetz laser's `beam` and an air `strike` are not `fire` events and do not count, and a carrier's embarked `passengers` are not members of the carrier's group (a passenger placement that names its own `group` is a member of that group)."
               }
             },
             "if": {
@@ -761,6 +762,28 @@
                 "group",
                 "zone"
               ]
+            },
+            "else": {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "group_fired"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "required": [
+                  "group"
+                ],
+                "not": {
+                  "required": [
+                    "zone"
+                  ]
+                }
+              }
             }
           },
           "do": {

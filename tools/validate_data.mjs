@@ -984,9 +984,10 @@ const garrisonableSymbols = new Set(
       // GH-912: a `group_in_zone` condition watches a group, and one no placement declares
       // never exists at runtime, so the trigger could never fire. (Its zone is checked with
       // every other trigger zone, above.)
-      if (t.on?.kind === 'group_in_zone' && !declaredGroups.has(t.on.group)) {
+      // GH-1438 E7: `group_fired` the same: a group nobody declares never fires, so its cue never plays.
+      if ((t.on?.kind === 'group_in_zone' || t.on?.kind === 'group_fired') && !declaredGroups.has(t.on.group)) {
         failures.push(
-          `${rel(file)}: group_in_zone trigger "${name}" watches group "${t.on.group}", which no placement declares`
+          `${rel(file)}: ${t.on.kind} trigger "${name}" watches group "${t.on.group}", which no placement declares`
         );
       }
       // A commit or withdraw_to with no destination is a silent no-op: the
