@@ -320,7 +320,7 @@
   "versus.cpu.callsign": "Basic computer",
   "versus.cpu.failed": "The computer match could not start. Try again.",
   "versus.cpu.lead": "Or play the computer",
-  "versus.cpu.note": "A basic opponent that attacks with the force it starts with and builds nothing. It needs no room: the match runs on this device.",
+  "versus.cpu.note": "A basic opponent that builds units where the room has an economy, defends its ground and holds income zones. It needs no room: the match runs on this device.",
   "versus.cpu.start": "Play a basic computer opponent",
   "versus.cpu.level.easy.label": "Easy",
   "versus.cpu.level.easy.blurb": "The computer leaves both of its Lavi tanks at home and fights with the rest of its force. It sees only what its own units see and gets nothing extra.",

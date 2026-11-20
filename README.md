@@ -166,7 +166,7 @@ A one-versus-one match over the internet. Both browsers run the same determinist
 
 Both of you need the same version of the game: reload the page if the room reports a mismatch.
 
-**Play a basic computer opponent** is the same screen without a friend. It needs no room: the match runs on this device. The opponent attacks with the force it starts with and builds nothing, so it is a place to learn a map, not a test of skill.
+**Play a basic computer opponent** is the same screen without a friend. It needs no room: the match runs on this device. The opponent builds units where the room has an economy, defends its ground and holds income zones, so it is a place to learn a map, not a test of skill.
 
 **Choose your side.**
 

@@ -865,7 +865,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
 
   // --- GH-1388: a basic computer opponent, offline ---------------------------
   // The commander as a seat (GH-1388, GH-1390). It needs no room, so it is offered on every map, side and win mode the coverage probe read clean (`computerSeatOpen`, net/computer/open-cells.ts);
-  // a closed cell hides this section. The plain description's copy is HOLD FOR LEAD: it still says the opponent builds nothing.
+  // a closed cell hides this section. The description (`versus.cpu.note`) says what the commander does: it builds where the room has an economy, defends and holds zones (the lead's ruling, 20 Nov).
   let cpuBtn: HTMLButtonElement | null = null;
   let cpuSection: HTMLElement | null = null;
   const cpuMsg = messageLine('rl-versus__cpu-msg');
