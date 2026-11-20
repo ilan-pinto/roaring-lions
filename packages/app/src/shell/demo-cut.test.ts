@@ -253,7 +253,7 @@ describe('the routes', () => {
     ['/free-play/beit_sahwan_outskirts', '/', ['menu']],
     ['/?sandbox=tel_marum&tunnel', '/', ['menu']],
     ['/?sandboxes', '/', ['menu']],
-    // A versus room boots through the sandbox route; versus on desktop is a HOLD item, so its URL is left alone.
+    // A versus room boots through the sandbox route; hiding versus on desktop is not approved by the lead (20 Nov, ruling 3), so its URL is left alone.
     ['/free-play/tel_marum?net=ABCD', '/free-play/tel_marum?net=ABCD', ['sandbox:tel_marum']],
     ['/brigade', '/brigade', ['brigade']],
     ['/saves', '/saves', ['saves']],
@@ -282,6 +282,10 @@ describe('the routes', () => {
     const req = (name: string, params: Record<string, string> = {}, query = '') => ({ name, params, query: new URLSearchParams(query) });
     expect(demoLeaveFor(req('mission', { id: 'beit_sahwan_4_subterranean' }), LEAD)).toBeNull();
     expect(demoLeaveFor(req('mission', { id: 'qasr_liwan_1_recon' }), LEAD)).toBe('/campaign');
+    // The briefing case on its own: the route test above reaches `/campaign` through the briefing's redirect into the
+    // mission gate even without it, so only this line pins it.
+    expect(demoLeaveFor(req('briefing', { id: 'qasr_liwan_1_recon' }), LEAD)).toBe('/campaign');
+    expect(demoLeaveFor(req('briefing', { id: 'beit_sahwan_2_foothold' }), LEAD)).toBeNull();
     expect(demoLeaveFor(req('free-play'), LEAD)).toBe('/');
     expect(demoLeaveFor(req('sandbox', { map: 'tel_marum' }), LEAD)).toBe('/');
     expect(demoLeaveFor(req('menu'), LEAD)).toBeNull();

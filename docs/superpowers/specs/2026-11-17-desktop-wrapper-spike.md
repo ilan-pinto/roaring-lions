@@ -390,11 +390,18 @@ through ONE module, `packages/app/src/shell/demo-cut.ts`:
   debrief's next mission read it, so there is no next mission after IV;
 - `/mission/<id>` and `/briefing/<id>` outside the cut leave softly for the campaign board (deep links, `?mission=`);
 - Free play is closed (it has no mission set and fields the full task force on any map): no menu entry, and
-  `/free-play`, `/free-play/<map>`, `?sandbox=` leave for the menu. A versus room's `/free-play/<map>?net=` is untouched;
+  `/free-play`, `/free-play/<map>`, `?sandbox=` leave for the menu. A versus room's `/free-play/<map>?net=` is untouched:
+  hiding versus on desktop is not approved by the lead (20 Nov, ruling 3);
 - a saved mission outside the cut is refused as one this build does not ship (the Resume row offers Discard).
 
-Not done (HOLD FOR LEAD): the asset set is not filtered (every mission's JSON and every map still ship in the bundle),
-versus is not hidden, and the commercial strip (9.3's 26 files, GH-1415) is not made.
+Not done: the asset set is not filtered (every mission's JSON and every map still ship in the bundle). Not approved by
+the lead (20 Nov, ruling 3), and not done: hiding versus on desktop, the commercial strip (9.3's 26 files, GH-1415) and
+a Windows build.
+
+Telemetry, accounts and feedback are untouched by this change and keep their own gates (`telemetry/enabled.ts`,
+`account/enabled.ts`, `feedback/gate.ts`; their local-host patterns differ, so they are not one function). Only the
+four helper call sites read `playerHost` (`ui/no-gpu.ts`, `ui/quality-hint.ts` and its inline twin in `main.ts`,
+`ui/whats-new.ts`).
 
 ### 9.5 Untested, open, and next
 

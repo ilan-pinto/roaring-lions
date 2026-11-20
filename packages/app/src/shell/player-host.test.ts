@@ -1,10 +1,11 @@
 // GH-1418 (lead, 20 Nov 2026): "a real host" in two halves. (a) `playerHost` counts the desktop build, and the three
-// player-facing helpers ask it; (b) the networked rule stays off on desktop, and telemetry, accounts and feedback ask it.
+// player-facing helpers ask it; (b) telemetry, accounts and feedback are untouched, keep their own gates, and stay off on
+// desktop.
 // Every gate is run on the same four places with literal oracles: the deployed web host, the desktop page, dev/CI, and a
 // production build on this machine. A gate that read one answer for every place fails here.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DESKTOP_HOSTNAME, DESKTOP_PROTOCOL, isDesktopPage, networkedRealHost, playerHost } from './player-host';
+import { DESKTOP_HOSTNAME, DESKTOP_PROTOCOL, isDesktopPage, playerHost } from './player-host';
 import { noGpuNoticeAllowed } from '../ui/no-gpu';
 import { qualityHintAllowed } from '../ui/quality-hint';
 import { whatsNewAutoOpenAllowed } from '../ui/whats-new';
@@ -40,14 +41,13 @@ describe('the desktop page', () => {
 });
 
 describe.each<[string, Place, boolean, boolean]>([
-  // place, playerHost (a), networkedRealHost (b)
+  // place, playerHost (a), the networked gates (b)
   ['the deployed web host', WEB, true, true],
   ['the desktop page', DESKTOP, true, false],
   ['pnpm dev, tests and CI', DEV, false, false],
   ['a production build on localhost (vite preview, perf:load)', PREVIEW, false, false],
 ])('%s', (_name, place, a, b) => {
   it(`(a) playerHost is ${a}`, () => expect(playerHost(place)).toBe(a));
-  it(`(b) networkedRealHost is ${b}`, () => expect(networkedRealHost(place)).toBe(b));
 
   // The three helpers follow (a).
   it(`the no-graphics and software-rendering notices' gate is ${a}`, () => expect(noGpuNoticeAllowed({ ...place, query: q() })).toBe(a));

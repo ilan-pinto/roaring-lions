@@ -18,7 +18,7 @@
  *   - FREE PLAY (`freePlayOpen`): closed. It has no notion of a mission set: its sandbox fields the full task force on
  *     any of the shipped maps. The menu does not offer it, and `/free-play` and `/free-play/<map>` leave for the menu.
  *     The one exception is a versus room (`/free-play/<map>?net=...`): versus boots through the sandbox route, and
- *     hiding versus on desktop is NOT approved (it stays on the HOLD list), so a room's URL is left exactly as it was;
+ *     hiding versus on desktop is not approved by the lead (20 Nov, ruling 3), so a room's URL is left exactly as it was;
  *   - a SAVED mission (`missionInDemo`, read by `mission-save.ts`'s shipped-mission test): a save of a mission outside
  *     the cut is refused as one this build does not ship, and the board's Resume row says so and offers Discard.
  */
@@ -98,7 +98,7 @@ export function demoLeaveFor(req: Pick<RouteRequest, 'name' | 'params' | 'query'
     case 'free-play':
       return routes.menu();
     case 'sandbox':
-      // A versus room boots here (`?net=`); versus on desktop is a HOLD item, so its URL is untouched.
+      // A versus room boots here (`?net=`); hiding versus on desktop is not approved by the lead (20 Nov, ruling 3), so its URL is untouched.
       return req.query.has('net') ? null : routes.menu();
     default:
       return null;
