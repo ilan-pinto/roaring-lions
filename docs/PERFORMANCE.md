@@ -11,11 +11,80 @@
 > load numbers for the retirement itself are in "Retiring the sprite sheets"
 > at the end of this file.
 
+## The 300-unit figure, reconciled (GH-1411, 2026-11-19)
+
+**R1. At 300 units (267 living, tick 135), the shipped `high` preset, 1280x720 at DPR 1, on an Apple M3 Pro through ANGLE/Metal: render p95 21.8-23.2 ms to SUBMIT a frame, and 33.4-35.8 ms with the GPU synced.** Both are over the 16.7 ms frame. This is the figure to quote for the 300-unit frame today, with its conditions; it replaces F6, F9 and the audit's "18 ms" for that purpose. No "300 units at 60 fps" claim is supported at any preset or pixel ratio measured. On `high` it is refuted on both clocks. On `medium` and `low` the synced frame is over 16.7 ms and the submit time is under it, so 60 fps there is unsupported rather than refuted.
+
+Conditions, as the run printed them:
+- **Instrument:** `pnpm exec tsx src/perf/backend-curve-gate.ts --only=three-mesh,census --gpu=metal --dpr=1,2 --quality=high,medium,low --repeat=2 --port=5291`, run from `tools/`. That is the F6/F9 harness (`measureThreeMesh`): `beit_sahwan_outskirts`, seed `20260827`, the two 10-type rosters, every roster type drawing its real GLB, cumulative checkpoints 65 / 150 / 300 / 400. Each checkpoint runs 5 + 40 ticks, then 10 warm-up frames, 3 census frames, 180 timed frames of `frame()` alone ("submit") and 90 timed frames of `frame()` followed by a 1x1 `readPixels` ("synced"). The sim is held still while frames are timed.
+- **GPU:** `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)`, read from `WEBGL_debug_renderer_info` in the page. The run refuses any other string under `--gpu=metal`.
+- **Resolution:** a 1280x720 CSS host. The drawing buffer was read back from the `WebGLRenderer`: 1280x720 at DPR 1, and 2560x1440 at DPR 2.
+- **Preset:** passed explicitly, as `main.ts` passes the player's (`high` is the settings default). F9 passed none.
+- **Machine:** Node v25.9.0, 12 cores. The 1-minute load was 3.7-6.5 across the run (system daemons, not this run). Headless Chromium, one browser, music off. Each preset, DPR and repeat got a fresh page, interleaved, so drift lands on every arm.
+- **Tree:** origin/dev `7a268db89` plus this change. Nothing under `packages/` was changed.
+
+Submit is the time `frame()` takes to return: the CPU's share, draw-call submission included. Synced is serialised CPU plus GPU wall. Neither is the live cadence a player sees, and the live cadence at 300 units was not measured. GH-829 found a 16.7 ms live cadence beside synced readings of 16-19 ms on a small force (`docs/agent-notes/renderer.md`). On `high` both are over 16.7 ms. Submit is about 65% of the synced median at DPR 1 (20.3-20.6 of 31.4-31.9 ms) and 56% at DPR 2 (23.0-23.4 of 40.9-42.1). The remainder grows from about 11 to 18 ms with the pixels, so at 300 units the frame is not submission alone. The 74-84% submission share on record (F4, "Unit ceiling") was the skinned figures on a bare renderer, without the lit chain.
+
+| preset | DPR (buffer) | submit median | submit p95 | synced median | synced p95 | calls / frame |
+|---|---|---|---|---|---|---|
+| `high` | 1 (1280x720) | 20.3-20.6 | **21.8-23.2** | 31.4-31.9 | **33.4-35.8** | 3,448 |
+| `medium` | 1 | 13.4-13.5 | 14.3-15.7 | 25.7-25.8 | 27.3-28.6 | 2,399 |
+| `low` | 1 | 12.9-13.0 | 13.8 | 24.9-25.0 | 25.6-26.9 | 2,393 |
+| `high` | 2 (2560x1440) | 23.0-23.4 | 25.3-27.0 | 40.9-42.1 | 44.9-47.2 | 3,448 |
+| `medium` | 2 | 15.0-15.1 | 17.0-17.1 | 33.9-34.1 | 35.3-36.4 | 2,399 |
+| `low` | 2 | 14.5-15.6 | 15.8-17.7 | 31.8-31.9 | 33.5-35.8 | 2,393 |
+
+All rows are ms at the 300 checkpoint (267 living, tick 135). Each range is the two repeats, which agreed to within 1.5 ms on submit p95 and 2.4 ms on synced p95, so no disagreement had to be published.
+
+The rest of the `high`, DPR 1 curve, two repeats:
+
+| checkpoint (living, tick) | submit p95 | synced p95 |
+|---|---|---|
+| 65 (65, 45) | 6.7 | 12.0-12.7 |
+| 150 (146, 90) | 12.8-13.7 | 19.6-20.3 |
+| 400 (324, 180) | 27.2-29.6 | 40.1-43.2 |
+
+So the synced frame on `high` crosses 16.7 ms between 65 and 146 living in this world. 65 is the largest authored mission. The in-tab sim tick at 300 read p95 2.7-3.2 ms. The tick and the frame have different budgets.
+
+**The census.** `high` submits 131 calls in the empty scene and 12.35 more per living unit. `medium` and `low` submit 77-80 and about 8.7 per unit, because they build no GTAO normal pre-pass, which redraws every unit. In census-only mode (no timed frames) the count is 131 empty and 872 / 1,845 / 3,428 / 4,300 at 65 / 146 / 267 / 324 living. That count was identical on SwiftShader (two runs) and on Metal (two repeats at DPR 1 and two at DPR 2). The count does not depend on the rasteriser or the pixel ratio, which is why CI can gate it (below). The bench-mode count (3,448) differs from census mode (3,428) only because the timed frames before each checkpoint advance the frame clock: rounds in flight and particles.
+
+### Why the old figures differ
+
+- **F6, 6.5 ms p95 (15 Sep):** same harness, same 1280x720 DPR 1 host, same statistic (submit p95). It drew 5 of the 20 roster types as meshes over a billboard majority. The shipped game has drawn every type as a mesh since the 4 Oct flip, so F6 measured a roster the game no longer draws.
+- **F9, 30.0 ms p95 (4 Oct):** same harness, same statistic, same world (266 living against 267 today). The size is now a fact, not an inference: `43dcc0cc8` (2026-10-04, the retirement's harness commit) sizes the host 1280x720 and opens the page at 1280x720 with no `deviceScaleFactor`, so DPR 1. R1 reads 23-27% lower than F9. **Not attributed:** no A/B was run across the six weeks between them. In that time the preset became explicit (F9's `undefined` meant 0 ragdolls), per-tile structures became instanced (GH-974), and the look uplift (L1 to L5) landed. F9's machine load was not recorded. **Why F9 stood for six weeks:** observed on `7a268db89` (origin/dev, 19 Nov), `buildWorld` throws `ReferenceError: process is not defined` in the page. The bare `process.env` read arrived in GH-707 P3 (`d2c73e9c0`, 23 Oct; `git log -S PERF_NO_WOUNDS`). The webgpu harnesses call the same `buildWorld` but shim `window.process = { env: {} }` in an init script; `backend-curve-gate.ts` never had that shim. So, by reading the code rather than by running that commit, the browser curve could not run from 23 Oct until this change.
+- **"18 ms median, 12-13 Nov" (the 15 Nov audit):** this is not a 300-unit reading. The audit cites `docs/agent-notes/webgpu-backend.md`, "Draw submission (P3 T13)"; the number there is the legacy arm's **600-unit** base, `18.10` ms, in rows H1 and H3, whose `n` column reads 600. The Metal hold was 10 Nov. The 12-13 Nov date belongs to the grass section beside it. That figure was taken on `wadi_halam_4` at zoom 0.5, 1280x720 at DPR 2, as the median of ABBA round medians, readPixels-synced, and on the WebGPU harness page's own scene (`webgpu-page.ts`), which spawns and frames units differently from this bench. That page's legacy arm reads cheaper at 600 units than this bench at 300, synced. Nobody has read the two scenes on one page, so the gap between them is **not attributed**.
+- **Submit and synced are different statistics.** Every F-row of this harness before R1 is submit only (F6's own row says "no `gl.finish()`"). The GH-829 and webgpu figures are synced. Comparing one with the other compares two different clocks.
+
+### The CI gate: the 300-unit draw-call census
+
+`pnpm perf:census` runs in CI's `memory` job, on SwiftShader. It is the same bench in census mode at `high`: two pages, `tools/src/perf/draw-census.ts`. It reads `perUnit = (calls at the 300 checkpoint - calls in the empty scene) / living` and fails in four cases:
+- with exit 1, when `perUnit` falls outside `12.348 +-5%`, either way, or the empty scene exceeds 145 calls;
+- with exit 2, when the two pages disagree by a single call;
+- with exit 2, when a census frame moves more than 1%;
+- with exit 2, when fewer than 200 units are living, or on any page error. A GLB that fails to load draws a proxy box, and a proxy's count is not the shipped one.
+
+It is two-sided because units that stop drawing would otherwise read as a saving. A real saving is re-pinned in `CENSUS_BUDGET` with its reason, like the golden hash.
+
+Falsified 2026-11-19, each mutation one line, run through `pnpm perf:census` on SwiftShader and then put back:
+- **Green:** 12.348, exit 0, two pages agreeing.
+- **Wreck twins drawn** (`mesh-vehicle.ts`, the `death_root` `visible = false` set to `true`): 4,880 calls, 17.787 a unit, OVER, exit 1.
+- **GTAO pre-pass not built** (`ThreeRenderer.ts`, `if (quality.ao)` set to `if (quality.ao && false)`): 2,406 calls, 8.663 a unit, UNDER, exit 1.
+- **Two survivors, inside the band:** infantry ramp-path meshes not casting shadows (-22 calls, 12.266 a unit), and vehicle ramp-path meshes not casting (-30 calls, 12.236).
+
+So the gate sees a change of about 5% of the per-unit submissions, roughly 0.6 calls a unit, and not less.
+
+What it cannot see:
+- fill and shader cost: a heavier fragment shader at the same call count;
+- CPU work in `frame()` that submits nothing;
+- frame time itself.
+
+The census guards the bottleneck the frame was measured to have, not the frame. CI renders on SwiftShader, whose frame time is no frame time a player sees (F5), and no frame time is gated there.
+
 ## The 300-unit figures: one table, with their conditions (GH-1411)
 
 Reconciled 2026-11-15; made one table with every figure's conditions 2026-11-17 (GH-1411, CPU half). This file and `docs/agent-notes/webgpu-backend.md` quote "about 300 units" in many places, with numbers that look contradictory. They do not measure the same thing: they differ in roster, pixel count, renderer path, map, statistic and machine. Every row below is a figure as it was published, with its conditions copied from the section it came from. Where a section did not record a condition, the cell says **unknown**; nothing was filled in by inference.
 
-**Only one figure was measured for this table**: the sim tick at 300 units (row C8), CPU only. **No GPU or frame figure was re-measured.** Every frame, GPU and draw-submission row whose instrument still runs is marked **needs Metal re-read**; rows whose renderer path was retired (Pixi, billboards) cannot be re-read and say so.
+**Only one figure was measured for this table** when it was made (17 Nov): the sim tick at 300 units (row C8), CPU only. **No GPU or frame figure was re-measured then; F9 was re-read on Metal on 19 Nov as R1, in the section above.** Every frame, GPU and draw-submission row whose instrument still runs is marked **needs Metal re-read**; rows whose renderer path was retired (Pixi, billboards) cannot be re-read and say so.
 
 A row with a letter after its number (F1a) is a sibling of the row above it, from the same table or paragraph of the source: an avg or max beside a p95, a ratio or slope the source states, a per-type split, a count. Its cells say "as F1" where they repeat a parent's condition.
 
@@ -42,7 +111,7 @@ Columns: **units** is the checkpoint's lifetime spawn target and, after the slas
 | F8a | three, real shipped meshes: render avg 5.64 / 5.49 before → 5.54 / 5.58 after | render avg beside F8's 25 Sep p95s | 300 / 266 | as F1 | as F6; Node v25.9.0 | 1280x720, DPR 1 (stated) | as F1 | 2026-09-25: before `8d525c81`, after `64afcf3b` | `backend-curve-gate.ts`; "The ground, plan 1", "300-figure curve" | superseded by F9 |
 | F8b | three, billboards: render p95 2.40, 2.60 before → 2.70, 2.90 after; render avg 3.09 / 3.07 → 2.96 / 3.22 | render p95 and avg, three.js with every unit a billboard (the `three, billboards` row of the 25 Sep table) | 300 / 266 | as F1 | three.js on ANGLE/Metal, M3 Pro; Node v25.9.0 | 1280x720, DPR 1 (stated) | as F1 | as F8a | as F8a | cannot be re-read: billboard path retired |
 | F8c | means: main 7.60, branch **6.90** ms; and the plan's budget line "≤ 7.5 ms p95 (7.30–7.60 ms today)" | the mean of F8's three 28 Sep render p95 runs a tree (n = 3, sequential), and the readings the plan quoted before part B | 300 / 266 | as F1 | as F6 | as F8's 28 Sep half | as F1 | 2026-09-28: main `b6497c12`, branch `17480db0`; load 4-8 on 12 cores | `backend-curve-gate.ts --only=three-mesh`; "The ground, plan 2" | superseded by F9 |
-| F9 | **30.0 ms** (curve 10.8 / 17.8 / 30.0 / 39.7 at 65 / 143 / 266 / 320 living) | render p95, three.js, **all 20 roster types drawing their real GLB** | 300 / 266 | as F1 | three.js lit on ANGLE/Metal, M3 Pro | unknown (the harness's fixed 1280x720 DPR 1 host is the likely size; the 4 Oct section does not say) | as F1 | 2026-10-04, `feat/retire-pixi` head (sha not recorded; base `f818eb7b`) | `backend-curve-gate.ts --only=three-mesh`; "Retiring the sprite sheets" | **needs Metal re-read**: the latest legacy-path curve for the shipped roster, and it predates L1 to L5, the 3D grass, ragdolls and the insignia |
+| F9 | **30.0 ms** (curve 10.8 / 17.8 / 30.0 / 39.7 at 65 / 143 / 266 / 320 living) | render p95, three.js, **all 20 roster types drawing their real GLB** | 300 / 266 | as F1 | three.js lit on ANGLE/Metal, M3 Pro | 1280x720, DPR 1 (from git: `43dcc0cc8`, the harness that day, sizes the host 1280x720 and opens the page with no `deviceScaleFactor`; the 4 Oct section does not say) | as F1 | 2026-10-04, `feat/retire-pixi` head (sha not recorded; base `f818eb7b`) | `backend-curve-gate.ts --only=three-mesh`; "Retiring the sprite sheets" | **re-read 2026-11-19 as R1** ("The 300-unit figure, reconciled", above): 21.8-23.2 ms on the same harness and size |
 | F10 | 9.15 -> 10.95 ms | frame median of the round medians (6 ABBA rounds, 80 timed frames a reading), WebGPU node path, before/after the T3-T12 node twins | 300 | `wadi_halam_4`, z0.5, quality `high` | WebGPU (`apple / metal-3`), M3 Pro | 1280x720, DPR 2 | parked (the word comes from the pre-GH-1411 summary table in this file, row "10-13 Nov", `git show 1e6d60b:docs/PERFORMANCE.md`; `webgpu-backend.md` does not use it) | 2026-11-10, integration tree `bab8b69ff`; load 2.50-4.00 | `webgpu:abba` / `runArm`; `webgpu-backend.md` "Draw submission", H6 | **needs Metal re-read** |
 | F10a | ×1.197 at n300; the G slope 6.80 → 8.88 ms per 300 units, the intercept 2.35 → 2.08; spreads 0.2-0.85 | H6's reading of F10: what P3 added at n300, and the line through its n300 and n600 points before and after | 300 (the slope also uses n600) | as F10 | as F10 | as F10 | as F10 | as F10 | `webgpu-backend.md` "Draw submission", H6 | **needs Metal re-read** |
 | F10b | about 2.1 ms per 300 units (3.9 ms at n600) | the saving T14 was expected to make ("Expected saving: up to the P3 addition H6 measured"), for the non-skinned share: an estimate, not a reading | 300 | as F10 | as F10 | as F10 | as F10 | as F10 | `webgpu-backend.md` "Draw submission", below the table | not a measurement |
@@ -83,15 +152,16 @@ C8's other checkpoints, run 1 / run 2: 150 / 150 living, avg 1.95 / 2.05, p95 4.
 
 ### Why the figures disagree
 
-- **F6 (6.5 ms, 15 Sep) and F9 (30.0 ms, 4 Oct)** are the same harness on the same machine (F6 at 1280x720 DPR 1, the harness's fixed host; F9's section does not state its size). The roster changed: five mesh types over a billboard majority, against all twenty types as meshes, the skinned infantry included. The 4 Oct section calls it "a new number, not a regression". F6's verdict ("the 300-unit acceptance holds") rests on a roster the game no longer draws and must not be quoted for the shipped game.
+- **F6 (6.5 ms, 15 Sep) and F9 (30.0 ms, 4 Oct)** are the same harness on the same machine (both at 1280x720 DPR 1, the harness's fixed host: F6's section states it, F9's is read from git, `43dcc0cc8`). The roster changed: five mesh types over a billboard majority, against all twenty types as meshes, the skinned infantry included. The 4 Oct section calls it "a new number, not a regression". F6's verdict ("the 300-unit acceptance holds") rests on a roster the game no longer draws and must not be quoted for the shipped game.
 - **F10 to F13 (9 to 34 ms, 10 to 13 Nov)** are a different instrument (`webgpu:abba`, a median over ABBA rounds rather than a p95), a different backend (the WebGPU node path), a different map (`wadi_halam_4`, a green-theme map) and four times F6's pixels (DPR 2 against DPR 1). They answer "what does the node path cost against legacy", not "what does the shipped game cost at 300 units".
 - **F10 against F12**: the same instrument family on the same map, zoom and size reads 10.95 ms at n300 on 10 Nov and 27.90-28.10 ms with grass off on 13 Nov. The n0 baselines agree (about 9.5 to 10 ms), so the difference is in what 300 units cost. **Not reconciled: the cause is unknown.** Two candidates are on record, neither shown to be the cause: the grass page ran with reduced motion on, and on 10 Nov the submit page's drawn scene was measured to grow with repeated `snapshot()` calls at n300 (435, then 708, then 1,295 skinned draws, with no tick between them; `webgpu-backend.md`, the caveats under H6). Whether the 13 Nov page read a grown scene was not checked.
 - **C1 to C8** are CPU. They agree in order of magnitude (2 to 5 ms against a 50 ms budget). C5 against C1 is the same machine and instrument and reads about 1.7x higher seven weeks later. The sim changed in between, and which change costs what was not measured; C5's own wounds-off arm reads the same as its wounds-on arm, so it is not the wounds. C8 is another machine and is not a trend point against either.
 
-**What follows for any "300 units at 60 fps" claim:** no figure in this file supports one. The only all-mesh, shipped-roster frame figure at 300 units (F9) is 30.0 ms p95, almost twice the 16.7 ms frame, and it is six weeks old. Make no such claim until F9 is re-read on the current build.
+**What follows for any "300 units at 60 fps" claim:** no figure in this file supports one. F9 was re-read on 2026-11-19 as R1 (above): 21.8-23.2 ms submit and 33.4-35.8 ms synced at p95, on `high`, DPR 1, over the 16.7 ms frame on both clocks, and `medium` and `low` are over it synced as well. Make no such claim until a measured figure is under it.
 
 **Still to be measured on real hardware** (none of it was run here):
-- the all-mesh 266-living curve (`backend-curve-gate.ts --only=three-mesh`) on the current build, at DPR 1 and at DPR 2, on the shipped `high`, `medium` and `low` presets (F9 was taken on 4 Oct, before L1 to L5, the 3D grass, ragdolls and the insignia), with its resolution printed;
+- ~~the all-mesh 266-living curve on the current build, at DPR 1 and 2, on all three presets, with its resolution printed~~: done 2026-11-19, R1 above;
+- what moved F9's 30.0 ms to R1's 22-23 ms (an A/B across the six weeks; not run);
 - F10 against F12: the same n300 scene read twice in one hold, to find what moved;
 - a live fight (every 300-unit frame figure above is parked or held still);
 - any GPU other than this one Apple M3 Pro: a Windows or Linux machine, an integrated GPU, a discrete one. CI reads SwiftShader only, which is not a frame-time instrument;
@@ -2272,7 +2342,7 @@ the camera):
 
 Reading the three tables together:
 
-- **Unthrottled, every preset holds 60 fps at both sizes** in the fight, blast
+- **Unthrottled, every preset holds 60 fps at both sizes** (a mission force, `umm_zeitoun_4_clearance`, not 300 units: the 300-unit frame is R1 at the top of this file) in the fight, blast
   and pan, and the only frames over 33 ms are the collapse.
 - **At 4x the preset matters once.** `high` puts 4–13% of frames over 33 ms;
   `medium` and `low` hold 0.2–0.9% in the fight, 0–1.7% panning and 1–2% in

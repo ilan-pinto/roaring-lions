@@ -228,6 +228,15 @@ export interface ObjectiveJson {
    *  group who walks in is neither counted nor taken off the map by it (N32). Absent is today's evacuation, byte for byte:
    *  every civilian, one shared tally. */
   group?: string | readonly string[];
+  /** `evacuate_before` only (E12, GH-1438, the civilian drama design §10.2 and G-7): a civilian of this evacuation's
+   *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues -- admitted to an aid post or
+   *  evacuated by a carrier (`woundAdmitted` / `woundEvacuated` with side 0) -- while this objective is active is counted
+   *  out exactly as one who walked into the zone: latched into the same tally, once, with the same `evacuated` event.
+   *  Absent or false: a rescued civilian counts toward nothing but Conduct, as before. The tally is shared, as an
+   *  arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one
+   *  without the flag. And a civilian counted at `woundAdmitted` stays counted even if the aid post later falls and he
+   *  is lost (`woundLost`): nothing takes a man out of the latch. Both pending a lead ruling. */
+  counts_rescued?: boolean;
   text?: string;
   target?: string;
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
@@ -1278,6 +1287,9 @@ export class MissionRuntime {
         if (names.length === 0 || names.some((n) => typeof n !== 'string' || n.length === 0)) {
           throw new Error(`mission ${mission.id}: evacuate_before "${def.id}" needs a group of one or more non-empty names`);
         }
+      }
+      if (def.counts_rescued !== undefined && def.type !== 'evacuate_before') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no counts_rescued (only evacuate_before does)`);
       }
       if (def.threshold !== undefined && def.type !== 'no_collateral_above') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no threshold (only no_collateral_above does)`);
@@ -3199,6 +3211,16 @@ export class MissionRuntime {
         const parent = this.woundParentOf.get(e.entity);
         if (parent !== undefined && this.sim.state.alive[parent] === 1) this.rescuedBack.set(parent, (this.rescuedBack.get(parent) ?? 0) + 1);
       }
+      // E12: a civilian the player rescued, for an active evacuation that counts rescues, is counted out like an arrival.
+      if (
+        (e.kind === 'woundAdmitted' || e.kind === 'woundEvacuated') &&
+        e.side === 0 &&
+        this.sim.state.side[e.entity] === 2 &&
+        this.rescueCounts(e.entity) &&
+        this.civFlight.countRescued(e.entity)
+      ) {
+        out.push({ kind: 'evacuated', tick, entity: e.entity });
+      }
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
         if (this.sim.state.side[e.by] === 0) this.contributed.add(e.by);
@@ -4993,6 +5015,20 @@ export class MissionRuntime {
     for (const civ of this.civFlight.collect(this.sim, ids, z)) {
       out.push({ kind: 'evacuated', tick, entity: civ });
     }
+  }
+
+  /** E12: whether an ACTIVE `evacuate_before` with `counts_rescued` counts civilian `id` (unscoped: every civilian; scoped:
+   *  its groups). Active only, as `collect` runs only for an active evacuation (E3): a rescue after the clock ran out is
+   *  Conduct, not a late save. Read on a rescue event alone, so the scan over a handful of objectives costs nothing. */
+  private rescueCounts(id: number): boolean {
+    for (const o of this.objectives) {
+      const d = o.def;
+      if (o.status !== 'active' || d.type !== 'evacuate_before' || d.counts_rescued !== true) continue;
+      const g = d.group;
+      if (g === undefined) return true;
+      if (typeof g === 'string' ? (this.groups.get(g) ?? []).includes(id) : g.some((n) => (this.groups.get(n) ?? []).includes(id))) return true;
+    }
+    return false;
   }
 
   /** How many an evacuation has to its name (E3): the one shared tally when it is unscoped, else the people of its groups
