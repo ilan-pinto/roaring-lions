@@ -1,4 +1,4 @@
-// GH-1406 part 4: `data/locales/<lang>/{missions,units}.json` must reach the URL the loaders fetch, in the build and in `pnpm dev`. The
+// GH-1406 part 4 (and GH-1406 places): `data/locales/<lang>/{missions,units,places}.json` must reach the URL the loaders fetch, in the build and in `pnpm dev`. The
 // build test RUNS a real Vite build over a fixture directory and reads the output, because a plugin that is not in the output is the whole
 // failure this exists to prevent.
 import { createServer as createHttpServer } from 'node:http';
@@ -25,8 +25,10 @@ beforeAll(() => {
   locales = join(tmp, 'data-locales');
   write(join(locales, 'fr', 'missions.json'), '{"m1":{"name":"Point d\'appui"}}');
   write(join(locales, 'fr', 'units.json'), '{"inf_squad":{"name":"Section"}}');
+  write(join(locales, 'fr', 'places.json'), '{"world":"Le bassin du Sahar","maps":{"bir_tarsha":"Puits de Tarsha"}}');
   write(join(locales, 'he', 'units.json'), '{"inf_squad":{"name":"X"}}');
   write(join(locales, 'en', 'missions.json'), '{"m1":{"name":"the generated template, never served"}}');
+  write(join(locales, 'en', 'places.json'), '{"world":"the generated place template, never served"}');
   write(join(locales, 'README.md'), '# not a locale file');
   write(join(locales, 'fr', 'notes.json'), '{"not":"a locale file"}');
   write(join(locales, 'fr', 'deeper', 'missions.json'), '{"not":"two levels down"}');
@@ -54,14 +56,14 @@ beforeAll(() => {
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 describe('which files are locale files', () => {
-  it('is `<lang>/missions.json` and `<lang>/units.json` for any lang but en, and nothing else', () => {
-    for (const ok of ['fr/missions.json', 'fr/units.json', 'he/units.json', 'pt-br/missions.json']) expect(LOCALE_FILE.test(ok), ok).toBe(true);
-    for (const no of ['en/missions.json', 'en/units.json', 'README.md', 'fr/notes.json', 'fr/deeper/missions.json', 'missions.json', '../fr/missions.json', 'fr/missions.json.bak']) {
+  it('is `<lang>/missions.json`, `<lang>/units.json` and `<lang>/places.json` for any lang but en, and nothing else', () => {
+    for (const ok of ['fr/missions.json', 'fr/units.json', 'fr/places.json', 'he/units.json', 'pt-br/missions.json', 'pt-br/places.json']) expect(LOCALE_FILE.test(ok), ok).toBe(true);
+    for (const no of ['en/missions.json', 'en/units.json', 'en/places.json', 'fr/place.json', 'fr/places.json.bak', 'README.md', 'fr/notes.json', 'fr/deeper/missions.json', 'missions.json', '../fr/missions.json', 'fr/missions.json.bak']) {
       expect(LOCALE_FILE.test(no), no).toBe(false);
     }
   });
-  it('is DERIVED from the directory: the fixture yields exactly the three files and nothing else (a symlinked file or directory is not one)', () => {
-    expect(localeFiles(locales)).toEqual(['fr/missions.json', 'fr/units.json', 'he/units.json']);
+  it('is DERIVED from the directory: the fixture yields exactly the four files and nothing else (a symlinked file or directory is not one)', () => {
+    expect(localeFiles(locales)).toEqual(['fr/missions.json', 'fr/places.json', 'fr/units.json', 'he/units.json']);
   });
   it('the chrome catalogue is a flat `<id>.json` but `en.json`, and DERIVED the same way', () => {
     for (const ok of ['fr.json', 'pt-br.json', 'he.json']) expect(CHROME_FILE.test(ok), ok).toBe(true);
@@ -70,7 +72,7 @@ describe('which files are locale files', () => {
     expect(chromeFiles(join(tmp, 'nope'))).toEqual([]);
     // today en.json and the staged de.json live there; only de.json, es-ES.json, fr.json and ru.json are served (en is bundled). `de`, `es-ES`, `fr` and `ru` are not in LOCALES yet, so nothing fetches it.
     expect(chromeFiles(join(__dirname, 'src', 'i18n'))).toEqual(['de.json', 'es-ES.json', 'fr.json', 'ru.json']);
-    expect(servedFiles(locales, chrome).map((x) => x.rel)).toEqual(['fr/missions.json', 'fr/units.json', 'he/units.json', 'fr.json', 'pt-br.json']);
+    expect(servedFiles(locales, chrome).map((x) => x.rel)).toEqual(['fr/missions.json', 'fr/places.json', 'fr/units.json', 'he/units.json', 'fr.json', 'pt-br.json']);
   });
   it('the path guard is its own layer: a file outside the directory is refused whatever the filename rule would say', () => {
     expect(insideDir(locales, join(locales, 'fr', 'missions.json'))).toBe(true);
@@ -101,8 +103,8 @@ describe('the build emits them at locales/<lang>/<file>', () => {
   it('every locale file is in the build output, byte for byte, and the template, the README and the stray files are not', async () => {
     const out = await run(locales);
     const emitted = all(out).filter((f) => f.startsWith('locales/')).sort();
-    expect(emitted).toEqual(['locales/fr/missions.json', 'locales/fr/units.json', 'locales/he/units.json']);
-    for (const rel of ['fr/missions.json', 'fr/units.json', 'he/units.json']) {
+    expect(emitted).toEqual(['locales/fr/missions.json', 'locales/fr/places.json', 'locales/fr/units.json', 'locales/he/units.json']);
+    for (const rel of ['fr/missions.json', 'fr/places.json', 'fr/units.json', 'he/units.json']) {
       expect(readFileSync(join(out, 'locales', rel), 'utf8')).toBe(readFileSync(join(locales, rel), 'utf8'));
     }
     expect(existsSync(join(out, 'locales', 'en'))).toBe(false);
@@ -115,7 +117,7 @@ describe('the build emits them at locales/<lang>/<file>', () => {
   it('emits the chrome catalogues flat at locales/<id>.json, and not en.json, the notes, the nested file or the symlink', async () => {
     const out = await run(locales, { chromeDir: chrome });
     expect(all(out).filter((f) => f.startsWith('locales/')).sort()).toEqual([
-      'locales/fr.json', 'locales/fr/missions.json', 'locales/fr/units.json', 'locales/he/units.json', 'locales/pt-br.json',
+      'locales/fr.json', 'locales/fr/missions.json', 'locales/fr/places.json', 'locales/fr/units.json', 'locales/he/units.json', 'locales/pt-br.json',
     ]);
     expect(readFileSync(join(out, 'locales', 'fr.json'), 'utf8')).toBe(readFileSync(join(chrome, 'fr.json'), 'utf8'));
   }, 60_000);
@@ -123,7 +125,7 @@ describe('the build emits them at locales/<lang>/<file>', () => {
   it('a non-root base changes nothing about the output paths (the app prefixes the URL, the files stay at locales/...)', async () => {
     const out = await run(locales, { chromeDir: chrome, base: '/game/' });
     expect(all(out).filter((f) => f.startsWith('locales/')).sort()).toEqual([
-      'locales/fr.json', 'locales/fr/missions.json', 'locales/fr/units.json', 'locales/he/units.json', 'locales/pt-br.json',
+      'locales/fr.json', 'locales/fr/missions.json', 'locales/fr/places.json', 'locales/fr/units.json', 'locales/he/units.json', 'locales/pt-br.json',
     ]);
   }, 60_000);
 
@@ -163,7 +165,11 @@ describe('the dev server serves them at /locales/<lang>/<file>', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('application/json');
       expect(await res.text()).toBe(readFileSync(join(locales, 'fr', 'missions.json'), 'utf8'));
-      for (const no of ['/locales/en/missions.json', '/locales/README.md', '/locales/fr/notes.json', '/locales/xx/missions.json', '/other/fr/missions.json']) {
+      const places = await fetch(`${base}/locales/fr/places.json`);
+      expect(places.status).toBe(200);
+      expect(places.headers.get('content-type')).toContain('application/json');
+      expect(await places.text()).toBe(readFileSync(join(locales, 'fr', 'places.json'), 'utf8'));
+      for (const no of ['/locales/en/missions.json', '/locales/en/places.json', '/locales/README.md', '/locales/fr/notes.json', '/locales/xx/missions.json', '/other/fr/missions.json']) {
         const r = await fetch(`${base}${no}`);
         expect(r.status, no).toBe(404);
         expect(await r.text(), no).toBe('fell through');

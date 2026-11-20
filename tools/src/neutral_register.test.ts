@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SOURCES = ['data/locales/en/missions.json', 'data/locales/en/units.json', 'packages/app/src/i18n/en.json'] as const;
+const SOURCES = ['data/locales/en/missions.json', 'data/locales/en/units.json', 'data/locales/en/places.json', 'packages/app/src/i18n/en.json'] as const;
 
 type Leaf = readonly [source: string, path: string, text: string];
 

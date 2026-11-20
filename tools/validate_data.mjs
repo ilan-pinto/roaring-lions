@@ -86,7 +86,9 @@ import {
   narrativeTextFailures,
   englishCatalogueFailures,
   englishUnitFailures,
+  englishPlaceFailures,
   overlayFailures,
+  placeOverlayFailures,
   unitOverlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
@@ -1226,6 +1228,34 @@ const garrisonableSymbols = new Set(
   }
   if (!existsSync(join(ROOT, 'data/locales/en/units.json'))) {
     failures.push(...englishUnitFailures('data/locales/en/units.json', null, []));
+  }
+}
+
+// --- place-name locale overlays (GH-1406) ------------------------------------
+// data/locales/<lang>/places.json: the world's name, each region's, each town's and each map's. Every id a real one, every name a trimmed
+// string of at most 48 characters, every translated name carrying the hash of the English it was translated from (`placeOverlayFailures`;
+// a stale or missing hash is LAG for a staged language and a failure for a shipped one). `en` is the GENERATED template, held to exact
+// parity. A language with no places.json simply plays its place names in English.
+{
+  const worldJson = loadJson(join(ROOT, 'data/campaign/world.json'));
+  const mapsById = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
+    const m = loadJson(file);
+    if (m?.id) mapsById.set(m.id, m);
+  }
+  if (worldJson) {
+    for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+      if (!file.endsWith('places.json')) continue;
+      const overlay = loadJson(file);
+      if (!overlay) continue;
+      const lang = basename(dirname(file));
+      failures.push(...placeOverlayFailures(rel(file), overlay, worldJson, mapsById, stagingOf(lang)));
+      if (lang === 'en') failures.push(...englishPlaceFailures(rel(file), overlay, worldJson, [...mapsById.values()]));
+      checked += 1;
+    }
+    if (!existsSync(join(ROOT, 'data/locales/en/places.json'))) {
+      failures.push(...englishPlaceFailures('data/locales/en/places.json', null, worldJson, []));
+    }
   }
 }
 

@@ -7,7 +7,6 @@
  */
 import type { StorageLike } from '../brigade-account';
 import { SAVE_VERSION, type MatchOpponent, type MatchView } from '@lions/economy';
-import { mapManifest } from '@lions/data';
 import { clearBinding, clearDeviceId, readBinding } from '../account/binding';
 import { claimQuietly, hasGuestProgress, readClaiming, runClaim, type ClaimOutcome } from '../account/claim';
 import type { LedgerStore } from '../ledger-store';
@@ -16,6 +15,7 @@ import { exportSlot, readActive } from '../profile';
 import { PROVIDERS, readReturnCode, readReturnProvider, type AccountClient, type AccountError, type IdentityView, type MeResult, type Provider, type ReturnCode } from '../account/client';
 import { resolveSignedIn, type SignedInResult } from '../account/signed-in';
 import { hasKey, t } from '../i18n/t';
+import { mapName } from '../place-text';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import type { AvatarView } from '@lions/data';
@@ -97,8 +97,6 @@ type SignedInMe = Extract<MeResult, { kind: 'signedIn' }>;
 function isError(x: unknown): x is AccountError {
   return typeof x === 'object' && x !== null && 'error' in x && 'status' in x;
 }
-
-const mapNames: Readonly<Record<string, { name: string }>> = mapManifest;
 
 /** The outcome is read off the winning seat against the member's own; an unconfirmed row says so beside it. */
 function outcomeKey(m: MatchView): 'won' | 'lost' | 'drawn' {
@@ -412,7 +410,7 @@ export function showProfile(stage: HTMLElement, deps: ProfileDeps): Disposer {
       const li = document.createElement('li');
       li.className = 'rl-profile__match';
       const when = new Date(m.startedAt).toLocaleDateString();
-      const map = mapNames[m.map]?.name ?? m.map;
+      const map = mapName(m.map);
       const kind = outcomeKey(m);
       const chip = document.createElement('span');
       chip.className = `rl-profile__result rl-profile__result--${kind}`;

@@ -21,7 +21,8 @@ validator accepts. **Nobody edits it by hand and the game never fetches it** (`m
 request for `en`). `pnpm validate:data` fails on a mission, objective or trigger it lacks, on an entry for something that is gone,
 and on text that has drifted from the mission file, so editing a briefing means running `pnpm locales:en -- --write` in the same
 commit. **`data/locales/en/units.json` is generated the same way** (GH-1406 part 5): a unit id to its `name`, its `blurb` when it has
-one, and the `src` hashes below.
+one, and the `src` hashes below. **`data/locales/en/places.json` is generated the same way** (GH-1406, place names): the world's, every region's,
+every town's and every map's name, from `data/campaign/world.json` and `data/maps/*.json`.
 
 ## The source hash (`src`): how a translation knows it has gone stale
 
@@ -53,6 +54,37 @@ Every entry therefore carries a `src` block, written by the English generator an
 
 `units.json` carries the same block, `"src": { "name": "…", "blurb": "…" }` per unit, with the same rules, and
 `unitOverlayFailures` also refuses a `blurb` for a unit that has none.
+
+## Place names: `places.json` (GH-1406)
+
+`data/locales/<lang>/places.json` translates the names of PLACES: the campaign world, its regions and towns (`data/campaign/world.json`) and the
+maps (`data/maps/*.json`, the generated `mapManifest`). Mission and unit text had overlays; these were English under every locale until now.
+
+```json
+{
+  "world": "…",
+  "regions": { "<region id>": "…" },
+  "towns": { "<town id>": "…" },
+  "maps": { "<map id>": "…" },
+  "src": { "world": "<8 hex>", "regions.<id>": "<8 hex>", "towns.<id>": "<8 hex>", "maps.<id>": "<8 hex>" }
+}
+```
+
+- **Every key is optional**, and a name the file does not carry shows the English, so a partial translation is fine. Only the displayed name
+  is replaced, on a copy (`@lions/data`'s `applyMapNamesLocale` and `applyWorldLocale`, through `packages/app/src/place-text.ts`): ids, routes,
+  sort order and the net content digest never see a translated name. A region's `faction` and `doctrine` and a town's missions are not place
+  names and are not in this file.
+- **`src` is the stale-translation guard**, exactly as for units: the first 8 hex characters of the SHA-256 of the CURRENT English name
+  (`sourceHash`). **`data/locales/en/places.json` is generated** (`pnpm locales:en -- --write`, checked by `validate:data` for exact parity: a
+  missing, stale or drifted entry fails, so renaming a map or a town means regenerating it in the same commit). Copy it, translate the values,
+  leave `src` alone.
+- `validate:data` (`placeOverlayFailures`, `tools/validate_narrative.mjs`) refuses an id that is not in `world.json` or `data/maps`, a name that
+  is empty, untrimmed or over **48 characters**, a `src` entry for a name the file does not translate, and a `src` that is not 8 lowercase hex
+  characters. A translated name with no `src` or a `src` that no longer matches the English is **lag**: reported for a staged language, a failure
+  for a shipped one (the section below).
+- A map's name is often written "Place — Line" (a long dash with a space each side); the versus lobby and the map cards split a label there, so
+  keep the same ` — ` in a translation that has a subtitle.
+- No language ships a `places.json` yet. A staged language without one is green and lags nothing; it plays every place name in English.
 
 ## `de` is staged, not shipped (GH-1406, GH-1407)
 
@@ -147,11 +179,12 @@ A language is **shipped** when it is in `LOCALES` (`packages/app/src/i18n/locale
 
 One directory per shipped locale other than `en`, id-matched to
 `packages/app/src/i18n/locales.ts`'s `LOCALES` table (`fr`, `he`, …), each
-holding up to two files:
+holding up to three files:
 
 ```
 data/locales/<lang>/missions.json
 data/locales/<lang>/units.json
+data/locales/<lang>/places.json
 ```
 
 `units.json` (GH-1406) is unit display text: a unit id to `{ "name"?, "blurb"?, "src"? }` (`src` is the hash block above), nothing else. Every key must be a real unit
@@ -219,9 +252,9 @@ CURRENT UI language (`${base}locales/${lang}/missions.json`) — `null` for
 
 ### Where the file is served from, and what happens when it is not there
 
-The loaders fetch `${base}locales/<lang>/missions.json` and `units.json`, but the app's `publicDir` is `assets/`, which holds no
-locales. **`packages/app/vite-plugin-locales.ts` is the bridge**: in `pnpm dev` a middleware answers those two paths from
-`data/locales/<lang>/`, and in `pnpm build` it emits every `<lang>/missions.json` and `<lang>/units.json` as `locales/<lang>/<file>`
+The loaders fetch `${base}locales/<lang>/missions.json`, `units.json` and `places.json`, but the app's `publicDir` is `assets/`, which holds no
+locales. **`packages/app/vite-plugin-locales.ts` is the bridge**: in `pnpm dev` a middleware answers those paths from
+`data/locales/<lang>/`, and in `pnpm build` it emits every `<lang>/missions.json`, `<lang>/units.json` and `<lang>/places.json` as `locales/<lang>/<file>`
 in the output (`packages/app/dist`, which `wrangler.jsonc` serves as its static assets). The set is **derived from this directory**,
 never listed: every such file except `en`'s (the generated template is never fetched, so it is not shipped), and nothing else (a
 `README.md`, a stray note, anything deeper). Do not copy a translation into `assets/` by hand: a file present in both places is a build

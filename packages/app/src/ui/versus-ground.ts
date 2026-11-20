@@ -24,7 +24,7 @@ import { paintMapTerrain } from './map-preview';
 export const pairsBoth = (id: string): boolean => FACTION_MATCHUP_MAPS.includes(id);
 
 /** A map's label split the way the catalogue writes it, "Name — Line". The
- *  names are DATA (`map.name`), so they read the same in every locale. */
+ *  names are DATA (`map.name`) and read in English unless a locale ships `places.json` (GH-1406); a translation keeps the ` — ` separator. */
 export function splitMapLabel(label: string): { name: string; sub: string | null } {
   const at = label.indexOf(' — ');
   return at < 0 ? { name: label, sub: null } : { name: label.slice(0, at), sub: label.slice(at + 3) };

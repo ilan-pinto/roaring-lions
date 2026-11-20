@@ -408,6 +408,7 @@ import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo, pseudoRtl } from './i18n/pseudo';
 import { KillCauseTracker, causeText, parseKillCause, type KillCause } from './kill-cause';
 import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitName } from './unit-text';
+import { loadPlaceOverlay, localizedWorld, mapName, setPlaceOverlay } from './place-text';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -980,6 +981,8 @@ async function main(): Promise<void> {
   setCatalogue(activeLocale, cat, pseudoMode === PSEUDO_RTL ? pseudoRtl : pseudoMode === 'pseudo' ? pseudo : undefined);
   // GH-1406: unit names and blurbs, from data/locales/<lang>/units.json. Mission text is data and is not pseudo-transformed; neither is this.
   setUnitOverlay(await loadUnitOverlay(lang, BASE));
+  // GH-1406: map names and the campaign world's names (world, regions, towns), from data/locales/<lang>/places.json, under the same skip rules.
+  setPlaceOverlay(await loadPlaceOverlay(lang, BASE));
   applyLocale(document.documentElement, pseudoMode === PSEUDO_RTL ? PSEUDO_RTL : lang);
   sessionLang = sessionLangOverride(q.get('lang'), pseudoMode);
   // Dev-only: which keys a screen walk asked for and never got, without
@@ -1063,7 +1066,8 @@ async function main(): Promise<void> {
     const menu = showMenu(host, {
       base: BASE,
       version: __GAME_VERSION__,
-      world: worldData,
+      // GH-1406: the one place the menu's world gets its translated names (the screen reads `world.name` as given).
+      world: localizedWorld(worldData),
       audio: { isMuted: () => audio.isMuted(), toggle: () => audio.toggle() },
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
@@ -1224,7 +1228,8 @@ async function main(): Promise<void> {
     if (req.signal.aborted) return () => undefined;
     const challengeBoard = await challengeBoardLoad;
     if (req.signal.aborted) return () => undefined;
-    const boardWorld = parseWorld(world);
+    // GH-1406: the one place the campaign board (flat and 3D) gets its translated world, region and town names.
+    const boardWorld = localizedWorld(parseWorld(world));
     const boardLedger = ledgerStore.readLedger();
     return showCampaign(host, {
       base: BASE,
@@ -3155,7 +3160,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         const glanceObjectives = m.objectives.map((o) => ({ type: o.type, primary: o.primary, carries: o.carries, text: o.text, seconds: o.seconds, target: o.target }));
         return {
           glance: briefingGlance({
-            mapName: (mapJson as { name?: string }).name,
+            mapName: mapName(mapJson.id, mapJson.name),
             timeOfDay: mapMeta.time_of_day,
             targetMinutes: (m as { target_minutes?: number }).target_minutes,
             beats: m.briefing ? briefingBeats(m.briefing) : [],
@@ -4125,7 +4130,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     gameVersion: __GAME_VERSION__,
     // PA-25: a sandbox's strip names the map it walks, as a mission's names
     // the mission; the same name the Free Play picker lists it by.
-    placeName: mission ? undefined : mapJson.name,
+    placeName: mission ? undefined : mapName(mapJson.id, mapJson.name),
     ...(versusRoom ? { versusFaction: versusFactions[me] } : {}),
     ...(versusRoom && netConfig?.winMode !== undefined ? { versusMode: netConfig.winMode } : {}),
     // N3 Task 6: an economy room's purse and (the KDF seat's only, LD7) Conduct.
@@ -4331,7 +4336,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
   // the sandbox strip names no map, so a different battlefield just appeared.
-  const unknownMap = unknownSandboxMapNotice(sandboxMap, mapManifest, mapJson.name);
+  const unknownMap = unknownSandboxMapNotice(sandboxMap, mapManifest, mapName(mapJson.id, mapJson.name));
   if (unknownMap) hud.note(...unknownMap, { tier: 'important' });
   // WP-P5 (PA-16): a session that showed the order-row line has done its
   // teaching, so the next one does not show it. Marked on LEAVING rather than
