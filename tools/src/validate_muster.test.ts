@@ -112,6 +112,29 @@ describe('rule (c): with every gate shut, the muster cannot walk to the refuge',
     const bare = crowd('apron', { objectives: [] });
     expect(musterReach(bare, yard(at(SEALED, 9, 4, '.'), {}), TYPES_WITH_GATE)[0].reached).toMatchObject({ x: 6, y: 3, what: 'the refuge "refuge"' });
   });
+  it('a muster marker on a blocked tile is refused, never read as a sealed (empty) flood', () => {
+    // (3,4) is the yard's west wall, (3,2) the shut gate, (0,0) inside a placed structure: each a flood with no start.
+    const m = (to: string, extra = {}) => crowd(to, extra);
+    const markers = { apron: [1, 3], refuge: [6, 3], on_wall: [3, 4], on_gate: [3, 2], in_hut: [0, 0], off_map: [40, 3] };
+    const map = { ...yard(SEALED), markers };
+    expect(sealedCompoundFailures(m('on_wall'), map, TYPES_WITH_GATE, 'm')).toEqual([
+      'm: withdraw_to "run" musters the crowd at "on_wall" (3, 4), which is off the map or on a blocked tile -- a ' +
+        'muster marker stands on open ground, or nobody can say where the crowd ends up (GH-1438 E13 c)',
+    ]);
+    expect(sealedCompoundFailures(m('on_gate'), map, TYPES_WITH_GATE, 'm')).toHaveLength(1);
+    expect(sealedCompoundFailures(m('off_map'), map, TYPES_WITH_GATE, 'm')).toHaveLength(1);
+    const hut = m('in_hut', { structures: [{ type: 'house', at: [0, 0], size: [1, 1] }] });
+    expect(sealedCompoundFailures(hut, map, TYPES_WITH_GATE, 'm')).toHaveLength(1);
+    // The open apron beside them still passes.
+    expect(sealedCompoundFailures(m('apron'), map, TYPES_WITH_GATE, 'm')).toEqual([]);
+  });
+  it('a boulder, ditch or marsh band is open on foot: a wall gap filled with b, d or ~ LEAKS', () => {
+    // Civilians are on foot, and `b`, `d` and `~` stop only wheels and tracks (CLAUDE.md, "A map").
+    for (const c of ['b', 'd', '~']) {
+      const band = at(at(at(SEALED, 9, 2, c), 9, 3, c), 9, 4, c);
+      expect(sealedCompoundFailures(crowd('apron'), yard(band), TYPES_WITH_GATE, 'm'), c).toHaveLength(1);
+    }
+  });
   it('a mission structures[] footprint blocks (at + size, default [2,2]), a placed gate included', () => {
     const open = at(at(SEALED, 3, 2, '.'), 3, 3, '.');
     const placed = crowd('apron', { structures: [{ type: 'compound_gate', at: [3, 2], size: [1, 2] }] });

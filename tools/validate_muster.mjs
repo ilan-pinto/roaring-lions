@@ -101,7 +101,9 @@ export function footBlocked(mission, map, types) {
 
 /**
  * Where each muster's crowd can walk, every gate shut: `{ muster, reached }` per muster, `reached` the first refuge or
- * evacuation-zone tile the flood meets (breadth-first, so the nearest in steps), or null. No gate scope here: rule (c)
+ * evacuation-zone tile the flood meets (breadth-first, so the nearest in steps), or null. `open` is false when the
+ * muster marker is off the map or on a blocked tile: the flood then has no start, and rule (c) refuses it rather than
+ * reading the empty flood as sealed (a crowd ordered onto a wall presses round it, wherever that leads). No gate scope here: rule (c)
  * applies it; the test reads the raw reach on gate-less missions.
  */
 export function musterReach(mission, map, types) {
@@ -126,7 +128,8 @@ export function musterReach(mission, map, types) {
   for (const m of musters(mission, map?.markers)) {
     const [sx, sy] = m.tile;
     let reached = null;
-    if (sx >= 0 && sy >= 0 && sx < w && sy < h && blocked[sy * w + sx] === 0) {
+    const open = sx >= 0 && sy >= 0 && sx < w && sy < h && blocked[sy * w + sx] === 0;
+    if (open) {
       const seen = new Uint8Array(w * h);
       const queue = [sy * w + sx];
       seen[queue[0]] = 1;
@@ -149,16 +152,27 @@ export function musterReach(mission, map, types) {
         }
       }
     }
-    out.push({ muster: m, reached });
+    out.push({ muster: m, open, reached });
   }
   return out;
 }
 
-/** Rule (c): on a mission with a gate, one failure per muster whose crowd reaches the refuge with every gate shut. */
+/**
+ * Rule (c): on a mission with a gate, one failure per muster whose crowd reaches the refuge with every gate shut, and
+ * one per muster whose marker is off the map or on a blocked tile (a flood with no start proves nothing).
+ */
 export function sealedCompoundFailures(mission, map, types, file) {
   if (gateCentres(mission, map, types).length === 0) return [];
   const out = [];
-  for (const { muster: m, reached } of musterReach(mission, map, types)) {
+  for (const { muster: m, open, reached } of musterReach(mission, map, types)) {
+    if (!open) {
+      out.push(
+        `${file}: withdraw_to "${m.trigger}" musters the crowd at "${m.marker}" (${m.tile[0]}, ${m.tile[1]}), which is ` +
+          `off the map or on a blocked tile -- a muster marker stands on open ground, or nobody can say where the ` +
+          `crowd ends up (GH-1438 E13 c)`
+      );
+      continue;
+    }
     if (reached === null) continue;
     out.push(
       `${file}: withdraw_to "${m.trigger}" musters the crowd at "${m.marker}" (${m.tile[0]}, ${m.tile[1]}), and with ` +

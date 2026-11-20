@@ -11,5 +11,5 @@ export declare function musterReach(
   mission: unknown,
   map: unknown,
   types: unknown
-): { muster: Muster; reached: { x: number; y: number; what: string } | null }[];
+): { muster: Muster; open: boolean; reached: { x: number; y: number; what: string } | null }[];
 export declare function sealedCompoundFailures(mission: unknown, map: unknown, types: unknown, file: string): string[];
