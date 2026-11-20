@@ -19,6 +19,7 @@ import {
   type PlacementJson,
 } from './mission';
 import { corridorCut, corridorRoute, makeRouteSource } from './corridor';
+import { CREDIT_WEIGHTS, creditInputFrom, creditsFor } from './credits';
 import type { TunnelRouteJson } from './tunnels';
 import { CF_CELL, CF_CIV, CF_KDF, CF_WOUNDED } from './civ-fire-world.test-helper';
 
@@ -6551,9 +6552,75 @@ describe('a removal is not a loss (GH-1380)', () => {
     expect([count(first, 'removed'), count(first, 'unitLost')]).toEqual([1, 1]);
     expect([count(later, 'removed'), count(later, 'unitLost')]).toEqual([0, 0]);
   });
-  // Not pinned here, on purpose: `isLost` (so `lostByType`, `startingHome` and the ledger's `campaign.mission_results.lost`)
-  // still counts a `remove` trigger's side-0 body as lost, as its doc comment says. That count and the `unitLost` feed
-  // disagree about the same man; which one is right is a design question, not this test's to settle.
+
+  // The lead's ruling of 20 Nov 2026: a side-0 unit removed from play by a script is NOT lost anywhere, so the score agrees
+  // with the debrief above. The same world, run to its win (survive_until 10 s): 0 removed, 1 destroyed (the control, so
+  // a count that reads zero for every input cannot pass), 2 holds. Each scoring read counts the destroyed man and only him.
+  // Falsified: restoring the pre-ruling `isLost` clause (a `removed` body is lost unless ADMITTED/GONE) turns every one red.
+  function removalWin(): { w: World; end: Extract<MissionEvent, { kind: 'missionEnd' }> } {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3], group: 'taken' },
+          { unit: 'm_squad', count: 1, at: [3, 6] },
+          { unit: 'm_squad', count: 1, at: [3, 9] },
+        ],
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 10 }],
+        triggers: [{ id: 'take_one', on: { kind: 'timer_s', value: 0 }, do: { kind: 'remove', group: 'taken' } }],
+      })
+    );
+    w.sim.debugKill(1);
+    const end = w.step(12 * TICKS_PER_SECOND).mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect([w.sim.state.alive[0], w.sim.state.removed[0], w.sim.state.alive[1], w.sim.state.removed[1]]).toEqual([0, 1, 0, 0]);
+    expect([end.result, w.runtime.result]).toEqual(['victory', 'victory']);
+    return { w, end };
+  }
+
+  it('lostByType (so the challenge `lost`) counts the destroyed man and not the removed one', () => {
+    const { w } = removalWin();
+    expect(w.runtime.lostByType()).toEqual({ m_squad: 1 });
+  });
+
+  it('startingHome (credits` "brought home") keeps the removed man home; the destroyed one is not', () => {
+    const { w } = removalWin();
+    expect([w.runtime.startingCount, w.runtime.startingHome]).toEqual([3, 2]);
+    const input = creditInputFrom(w.runtime, w.runtime.roeScore, undefined);
+    expect([input.fielded, input.lost]).toEqual([3, 1]);
+    // Two home at 10 each, with the win; the Conduct term is the same in both readings, so it is read off the input.
+    const conduct = creditsFor({ ...input, fielded: 0, lost: 0 }) - CREDIT_WEIGHTS.win;
+    expect(creditsFor(input)).toBe(CREDIT_WEIGHTS.win + 2 * CREDIT_WEIGHTS.unitHome + conduct);
+  });
+
+  it('the ledger`s campaign.mission_results.lost is 1, the destroyed man alone', () => {
+    const { end } = removalWin();
+    const results = end.ledger['campaign.mission_results'] as Record<string, { lost: number }>;
+    expect(results.test_mission.lost).toBe(1);
+  });
+
+  // The wipe is NOT the scoring predicate (`outOfTheFight`, kept apart from `isLost`): a force wholly out of play, one man
+  // removed and the other dead, is still wiped, exactly as before the ruling -- and the removed man is still not lost.
+  // Falsified: reading the wipe off `isLost` leaves this force unwiped (the removed man holds it off), and the test goes red.
+  it('a force partly removed and partly dead is still wiped (force_destroyed), and only the dead man is lost', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3], group: 'taken' },
+          { unit: 'm_squad', count: 1, at: [3, 6] },
+        ],
+        ledger: { requires: [], produces: ['campaign.mission_results'] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        triggers: [{ id: 'take_one', on: { kind: 'timer_s', value: 0 }, do: { kind: 'remove', group: 'taken' } }],
+      })
+    );
+    w.sim.debugKill(1);
+    const end = w.step(2 * TICKS_PER_SECOND).mission.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect([end.result, w.runtime.defeatCause]).toEqual(['defeat', 'force_destroyed']);
+    expect([w.runtime.startingHome, w.runtime.lostByType()]).toEqual([1, { m_squad: 1 }]);
+    expect((end.ledger['campaign.mission_results'] as Record<string, { lost: number }>).test_mission.lost).toBe(1);
+  });
 });
 
 // Population cap (GH-183 F3 Task 3): `population(side)` counts every living unit of the
@@ -8115,15 +8182,15 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     expect(late.mission.flatMap((e) => (e.kind === 'roe' ? [[e.penalty, e.score]] : []))).toEqual([[8, 92]]);
   });
 
-  it('a player unit evacuated or admitted is not lost; a remove trigger`s body still is', () => {
+  it('a player unit evacuated, admitted or taken by a remove trigger is not lost (the lead, 20 Nov 2026)', () => {
     const w = cgWorld({ enabled: true });
     const s = w.runtime;
     const scout = w.sim.spawn(3, 0, fx.from(5.5), fx.from(5.5)); // not in playerIds: lost counts ignore it
     expect(scout).toBeGreaterThan(8);
     expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
-    // The starting squad (id 0) taken off the board by a remove trigger: lost, as before.
+    // The starting squad (id 0) taken off the board by a remove trigger: not lost (GH-1380, the lead's ruling of 20 Nov 2026).
     w.sim.removeFromPlay(0);
-    expect([s.startingHome, s.lostByType()]).toEqual([0, { cg_squad: 1 }]);
+    expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
     // The same body, had it left as a rescued wounded man (GONE): not lost.
     (w.sim.state.woundState as Uint8Array)[0] = 4;
     expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);

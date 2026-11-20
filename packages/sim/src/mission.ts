@@ -2681,7 +2681,7 @@ export class MissionRuntime {
     // Latched, not re-derived: nothing in the world records that the clock ran out.
     if (this.withdrawnValue) return 'withdrawn';
     const wiped =
-      this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.outOfTheFight(id));
     if (wiped) return 'force_destroyed';
     if (this.roeFailed) return 'roe_collapse';
     const failed = this.objectives.find((o) => o.def.primary && o.status === 'failed');
@@ -2711,15 +2711,33 @@ export class MissionRuntime {
   }
 
   /**
-   * Is unit `id` lost to the player: off the board and NOT taken out alive by a rescue?
-   * GH-707: a wounded man admitted at an aid post (ADMITTED) or evacuated (GONE) has
-   * `alive` 0 and `removed` 1, like a `remove` trigger's body -- but `casualties_pct` already
-   * treats `removed` as "not a casualty", and he is not one. A `remove` trigger's body keeps
-   * counting as lost here exactly as before (its woundState is not ADMITTED/GONE), and a
-   * patient whose post fell (`woundLost`: `removed` back to 0) is lost. Without wound content
-   * every woundState is NONE, so this is `alive === 0`.
+   * Is unit `id` lost to the player? Only a death is a loss: `alive` 0 with `removed` 0.
+   *
+   * The lead's ruling of 20 Nov 2026 (GH-1380): a side-0 unit removed from play by a script is NOT
+   * lost anywhere -- a `remove` trigger, an abduction, an evacuation -- so the score agrees with the
+   * debrief, whose `unitLost` feed is raised for `destroyed` alone and whose `casualties_pct` already
+   * skips `removed`. `removed` 1 is set by `removeFromPlay` (a `remove` trigger, an abduction) and by
+   * the GH-707 rescue paths (a wounded man admitted at an aid post, ADMITTED, or evacuated, GONE);
+   * none of them is a loss. A patient whose post fell (`woundLost`) has `removed` put back to 0, so
+   * he is lost. This is the SCORING predicate: `lostByType` (the debrief count, the challenge's
+   * `lost`, telemetry), `startingHome` (credits' "brought home") and the ledger's
+   * `campaign.mission_results.lost` all read it. The all-lost WIPE does not: see `outOfTheFight`.
    */
   private isLost(id: number): boolean {
+    const st = this.sim.state;
+    return st.alive[id] === 0 && st.removed[id] !== 1;
+  }
+
+  /**
+   * Does unit `id` no longer count toward keeping the force on the field, for the all-lost wipe
+   * (`checkEnd`, `defeatCause`'s `force_destroyed`)? Kept apart from `isLost` on purpose (GH-1380,
+   * the lead's ruling of 20 Nov 2026): a body a script removed is gone for the wipe (it cannot fight
+   * again) but not lost for the score. A wounded man taken out alive by a rescue (ADMITTED at a post
+   * that can discharge him, or GONE) holds the wipe off exactly as before the ruling. This is the
+   * pre-ruling `isLost` byte for byte, so no mission's defeat moves: dead, or removed by anything but
+   * a rescue. Without wound content every woundState is NONE, so this is `alive === 0`.
+   */
+  private outOfTheFight(id: number): boolean {
     const st = this.sim.state;
     if (st.alive[id] !== 0) return false;
     if (st.removed[id] !== 1) return true;
@@ -5410,7 +5428,7 @@ export class MissionRuntime {
     const primaries = this.objectives.filter((o) => o.def.primary);
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
-      this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.outOfTheFight(id));
     // An ROE collapse loses the mission even with objectives in hand — and so
     // does a failed primary. `evacuate_before` is the first objective type
     // that can become 'failed'; without this, a mission that marks one
