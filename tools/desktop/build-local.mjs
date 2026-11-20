@@ -19,11 +19,15 @@
 //      screenshot. Every process it starts, it starts in its own process group and stops by that group.
 //   8. with --report-commercial: runs `tools/commercial_asset_cut.py --dist` (report only, nothing stripped) and records
 //      the count in the manifest.
+//   9. with --crash-reports (GH-1414): the SHIPPED bundle's manifest says `crashReports: true`, so it sends crash reports
+//      to the Worker (`crash.mjs`). Without the flag no bundle sends any; the smoke bundle never does. The shipped-bundle
+//      launch check runs with RL_DESKTOP_NO_CRASH_REPORTS=1 whatever the flag. With --smoke-crash the smoke run also
+//      forces a page error and a renderer crash and checks the reports it recorded (never sent).
 //
 // What it never does: sign, notarise, read a secret, upload to a store, publish or auto-update. Nothing in packages/ is
 // touched. Linux only, on purpose: the other targets need signing (spec, section 9).
 //
-// Flags: --skip-build, --smoke, --no-tar, --report-commercial. Output: dist-desktop/ at the repo root (gitignored; eslint
+// Flags: --skip-build, --smoke, --no-tar, --report-commercial, --crash-reports, --smoke-crash. Output: dist-desktop/ at the repo root (gitignored; eslint
 // ignores dist-*/). Spec: docs/superpowers/specs/2026-11-17-desktop-wrapper-spike.md, section 9.
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -41,7 +45,7 @@ const EXECUTABLE = 'roaring-lions';
 const PRODUCT = 'Roaring Lions';
 
 const args = new Set(process.argv.slice(2));
-const known = new Set(['--skip-build', '--smoke', '--no-tar', '--report-commercial']);
+const known = new Set(['--skip-build', '--smoke', '--no-tar', '--report-commercial', '--crash-reports', '--smoke-crash']);
 for (const a of args) {
   if (!known.has(a)) {
     console.error(`[desktop] unknown flag ${a}; known: ${[...known].join(' ')}`);
@@ -145,8 +149,10 @@ async function packageBundle({ smoke }) {
       2,
     )}\n`,
   );
-  for (const f of ['main.mjs', 'policy.mjs', 'resolve.mjs']) cpSync(path.join(HERE, f), path.join(appDir, f));
-  const manifest = { version: rootPkg.version, commit, electron: ELECTRON_VERSION, smoke, demo, commercial };
+  for (const f of ['main.mjs', 'policy.mjs', 'resolve.mjs', 'crash.mjs']) cpSync(path.join(HERE, f), path.join(appDir, f));
+  // GH-1414: only a shipped bundle packaged with --crash-reports sends crash reports.
+  const crashReports = !smoke && args.has('--crash-reports');
+  const manifest = { version: rootPkg.version, commit, electron: ELECTRON_VERSION, smoke, crashReports, demo, commercial };
   writeFileSync(path.join(appDir, 'desktop-build.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   cpSync(APP_DIST, webDir, { recursive: true });
   console.log(`[desktop] ${kind}: staged ${mib(bytesUnder(webDir))} of web build`);
@@ -280,7 +286,15 @@ if (args.has('--smoke')) {
   mkdirSync(home, { recursive: true });
   const shippedRun = await launch(
     shipped.binary,
-    { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), RL_DESKTOP_SMOKE: '1', RL_DESKTOP_SMOKE_OUT: OUT },
+    {
+      ...process.env,
+      HOME: home,
+      XDG_CONFIG_HOME: path.join(home, '.config'),
+      RL_DESKTOP_SMOKE: '1',
+      RL_DESKTOP_SMOKE_OUT: OUT,
+      // A launch check never sends a crash report, even from a bundle packaged with --crash-reports.
+      RL_DESKTOP_NO_CRASH_REPORTS: '1',
+    },
     { doneWhen: (s) => s.includes('RL_DESKTOP_READY ') || s.includes('RL_SMOKE '), timeoutMs: 90_000 },
   );
   const ready = lineOf(shippedRun.stdout, 'RL_DESKTOP_READY');
@@ -300,7 +314,7 @@ if (args.has('--smoke')) {
   rmSync(path.join(OUT, 'profile'), { recursive: true, force: true });
   const r = await launch(
     smokeBundle.binary,
-    { ...process.env, RL_DESKTOP_SMOKE: '1', RL_DESKTOP_SMOKE_OUT: OUT },
+    { ...process.env, RL_DESKTOP_SMOKE: '1', RL_DESKTOP_SMOKE_OUT: OUT, ...(args.has('--smoke-crash') ? { RL_DESKTOP_SMOKE_CRASH: '1' } : {}) },
     { doneWhen: (s) => s.includes('RL_SMOKE '), timeoutMs: 180_000 },
   );
   const result = lineOf(r.stdout, 'RL_SMOKE');

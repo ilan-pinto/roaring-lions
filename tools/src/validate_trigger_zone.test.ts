@@ -16,22 +16,22 @@ function mission(kind: string, zone: string): Record<string, unknown> {
 describe('triggerZoneFailures', () => {
   it('accepts a zone the map has on remove, commit and withdraw_to', () => {
     // Literals, not ZONED_TRIGGER_KINDS: the oracle must not import the list it checks.
-    for (const kind of ['remove', 'commit', 'withdraw_to']) {
+    for (const kind of ['remove', 'commit', 'withdraw_to', 'abduct']) {
       expect(triggerZoneFailures(mission(kind, 'pen'), MAP, 'f.json')).toEqual([]);
     }
-    expect([...ZONED_TRIGGER_KINDS].sort()).toEqual(['commit', 'remove', 'withdraw_to']);
+    expect([...ZONED_TRIGGER_KINDS].sort()).toEqual(['abduct', 'commit', 'remove', 'withdraw_to']);
   });
 
   it('refuses a zone on a kind the runtime does not read it on', () => {
     for (const kind of ['spawn', 'reinforce', 'dismount']) {
       expect(triggerZoneFailures(mission(kind, 'pen'), MAP, 'f.json')).toEqual([
-        `f.json: trigger "t" (${kind}) carries do.zone "pen", which only remove, commit and withdraw_to read (GH-1438 E5)`,
+        `f.json: trigger "t" (${kind}) carries do.zone "pen", which only remove, commit, withdraw_to and abduct read (GH-1438 E5)`,
       ]);
     }
   });
 
   it('refuses a zone the map lacks, on every kind that reads one', () => {
-    for (const kind of ['remove', 'commit', 'withdraw_to']) {
+    for (const kind of ['remove', 'commit', 'withdraw_to', 'abduct']) {
       expect(triggerZoneFailures(mission(kind, 'pne'), MAP, 'f.json')).toEqual([
         `f.json: trigger "t" (${kind}) do.zone names unknown zone "pne"; with no zone it would act on the whole group`,
       ]);
