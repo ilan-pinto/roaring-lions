@@ -2,5 +2,7 @@
   "version": "next",
   "units": [],
   "rules": [],
-  "fixes": []
+  "fixes": [
+    "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on."
+  ]
 }
