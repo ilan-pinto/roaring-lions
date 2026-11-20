@@ -249,6 +249,11 @@ export async function seedWalletMember(db: D1Like, id: string, now: number, opts
   return { memberId: id, cookie: `${SESSION_COOKIE}=${s.token}` };
 }
 
+/** A seeded member's wallet entitlements, written as given (raw JSON: `readWallet`'s `migrateRoar` settles them on read). */
+export async function setWalletEntitlements(db: D1Like, id: string, entitlements: unknown): Promise<void> {
+  await db.prepare('UPDATE wallet SET entitlements = ?1 WHERE member_id = ?2').bind(JSON.stringify(entitlements), id).run();
+}
+
 /** The coupon table the coupon and claim tests inject (GH-1415). The shipped `data/coupons.json` is EMPTY: a hash of a
  *  code in a public repository is a public grant. One code, two grants under its hash, as the routes' "one code, several
  *  entries" rule needs: credits only, and coins far above `CLAIM_COUPON_COINS_CAP`. */

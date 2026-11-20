@@ -19,11 +19,13 @@ describe('wiring in main.ts (pinned as text)', () => {
     expect(gateAt).toBeGreaterThan(-1);
     expect(gate).toContain('prod: import.meta.env.PROD');
     expect(gate).toContain('hostname: location.hostname');
+    // GH-1418: and the scheme, which is how `playerHost` knows the desktop build's page.
+    expect(gate).toContain('protocol: location.protocol');
     expect(call).toContain('env: qualityEnv');
     expect(call).toContain('renderer: gpuName');
   });
   it('loads the card only past the gate, and logs a failed chunk load', () => {
-    expect(gate).toContain("if (feedbackSends(qualityEnv) || qualityEnv.query.has('qualityhint')) {");
+    expect(gate).toContain("if (playerHost(qualityEnv) || qualityEnv.query.has('qualityhint')) {");
     expect(gate).toContain("import('./ui/quality-hint')");
     expect(main).not.toMatch(/^import \{ watchQualityHint \}/m);
     expect(main.slice(at, at + 1700)).toContain("console.error('[quality-hint] the card failed to load', err)");
@@ -36,6 +38,9 @@ describe('wiring in main.ts (pinned as text)', () => {
       expect(src, file).not.toMatch(/saveSettings|localStorage|SETTINGS_KEY|lions\.settings/);
       expect(src, file).toMatch(/settings\.set\(/);
     }
+  });
+  it('waits while the route is not known yet instead of voiding (a deep link, or the leave animation of a click)', () => {
+    expect(call).toContain('routePending: () => router.current() === null,');
   });
   it('measures and shows only on the shell screens, never on a battlefield', () => {
     expect(call).toContain("inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? '')");

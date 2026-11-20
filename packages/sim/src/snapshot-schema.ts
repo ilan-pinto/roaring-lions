@@ -414,6 +414,10 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'stGateTimer', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
   { name: 'stGateHold', cls: 'state', kind: typed('Int32Array', { fixed: 256 }) },
   { name: 'gateLive', cls: 'state', kind: SCALAR },
+  // GH-1438 E6 (fires on civilians), APPENDED. The per-entity flag `setCivFire` writes and the flag that folds it into
+  // hash(): both state, read by selectTarget's second scan on every tick after.
+  { name: 'civFire', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  { name: 'civFireLive', cls: 'state', kind: SCALAR },
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */

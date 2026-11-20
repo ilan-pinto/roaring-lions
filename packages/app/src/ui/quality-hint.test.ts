@@ -36,6 +36,7 @@ function frameSource() {
         ts += dt;
         wall = ts;
         const f = cb;
+        cb = null; // a request fires once, as a real rAF's does: the probe must ask again for the next frame
         f(ts);
       }
     },
@@ -104,7 +105,7 @@ function setup(over: Partial<QualityHintDeps> = {}, quality: Quality = 'high') {
 beforeEach(() => document.body.replaceChildren());
 afterEach(() => document.body.replaceChildren());
 
-describe('qualityHintAllowed: the same gate as telemetry, feedback and the no-graphics notice', () => {
+describe('qualityHintAllowed: the no-graphics notice\'s gate (playerHost; the desktop build: shell/player-host.test.ts)', () => {
   it('a production build on a real host', () => expect(qualityHintAllowed(prodEnv)).toBe(true));
   it('never in dev (pnpm dev, ui:routes, ui:shots, the golden gate)', () => expect(qualityHintAllowed({ ...prodEnv, prod: false })).toBe(false));
   it.each(['localhost', '127.0.0.1', '[::1]', 'mac.local', 'app.localhost', 'game.test'])('never on %s, even in a production build', (hostname) =>
@@ -247,6 +248,39 @@ describe('watchQualityHint: when it stays quiet', () => {
     const { src } = setup({ inShell: () => shell });
     src.play(50, 60);
     shell = false;
+    src.play(200, 60);
+    expect(card()).toBeNull();
+  });
+
+  it('a deep link to a shell screen: the route is not known on the first frames, and the card still appears once it is', () => {
+    let route: string | null = null; // `router.current()?.name` before the mount resolves
+    const shell = (): boolean => ['menu', 'campaign', 'brigade', 'free-play'].includes(route ?? '');
+    const { src } = setup({ inShell: shell, routePending: () => route === null });
+    src.play(5, 60); // the first frames of /campaign: nothing mounted yet
+    expect(card()).toBeNull();
+    route = 'campaign';
+    src.fullSample(60);
+    expect(card()).not.toBeNull();
+  });
+
+  it('without the pending signal the same deep link voids the sample on the first frame and nothing is ever asked', () => {
+    let route: string | null = null;
+    const shell = (): boolean => ['menu', 'campaign', 'brigade', 'free-play'].includes(route ?? '');
+    const { src } = setup({ inShell: shell });
+    src.play(5, 60);
+    route = 'campaign';
+    src.fullSample(60);
+    expect(card()).toBeNull();
+  });
+
+  it('a click into a mission while the route is pending voids the sample: no card shows', () => {
+    let route: string | null = 'menu';
+    const shell = (): boolean => ['menu', 'campaign', 'brigade', 'free-play'].includes(route ?? '');
+    const { src } = setup({ inShell: shell, routePending: () => route === null });
+    src.play(40, 60);
+    route = null; // the leave animation
+    src.play(20, 60);
+    route = 'mission';
     src.play(200, 60);
     expect(card()).toBeNull();
   });

@@ -413,6 +413,10 @@
             ],
             "description": "E3 (GH-1438): evacuate_before only. The civilian groups this evacuation counts, one name or several, each a `group` on a civilians.groups placement (validate:data and the runtime refuse any other). The objective counts only those people, and its zone collects (counts and takes off the map) only them while it is active: a person of another group who walks in is not counted by it, and once it is complete a late arrival of its own group stands in the zone uncounted. When every primary evacuate_before is scoped, civ.settlements_evacuated counts the people of the primaries' groups. Absent: every civilian, one shared tally, as before."
           },
+          "counts_rescued": {
+            "type": "boolean",
+            "description": "E12 (GH-1438): evacuate_before only. A civilian of this evacuation's people (its `group`, or every civilian when unscoped) whom the player's side rescues is counted out like one who walked into the zone (once, in the same tally, with the same `evacuated` event) when he leaves the fight alive while it is active: evacuated by a carrier as a wounded man, or discharged from an aid post. Admission to an aid post counts nothing on its own (the lead, 20 Nov 2026): a patient whose post falls is lost (`woundLost`) and never counted, and one discharged after the objective resolved is not a late save. Absent or false: a rescued civilian counts toward Conduct only, as before. The tally is shared, as an arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one without the flag (pending a lead ruling)."
+          },
           "side": {
             "enum": [
               0,
@@ -491,6 +495,10 @@
             "then": { "properties": { "type": { "const": "evacuate_before" } } }
           },
           {
+            "if": { "required": ["counts_rescued"] },
+            "then": { "properties": { "type": { "const": "evacuate_before" } } }
+          },
+          {
             "if": { "properties": { "type": { "const": "no_collateral_above" } }, "required": ["type"] },
             "then": { "required": ["threshold"] },
             "else": { "not": { "required": ["threshold"] } }
@@ -565,6 +573,10 @@
         "refuge": {
           "type": "string",
           "description": "Marker civilians run to once spooked."
+        },
+        "figures": {
+          "enum": ["all", "adults"],
+          "description": "GH-1438 E14 (D18, Option A): which of the civilian figures the game draws. adults leaves out the child figure, as the adopted D18 requires wherever civilians are under aimed fire (proposal N8, not adopted, would extend that to civilians led away or carried off). Absent or all: every figure. Presentation only: the simulation never reads it."
         }
       }
     },
@@ -673,6 +685,10 @@
                     "tag": {
                       "type": "string",
                       "description": "Tag, so eliminate_hvt and intel.marked_positions can name a unit from this wave."
+                    },
+                    "fires_on_civilians": {
+                      "type": "boolean",
+                      "description": "As on a placement (GH-1438 E6): this wave's bodies fire on civilians when nothing of the fighting sides is in reach. Passed through to the spawn."
                     }
                   }
                 }
@@ -718,7 +734,8 @@
                   "casualties_pct",
                   "timer_s",
                   "zone_entered",
-                  "group_in_zone"
+                  "group_in_zone",
+                  "group_fired"
                 ]
               },
               "value": {
@@ -731,7 +748,7 @@
               },
               "group": {
                 "type": "string",
-                "description": "group_in_zone: the placement group (garrison, wave or spawn) watched. True once one living member stands in `zone`; a group not yet spawned waits (GH-912)."
+                "description": "group_in_zone: the placement group (garrison, wave or spawn) watched. True once one living member stands in `zone`; a group not yet spawned waits (GH-912). group_fired: the group whose first shot fires the trigger, once: the step of the first `fire` event whose shooter is a member, at any target (GH-1438 E7). Being shot at is not firing. A Remetz laser's `beam` and an air `strike` are not `fire` events and do not count, and a carrier's embarked `passengers` are not members of the carrier's group (a passenger placement that names its own `group` is a member of that group)."
               }
             },
             "if": {
@@ -749,6 +766,28 @@
                 "group",
                 "zone"
               ]
+            },
+            "else": {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "group_fired"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "then": {
+                "required": [
+                  "group"
+                ],
+                "not": {
+                  "required": [
+                    "zone"
+                  ]
+                }
+              }
             }
           },
           "do": {
@@ -765,7 +804,8 @@
                   "spawn",
                   "reinforce",
                   "dismount",
-                  "remove"
+                  "remove",
+                  "abduct"
                 ]
               },
               "group": {
@@ -776,6 +816,10 @@
                 "type": "string",
                 "description": "Destination marker."
               },
+              "captives": {
+                "type": "string",
+                "description": "abduct (GH-1438 E8): the civilian group the escort `group` (an enemy group) leads away. Each follows the escort's leader; one standing in `zone` while it lives is taken (leaves play, the `removed` event, as `remove`); `to` must lie inside `zone`. He is let go when the escort is dead, down or more than six tiles off, and freed for good when he breaks for the refuge, which needs a `civilians.refuge`: fire landing close does it in any such mission, a KDF ground soldier within four tiles only in a mission that also declares an `evacuate_before` (the shepherd rule). A held captive standing in an `evacuate_before` zone can be counted out as evacuated, so keep the route clear of one (validate:data warns). The escort paces to its slowest held captive (it halts while one is more than three tiles off, walks on when all are within two, and waits at most ten seconds a halt), so any route length takes them; validate:data refuses captives placed more than six tiles from the escort and a `to` no walk reaches. Required for abduct, refused on every other kind."
+              },
               "units": {
                 "type": "array",
                 "description": "spawn: enemy units. reinforce: player units.",
@@ -785,9 +829,16 @@
               },
               "zone": {
                 "type": "string",
-                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group. A removed carrier's riders go with it wherever they are listed."
+                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group. A removed carrier's riders go with it wherever they are listed. commit/withdraw_to: order only the living group members whose tile lies inside this zone, when the trigger fires; omit to order the whole group (GH-1438 E5). Refused on any other kind, and on a name the map lacks (validate:data, and the runtime at start)."
               }
             },
+            "allOf": [
+              {
+                "if": { "properties": { "kind": { "const": "abduct" } }, "required": ["kind"] },
+                "then": { "required": ["group", "captives", "to", "zone"], "not": { "required": ["units"] } },
+                "else": { "not": { "required": ["captives"] } }
+              }
+            ],
             "if": {
               "properties": {
                 "kind": {
@@ -953,6 +1004,10 @@
         "in_tunnel": {
           "type": "string",
           "description": "Route id (map tunnels[].id) this placement starts inside. The bodies spawn underground in that route rather than standing on their tile, and stay below until the route is dug through and vents -- or die with it if it is collapsed first. Enemy and civilian placements only; player-side burial is refused (see starting_force). Mutually exclusive with a garrison stance, a tag, passengers, and digs, and the route must exist on the mission's map -- all enforced by validate_data.mjs, which also rejects a burial in a route this mission leaves unopenable: the route must be pre_dug, or dug by a digs placement in the same mission, or the garrison could never surface."
+        },
+        "fires_on_civilians": {
+          "type": "boolean",
+          "description": "GH-1438 E6 (D18, Option A): an enemy placement only. With no target of the fighting sides in reach, its bodies fire on the nearest identified, standing civilian; the civilian falls in place (the shipped down pose) and costs the player no Conduct. Refused on starting_force, civilians.groups and a reinforce trigger (validate:data, and the runtime at load)."
         },
         "digs": {
           "type": "string",

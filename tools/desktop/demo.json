@@ -1,0 +1,11 @@
+{
+  "$comment": "GH-1418 demo content cut, the ONE config point. The lead's rulings of 20 Nov 2026: the demo plays the tutorial, then First Light (beit_sahwan_breach), then Beit Sahwan I to IV (Recon, Foothold, Clearance, Subterranean): the whole of Beit Sahwan in campaign order. policy.mjs readDemoConfig checks every id against data/missions; build-local.mjs bakes the list into the web build (RL_DEMO_MISSIONS), and the app reads it through packages/app/src/shell/demo-cut.ts. null would ship the whole build.",
+  "missions": [
+    "beit_sahwan_0_tutorial",
+    "beit_sahwan_breach",
+    "beit_sahwan_1_recon",
+    "beit_sahwan_2_foothold",
+    "beit_sahwan_3_clearance",
+    "beit_sahwan_4_subterranean"
+  ]
+}

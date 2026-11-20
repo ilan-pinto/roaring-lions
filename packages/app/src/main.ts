@@ -74,7 +74,6 @@ import {
   mapManifest,
   missionManifest,
   tutorials,
-  world,
   countries,
   commander,
   names,
@@ -109,7 +108,7 @@ import {
 import { isMapId, loadMap, loadMaps, loadMission } from '@lions/data/content-lazy';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
-import { sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
+import { sandboxWorksBuilders, sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
@@ -147,7 +146,7 @@ import { browserFeedbackSession, type FeedbackSession, type SessionNote } from '
 import { collectContext, type ContextInput } from './feedback/context';
 import { installErrorRing, recentErrors } from './feedback/errors';
 import { holdDraft, readDraft } from './feedback/draft';
-import { isClosed as feedbackClosed, feedbackSends } from './feedback/gate';
+import { isClosed as feedbackClosed } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
@@ -285,7 +284,6 @@ import {
   sandboxTunnelRoute,
 } from './sandbox-extras';
 import {
-  SANDBOX_WORKS_KDF,
   bootPicks,
   bootTiers,
   sandboxUnitTypes,
@@ -301,6 +299,8 @@ import {
   deferredBuildables,
   hasUnitMesh,
   meshPlanFor,
+  riggedUnitFiles,
+  civilianFiguresOf,
   meshManifestFor,
   dracoDecoderPath,
 } from './mesh-catalogue';
@@ -355,6 +355,9 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { reloadMenuHref, routes } from './shell/links';
+import { campaignWorldJson } from './shell/demo-cut';
+import { gateDemoRoutes } from './shell/demo-routes';
+import { playerHost } from './shell/player-host';
 import { ChunkLoadError, importWithRetry } from './shell/chunk';
 import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
@@ -411,6 +414,8 @@ import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitNam
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
+/** The campaign world this build plays: world.json, or the desktop demo's cut of it (GH-1418, `shell/demo-cut.ts`). */
+const world = campaignWorldJson();
 /** The callsign a player last typed on `/versus` (N1b), in `localStorage`. */
 const VERSUS_CALLSIGN_KEY = 'lions.versus.callsign';
 /** Every battlefield's `Sim` seed. A constant, so a feedback replay can rebuild
@@ -1669,7 +1674,8 @@ async function main(): Promise<void> {
   const router = new Router({
     base: BASE,
     stage,
-    routes: [
+    // GH-1418: outside the demo's cut a mission, a briefing or Free play leaves softly; with no cut (the web) the same routes.
+    routes: gateDemoRoutes([
       ...arenaRoutes,
       { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
@@ -1828,7 +1834,7 @@ async function main(): Promise<void> {
           return () => {};
         },
       },
-    ],
+    ], (href) => void router.navigate(href, { replace: true })),
     notFound: (host, req) => {
       bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
@@ -1853,7 +1859,7 @@ async function main(): Promise<void> {
   // harness -- all SwiftShader -- never see it or even read the renderer. After
   // the phone notice on purpose: it never opens over another dialog.
   watchNoGpu({
-    env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
+    env: { prod: import.meta.env.PROD, hostname: location.hostname, protocol: location.protocol, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
   // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never probes a software renderer, which that
@@ -1863,14 +1869,17 @@ async function main(): Promise<void> {
   // it; the preset applies at the next mission's boot.
   // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
   // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
-  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
-  if (feedbackSends(qualityEnv) || qualityEnv.query.has('qualityhint')) {
+  // GH-1418: `playerHost`, the helpers' half of "a real host" (the desktop build counts; telemetry, accounts and feedback keep their own gates).
+  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, protocol: location.protocol, query: new URLSearchParams(location.search) };
+  if (playerHost(qualityEnv) || qualityEnv.query.has('qualityhint')) {
     void import('./ui/quality-hint').then(({ watchQualityHint }) => {
       watchQualityHint({
         env: qualityEnv,
         renderer: gpuName,
         settings: settingsDeps,
         inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+        // Null until the route's mount resolves (a deep link, or the leave animation of a click): wait, do not void (GH-1413).
+        routePending: () => router.current() === null,
         frames: {
           raf: (cb) => requestAnimationFrame(cb),
           cancel: (id) => cancelAnimationFrame(id),
@@ -2847,11 +2856,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
   );
   // An economy room's camps (N3 Task 6) are the runtime's structures: the room has no mission.
-  const meshPlan = meshPlanFor(map, meshRoster, [
-    ...(mission?.structures ?? []).map((s) => s.type),
-    ...(versusWorld?.structureTypes ?? []),
-    ...worksIds,
-  ]);
+  // GH-1438 E14: `civilians.figures: "adults"` (D18) leaves the child figure out of the civilians' variants.
+  const civilianFigures = civilianFiguresOf(mission);
+  const meshPlan = meshPlanFor(
+    map,
+    meshRoster,
+    [...(mission?.structures ?? []).map((s) => s.type), ...(versusWorld?.structureTypes ?? []), ...worksIds],
+    civilianFigures
+  );
   // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
   // nothing between here and the renderer's construction may throw, because
   // its teardown is not registered until the context exists.
@@ -3057,7 +3069,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // player orders one (`warmUnitMesh`, per tick below) -- most are never
     // ordered, and each costs 16-48 MiB decoded.
     const job = rigged
-      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction, { cold })
+      ? three.loadMeshUnit(typeId, riggedUnitFiles(typeId, civilianFigures).map(meshUrl), rigged.faction, { cold })
       : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]), { cold });
     job.then(
       () => {
@@ -4960,7 +4972,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       sim,
       sandboxWorksMission(
         sim.structureTypes,
-        SANDBOX_WORKS_KDF.map(([unit, dx, dy]) => ({ unit, at: [anchors.friendly[0] + dx, anchors.friendly[1] + dy] }))
+        sandboxWorksBuilders(sim, typeOf, anchors)
       ),
       {
         typeIdOf: (id) => typeOf.get(id) ?? 0,

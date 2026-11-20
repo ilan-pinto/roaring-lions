@@ -52,6 +52,7 @@ import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type 
 import { internals } from './snapshot';
 import { FWD_TICKS, forwardDrive, forwardWorld } from './runtime-forward-world.test-helper';
 import { GATE_WORLD_TICKS, gateWorld, runGateWorld } from './gate-world.test-helper';
+import { CIV_FIRE_FLAG_TICK, CIV_FIRE_WORLD_TICKS, civFireWorld } from './civ-fire-world.test-helper';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
 // fixed seed and assert the state hash is stable. Must pass before any
@@ -1299,6 +1300,52 @@ describe('determinism of a gate world (1400-tick replay, GH-1438 E1)', () => {
     const w = gateWorld();
     runGateWorld(w, 1);
     expect(internals(w.sim).gateLive).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// CIV_FIRE_WORLD_PIN (GH-1438 E6): a NEW pin, not a moved one. No other replay in this file flags a shooter
+// `fires_on_civilians`, so the deferred `civFireLive` block (the `civFire` column) is outside all of them; this is the
+// replay that sees it. The world is `civ-fire-world.test-helper.ts`'s, 600 ticks: cell A is flagged at tick 40 and
+// shoots the three civilians down, nearest first; at tick 300 a KDF squad walks into both cells' reach and dies there.
+// The test asserts who fell to whom and when, so a change that quietly stops the fire fails here and not only on the number.
+
+function civFireWorldRun(flagAt = CIV_FIRE_FLAG_TICK): { hash: number; downs: string[] } {
+  const w = civFireWorld(false);
+  const downs: string[] = [];
+  for (let t = 0; t < CIV_FIRE_WORLD_TICKS; t++) {
+    w.drive(t);
+    if (t === flagAt) w.sim.setCivFire(w.cellA);
+    for (const e of w.sim.tick()) if (e.kind === 'woundedDown' || e.kind === 'destroyed') downs.push(`${e.kind}:${e.entity}@${e.tick}`);
+  }
+  return { hash: w.sim.hash(), downs };
+}
+
+// CIV_FIRE_WORLD_PIN: born 2026-11-19 (GH-1438 E6), read from the first run. It moves when the civilian-fire rule or
+// the `civFire` fold changes; say why in the commit that moves it. With the flag set at tick 41 instead of 40 (the
+// falsification) the run reads a different number.
+const CIV_FIRE_WORLD_PIN = 1843365804;
+
+describe('determinism of a fires-on-civilians world (600-tick replay, GH-1438 E6)', () => {
+  it('two runs from the seed agree, and the crowd falls to cell A, then the KDF squad to both cells', () => {
+    const a = civFireWorldRun();
+    const b = civFireWorldRun();
+    expect(b.hash).toBe(a.hash);
+    expect(b.downs).toEqual(a.downs);
+    expect(a.downs).toEqual(['woundedDown:3@44', 'woundedDown:4@60', 'woundedDown:5@72', 'destroyed:2@529']);
+  });
+
+  it('the pinned hash', () => {
+    expect(civFireWorldRun().hash).toBe(CIV_FIRE_WORLD_PIN);
+  });
+
+  it('a fires-on-civilians world is the only one in this file whose civFire block is live', () => {
+    const w = civFireWorld();
+    for (let t = 0; t <= CIV_FIRE_FLAG_TICK; t++) {
+      w.drive(t);
+      w.sim.tick();
+    }
+    expect(internals(w.sim).civFireLive).toBe(true);
   });
 });
 

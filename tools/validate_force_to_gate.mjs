@@ -64,8 +64,8 @@ export function authoredBodies(placements, markers, playerStart, keep = () => tr
   return out;
 }
 
-/** Group ids declared ONLY by civilian placements (rule (a)'s "all-civilian"). */
-function civilianOnlyGroups(mission) {
+/** Group ids declared ONLY by civilian placements (rule (a)'s "all-civilian"; validate_muster.mjs reads it too). */
+export function civilianOnlyGroups(mission) {
   const civ = new Set();
   for (const p of mission?.civilians?.groups ?? []) if (p.group !== undefined) civ.add(p.group);
   const other = [

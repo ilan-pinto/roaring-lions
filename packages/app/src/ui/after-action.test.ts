@@ -81,11 +81,32 @@ describe('afterAction (GH-417, H4/H5)', () => {
       'Lost at 5:40. Penetrated through the rear by Spike AT Team (Spike anti-tank missile). It was pinned down. Gefen takes the place.'
     );
     expect(poor.find((p) => p.text.startsWith('Shoded Jeep'))?.sub).toBe('Destroyed by Rifle Squad.');
-    // Two nameless crews of one type: one sentence cannot be both causes, so none is printed.
-    const two = log();
-    two.losses[1].cause = { kind: 'other', attacker: 'inf_squad', suppressed: false };
-    two.losses.push({ tick: 3000, entity: 10, type: 'jeep_shoded', x: 1, y: 1, cause: { kind: 'other', attacker: 'inf_squad', suppressed: false } });
-    expect(afterAction(wh5({ log: two })).poor.find((p) => p.text.startsWith('Shoded Jeep'))?.sub).toBeUndefined();
+  });
+
+  // GH-1380 follow-up: several nameless crews of one type print a tally of their causes. Falsified: dropping the n > 1 branch (no sub),
+  // or counting the type's first loss n times, each turns a case below red.
+  it('several nameless crews of one type: a tally of their causes, the commonest first; a log with no causes at all says nothing', () => {
+    const jeep = (p: { text: string }): boolean => p.text.startsWith('Shoded Jeep');
+    const same = log();
+    same.losses[1].cause = { kind: 'other', attacker: 'inf_squad', suppressed: false };
+    same.losses.push({ tick: 3000, entity: 10, type: 'jeep_shoded', x: 1, y: 1, cause: { kind: 'other', attacker: 'inf_squad', suppressed: false } });
+    expect(afterAction(wh5({ log: same })).poor.find(jeep)).toMatchObject({ mark: '−2', text: 'Shoded Jeep ×2 lost (fresh crew)', sub: '2× Destroyed by Rifle Squad.' });
+
+    const mixed = log();
+    mixed.losses[1].cause = { kind: 'splash', attacker: 'at_team', weapon: 'spike_atgm', suppressed: false };
+    mixed.losses.push(
+      { tick: 3000, entity: 10, type: 'jeep_shoded', x: 1, y: 1, cause: { kind: 'other', attacker: 'inf_squad', suppressed: false } },
+      { tick: 3100, entity: 11, type: 'jeep_shoded', x: 1, y: 1, cause: { kind: 'other', attacker: 'inf_squad', suppressed: false } },
+      { tick: 3200, entity: 12, type: 'inf_squad', x: 1, y: 1, cause: { kind: 'collapse', suppressed: false } }
+    );
+    const poor = afterAction(wh5({ log: mixed })).poor;
+    expect(poor.find(jeep)?.sub).toBe('2× Destroyed by Rifle Squad. 1× Caught in a blast from Spike AT Team (Spike anti-tank missile).');
+    // A type with one nameless loss keeps the plain line, next to the tally of another type.
+    expect(poor.find((p) => p.text.startsWith('Rifle Squad ×1'))?.sub).toBe('Killed in a collapse.');
+
+    const legacy = log();
+    legacy.losses.push({ tick: 3000, entity: 10, type: 'jeep_shoded', x: 1, y: 1 });
+    expect(afterAction(wh5({ log: legacy })).poor.find(jeep)?.sub).toBeUndefined();
   });
 
   // PA-21: an unlock is something to BUY, not a unit in the next force.

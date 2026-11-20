@@ -6,8 +6,8 @@
 // a closed tab and a card that never shows all leave the saved setting as it was. A preset applies at the NEXT mission's boot
 // (`packages/render/src/quality.ts`), never to a running mission, and the card says so.
 //
-// WHEN IT MAY SHOW. The same gate as the no-graphics notice and telemetry (`feedbackSends`: a production build on a real host,
-// or `?qualityhint`), because CI and every harness run on SwiftShader and a card over their frames would swallow their keys. Not
+// WHEN IT MAY SHOW. The same gate as the no-graphics notice (`playerHost`: a production build on a real host, or the desktop
+// build, GH-1418; or `?qualityhint`), because CI and every harness run on SwiftShader and a card over their frames would swallow their keys. Not
 // when the renderer is software (`no-gpu.ts` owns that player, and no preset rescues them: 0.6-1.9 fps at every preset), not when
 // the saved preset is already `low` (nothing lower to suggest), not once the player has answered (asked ONCE, remembered in
 // the browser store (`safeStorage`), in try/catch; a player who later raises the preset is not asked again), not while another dialog is open, and
@@ -18,7 +18,7 @@
 // `settings.hints.software`.
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
-import { feedbackSends } from '../feedback/gate';
+import { playerHost } from '../shell/player-host';
 import type { Quality, Settings } from '../settings';
 import type { StorageLike } from '../brigade-account';
 import { isDialogOpen } from './confirm';
@@ -33,9 +33,9 @@ export const QUALITY_HINT_ANSWERED_KEY = 'lions.qualityHint.answered';
 /** The preset the card suggests. The lead asked for Low: it is the "it must run" preset (`quality.ts`). */
 export const SUGGESTED_QUALITY: Quality = 'low';
 
-/** May the suggestion be considered at all here? A production build on a real host, or `?qualityhint`. */
+/** May the suggestion be considered at all here? A player's real host (the web's, or the desktop build), or `?qualityhint`. */
 export function qualityHintAllowed(env: NoGpuEnv): boolean {
-  return feedbackSends(env) || env.query.has('qualityhint');
+  return playerHost(env) || env.query.has('qualityhint');
 }
 
 export interface QualityHintDeps {
@@ -48,6 +48,11 @@ export interface QualityHintDeps {
   settings: SettingsAccess;
   /** False while the player is in a mission or anywhere else a sample means nothing. */
   inShell: () => boolean;
+  /**
+   * True while the shell does not know its route yet (`router.current()` is null: a deep link before its mount resolves, the leave
+   * animation of a click). The probe then waits instead of voiding on `inShell` (GH-1413's follow-up). Absent: never pending.
+   */
+  routePending?: () => boolean;
   frames: Pick<ProbeDeps, 'raf' | 'cancel' | 'now' | 'visible'>;
   /** Persistent store for "answered"; null when storage is blocked (the card then asks again next load). */
   store: StorageLike | null;
@@ -136,7 +141,7 @@ export function watchQualityHint(deps: QualityHintDeps): Disposer {
     if (quality(deps) === SUGGESTED_QUALITY) return;
     card = showCard(deps, win);
   };
-  stopProbe = sampleFrames({ ...deps.frames, steady: deps.inShell }, onResult);
+  stopProbe = sampleFrames({ ...deps.frames, steady: deps.inShell, ...(deps.routePending === undefined ? {} : { pending: deps.routePending }) }, onResult);
   return () => {
     stopProbe?.();
     stopProbe = null;

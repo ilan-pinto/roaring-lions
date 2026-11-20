@@ -106,6 +106,56 @@ place of a Latin "C") is not folded, and there is no script check. The lead's re
 | "The relay split moves match rooms onto a second worker; agents ran a staging migration." | hosting work, worker, agents, migration | (nothing: leave it out) |
 | "Beit Sahwan IV: civilians moved clear of the force, grown to fifteen, with musters." | a design note, with "musters" as jargon | "Beit Sahwan IV: fifteen civilians now gather away from your troops at the start." |
 
+## The version it cuts
+
+The `version` job decides the release from two signals and takes the stronger (lead, 19 Nov 2026; the rule is
+`tools/next_version.mjs`, read by `tools/decide_version.mjs`):
+
+| Signal | Minor | Patch | Nothing |
+|---|---|---|---|
+| **The notes**: `next.json` at the commit being released | any `units` or `rules` entry | only `fixes` entries | all three empty, no file, or not JSON |
+| **The commits** since the last `v*` tag (`BUMP_BY_TYPE`) | any `feat:` | any other player-facing type (`app:`, `data:`, `fix:`, `sim:` ...) | only `docs:`, `ci:`, `tools:`, `chore:` ... |
+
+- **Why the notes.** Our squash titles are `app:`, `data:`, `ci:` and the like, almost never `feat:`, so the commit
+  rule alone gave a patch to 87 commits whose notes carried 16 rules and 2 fixes: main's merge 599d38012 was cut as
+  v0.134.1, not v0.135.0. The notes are the lead's own account of what a player gets, so a `units` or `rules` entry is a
+  minor. That is one more reason to sort each entry into the right section: a fix drafted under `rules` cuts a minor.
+- **When the notes say nothing** the commit rule decides exactly as before: a docs-only push still cuts nothing, a
+  hotfix straight to `main` a patch. Since the stronger wins, a `feat:` commit still cuts a minor whatever the notes say.
+- **Nothing cuts a major.** A breaking marker (`feat!:`) is read as its type, as before.
+- **Read at HEAD, before the rename.** `decide` runs before "Write, commit and tag" moves `next.json` to
+  `v<X.Y.Z>.json`, and reads it from the pushed promotion merge with `git show HEAD:data/release-notes/next.json`, never
+  from the working tree. The run log's `boundary:` line counts the notes' sections and names their bump.
+- **Pinned** in `tools/src/next_version.test.ts` (the rule) and `tools/src/decide_version.test.ts` (scratch promotions,
+  the 599d38012 notes among them as `tools/src/fixtures/release-notes-599d38012.json`, and the step order in `ci.yml`).
+
+## The cut tag
+
+Every promotion also tags the `dev` commit it promoted (lead, 19 Nov 2026), so "what went out in vX" is one ref:
+`cut/vX.Y.Z`, annotated, on the promotion merge commit's SECOND parent (main is the first parent, the promoted `dev`
+tip the second). The first was made by hand: `cut/v0.134.1` on 7a5434987, for v0.134.1, the release cut from main's
+merge 599d38012 (PR 1634). The automation starts with the next release.
+
+- **The release step makes it.** After the `version` job has pushed `vX.Y.Z` and published the GitHub release, its
+  last step runs `node tools/ci/cut-tag.mjs --release=vX.Y.Z --merge=$GITHUB_SHA --dev=origin/dev --remote=origin`.
+  `$GITHUB_SHA` is the pushed merge commit, named explicitly: by then `HEAD` is the bump commit, which has one parent.
+  No release cut (a docs-only promotion), no cut tag.
+- **It skips, with a log line and a `::warning::` annotation, never a failure,** when the pushed commit has no second
+  parent, when that parent is not on `origin/dev`, or when `cut/vX.Y.Z` already exists here or on origin. An existing
+  cut tag is never moved, deleted or forced, so a hand-made one wins; when it sits on another commit than the promoted
+  one the warning says so (`cut/vX exists on <sha>, not on the promoted <sha>; left alone`). The step is
+  `continue-on-error`: a failure costs the cut tag and nothing else.
+- **The name never matches `v*`.** `tools/decide_version.mjs` finds the last release with
+  `git describe --tags --match 'v*'`. A cut tag can be the nearest tag to main's tip before vX exists (the hand-made
+  `cut/v0.134.1` sits one commit below the merge 599d38012): read as a release, it would have made the range
+  the merge commit alone, which `--no-merges` empties, and v0.134.1 would never have been cut. Never rename it into
+  `v*` (`v-cut/...` included), and never make a `v*` tag from this step.
+- **Pinned** in `tools/src/ci/cut-tag.test.ts`: the name, decide_version's real `lastTag` against a scratch repository
+  holding `v0.1.0` and a newer `cut/v0.2.0` (it must answer `v0.1.0`), and the create and skip paths against a scratch
+  repository with a bare `origin`.
+- **By hand**, if the step failed: `git tag -a cut/vX.Y.Z -m "Branch cut for vX.Y.Z" <merge>^2` and
+  `git push origin refs/tags/cut/vX.Y.Z`. What a release took from `dev`: `git log --first-parent cut/vA..cut/vB`.
+
 ## Where it is checked
 
 - Schema: `data/schemas/release_notes.schema.json`. Filter gate and filename rule: `tools/validate_release_notes.mjs`,
@@ -113,3 +163,6 @@ place of a Latin "C") is not folded, and there is no script check. The lead's re
 - The promotion PR line: `notesLine` in `tools/ci/promotion-pr.mjs`, which only counts entries and never quotes them.
 - The release step: the `version` job in `.github/workflows/ci.yml`, with `tools/ci/release-notes-md.mjs` (tested in
   `tools/src/ci/release-notes-md.test.ts`).
+- The cut tag: `tools/ci/cut-tag.mjs`, the `version` job's last step, tested in `tools/src/ci/cut-tag.test.ts`.
+- The version a release cuts: `tools/next_version.mjs` (`notesBump`, `BUMP_BY_TYPE`) and `tools/decide_version.mjs`,
+  tested in `tools/src/next_version.test.ts` and `tools/src/decide_version.test.ts`.

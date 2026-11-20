@@ -33,7 +33,8 @@ import {
   type OverlayMission,
 } from '@lions/data';
 import type { LedgerData, MissionRuntime } from '@lions/sim';
-import { world } from '@lions/data';
+// GH-1418: the campaign this build plays (the desktop demo's cut, or the whole of world.json), as the board opens it.
+import { campaignWorldJson } from './shell/demo-cut';
 import { missionOpen, parseWorld, type ParsedWorld } from './campaign';
 import { t } from './i18n/t';
 
@@ -146,7 +147,7 @@ export function victoryMark(
     result: end.result,
     amendments: amendments ?? [],
     ledgerAtBoot,
-    world: parseWorld(world),
+    world: parseWorld(campaignWorldJson()),
     targetMinutes: (mission as { target_minutes?: number }).target_minutes ?? 0,
     run: runRowOf(rt, end.roeRating, end.tick),
   });
@@ -164,7 +165,7 @@ export function victoryMark(
 export function amendmentOffer(
   mission: (OverlayMission & { id: string }) | undefined,
   ledger: LedgerData | undefined,
-  w: ParsedWorld = parseWorld(world)
+  w: ParsedWorld = parseWorld(campaignWorldJson())
 ): MissionChallengeJson | null {
   if (mission === undefined || !postureApplies(mission)) return null;
   const c = challengeOf(mission.id);

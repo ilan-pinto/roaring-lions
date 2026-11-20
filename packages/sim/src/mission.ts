@@ -104,6 +104,11 @@ export interface PlacementJson {
    *  (the runtime would let a buried body work the dig). An unknown id
    *  throws at load. */
   digs?: string;
+  /** GH-1438 E6 (D18, Option A): an ENEMY placement (garrison, wave, `spawn` trigger) whose bodies, with no target of
+   *  the fighting sides in reach, fire on the nearest identified, standing civilian (`Sim.setCivFire`). Refused on any
+   *  other side, at load (here) and in validate:data. The civilians fall in place (`down`, the shipped pose); a civilian
+   *  downed by side 1 costs the player no Conduct, since `stepRoe` charges side 0's fire alone. */
+  fires_on_civilians?: boolean;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking
    * in. The only way an AI-driven transport ever has passengers: every other
@@ -228,6 +233,17 @@ export interface ObjectiveJson {
    *  group who walks in is neither counted nor taken off the map by it (N32). Absent is today's evacuation, byte for byte:
    *  every civilian, one shared tally. */
   group?: string | readonly string[];
+  /** `evacuate_before` only (E12, GH-1438, the civilian drama design §10.2 and G-7): a civilian of this evacuation's
+   *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues is counted out exactly as one
+   *  who walked into the zone (latched into the same tally, once, with the same `evacuated` event) at the moment he
+   *  leaves the fight ALIVE: his `woundEvacuated` with side 0, either evacuated by a carrier (on an evac point, or an
+   *  air carrier lifting off) or discharged from an aid post (`carrier` -1), while this objective is active. Admission
+   *  to an aid post (`woundAdmitted`) counts nothing on its own (the lead's ruling, 20 Nov 2026, PR 1651 follow-up): a
+   *  patient whose post falls is lost (`woundLost`) and is never counted, and one still under treatment when the
+   *  objective resolves is not counted either. Absent or false: a rescued civilian counts toward nothing but Conduct,
+   *  as before. The tally is shared, as an arrival's is: with two unscoped evacuations, a rescue latched by the one that
+   *  opts in also counts for the one without the flag (pending a lead ruling). */
+  counts_rescued?: boolean;
   text?: string;
   target?: string;
   /** `escort` only: the destination zone, a name in the map's zones. `target` names the escorted units (a tag on a
@@ -363,6 +379,11 @@ export interface MissionJson {
   civilians?: {
     groups: readonly PlacementJson[];
     refuge?: string;
+    /** GH-1438 E14 (D18, Option A, adopted: no child figure among people under aimed fire; proposal N8, not adopted,
+     *  would extend it to people led away or carried off): which of the `civilians` type's figures the app draws.
+     *  `adults` drops the child variant; absent or `all` draws every one. Type-only here --
+     *  presentation alone reads it (`meshManifestFor` in packages/app); the sim never does. */
+    figures?: 'all' | 'adults';
   };
   roe?: {
     enabled?: boolean;
@@ -391,7 +412,8 @@ export interface MissionJson {
       at_seconds: number;
       trigger?: string;
       to?: string;
-      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string }[];
+      /** `fires_on_civilians` (GH-1438 E6) passes through to the spawn, as `group` and `tag` do. */
+      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string; fires_on_civilians?: boolean }[];
       /** Spoken when the wave spawns (G12, 2026-09-06): the same say a
        *  trigger carries, emitted right after the wave event. */
       say?: SayJson;
@@ -403,8 +425,9 @@ export interface MissionJson {
      *  the sim never reads it; `describeMissionEvent` (packages/app) looks it
      *  up off the same `MissionJson` by the trigger's id. */
     label?: string;
-    /** on.kind: 'first_contact' | 'casualties_pct' | 'timer_s' | 'zone_entered' | 'group_in_zone'. `zone` names a map
-     *  zone for the last two; `group` the placement group, of any side, `group_in_zone` watches (GH-912). */
+    /** on.kind: 'first_contact' | 'casualties_pct' | 'timer_s' | 'zone_entered' | 'group_in_zone' | 'group_fired'. `zone`
+     *  names a map zone for `zone_entered` and `group_in_zone`; `group` the placement group, of any side, `group_in_zone`
+     *  watches (GH-912), or whose first shot `group_fired` waits for (GH-1438 E7). */
     on: { kind: string; value?: number; zone?: string; group?: string };
     /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' | 'dismount' |
      *  'remove' — string-typed so parsed JSON assigns structurally; the schema
@@ -413,8 +436,12 @@ export interface MissionJson {
      *  `zone` when given) leaves play via `sim.removeFromPlay` — the enemy's
      *  act, not a kill; `to`/`units` are meaningless for it and the schema
      *  refuses them. Anyone riding in a removed carrier leaves with it, whether
-     *  or not he is in the group or the zone. */
-    do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string };
+     *  or not he is in the group or the zone. commit/withdraw_to: a `zone`
+     *  orders only the members whose tile is inside it (GH-1438 E5). abduct (GH-1438 E8):
+     *  `group` (the escort, side 1) walks to `to`; the civilians of `captives` follow its
+     *  leader, and one standing in `zone` while the escort lives is taken (`removed`). See
+     *  `stepAbductions`. */
+    do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string; captives?: string };
     /** Fires as a `MissionEvent` the tick this trigger fires, right after the
      *  `trigger` event it annotates. */
     say?: SayJson;
@@ -775,6 +802,32 @@ const SUPPORTED = new Set([
 const SIDED = new Set(['capture', 'hold_for', 'raze', 'score']);
 /** A score is held in 1/1200ths of a point (a minute of ticks), so `per_min` is units a tick, exactly. */
 const SCORE_UNITS = 60 * TICKS_PER_SECOND;
+/** GH-1438 E8: a captive more than six tiles from his escort's leader is not held: 6 x 6 tiles^2 in the Q8.8 squared form
+ *  the shepherd test uses (36 x 65536 = 2,359,296, inside int32). */
+const ABDUCT_RELEASE_SQ = 36 * 65536;
+/** GH-1438 E8: each captive is re-ordered to the leader once in this many ticks (half a second), staggered by id. */
+const ABDUCT_FOLLOW_TICKS = 10;
+/** GH-1438 E8 pacing: the escort halts when a held captive is more than three tiles from its leader (3 x 3 tiles^2,
+ *  Q8.8 squared as `ABDUCT_RELEASE_SQ`): half the release radius, so a walking captive is never past 3 tiles plus the
+ *  one tick a halt takes to land (0.05 tiles at 0.95 t/s), three tiles inside the six that would let him go. */
+const ABDUCT_PACE_WAIT_SQ = 9 * 65536;
+/** GH-1438 E8 pacing: ... and walks on once every held captive is within two (2 x 2 tiles^2). A tile of hysteresis:
+ *  at the shipped 0.15 t/s gap rate (militia_cell 0.95 over civilians 0.8) that is about 6.7 s of walking a stop. */
+const ABDUCT_PACE_GO_SQ = 4 * 65536;
+/** GH-1438 E8 pacing: the longest the escort waits for one halt (10 s). A captive who has not closed to two tiles by
+ *  then cannot (a shut gate, a crowd, a hobble): the escort walks on, unpaced, for `ABDUCT_PACE_WALK_ON_TICKS`. */
+const ABDUCT_PACE_CAP_TICKS = 10 * TICKS_PER_SECOND;
+/** GH-1438 E8 pacing: after a wait ran out the escort walks this long (10 s) before it may halt again. Long enough for
+ *  the one who cannot follow to fall past six and be let go (from two tiles off, four tiles at any gap rate of 0.4 t/s
+ *  or more; a captive who cannot move at all opens it at the escort's own 0.95), short enough that one who CAN follow,
+ *  within two when the wait ran out, opens only 1.5 tiles more at the shipped 0.15 t/s and is still held. No deadlock:
+ *  at worst the escort walks ten seconds in every twenty. */
+const ABDUCT_PACE_WALK_ON_TICKS = 10 * TICKS_PER_SECOND;
+/** `abductPace` codes. A positive value is a halt: the tick it was ordered, plus one. A value below `ABDUCT_PACE_OFF`
+ *  is a walk-on after a wait ran out: minus (the tick it began, plus three). This one is walking, pacing armed. */
+const ABDUCT_PACE_WALK = 0;
+/** A later trigger ordered the escort (`commit`, `withdraw_to` or another `abduct` of its group): pacing is over. */
+const ABDUCT_PACE_OFF = -2;
 /** Score units a unit of destroyed value is worth per point-per-100: `SCORE_UNITS / 100`. */
 const SCORE_PER_VALUE = (SCORE_UNITS / 100) | 0;
 
@@ -1245,6 +1298,9 @@ export class MissionRuntime {
   private resultValue: 'ongoing' | 'victory' | 'defeat' = 'ongoing';
   /** #540: set by `checkEnd` when the time limit was the ONLY reason the mission was lost. */
   private withdrawnValue = false;
+  /** GH-1438 E8 pacing: per trigger, an `abduct`'s escort state (`ABDUCT_PACE_WALK`, `ABDUCT_PACE_OFF`, a halt or a
+   *  walk-on, each with its tick). 0 for every other trigger, and never written for one. `stepAbductPace`. */
+  private readonly abductPace: number[] = [];
 
   constructor(sim: Sim, mission: MissionJson, ctx: MissionContext) {
     this.sim = sim;
@@ -1269,6 +1325,9 @@ export class MissionRuntime {
         if (names.length === 0 || names.some((n) => typeof n !== 'string' || n.length === 0)) {
           throw new Error(`mission ${mission.id}: evacuate_before "${def.id}" needs a group of one or more non-empty names`);
         }
+      }
+      if (def.counts_rescued !== undefined && def.type !== 'evacuate_before') {
+        throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no counts_rescued (only evacuate_before does)`);
       }
       if (def.threshold !== undefined && def.type !== 'no_collateral_above') {
         throw new Error(`mission ${mission.id}: objective "${def.id}" is a ${def.type}, which takes no threshold (only no_collateral_above does)`);
@@ -1340,6 +1399,7 @@ export class MissionRuntime {
       this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null, completeTick: -1 });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
+    this.abductPace = new Array(mission.triggers?.length ?? 0).fill(ABDUCT_PACE_WALK);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
     this.rosterPool = [...(ctx.ledger?.['roster.surviving_units'] ?? [])];
     // What recon marked last mission. A tag in here spawns pre-revealed and gives up
@@ -1673,6 +1733,10 @@ export class MissionRuntime {
       if (this.ctx.goalsOnly === true) h = hashWord(h, o.completeTick | 0);
     }
     for (let i = 0; i < this.firedTriggers.length; i++) h = hashWord(h, this.firedTriggers[i] ? 1 : 0);
+    // GH-1438 E8: an abduct's pacing state decides when its escort halts and walks on. Folded for an abduct trigger
+    // only, so a mission without one (every shipped mission) folds nothing and its digest is byte-identical.
+    const trig = this.mission.triggers ?? [];
+    for (let i = 0; i < this.abductPace.length; i++) if (trig[i].do.kind === 'abduct') h = hashWord(h, this.abductPace[i] | 0);
     for (let i = 0; i < this.spawnedWaves.length; i++) h = hashWord(h, this.spawnedWaves[i] ? 1 : 0);
     // Floored: every deduction is an integer today, and `| 0` floors the
     // non-negative score (it is clamped at 0) without Math.
@@ -2894,6 +2958,25 @@ export class MissionRuntime {
    *  `onLayout` (GH-1360 S3b, tests and tools): told where the starting layout stood each body and how (`slot`,
    *  `free` or `authored`), in spawn order. Not called for a mission with no `start_layout`. */
   start(onLayout?: (placements: readonly StartPlacement[]) => void): void {
+    // GH-1438 E6: `fires_on_civilians` is an enemy placement's. On a player or a civilian placement, refuse it here, at
+    // load: a `reinforce` carrying it would otherwise throw from `spawnPlacement` in the middle of the mission. A
+    // carrier's `passengers` spawn on the carrier's side (`embarkPassengers`), so they are walked too, at any depth.
+    const friendly: { where: string; list: readonly PlacementJson[] }[] = [
+      { where: 'starting_force', list: this.mission.starting_force ?? [] },
+      { where: 'civilians.groups', list: this.mission.civilians?.groups ?? [] },
+      ...(this.mission.triggers ?? []).flatMap((t, i) =>
+        t.do.kind === 'reinforce' ? [{ where: `trigger "${t.id ?? `trigger_${i}`}" reinforce`, list: t.do.units ?? [] }] : []
+      ),
+    ];
+    const refuseCivFire = (where: string, list: readonly PlacementJson[]): void => {
+      for (const p of list) {
+        if (p.fires_on_civilians === true) {
+          throw new Error(`mission ${this.mission.id}: ${where} ${p.unit} carries fires_on_civilians, which only an enemy placement takes`);
+        }
+        if (p.passengers !== undefined) refuseCivFire(`${where} ${p.unit} passenger`, p.passengers);
+      }
+    };
+    for (const { where, list } of friendly) refuseCivFire(where, list);
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
@@ -2955,6 +3038,41 @@ export class MissionRuntime {
         if (!u.from) continue; // spawnPlacement reports the missing marker itself
         const [wx, wy] = this.markerPos(u.from);
         this.assertGroundClear(u.unit, wx, wy, u.count);
+      }
+    }
+    // GH-1438 E5: a trigger's `do.zone` filters who it acts on (`remove`, `commit`, `withdraw_to`). A name the map
+    // lacks resolved to no zone, and no zone means the WHOLE group: a typo would take or move everyone. Refuse it.
+    for (const [i, t] of (this.mission.triggers ?? []).entries()) {
+      if (t.do.zone !== undefined && !this.zone(t.do.zone)) {
+        throw new Error(`mission ${this.mission.id}: trigger "${t.id ?? `trigger_${i}`}" do.zone names unknown zone "${t.do.zone}"`);
+      }
+      // GH-1438 E8: an abduct needs its exit zone, its destination and a CIVILIAN group to take (civilians spawn at start
+      // alone, so the groups are final here). Without any of them it could never take anyone, or would lead soldiers away.
+      if (t.do.kind === 'abduct') {
+        const name = t.id ?? `trigger_${i}`;
+        if (t.do.zone === undefined || t.do.to === undefined || t.do.group === undefined) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" needs group, to and zone`);
+        }
+        const caps = this.groups.get(t.do.captives ?? '') ?? [];
+        if (caps.length === 0 || caps.some((id) => this.sim.state.side[id] !== 2)) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" captives "${t.do.captives}" is not a civilian group`);
+        }
+        // The escort is an ENEMY group: only a side-1 member leads (`stepAbductions`), so one that names a player or
+        // civilian placement would fire, latch and hold nobody. Every member standing now must be side 1; an escort that
+        // a later `spawn` or wave raises is empty here and passes (validate:data checks the placements by side).
+        const escort = this.groups.get(t.do.group) ?? [];
+        if (escort.some((id) => this.sim.state.side[id] !== 1)) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" escort group "${t.do.group}" is not an enemy group`);
+        }
+        // Mirrors the refuge rule (evacuate_before, below): the escort stops at `to`, so a `to` outside the exit zone
+        // parks the column beside the zone with the captives held round it, and nobody is ever taken.
+        const exit = this.zone(t.do.zone);
+        const [ax, ay] = this.markerPos(t.do.to);
+        const tx = ax >> 16;
+        const ty = ay >> 16;
+        if (exit && !(tx >= exit[0] && tx < exit[0] + exit[2] && ty >= exit[1] && ty < exit[1] + exit[3])) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" marker "${t.do.to}" is outside zone "${t.do.zone}"`);
+        }
       }
     }
     for (const o of this.objectives) {
@@ -3155,6 +3273,17 @@ export class MissionRuntime {
         const parent = this.woundParentOf.get(e.entity);
         if (parent !== undefined && this.sim.state.alive[parent] === 1) this.rescuedBack.set(parent, (this.rescuedBack.get(parent) ?? 0) + 1);
       }
+      // E12: a civilian the player rescued, for an active evacuation that counts rescues, is counted out like an arrival,
+      // and only once he is OUT alive (carrier evacuation or aid-post discharge): never at admission (lead, 20 Nov).
+      if (
+        e.kind === 'woundEvacuated' &&
+        e.side === 0 &&
+        this.sim.state.side[e.entity] === 2 &&
+        this.rescueCounts(e.entity) &&
+        this.civFlight.countRescued(e.entity)
+      ) {
+        out.push({ kind: 'evacuated', tick, entity: e.entity });
+      }
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
         if (this.sim.state.side[e.by] === 0) this.contributed.add(e.by);
@@ -3193,7 +3322,8 @@ export class MissionRuntime {
     this.stepWorks(simEvents, tick, out);
     this.stepCivilians();
     this.stepPatrols();
-    this.stepTriggers(tick, out);
+    this.stepTriggers(tick, out, simEvents);
+    this.stepAbductions(tick, out);
     this.stepWaves(tick, out);
     this.stepHighGround(tick, out);
     // Guarded: `splice(0)` allocates an array every call, and this runs every tick.
@@ -4071,6 +4201,13 @@ export class MissionRuntime {
       this.assertGroundClear(p.unit, bx, by, drawn.length);
     }
 
+    // GH-1438 E6: only an enemy placement fires on civilians. `start()` refuses the flag on every player and civilian
+    // placement it can see (the starting force, the crowd, every `reinforce`, and every passenger of any of them), so this
+    // guard is never reached mid-mission.
+    if (p.fires_on_civilians === true && side !== 1) {
+      throw new Error(`mission ${this.mission.id}: ${p.unit} is a side-${side} placement; only an enemy placement takes fires_on_civilians`);
+    }
+
     const ids: number[] = [];
     for (let k = 0; k < drawn.length; k++) {
       const ox = (k % 3) * SPREAD;
@@ -4099,6 +4236,8 @@ export class MissionRuntime {
       // route, so on an unvalidated count > 1 the last body silently wins —
       // validate_data.mjs refuses such a placement before it ships.
       if (digsIdx >= 0) this.sim.assignDigger(digsIdx, id);
+      // GH-1438 E6: the enemy's fire on the crowd, by placement (side checked above, before any body spawned).
+      if (p.fires_on_civilians === true) this.sim.setCivFire(id);
       // Carry-over, consumed. A placement recon marked last mission is already known:
       // it spawns visible, and it does not get to spring an ambush. This is what makes
       // a thorough recon worth doing -- and why one mission file plays differently by
@@ -4679,7 +4818,20 @@ export class MissionRuntime {
     return e.side <= 1 && targetSide <= 1 && targetSide !== e.side;
   }
 
-  private stepTriggers(tick: number, out: MissionEvent[]): void {
+  /** GH-1438 E7: did a member of `group` fire a weapon in THIS step's sim events? No latch of its own: the
+   *  trigger's own `firedTriggers` entry is the latch (folded in `digest()`), because `stepTriggers` reads this the same
+   *  step the shot lands, every step, so "this step" for the first step it is true is "first". A group with no member
+   *  spawned yet (a wave's) has not fired. */
+  private groupFired(group: string | undefined, simEvents: readonly SimEvent[]): boolean {
+    const members = this.groups.get(group ?? '');
+    if (members === undefined || members.length === 0) return false;
+    for (const e of simEvents) {
+      if (e.kind === 'fire' && members.includes(e.shooter)) return true;
+    }
+    return false;
+  }
+
+  private stepTriggers(tick: number, out: MissionEvent[], simEvents: readonly SimEvent[]): void {
     const triggers = this.mission.triggers ?? [];
     for (let i = 0; i < triggers.length; i++) {
       if (this.firedTriggers[i]) continue;
@@ -4713,6 +4865,10 @@ export class MissionRuntime {
         // there yet, so the trigger waits for it rather than being consumed on an empty group.
         const z = this.zone(t.on.zone);
         fire = z !== undefined && this.groupIn(t.on.group, z);
+      } else if (t.on.kind === 'group_fired') {
+        // GH-1438 E7: a cue line, once, the first time anyone in the group shoots at anything (a KDF man, a wall, a
+        // civilian under E6). Any `fire` event counts, whatever its target: the cue is that the group opened up.
+        fire = this.groupFired(t.on.group, simEvents);
       }
       if (!fire) continue;
       this.firedTriggers[i] = true;
@@ -4725,8 +4881,16 @@ export class MissionRuntime {
         // a patroller must not lose its beat on the strength of an order it
         // never received. A fully buried group consumes the trigger and
         // commands nothing, which the mission log already records.
+        //
+        // GH-1438 E5: a `zone` narrows the order to the members standing in it, by the same tile rule `remove`
+        // uses below, so a take ordered at 120 s walks only the captives still in the pen and never one a soldier
+        // has already freed. Absent, the whole group moves, as before. `start()` refuses a zone the map lacks.
+        const zone = t.do.zone !== undefined ? this.zone(t.do.zone) : undefined;
         const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
-          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+          (id) =>
+            this.sim.state.alive[id] === 1 &&
+            this.sim.state.tunnelIn[id] < 0 &&
+            (zone === undefined || zoneContains(zone, this.sim.state.posX[id] >> 16, this.sim.state.posY[id] >> 16)),
         );
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);
@@ -4736,12 +4900,28 @@ export class MissionRuntime {
           // `Command`'s `sweep`; the lead's ruling, 2026-10-11).
           if (t.do.kind === 'commit') this.sim.queueCommand({ kind: 'attackMove', ids, x, y, sweep: true });
           else this.sim.queueCommand({ kind: 'move', ids, x, y });
+          this.abductOrdered(t.do.group ?? '', i);
           // A trigger order overrides the standing stance, and for a patrol it
           // has to say so out loud. `stepPatrols` re-issues the next waypoint
           // the instant a unit stops moving, so without this the ordered move
           // completes and the patrol immediately walks the unit back the way it
           // came -- a `withdraw_to` that returns to the fight, and a `commit`
           // that wanders off it. Silent, and it defeated the trigger entirely.
+          const ordered = new Set(ids);
+          for (let k = this.patrols.length - 1; k >= 0; k--) {
+            if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
+          }
+        }
+      } else if (t.do.kind === 'abduct') {
+        // GH-1438 E8: the escort sets off for `to` (the captives' following is `stepAbductions`, from this tick on). Its
+        // living, surface members only, like a `withdraw_to`, and a patroller among them drops its beat.
+        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
+          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+        );
+        if (ids.length > 0 && t.do.to) {
+          const [x, y] = this.markerPos(t.do.to);
+          this.sim.queueCommand({ kind: 'move', ids, x, y });
+          this.abductOrdered(t.do.group ?? '', i);
           const ordered = new Set(ids);
           for (let k = this.patrols.length - 1; k >= 0; k--) {
             if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
@@ -4814,6 +4994,122 @@ export class MissionRuntime {
     }
   }
 
+  /**
+   * GH-1438 E8 (the civilian drama design §10.2 E8, "the simplest honest version"; D18 Option A: an enemy group may lead
+   * civilians away on foot toward the edge of the map, where they leave play as taken). For every `abduct` trigger that
+   * has fired, in authored order:
+   *   - the LEADER is the lowest-id living, surface, standing side-1 member of the escort `group`. With none (dead, down,
+   *     removed or buried) nobody is held: the abduction is over;
+   *   - a CAPTIVE is a living, standing, surface, uncarried civilian of `captives` who has not fled (`civFlight.hasFled`,
+   *     for good; nothing holds him against it). Fleeing needs a `civilians.refuge`: fire landing close frees him in any
+   *     such mission, and a KDF ground soldier within four tiles (the shepherd rule) only in one that also declares an
+   *     `evacuate_before` (`missionShepherds`);
+   *   - a captive more than six tiles from the leader is not held (no order, never taken): he is the flight rule's;
+   *   - a captive standing in `zone` while the leader lives is TAKEN: `removeFromPlay`, and the same `removed` event a
+   *     `remove` trigger raises (no harm, no other effect: D18);
+   *   - every other captive is ordered to the leader's position (an `exact` move), once every ten ticks, staggered by id
+   *     (`(tick + id) % 10 === 0`);
+   *   - and the escort PACES to the held captives (`stepAbductPace`), so none is let go by being outwalked.
+   * The cost, disclosed: "more than six tiles off" is read each tick rather than latched, so an escort that a later
+   * trigger walks back past a captive it left behind would hold him again. Integer only, ascending ids, no draw.
+   */
+  private stepAbductions(tick: number, out: MissionEvent[]): void {
+    const triggers = this.mission.triggers ?? [];
+    const st = this.sim.state;
+    for (let i = 0; i < triggers.length; i++) {
+      const t = triggers[i];
+      if (t.do.kind !== 'abduct' || !this.firedTriggers[i]) continue;
+      let leader = -1;
+      for (const id of this.groups.get(t.do.group ?? '') ?? []) {
+        if (st.alive[id] !== 1 || st.side[id] !== 1 || st.tunnelIn[id] >= 0 || this.sim.isDown(id)) continue;
+        if (leader < 0 || id < leader) leader = id;
+      }
+      const zone = this.zone(t.do.zone);
+      // The largest squared gap (Q8.8, as `ABDUCT_RELEASE_SQ`) between the leader and a captive held after this tick's
+      // takes; -1 when none is held.
+      let lag = -1;
+      for (const c of this.groups.get(t.do.captives ?? '') ?? []) {
+        if (st.alive[c] !== 1 || st.side[c] !== 2 || st.tunnelIn[c] >= 0 || st.carriedBy[c] >= 0) continue;
+        if (leader < 0 || this.civFlight.hasFled(c) || st.woundState[c] !== 0) continue;
+        const dx = (fx.sub(st.posX[c], st.posX[leader]) >> 8) | 0;
+        const dy = (fx.sub(st.posY[c], st.posY[leader]) >> 8) | 0;
+        const gap = dx * dx + dy * dy;
+        if (gap > ABDUCT_RELEASE_SQ) continue;
+        if (zone !== undefined && zoneContains(zone, st.posX[c] >> 16, st.posY[c] >> 16)) {
+          const unit = this.sim.unitTypes[st.typeIdx[c]].id;
+          this.sim.removeFromPlay(c);
+          out.push({ kind: 'removed', tick, entity: c, side: 2, unit });
+          continue;
+        }
+        if (gap > lag) lag = gap;
+        if ((tick + c) % ABDUCT_FOLLOW_TICKS === 0) {
+          this.sim.queueCommand({ kind: 'move', ids: [c], x: st.posX[leader], y: st.posY[leader], exact: true });
+        }
+      }
+      if (leader >= 0) this.stepAbductPace(i, t.do.group ?? '', t.do.to ?? '', leader, lag, tick);
+    }
+  }
+
+  /**
+   * GH-1438 E8 pacing: the escort waits for its slowest held captive, so that no route is too long to take anyone on
+   * (the escort, `militia_cell` 0.95 t/s, outwalks `civilians` 0.8, and without this the gap passed the six-tile
+   * release after about 36 tiles). One state word a trigger, `abductPace[i]`:
+   *   - WALKING (`ABDUCT_PACE_WALK`): while the leader is under way (`moving`) and a held captive is more than three
+   *     tiles off (`ABDUCT_PACE_WAIT_SQ`), the escort is HALTED (the `halt` command, its living surface side-1 members)
+   *     and the word records the tick;
+   *   - HALTED (positive): once every held captive is within two tiles (`ABDUCT_PACE_GO_SQ`), or none is held any more
+   *     (taken, fled, killed, down, or more than six off: no deadlock), the escort's `move` to `to` is RE-ISSUED, as the
+   *     trigger issued it, and it is WALKING again. A halt that lasts `ABDUCT_PACE_CAP_TICKS` walks on regardless;
+   *   - WALK-ON (below `ABDUCT_PACE_OFF`, with its tick): walking without pacing for `ABDUCT_PACE_WALK_ON_TICKS` (the one
+   *     who could not follow falls past six and is let go), then WALKING;
+   *   - OFF (`ABDUCT_PACE_OFF`): a later trigger ordered the escort's group (`abductOrdered`); its order stands.
+   * The release rules are not touched: suppression, the shepherd rule, the escort's death and the six-tile gap all
+   * free a captive exactly as before; pacing only keeps the gap from reaching six by walking. Every input is sim state
+   * or this word (a runtime snapshot row, folded into `digest` for an abduct trigger); integer only, no draw, and the
+   * only allocation is the order's id list, on a change of state (never per tick).
+   */
+  private stepAbductPace(i: number, group: string, to: string, leader: number, lag: number, tick: number): void {
+    const st = this.sim.state;
+    const pace = this.abductPace[i];
+    if (pace === ABDUCT_PACE_OFF) return;
+    if (pace > 0) {
+      const spent = tick - (pace - 1) >= ABDUCT_PACE_CAP_TICKS;
+      if (lag > ABDUCT_PACE_GO_SQ && !spent) return;
+      const ids = this.escortIds(group);
+      if (ids.length > 0 && to !== '') {
+        const [x, y] = this.markerPos(to);
+        this.sim.queueCommand({ kind: 'move', ids, x, y });
+      }
+      this.abductPace[i] = spent && lag > ABDUCT_PACE_GO_SQ ? -(tick + 3) : ABDUCT_PACE_WALK;
+    } else if (pace < ABDUCT_PACE_OFF) {
+      if (tick - (-pace - 3) >= ABDUCT_PACE_WALK_ON_TICKS) this.abductPace[i] = ABDUCT_PACE_WALK;
+    } else if (lag > ABDUCT_PACE_WAIT_SQ && st.moving[leader] === 1) {
+      const ids = this.escortIds(group);
+      if (ids.length > 0) {
+        this.sim.queueCommand({ kind: 'halt', ids });
+        this.abductPace[i] = tick + 1;
+      }
+    }
+  }
+
+  /** The escort members pacing orders: the living, surface side-1 members of `group` (the trigger's own filter, and the
+   *  leader's side rule). Allocates; called only when the pacing state changes. */
+  private escortIds(group: string): number[] {
+    const st = this.sim.state;
+    return (this.groups.get(group) ?? []).filter((id) => st.alive[id] === 1 && st.tunnelIn[id] < 0 && st.side[id] === 1);
+  }
+
+  /** GH-1438 E8 pacing: trigger `by` has just ordered `group` (a `commit`, `withdraw_to` or `abduct` that queued an order).
+   *  Every abduct of that group stops pacing (`ABDUCT_PACE_OFF`), so it never halts or re-routes an escort a later
+   *  trigger sent elsewhere; the one that IS `by` starts walking (`ABDUCT_PACE_WALK`). */
+  private abductOrdered(group: string, by: number): void {
+    const triggers = this.mission.triggers ?? [];
+    for (let k = 0; k < triggers.length; k++) {
+      const d = triggers[k].do;
+      if (d.kind === 'abduct' && d.group === group) this.abductPace[k] = k === by ? ABDUCT_PACE_WALK : ABDUCT_PACE_OFF;
+    }
+  }
+
   private stepWaves(tick: number, out: MissionEvent[]): void {
     const waves = this.mission.enemy?.waves ?? [];
     for (let i = 0; i < waves.length; i++) {
@@ -4837,7 +5133,7 @@ export class MissionRuntime {
         // through `timer_s` triggers instead (#88).
         spawned.push(
           ...this.spawnPlacement(
-            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
+            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag, fires_on_civilians: u.fires_on_civilians },
             1,
             undefined,
             true
@@ -4875,6 +5171,21 @@ export class MissionRuntime {
     for (const civ of this.civFlight.collect(this.sim, ids, z)) {
       out.push({ kind: 'evacuated', tick, entity: civ });
     }
+  }
+
+  /** E12: whether an ACTIVE `evacuate_before` with `counts_rescued` counts civilian `id` (unscoped: every civilian; scoped:
+   *  its groups). Active only, as `collect` runs only for an active evacuation (E3): a rescue that ends after the clock
+   *  ran out (a late evacuation, or a discharge from a post he was admitted to in time) is Conduct, not a late save.
+   *  Read on a `woundEvacuated` alone, so the scan over a handful of objectives costs nothing. */
+  private rescueCounts(id: number): boolean {
+    for (const o of this.objectives) {
+      const d = o.def;
+      if (o.status !== 'active' || d.type !== 'evacuate_before' || d.counts_rescued !== true) continue;
+      const g = d.group;
+      if (g === undefined) return true;
+      if (typeof g === 'string' ? (this.groups.get(g) ?? []).includes(id) : g.some((n) => (this.groups.get(n) ?? []).includes(id))) return true;
+    }
+    return false;
   }
 
   /** How many an evacuation has to its name (E3): the one shared tally when it is unscoped, else the people of its groups

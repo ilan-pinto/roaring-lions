@@ -132,6 +132,49 @@ describe('the after-action report (GH-417)', () => {
     expect(document.activeElement).toBe(hud);
   });
 
+  // GH-1408 (KS-14): the body scrolls inside the panel and the action row is outside it. A body that overflows is a tab stop the
+  // trap can reach, so a keyboard player can scroll to the end of the report; one that fits adds no stop. jsdom has no layout,
+  // so the two sizes are stubbed on the prototype for the overflowing case.
+  describe('the scrolling body (KS-14)', () => {
+    const bodyOf = (host: HTMLElement): HTMLElement => {
+      const b = host.querySelector<HTMLElement>('.rl-aar > .rl-panel__body');
+      if (!b) throw new Error('no body');
+      return b;
+    };
+    it('a report that fits has no extra tab stop', () => {
+      const body = bodyOf(mount(opts()));
+      expect(body.hasAttribute('tabindex')).toBe(false);
+      expect(body.hasAttribute('role')).toBe(false);
+    });
+    it('an overflowing report is a named region the trap can Tab to, from the last control round to the first', () => {
+      const sh = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+      const ch = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get: () => 900 });
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 300 });
+      try {
+        const host = mount(opts());
+        const body = bodyOf(host);
+        expect(body.getAttribute('tabindex')).toBe('0');
+        expect(body.getAttribute('role')).toBe('region');
+        expect(body.getAttribute('aria-label')).toBe('After-action report');
+        const primary = host.querySelector<HTMLElement>('[data-end-primary]');
+        if (!primary) throw new Error('no primary');
+        primary.focus();
+        const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        document.body.dispatchEvent(tab);
+        expect(document.activeElement).toBe(body);
+        // Released with the report: the body is not left holding a tab stop after the disposer ran.
+        mounted.splice(0).forEach((d) => d());
+        expect(body.hasAttribute('tabindex')).toBe(false);
+      } finally {
+        if (sh) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', sh);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+        if (ch) Object.defineProperty(HTMLElement.prototype, 'clientHeight', ch);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+      }
+    });
+  });
+
   it('draws the ground with the battle’s pins when it is given the ground', () => {
     const ctx = { fillStyle: '', fillRect: (): void => undefined, putImageData: (): void => undefined };
     const orig = HTMLCanvasElement.prototype.getContext;

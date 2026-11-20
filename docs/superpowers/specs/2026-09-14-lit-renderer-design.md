@@ -479,6 +479,10 @@ figures) holds.~~ **That was asserted, not measured — this entry claimed a
 result from an instrument nobody had run. It has been run now (2026-09-15) and
 the acceptance does hold: 6.50 / 6.70 ms render p95 at the 300-unit checkpoint
 (266 living after attrition), two runs, against 16.7 ms — 2.5× of margin.**
+**Superseded (GH-1411): that roster drew five types as meshes over a billboard
+majority. With every roster type drawing its GLB the same instrument does not
+clear 16.7 ms at 300 units: `docs/PERFORMANCE.md`, "The 300-unit figure,
+reconciled" (row R1).**
 The instrument is `measureThreeMesh` driven by
 `tools/src/perf/backend-curve-gate.ts`: a real `ThreeRenderer` with
 `init()` called, so the composer, the sun's shadow pass, GTAO's normal
