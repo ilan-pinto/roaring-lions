@@ -48,31 +48,41 @@ const ON: PresetSwitches = { ragdolls: true, softParticles: true };
 const RAGDOLLS_ONLY: PresetSwitches = { ragdolls: true, softParticles: false };
 const SOFT_ONLY: PresetSwitches = { ragdolls: false, softParticles: true };
 
-describe('GH-1400: both switches ship OFF', () => {
-  it('the two constants are false, and the renderer reads exactly them', () => {
-    // Falsify: `RAGDOLL_PRESETS_LIVE: boolean = true` (or the soft one) in preset-live.ts.
-    expect(RAGDOLL_PRESETS_LIVE).toBe(false);
-    expect(SOFT_PARTICLES_PRESET_LIVE).toBe(false);
-    expect(PRESET_SWITCHES).toEqual({ ragdolls: false, softParticles: false });
+describe('GH-1400: what ships (ragdolls ON since the lead ruling of 18 Nov, soft particles ON since the 17 Nov Metal read)', () => {
+  it('both switches are true, and the renderer reads exactly them', () => {
+    // Falsify: `RAGDOLL_PRESETS_LIVE: boolean = false`, or the soft one back to false, in preset-live.ts.
+    expect(RAGDOLL_PRESETS_LIVE).toBe(true);
+    expect(SOFT_PARTICLES_PRESET_LIVE).toBe(true);
+    expect(PRESET_SWITCHES).toEqual({ ragdolls: true, softParticles: true });
   });
 
-  it('with the switches off, every resolved preset is the very object and deep-equals what main shipped', () => {
-    // Falsify: `ragdolls: true` in place of `ragdolls: RAGDOLL_PRESETS_LIVE` in PRESET_SWITCHES (high and medium move).
+  it('as shipped, high gains 16 ragdolls and soft particles, medium gains 8 ragdolls, and low is the very object main shipped', () => {
+    // Falsify: `ragdolls: false` in place of `ragdolls: RAGDOLL_PRESETS_LIVE` in PRESET_SWITCHES (high and medium fall back to main).
+    expect(liveQuality(QUALITY_PRESETS.high, PRESET_SWITCHES)).toEqual({ ...MAIN.high, physics: { ragdolls: 16 }, softParticles: true });
+    expect(liveQuality(QUALITY_PRESETS.medium, PRESET_SWITCHES)).toEqual({ ...MAIN.medium, physics: { ragdolls: 8 } });
+    const low = liveQuality(QUALITY_PRESETS.low, PRESET_SWITCHES);
+    expect(low).toBe(QUALITY_PRESETS.low);
+    expect(low).toEqual(MAIN.low);
+    // Falsify: liveRendererOptions always copying (`return { ...opts, quality }`) or ignoring the switch.
+    const lowOpts = { quality: QUALITY_PRESETS.low };
+    expect(liveRendererOptions(lowOpts, PRESET_SWITCHES)).toBe(lowOpts);
+    expect(liveRendererOptions({ quality: QUALITY_PRESETS.high }, PRESET_SWITCHES).quality).toEqual({ ...MAIN.high, physics: { ragdolls: 16 }, softParticles: true });
+    expect(liveRendererOptions({ quality: QUALITY_PRESETS.medium }, PRESET_SWITCHES).quality?.physics).toEqual({ ragdolls: 8 });
+    // The menu pins physics to an explicit 0 whatever the preset (a never-ticked sim: nothing to fetch), and liveQuality keeps it.
+    expect(menuRendererOptions({ quality: QUALITY_PRESETS.low }, PRESET_SWITCHES).quality?.physics).toEqual({ ragdolls: 0 });
+    expect(menuRendererOptions({ quality: QUALITY_PRESETS.medium }, PRESET_SWITCHES).quality?.physics).toEqual({ ragdolls: 0 });
+  });
+
+  it('with BOTH switches off, every resolved preset is the very object and deep-equals what main shipped', () => {
+    const OFF: PresetSwitches = { ragdolls: false, softParticles: false };
     for (const t of TIERS) {
-      const q = liveQuality(QUALITY_PRESETS[t], PRESET_SWITCHES);
-      expect(q, t).toBe(QUALITY_PRESETS[t]);
-      expect(q, t).toEqual(MAIN[t]);
-      const opts = { quality: QUALITY_PRESETS[t] };
-      // Falsify: liveRendererOptions always copying (`return { ...opts, quality }`), or menuRendererOptions ignoring the switch.
-      expect(liveRendererOptions(opts, PRESET_SWITCHES), t).toBe(opts);
-      expect(menuRendererOptions(opts, PRESET_SWITCHES), t).toBe(opts);
+      expect(liveQuality(QUALITY_PRESETS[t], OFF), t).toBe(QUALITY_PRESETS[t]);
+      expect(QUALITY_PRESETS[t], t).toEqual(MAIN[t]);
     }
   });
 
-  it('with the switches off, a sandbox copy and no quality at all are untouched too', () => {
-    const soft = { ...QUALITY_PRESETS.high, softParticles: true };
+  it('as shipped, a sandbox showcase copy and no quality at all are untouched', () => {
     const showcase = { ...QUALITY_PRESETS.low, physics: { ragdolls: 16 as const } };
-    expect(liveQuality(soft, PRESET_SWITCHES)).toBe(soft);
     expect(liveQuality(showcase, PRESET_SWITCHES)).toBe(showcase);
     expect(liveQuality(undefined, PRESET_SWITCHES)).toBeUndefined();
   });

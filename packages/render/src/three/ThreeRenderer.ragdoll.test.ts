@@ -170,7 +170,8 @@ describe('a killed squad becomes a ragdoll, on the sim clock', () => {
 
   it('the sim never notices: its hash, tick by tick, is the same with the ragdolls on and off', async () => {
     const on = await killAndSettle(ON, 1);
-    const off = await killAndSettle(QUALITY_PRESETS.high, 1);
+    // GH-1400: `high` ships 16 ragdolls since RAGDOLL_PRESETS_LIVE; an explicit 0 is the off arm (`liveQuality` keeps it).
+    const off = await killAndSettle({ ...QUALITY_PRESETS.high, physics: { ragdolls: 0 } }, 1);
     expect(on.p.meshWrecks).toHaveLength(1);
     expect(off.p.ragdolls.ready).toBe(false);
     expect(on.hashes).toEqual(off.hashes);

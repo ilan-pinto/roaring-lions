@@ -13,6 +13,15 @@
  *   kill                     -- 8 Lavi kills, one per 250 ms of FX time; timed
  *                               500 ms and 4 s after the last
  *   grad                     -- 24 Grad landings, timed at 250 ms and 1.75 s
+ *   inf-kill                 -- GH-1400: the cap's worth of two-figure infantry teams killed over four
+ *                               ticks, plus one more the cap must refuse, timed on a LIVE schedule (the
+ *                               ragdolls step on the sim clock) from the first kill to 4.5 s after the
+ *                               last, in windows @250ms / @1s / @4s; with a quiet and a settled control
+ *
+ * GH-1400 `--ragdoll-ab [--ab-rounds=<n>]` (default 3): ONLY the infantry-kill rows, per preset, as ABBA rounds of a
+ * fresh boot per arm. The OFF arm is the tree as it is; the ON arm serves `preset-live.ts` with
+ * `RAGDOLL_PRESETS_LIVE` rewritten to true by a Playwright route (nothing on disk changes, nothing ships), and must
+ * read back the ruled cap (16 / 8 / 0). Prints on-minus-off against the gate (`fx-ragdoll-plan.ts`).
  * Draw calls come from `renderer.info` with autoReset off. The 60 Hz verdict is
  * p95 <= 16.7 ms. Refuses SwiftShader (exit 2). Frame time only: tick time is a
  * different budget and is not measured here.
@@ -69,6 +78,25 @@ import {
   WET_BUDGET_MS,
   type WetFacts,
 } from './fx-cost-plan';
+import {
+  BURST_TIMED_UNTIL_MS,
+  EXPECTED_LIVE_CAP,
+  CONTROL_BOUND_MS,
+  RAGDOLL_GATE_MS,
+  TWO_FIGURE_TEAMS,
+  abSchedule,
+  abVerdict,
+  isPresetLiveModule,
+  parseRagdollArgs,
+  armPlan,
+  setPresetSwitches,
+  stats as ragdollStats,
+  sweepRowName,
+  windowStats,
+  type ArmRows,
+  type Sample,
+  type Stats as RagdollStats,
+} from './fx-ragdoll-plan';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
@@ -93,6 +121,8 @@ const FRAMES = COST.frames;
 // `--burn=<k>`: draw k extra frames per rAF in the cadence rows. The falsification
 // of the cadence check: at k=2 it must stop reading 16.7 ms.
 const BURN = COST.burn;
+// GH-1400: `--ragdoll-ab [--ab-rounds=<n>]` replaces the FX rows with the ragdoll A/B (`fx-ragdoll-plan.ts`).
+const RAGDOLL = parseRagdollArgs(args);
 
 const VIEWS: [number, number, number][] = [
   [22, 24, 0.5],
@@ -114,8 +144,10 @@ const browser = await chromium.launch({
 
 /** Boots `?sandbox=<mapId>` on a fresh page at the requested preset and refuses (exit 2)
  *  anything but hardware GPU. Shared by the GH-829 single-map run and the wet two-map run. */
-async function bootPage(quality: 'high' | 'medium' | 'low', mapId: string): Promise<{ page: Page; gpu: string }> {
+async function bootPage(quality: 'high' | 'medium' | 'low', mapId: string, before?: (page: Page) => Promise<void>): Promise<{ page: Page; gpu: string }> {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: DPR });
+  // GH-1400: the ragdoll A/B's ON arm installs its `preset-live.ts` route here, before anything is fetched.
+  if (before) await before(page);
   await page.addInitScript(musicOffInitScript({}, { quality }));
   await page.addInitScript('window.__name = (f) => f;');
   await page.goto(`http://localhost:${port}/?sandbox=${mapId}${extra}`, { waitUntil: 'load' });
@@ -666,11 +698,293 @@ interface Row {
   note?: string;
 }
 
+// ---- GH-1400: the infantry-kill row (ragdolls) ------------------------------------------------------------------
+//
+// `fx-ragdoll-plan.ts` holds the burst, the windows, the schedule and the verdict (tested). This is the browser half.
+
+interface RagdollRead {
+  team: string;
+  cap: number;
+  ready: boolean;
+  killed: number;
+  victims: number;
+  peakActiveFigures: number;
+  peakInUse: number;
+  maxSteps: number;
+  samples: Sample[];
+  quiet: number[];
+  settled: number[];
+  canvas: string;
+  pixelRatio: number;
+  tickAtLastKill: number;
+  facts: string;
+  sweep: { atMs: number; ms: number[] }[];
+}
+
+/**
+ * The scenario, run INSIDE the page (serialised by Playwright; `window.__name` is shimmed at boot). Kills
+ * `perTick` two-figure teams over four ticks at the zoom-1.6 view and times every frame from the first kill to
+ * `timedUntil` ms after the last, on a LIVE schedule (a tick every three frames, alpha 1/3, 2/3, 1): ragdolls step on
+ * the presentation SIM clock, so a frozen sim would time the same frame in both arms. Only `frame()` and its 1x1
+ * readPixels sync are inside the bracket; the tick, `snapshot` and `onEvents` are not. Before the burst: a quiet live
+ * row (no deaths); after it and a settle: a settled live row. Both are controls whose delta must read about 0.
+ */
+async function ragdollScenarioInPage(cfg: { view: [number, number, number]; perTick: number[]; teams: string[]; timedUntil: number; quietTicks: number; settleTicks: number; sweepMs: number[] }): Promise<RagdollRead> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const L = (window as any).__lions;
+  const r = L.renderer;
+  const FIXED = 65536;
+  window.requestAnimationFrame = () => 0; // the app's loop is frozen; this pumps every frame
+  const canvas: HTMLCanvasElement = r.canvas;
+  const gl = canvas.getContext('webgl2') as WebGL2RenderingContext;
+  const px = new Uint8Array(4);
+  const sync = (): void => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms));
+  const [cx, cy, cz] = cfg.view;
+  r.camera.x = cx;
+  r.camera.y = cy;
+  r.camera.zoom = cz;
+  const idx = (id: string): number => L.sim.unitTypes.findIndex((t: { id: string }) => t.id === id);
+  const team = cfg.teams.find((id) => idx(id) >= 0 && !!r.infantryTemplates(id, 0));
+  if (team === undefined) throw new Error(`fx-ragdoll: none of ${cfg.teams.join(', ')} is registered with a mesh in this sandbox`);
+  // Open tiles near the view centre, nearest first, every other one so teams do not stack: all inside the zoom-1.6 frame.
+  const open = (x: number, y: number): boolean => L.sim.blocked[y * L.sim.width + x] === 0;
+  const spots: [number, number][] = [];
+  for (let dy = -4; dy <= 4; dy++) for (let dx = -6; dx <= 6; dx++) if (open(cx + dx, cy + dy)) spots.push([cx + dx, cy + dy]);
+  spots.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+  const spread = spots.filter((_, i) => i % 2 === 0);
+  const total = cfg.perTick.reduce((a, b) => a + b, 0);
+  if (spread.length < total) throw new Error(`fx-ragdoll: ${spread.length} open spots for ${total} victims`);
+  const victims: number[] = [];
+  for (let i = 0; i < total; i++) victims.push(L.sim.spawn(idx(team), 0, spread[i][0] * FIXED, spread[i][1] * FIXED));
+  r.snapshot();
+  // Warm the team's mesh (a cold type is never drawn) and let the renderer place the figures.
+  for (let i = 0; i < 200 && r.coldUnitTypes.has(team); i++) {
+    r.frame(1, 16);
+    await sleep(50);
+  }
+  if (r.coldUnitTypes.has(team)) throw new Error(`fx-ragdoll: ${team} never warmed`);
+  let peakActiveFigures = 0;
+  let maxSteps = 0;
+  let peakInUse = 0;
+  const watch = (): void => {
+    const rs = r.ragdolls;
+    let fig = 0;
+    let steps = 0;
+    for (const a of rs.active as { figures: number; inc: { steps: number } }[]) {
+      fig += a.figures;
+      steps = Math.max(steps, a.inc.steps);
+    }
+    peakActiveFigures = Math.max(peakActiveFigures, fig);
+    peakInUse = Math.max(peakInUse, rs.figuresInUse);
+    maxSteps = Math.max(maxSteps, steps);
+  };
+  // One live frame: the tick first when owed (outside the bracket), then frame + sync, timed.
+  const liveFrame = (tick: boolean, alpha: number): number => {
+    if (tick) {
+      const ev = L.sim.tick();
+      r.snapshot();
+      r.onEvents(ev);
+    }
+    const t0 = performance.now();
+    r.frame(alpha, 16.7);
+    sync();
+    const ms = performance.now() - t0;
+    watch();
+    return ms;
+  };
+  const liveTicks = (ticks: number): number[] => {
+    const out: number[] = [];
+    for (let t = 0; t < ticks; t++) for (let k = 1; k <= 3; k++) out.push(liveFrame(k === 1, k / 3));
+    return out;
+  };
+  liveTicks(60); // the warm-up (3 s of sim): shaders, the figures placed, the sync settled
+  // GH-1400 idle sweep (`--idle-sweep`): quiet live rows at declared wall-clock delays after this point, the app loop frozen
+  // between them, so both arms take each point on the same sim tick. Each point pumps 5 untimed ticks first (an idle
+  // headless page can resume slowly), then times `quietTicks`. Informational rows: the controls stay the quiet row timed
+  // AFTER the sweep and the settled row.
+  const sweep: { atMs: number; ms: number[] }[] = [];
+  const sweepT0 = performance.now();
+  for (const at of cfg.sweepMs) {
+    const wait = at - (performance.now() - sweepT0);
+    if (wait > 0) await sleep(wait);
+    liveTicks(5);
+    sweep.push({ atMs: Math.round(performance.now() - sweepT0), ms: liveTicks(cfg.quietTicks) });
+  }
+  // Discrete facts of the quiet frame: if any differs between arms, the flip changes the frame beyond ragdolls.
+  const info = r.renderer.info;
+  info.autoReset = false;
+  info.reset();
+  r.frame(1, 0);
+  const facts = `calls ${info.render.calls} tris ${info.render.triangles} programs ${(info.programs ?? []).length} passes ${r.post.passNames.join('>')}`;
+  info.autoReset = true;
+  const quiet = liveTicks(cfg.quietTicks);
+  // ---- the burst: `perTick[k]` victims dead before tick k; their `destroyed` events arrive with that tick.
+  const samples: Sample[] = [];
+  const presentation = (alpha: number): number => Math.max(0, (L.sim.tickCount - 1 + alpha) * 50);
+  const recorded: { simMs: number; ms: number }[] = [];
+  let next = 0;
+  for (let k = 0; k < cfg.perTick.length; k++) {
+    for (let j = 0; j < cfg.perTick[k]; j++) L.sim.debugKill(victims[next++]);
+    for (let f = 1; f <= 3; f++) {
+      const ms = liveFrame(f === 1, f / 3);
+      recorded.push({ simMs: presentation(f / 3), ms });
+    }
+  }
+  // The last kill's death tick is the tick the last batch was killed BEFORE: the tick count when it was killed.
+  const tickAtLastKill = L.sim.tickCount - 1;
+  const lastKillMs = tickAtLastKill * 50;
+  // Bounded: a sim clock that stopped advancing would otherwise hang the page. 4.5 s is 90 ticks; 400 is far past it.
+  for (let guard = 0; presentation(1) - lastKillMs < cfg.timedUntil; guard++) {
+    if (guard > 400) throw new Error(`fx-ragdoll: the sim clock stalled at ${presentation(1) - lastKillMs} ms after the last kill`);
+    for (let f = 1; f <= 3; f++) {
+      const ms = liveFrame(f === 1, f / 3);
+      recorded.push({ simMs: presentation(f / 3), ms });
+    }
+  }
+  for (const rec of recorded) samples.push({ t: rec.simMs - lastKillMs, ms: rec.ms });
+  let killed = 0;
+  for (const v of victims) if (L.sim.state.alive[v] === 0) killed++;
+  liveTicks(cfg.settleTicks);
+  const settled = liveTicks(cfg.quietTicks);
+  return {
+    team,
+    cap: r.ragdolls.cap,
+    ready: r.ragdolls.ready,
+    killed,
+    victims: victims.length,
+    peakActiveFigures,
+    peakInUse,
+    maxSteps,
+    samples,
+    quiet,
+    settled,
+    canvas: `${canvas.width}x${canvas.height}`,
+    pixelRatio: r.renderer.getPixelRatio(),
+    tickAtLastKill,
+    facts,
+    sweep,
+  };
+}
+
+const RAGDOLL_VIEW: [number, number, number] = [26, 22, 1.6];
+
+/** Runs the scenario on a booted page at `cap` (read back first), refusing every way the read could be empty. */
+async function runRagdollRows(page: Page, expectCap: number, liveCap: number, rapierRequests: () => number, sweepMs: readonly number[] = []): Promise<{ rows: ArmRows; read: RagdollRead }> {
+  // The cap first: an override that did not take must say so, not time out waiting for a Rapier that cap 0 never loads.
+  const cap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
+  if (cap !== expectCap) throw new Error(`fx-ragdoll: the renderer reads ragdoll cap ${cap}, this arm expects ${expectCap}`);
+  if (expectCap > 0) {
+    // Rapier loads asynchronously; a claim before it is ready is refused and the death keeps the animated fall.
+    await page.waitForFunction(() => (window as unknown as { __lions: { renderer: { ragdolls: { ready: boolean } } } }).__lions.renderer.ragdolls.ready, null, { timeout: 60000 });
+  }
+  // Both arms idle the same 3 s here, so the ON arm's WASM compile and its GC are behind it before any row is timed
+  // (a one-round smoke read the quiet control at +1.2 ms without this).
+  await page.waitForTimeout(3000);
+  // The burst is the LIVE cap's in both arms (`armPlan`): the arms must kill the same teams.
+  const { burst: plan, expectedPeakFigures } = armPlan(liveCap, expectCap > 0 ? 'on' : 'off');
+  const read = await page.evaluate(ragdollScenarioInPage, {
+    view: RAGDOLL_VIEW,
+    perTick: [...plan.perTick],
+    teams: [...TWO_FIGURE_TEAMS],
+    timedUntil: BURST_TIMED_UNTIL_MS,
+    quietTicks: 30,
+    settleTicks: 120,
+    sweepMs: [...sweepMs],
+  });
+  if (read.killed !== plan.victims) throw new Error(`fx-ragdoll: ${read.killed} of ${plan.victims} victims died`);
+  // The cap held and was full: every figure it allows was IN FLIGHT (active, stepping), and the extra team was refused.
+  if (read.peakActiveFigures !== expectedPeakFigures) {
+    throw new Error(`fx-ragdoll: peak active ragdoll figures ${read.peakActiveFigures}, expected ${expectedPeakFigures} (cap ${cap})`);
+  }
+  if (expectCap > 0 && read.maxSteps < 30) throw new Error(`fx-ragdoll: the ragdolls took at most ${read.maxSteps} physics steps: the sim clock did not move them`);
+  if (expectCap === 0 && rapierRequests() > 0) throw new Error(`fx-ragdoll: cap 0 fetched Rapier (${rapierRequests()} requests)`);
+  if (expectCap > 0 && rapierRequests() === 0) throw new Error('fx-ragdoll: ragdolls are live but no Rapier request was seen');
+  const idle: ArmRows = {};
+  sweepMs.forEach((at, i) => {
+    const pt = read.sweep[i];
+    if (pt === undefined) throw new Error(`fx-ragdoll: idle sweep point ${at} ms was not taken`);
+    idle[sweepRowName(at)] = ragdollStats(pt.ms);
+  });
+  const rows: ArmRows = { ...idle, 'quiet live': ragdollStats(read.quiet), ...windowStats(read.samples), 'settled live': ragdollStats(read.settled) };
+  return { rows, read };
+}
+
+function fmtStats(s: RagdollStats): string {
+  return `med ${s.med.toFixed(2)}  p95 ${s.p95.toFixed(2)}  max ${s.max.toFixed(2)}  n ${s.n}`;
+}
+
+/** `--ragdoll-ab`: per preset, `rounds` ABBA rounds of a fresh boot per arm; the ON arm serves the switch flipped. */
+async function runRagdollAb(): Promise<void> {
+  const browserVersion = browser.version();
+  for (const quality of PRESETS) {
+    const off: ArmRows[] = [];
+    const on: ArmRows[] = [];
+    for (const [i, arm] of abSchedule(RAGDOLL.rounds).entries()) {
+      let rewrites = 0;
+      let rapier = 0;
+      const { page, gpu } = await bootPage(quality, MAP, async (p) => {
+        p.on('request', (req) => {
+          if (/rapier3d/i.test(req.url())) rapier++;
+        });
+        // BOTH arms route the module, so the arms differ in the switch alone: enabling routing turns Playwright's HTTP
+        // cache off for the page, and the first read installed the route in the ON arm only. OFF passes the body through.
+        await p.route(
+          (u) => isPresetLiveModule(u.pathname),
+          async (route) => {
+            const resp = await route.fetch();
+            const text = await resp.text();
+            // Both arms SET the switch (on: true, off: false), whatever the tree ships, so the A/B survives the flip itself.
+            const body = setPresetSwitches(text, { ragdolls: arm === 'on' });
+            rewrites++;
+            await route.fulfill({ response: resp, body });
+          }
+        );
+      });
+      if (rewrites === 0) throw new Error(`fx-ragdoll: the ${arm} arm never served preset-live.ts through its route`);
+      const expectCap = arm === 'on' ? EXPECTED_LIVE_CAP[quality] : 0;
+      const loadBefore = os.loadavg()[0].toFixed(2);
+      const { rows, read } = await runRagdollRows(page, expectCap, EXPECTED_LIVE_CAP[quality], () => rapier, RAGDOLL.sweepMs);
+      if (read.sweep.length > 0) console.log(`    idle sweep taken at ${read.sweep.map((p) => `${(p.atMs / 1000).toFixed(1)} s`).join(' / ')} after the scenario start`);
+      (arm === 'on' ? on : off).push(rows);
+      console.log(
+        `${label} RAGDOLL quality=${quality} round=${Math.floor(i / 2) + 1} arm=${arm} cap=${read.cap} team=${read.team} ` +
+          `killed=${read.killed}/${read.victims} peakActiveFigures=${read.peakActiveFigures} peakInUse=${read.peakInUse} maxSteps=${read.maxSteps} ` +
+          `rapierRequests=${rapier} rewrites=${rewrites} tickAtLastKill=${read.tickAtLastKill} canvas=${read.canvas} pixelRatio=${read.pixelRatio} ` +
+          `gpu=${gpu} chrome=${browserVersion} load=${loadBefore}->${os.loadavg()[0].toFixed(2)}`
+      );
+      console.log(`    frame facts (quiet, one frame): ${read.facts}`);
+      // The quiet control in 500 ms bins (30 frames), so a decaying offset reads apart from a steady one.
+      const bins: string[] = [];
+      for (let b = 0; b < read.quiet.length; b += 30) bins.push(ragdollStats(read.quiet.slice(b, b + 30)).med.toFixed(1));
+      console.log(`    quiet bins (500 ms medians): ${bins.join(' / ')}`);
+      for (const [name, s] of Object.entries(rows)) console.log(`    ${name.padEnd(14)} ${fmtStats(s)}`);
+      await page.close();
+    }
+    const v = abVerdict(off, on);
+    console.log(`${label} RAGDOLL VERDICT quality=${quality} cap=${EXPECTED_LIVE_CAP[quality]} rounds=${RAGDOLL.rounds} (on minus off, median over boots; gate dMed <= ${RAGDOLL_GATE_MS.median} and dP95 <= ${RAGDOLL_GATE_MS.p95} on burst rows)`);
+    for (const r of v.rows) {
+      console.log(
+        `    ${r.row.padEnd(14)} off med ${r.offMed.toFixed(2)} p95 ${r.offP95.toFixed(2)} | on med ${r.onMed.toFixed(2)} p95 ${r.onP95.toFixed(2)} | ` +
+          `dMed ${r.dMed >= 0 ? '+' : ''}${r.dMed.toFixed(2)} dP95 ${r.dP95 >= 0 ? '+' : ''}${r.dP95.toFixed(2)} | off spread ${r.offSpread.toFixed(2)} | ` +
+          `per round ${r.perRound.map((d) => (d >= 0 ? '+' : '') + d.toFixed(1)).join(' ')} | ${r.gated ? (r.pass ? 'PASS' : 'FAIL') : r.informational ? 'sweep (informational)' : `control (bound ${CONTROL_BOUND_MS})`}`
+      );
+    }
+    console.log(`${label} RAGDOLL ${quality}: ${v.outcome.toUpperCase()}${v.outcome === 'inconclusive' ? ' (a control row moved more than the bound: flips nothing)' : ''}`);
+  }
+}
+
 try {
   if (COST.wet) await runWet();
   // The GH-829 breakdown and the FX rows: a wet run has done its work above and has no preset left here.
-  for (const quality of COST.wet ? [] : PRESETS) {
-    const { page, gpu } = await bootPage(quality, MAP);
+  if (RAGDOLL.ab) await runRagdollAb();
+  for (const quality of COST.wet || RAGDOLL.ab ? [] : PRESETS) {
+    let rapier = 0;
+    const { page, gpu } = await bootPage(quality, MAP, async (p) => {
+      p.on('request', (req) => {
+        if (/rapier3d/i.test(req.url())) rapier++;
+      });
+    });
     if (BREAKDOWN) {
       await page.waitForTimeout(4000);
       await reportCadence(page, '');
@@ -979,6 +1293,14 @@ try {
     for (const [k, v] of Object.entries(res.rows as Record<string, Row>)) {
       const verdict = v.p95 <= BUDGET_MS ? 'holds 60' : 'LOSES 60';
       console.log(`  ${k.padEnd(18)} med ${v.med.toFixed(2)} ms  p95 ${v.p95.toFixed(2)} ms  calls ${v.calls}  ${verdict}${v.note ? `  [${v.note}]` : ''}`);
+    }
+    // ---- infantry kill (GH-1400): two-figure teams over four ticks, at the cap this tree ships for the preset.
+    const shippedCap = await page.evaluate(() => (window as unknown as { __lions: { renderer: { ragdolls: { cap: number } } } }).__lions.renderer.ragdolls.cap);
+    const inf = await runRagdollRows(page, shippedCap, shippedCap, () => rapier);
+    const infNote = `team ${inf.read.team}, killed ${inf.read.killed}/${inf.read.victims}, ragdoll cap ${inf.read.cap}, peak figures ${inf.read.peakActiveFigures}, max steps ${inf.read.maxSteps}`;
+    for (const [k, v] of Object.entries(inf.rows)) {
+      const name = k === 'quiet live' || k === 'settled live' ? `inf ${k}` : `inf-kill ${k.replace('burst ', '')}`;
+      console.log(`  ${name.padEnd(18)} med ${v.med.toFixed(2)} ms  p95 ${v.p95.toFixed(2)} ms  max ${v.max.toFixed(2)} ms  ${v.p95 <= BUDGET_MS ? 'holds 60' : 'LOSES 60'}  [${infNote}]`);
     }
     await page.close();
   }

@@ -124,9 +124,9 @@ export interface RenderQuality {
    * `docs/superpowers/specs/2026-11-11-soft-particles-design.md`): the
    * flipbook's smoke pass fades its alpha by the scene depth where a billow
    * meets the ground or a wall. WebGL2 only. Absent or `false` builds nothing
-   * and leaves every program byte for byte; NO preset sets it until the lead
-   * rules on the cost and the baseline move (the design's decisions table). GH-1400: the lead's ruling (16 Nov 2026, `high`
-   * only, at a G-cost of 2 ms or less) is wired in `three/preset-live.ts` behind `SOFT_PARTICLES_PRESET_LIVE`, OFF.
+   * and leaves every program byte for byte; no preset sets it HERE (the design's
+   * decisions table). GH-1400: the lead's ruling (16 Nov 2026, `high`
+   * only, at a G-cost of 2 ms or less) is wired in `three/preset-live.ts` behind `SOFT_PARTICLES_PRESET_LIVE`, ON since 17 Nov.
    */
   softParticles?: boolean;
   /**

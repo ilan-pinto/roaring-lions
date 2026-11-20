@@ -962,7 +962,7 @@ describe('BASELINES layerChecks', () => {
      *  floors are INFINITE, so they fail until the first three CI readings are written into `MEASURED` and the floors
      *  are derived from them --
      *  never a check that passes on nothing. Listed by hand: leaving this list is a deliberate edit. */
-    const PENDING = new Set<string>();
+    const PENDING = new Set<string>(['soft-smoke/soft-depth']);
     for (const [id, spec] of Object.entries(BASELINES)) {
       for (const check of spec.layerChecks ?? []) {
         // GH-943 P1 (T5): a `zero` check has no floor to derive from a signal; it has its own test below.

@@ -177,7 +177,8 @@ afterEach(() => {
 
 describe('W1: off, a node boot adds nothing', () => {
   const cases: Array<[string, RenderQuality, boolean]> = [
-    ['high, copyable device', QUALITY_PRESETS.high, true],
+    // GH-1400: bare `high` resolves soft particles ON since the 17 Nov flip (`preset-live.ts`); an explicit false is kept.
+    ['high (soft off), copyable device', { ...QUALITY_PRESETS.high, softParticles: false }, true],
     ['medium, copyable device', QUALITY_PRESETS.medium, true],
     ['low, copyable device', QUALITY_PRESETS.low, true],
     ['flag on, no feature', { ...QUALITY_PRESETS.high, softParticles: true }, false],
@@ -197,6 +198,12 @@ describe('W1: off, a node boot adds nothing', () => {
 });
 
 describe('W2: on, a node boot builds the copy before adoption', () => {
+  it('GH-1400: bare high is on as shipped (SOFT_PARTICLES_PRESET_LIVE), so a copyable node boot builds the copy', async () => {
+    // Falsify: SOFT_PARTICLES_PRESET_LIVE back to false in preset-live.ts.
+    const { r, priv } = await boot(QUALITY_PRESETS.high, true);
+    expect(priv.softDepth).toBeInstanceOf(NodeSoftDepthCopy);
+    r.dispose();
+  });
   it('the sentinel is in the scene, the copy reads the chain scene target, and the boot-built smoke twin taps its texture', async () => {
     const { r, priv } = await boot({ ...QUALITY_PRESETS.high, softParticles: true }, true);
     const copy = priv.softDepth;

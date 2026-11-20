@@ -107,7 +107,7 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
   {
     name: 'soft',
     blurb:
-      'soft particles on for this boot (GH-1227): smoke fades where it meets the ground; sandbox only, off in every preset; inert on the node backend until its depth copy lands',
+      'soft particles on for this boot (GH-1227): smoke fades where it meets the ground; sandbox only, high has it on; inert on the node backend until its depth copy lands',
     labelKey: 'freePlay.option.soft',
   },
 ];
