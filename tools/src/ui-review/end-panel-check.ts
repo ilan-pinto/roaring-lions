@@ -176,6 +176,18 @@ interface KeyReading {
   stop: boolean;
   reached: boolean;
   scrolled: boolean;
+  /** The body's scroll range in px (`scrollHeight - clientHeight`), and where its `scrollTop` came to rest after Page Down. */
+  range: number;
+  top: number;
+}
+
+/** The report body's `scrollTop`, or -1 when there is no report. */
+async function bodyTop(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
+    const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
+    return body ? body.scrollTop : -1;
+  });
 }
 
 /** Tab (real key events, through the report's focus trap) from the primary action until the body holds focus, up to a full lap;
@@ -189,9 +201,9 @@ async function keyboardReach(page: Page): Promise<KeyReading> {
     if (!body || !primary) return null;
     body.scrollTop = 0;
     primary.focus();
-    return { overflow: body.scrollHeight > body.clientHeight + 1, stop: body.hasAttribute('tabindex') };
+    return { overflow: body.scrollHeight > body.clientHeight + 1, stop: body.hasAttribute('tabindex'), range: body.scrollHeight - body.clientHeight };
   });
-  if (!start) return { overflow: false, stop: false, reached: false, scrolled: false };
+  if (!start) return { overflow: false, stop: false, reached: false, scrolled: false, range: 0, top: -1 };
   let reached = false;
   for (let i = 0; i < 16 && !reached; i++) {
     await page.keyboard.press('Tab');
@@ -202,19 +214,23 @@ async function keyboardReach(page: Page): Promise<KeyReading> {
     });
   }
   let scrolled = false;
+  let top = await bodyTop(page);
   if (reached) {
+    // The `scrollTop = 0` above and the Tabs must have reached the compositor before the key does.
+    await settle(page);
     await page.keyboard.press('PageDown');
-    // Keyboard scrolling is animated by the browser, one frame at a time: poll for up to 6 s, not a fixed 120 ms.
-    for (let i = 0; i < 30 && !scrolled; i++) {
+    // Keyboard scrolling is animated by the browser, one frame at a time: poll for up to 6 s, not a fixed 120 ms, and then wait for the
+    // animation to come to REST (two equal reads), so the next pass's `scrollTop = 0` cannot land in the middle of this one's scroll.
+    let last = -1;
+    for (let i = 0; i < 30; i++) {
       await page.waitForTimeout(200);
-      scrolled = await page.evaluate(() => {
-        const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
-        const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
-        return body !== undefined && body !== null && body.scrollTop > 0;
-      });
+      top = await bodyTop(page);
+      if (top > 0) scrolled = true;
+      if (scrolled && top === last) break;
+      last = top;
     }
   }
-  return { ...start, reached, scrolled };
+  return { ...start, reached, scrolled, top };
 }
 
 const port = await claimPort(TAG, 'END_PANEL_PORT', 5194);
@@ -264,13 +280,16 @@ try {
       await page.evaluate(() => {
         const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
         const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
+        // Off the body first: taking the tabindex off the FOCUSED element leaves Chrome's focus fix-up to decide where focus went.
+        if (body && document.activeElement === body) body.blur();
         body?.removeAttribute('tabindex');
       });
       const without = await keyboardReach(page);
       if (kbBad) failures++;
       console.log(
         `[${TAG}] ${kbBad ? 'FAIL' : 'PASS'} ${kind.padEnd(8)} ${`${w}x${h}`.padEnd(9)} keyboard: overflow=${withFix.overflow} ` +
-          `tab-stop=${withFix.stop} reached=${withFix.reached} scrolled=${withFix.scrolled} | without the stop: reached=${without.reached}`
+          `tab-stop=${withFix.stop} reached=${withFix.reached} scrolled=${withFix.scrolled}` +
+          `${withFix.overflow ? ` (scrollTop ${withFix.top} of ${withFix.range})` : ''} | without the stop: reached=${without.reached}`
       );
       // Put the page back as the app left it for the next size: a resize makes the observer re-read it anyway.
       await page.evaluate(() => {
