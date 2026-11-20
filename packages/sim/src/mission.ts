@@ -153,8 +153,18 @@ export interface LedgerRosterEntry {
    *  FELL from (even if they rejoined another), and only while that squad lives. Absent = 0, likewise. */
   rescued?: number;
 }
+/** GH-1380 (the lead's roster ruling, 20 Nov 2026): a side-0 unit an ABDUCTION took off the field is MISSING, not dead:
+ *  no memorial, and off `roster.surviving_units`. His roster entry as he was taken (every field it carried, the app's
+ *  `slot` and `enlisted` included, opaquely), with `missions` NOT advanced (he did not come back), and the mission that
+ *  lost him. */
+export interface LedgerMissingEntry extends LedgerRosterEntry {
+  missionId: string;
+}
 export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
+  /** GH-1380: append-only, written by `checkEnd` beside `roster.surviving_units` (that key's contract, never a key of its
+   *  own) and only when this mission adds a record, so a campaign that never had a man taken carries no such key. */
+  'roster.missing'?: LedgerMissingEntry[];
   'roe.cumulative_rating'?: number;
   /**
    * Best ROE rating each mission has earned, keyed by mission id.
@@ -2681,7 +2691,7 @@ export class MissionRuntime {
     // Latched, not re-derived: nothing in the world records that the clock ran out.
     if (this.withdrawnValue) return 'withdrawn';
     const wiped =
-      this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.outOfTheFight(id));
     if (wiped) return 'force_destroyed';
     if (this.roeFailed) return 'roe_collapse';
     const failed = this.objectives.find((o) => o.def.primary && o.status === 'failed');
@@ -2711,20 +2721,62 @@ export class MissionRuntime {
   }
 
   /**
-   * Is unit `id` lost to the player: off the board and NOT taken out alive by a rescue?
-   * GH-707: a wounded man admitted at an aid post (ADMITTED) or evacuated (GONE) has
-   * `alive` 0 and `removed` 1, like a `remove` trigger's body -- but `casualties_pct` already
-   * treats `removed` as "not a casualty", and he is not one. A `remove` trigger's body keeps
-   * counting as lost here exactly as before (its woundState is not ADMITTED/GONE), and a
-   * patient whose post fell (`woundLost`: `removed` back to 0) is lost. Without wound content
-   * every woundState is NONE, so this is `alive === 0`.
+   * Is unit `id` lost to the player? Only a death is a loss: `alive` 0 with `removed` 0.
+   *
+   * The lead's ruling of 20 Nov 2026 (GH-1380): a side-0 unit removed from play by a script is NOT
+   * lost anywhere, so the score agrees with the debrief, whose `unitLost` feed is raised for
+   * `destroyed` alone and whose `casualties_pct` already skips `removed`. `removed` 1 is set by
+   * `removeFromPlay` and by the GH-707 rescue paths (a wounded man admitted at an aid post, ADMITTED,
+   * or evacuated, GONE, which were already not lost); none of them is a loss. The one side-0 caller
+   * of `removeFromPlay` is a `remove` trigger (its riders go with a carrier); an abduction takes
+   * side-2 civilians only (`stepAbductions`), so it never reaches a side-0 count. A patient whose
+   * post fell (`woundLost`: GONE with `removed` put back to 0) is lost. This is the SCORING
+   * predicate: `lostByType` (the debrief count, the challenge's `lost`, telemetry), `startingHome`
+   * (credits' "brought home") and the ledger's `campaign.mission_results.lost` all read it. The
+   * all-lost WIPE does not: see `outOfTheFight`.
    */
   private isLost(id: number): boolean {
+    const st = this.sim.state;
+    return st.alive[id] === 0 && st.removed[id] !== 1;
+  }
+
+  /**
+   * Does unit `id` no longer count toward keeping the force on the field, for the all-lost wipe
+   * (`checkEnd`, `defeatCause`'s `force_destroyed`)? Kept apart from `isLost` on purpose (GH-1380,
+   * the lead's ruling of 20 Nov 2026): a body a script removed is gone for the wipe (it cannot fight
+   * again) but not lost for the score. A wounded man taken out alive by a rescue (ADMITTED at a post
+   * that can discharge him, or GONE) holds the wipe off exactly as before the ruling. This is the
+   * pre-ruling `isLost` byte for byte, so no mission's defeat moves: dead, or removed by anything but
+   * a rescue. Without wound content every woundState is NONE, so this is `alive === 0`.
+   */
+  private outOfTheFight(id: number): boolean {
     const st = this.sim.state;
     if (st.alive[id] !== 0) return false;
     if (st.removed[id] !== 1) return true;
     const w = st.woundState[id];
     return w !== WOUND_ADMITTED && w !== WOUND_GONE;
+  }
+
+  /**
+   * Was unit `id` TAKEN by an abduction (GH-1380, the lead's roster ruling of 20 Nov 2026: MISSING, not dead), as
+   * against removed by a `remove` trigger or taken out alive by a rescue (both come back onto the roster)? A pure read,
+   * no state of its own: off the board (`alive` 0, `removed` 1), not a rescued wounded man (ADMITTED/GONE), and a member
+   * of the `captives` of an `abduct` trigger that has fired. Today `start()` refuses any `captives` but a civilian group
+   * and `stepAbductions` takes side 2 alone, so no side-0 unit can answer true; the read is here so the roster rule holds
+   * the day one can. A man in both a fired abduction's captives and a fired `remove` group reads as taken.
+   */
+  private isTaken(id: number): boolean {
+    const st = this.sim.state;
+    if (st.alive[id] !== 0 || st.removed[id] !== 1) return false;
+    const w = st.woundState[id];
+    if (w === WOUND_ADMITTED || w === WOUND_GONE) return false;
+    const triggers = this.mission.triggers ?? [];
+    for (let i = 0; i < triggers.length; i++) {
+      const t = triggers[i];
+      if (t.do.kind !== 'abduct' || !this.firedTriggers[i]) continue;
+      if ((this.groups.get(t.do.captives ?? '') ?? []).includes(id)) return true;
+    }
+    return false;
   }
 
   /** Player units lost, by type id. Empty when nobody died. */
@@ -5410,7 +5462,7 @@ export class MissionRuntime {
     const primaries = this.objectives.filter((o) => o.def.primary);
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
-      this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.outOfTheFight(id));
     // An ROE collapse loses the mission even with objectives in hand — and so
     // does a failed primary. `evacuate_before` is the first objective type
     // that can become 'failed'; without this, a mission that marks one
@@ -5436,8 +5488,28 @@ export class MissionRuntime {
     // killed something come back a level more veteran (cap 3).
     const survivors: string[] = [];
     const roster: LedgerRosterEntry[] = [];
+    const missing: LedgerMissingEntry[] = [];
     for (const id of this.playerIds) {
-      if (this.sim.state.alive[id] !== 1) continue;
+      // GH-1380 (the lead's roster ruling, 20 Nov 2026): a body off the board comes home unless he is LOST (dead) or
+      // TAKEN. A `remove` trigger's body and a rescued wounded man (ADMITTED or GONE) return to the brigade alive, as a
+      // survivor; an abducted one is MISSING (below). Neither ever gets a memorial: `roster.lost` is fed by `unitLost`.
+      if (this.sim.state.alive[id] !== 1) {
+        if (this.isLost(id)) continue;
+        if (this.isTaken(id)) {
+          // L-1: a loaned body is the lender's, missing or not.
+          if (this.onLoan.has(id)) continue;
+          const origin = this.entityRoster.get(id);
+          missing.push({
+            ...origin,
+            type: this.sim.unitTypes[this.sim.state.typeIdx[id]].id,
+            veterancy: this.sim.state.veterancy[id],
+            missions: origin?.missions ?? 0,
+            kills: (origin?.kills ?? 0) + (this.kills.get(id) ?? 0),
+            missionId: this.mission.id,
+          });
+          continue;
+        }
+      }
       const typeId = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
       survivors.push(typeId);
       let vet = this.sim.state.veterancy[id];
@@ -5526,7 +5598,14 @@ export class MissionRuntime {
 
     const produced: LedgerData = {};
     for (const key of this.mission.ledger.produces) {
-      if (key === 'roster.surviving_units') produced[key] = roster;
+      if (key === 'roster.surviving_units') {
+        produced[key] = roster;
+        // GH-1380: the missing ride this key's contract, appended to what came in, and only when there is one to add.
+        if (missing.length > 0) {
+          const prior = this.ctx.ledger?.['roster.missing'];
+          produced['roster.missing'] = [...(Array.isArray(prior) ? prior : []), ...missing];
+        }
+      }
       else if (key === 'roe.mission_ratings') produced[key] = ratings;
       else if (key === 'campaign.mission_results') produced[key] = results;
       else if (key === 'civ.hostages_recovered') produced[key] = recovered;

@@ -22,6 +22,7 @@ export {
   type SayJson,
   type LedgerData,
   type LedgerRosterEntry,
+  type LedgerMissingEntry,
   type MissionEventKindsAreExhaustive,
   type ZoneIncome,
   type ConvoyRoute,
