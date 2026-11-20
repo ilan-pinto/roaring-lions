@@ -49,6 +49,7 @@ import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
 import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
+import { musterZoneFailures, sealedCompoundFailures } from './validate_muster.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { triggerZoneFailures } from './validate_trigger_zone.mjs';
 import { abductFailures } from './validate_abduct.mjs';
@@ -1048,6 +1049,10 @@ const garrisonableSymbols = new Set(
     // GH-1438 E13 (b): no ground side-0 unit starts within 4.5 tiles of a civilian, a muster marker or a gate
     // centre. This is the AUTHORED spread; the laid-out reading is tools/src/validate_force_to_gate.test.ts.
     failures.push(...authoredForceToGateFailures(mi, map, structureCatalogue?.types, unitsById, rel(file)));
+    // GH-1438 E13 (a): a civilian muster is outside every evacuate_before zone. (c): on a mission with a gate, a muster's
+    // crowd cannot walk to the refuge with every gate shut. tools/validate_muster.mjs.
+    failures.push(...musterZoneFailures(mi, map, rel(file)));
+    failures.push(...sealedCompoundFailures(mi, map, structureCatalogue?.types, rel(file)));
     // Field works (#277 Task 8): rules 2-4.
     failures.push(...fieldWorksKeyFailures(mi, structureCatalogue, rel(file)));
     {
