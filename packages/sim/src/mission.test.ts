@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fx } from './fixed';
+import { fx, type Fx } from './fixed';
 import { FlowField } from './flowfield';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 import { CORRIDOR_RECHECK_TICKS, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
@@ -8000,5 +8000,162 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     // Tile (3,4)'s centre: 3.5 x 65536 = 229376, 4.5 x 65536 = 294912.
     expect([e.evacCount, e.evacX[0], e.evacY[0], e.evacSide[0]]).toEqual([1, 229376, 294912, 0]);
     expect((cgWorld({ enabled: true }).sim as unknown as Evac).evacCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E12: `counts_rescued` on an evacuate_before. A civilian the player's side rescues (admitted to an aid post or
+// evacuated by a carrier as a wounded man) counts out like one who walked in, for an ACTIVE evacuation that opts in and
+// covers him. One real rescue end to end (a downed villager, an ambulance standing on its own evac point), then the rules
+// one at a time on handed-in events (the shape of the Conduct tests above).
+describe('E12: counts_rescued, a rescued civilian counts as saved', () => {
+  const RC_WOUNDED: UnitTypeJson = {
+    id: 'rc_wounded',
+    role: 'wounded',
+    hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true },
+    mobility: { speed_tiles_s: 0.12 },
+    sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 },
+  };
+  /** One man who goes down in place; bleeds 60 s. */
+  const RC_CIV: UnitTypeJson = {
+    id: 'rc_civ',
+    role: 'civilian',
+    hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, wounds: { wound_chance: 1, bleed_s: 60, type: 'rc_wounded', in_place: true } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7 },
+  };
+  const RC_AMB: UnitTypeJson = {
+    id: 'rc_ambulance',
+    role: 'apc',
+    hull: { hp: 900, armor: { front: 40, side: 30, rear: 20 }, transport_slots: 4, can_carry: ['wounded'] },
+    mobility: { speed_tiles_s: 2 },
+    sensors: { optics: 1, sight_tiles: 1 },
+  };
+  const RC_ENEMY: UnitTypeJson = { ...RC_AMB, id: 'rc_enemy', role: 'infantry', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } } };
+
+  /** Ids by placement order: 0 the ambulance, 1 an enemy far off, 2 the villager (group `village`), 3 a road civilian
+   *  (group `road`), both more than four tiles from the ambulance so nobody is shepherded. */
+  function rcWorld(objective: Partial<ObjectiveJson>): World {
+    const sim = new Sim({ seed: 0x1438, width: 28, height: 12, capacity: 16 });
+    const ids = new Map<string, number>();
+    for (const t of [RC_WOUNDED, RC_CIV, RC_AMB, RC_ENEMY]) ids.set(t.id, sim.addUnitType(t));
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        starting_force: [{ unit: 'rc_ambulance', count: 1, at: [3, 2] }],
+        enemy: { garrison: [{ unit: 'rc_enemy', count: 1, at: [26, 1] }] },
+        civilians: {
+          refuge: 'refuge',
+          groups: [
+            { unit: 'rc_civ', count: 1, at: [3, 8], group: 'village' },
+            { unit: 'rc_civ', count: 1, at: [12, 10], group: 'road' },
+          ],
+        },
+        // `hold` keeps the mission running past `save` failing, so a late rescue is judged by the rule and not by `ended`.
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 600 },
+          { id: 'save', type: 'evacuate_before', primary: false, target: 'yard', count: 1, seconds: 300, ...objective },
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers: { refuge: [24, 5] },
+        zones: { yard: [21, 3, 6, 6] },
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  const VILLAGER = 2;
+  const ROAD = 3;
+  const status = (w: World): string | undefined => w.runtime.objectiveList.find((o) => o.id === 'save')?.status;
+  const evacs = (out: MissionEvent[]): number[] => out.flatMap((e) => (e.kind === 'evacuated' ? [e.entity] : []));
+  const admitted = (entity: number, side = 0): SimEvent => ({ kind: 'woundAdmitted', tick: 1, entity, structure: 0, side });
+  const evacuated = (entity: number, side = 0): SimEvent => ({ kind: 'woundEvacuated', tick: 1, entity, carrier: -1, side });
+  const run = (w: World, evs: SimEvent[]): MissionEvent[] => evs.flatMap((e) => w.runtime.step([e]));
+
+  /** The real rescue: the villager is shot down in place, put aboard the ambulance, and the ambulance stands on side 0's
+   *  evac point, so the sim evacuates him (`woundEvacuated`, side 0) on the next tick. */
+  function realRescue(w: World): { sim: SimEvent[]; mission: MissionEvent[] } {
+    (w.sim as unknown as { applyDamage(t: number, d: Fx, by: number): void }).applyDamage(VILLAGER, fx.fromInt(30), 1);
+    expect(w.sim.state.woundState[VILLAGER]).toBe(1); // DOWN, in place
+    expect(w.sim.embarkAtSpawn(0, VILLAGER)).toBe(true);
+    w.sim.addEvacPoint(0, w.sim.state.posX[0], w.sim.state.posY[0]);
+    return w.step(2);
+  }
+
+  it('the placement order the tests assume', () => {
+    const w = rcWorld({});
+    expect([0, 1, VILLAGER, ROAD].map((id) => w.sim.state.side[id])).toEqual([0, 1, 2, 2]);
+  });
+
+  it('end to end: a villager the ambulance evacuates completes a counts_rescued evacuation, with one evacuated event', () => {
+    const w = rcWorld({ group: 'village', counts_rescued: true });
+    const out = realRescue(w);
+    expect(out.sim.filter((e) => e.kind === 'woundEvacuated').map((e) => (e.kind === 'woundEvacuated' ? [e.entity, e.side] : []))).toEqual([[VILLAGER, 0]]);
+    expect(evacs(out.mission)).toEqual([VILLAGER]);
+    expect(status(w)).toBe('complete');
+  });
+
+  it('the same rescue without counts_rescued counts nothing (as before E12)', () => {
+    const w = rcWorld({ group: 'village' });
+    const out = realRescue(w);
+    expect(out.sim.some((e) => e.kind === 'woundEvacuated')).toBe(true);
+    expect(evacs(out.mission)).toEqual([]);
+    expect(status(w)).toBe('active');
+  });
+
+  it('a civilian of another group does not count toward a scoped evacuation; the unscoped one counts him', () => {
+    const scoped = rcWorld({ group: 'village', counts_rescued: true });
+    expect([evacs(run(scoped, [admitted(ROAD)])), status(scoped)]).toEqual([[], 'active']);
+    const all = rcWorld({ counts_rescued: true });
+    expect([evacs(run(all, [admitted(ROAD)])), status(all)]).toEqual([[ROAD], 'complete']);
+  });
+
+  it("only the player's rescue counts: the same villager rescued by side 1 counts nothing", () => {
+    const w = rcWorld({ group: 'village', counts_rescued: true });
+    expect([evacs(run(w, [admitted(VILLAGER, 1), evacuated(VILLAGER, 1)])), status(w)]).toEqual([[], 'active']);
+  });
+
+  it('only a civilian counts: an enemy wounded the player rescues does not', () => {
+    const w = rcWorld({ counts_rescued: true });
+    expect([evacs(run(w, [admitted(1)])), status(w)]).toEqual([[], 'active']);
+  });
+
+  it('one man counts once: admitted, then discharged as evacuated, is one evacuated event and a count of 1', () => {
+    const w = rcWorld({ counts_rescued: true, count: 2 });
+    expect([evacs(run(w, [admitted(VILLAGER), evacuated(VILLAGER)])), status(w)]).toEqual([[VILLAGER], 'active']);
+    expect([evacs(run(w, [admitted(ROAD)])), status(w)]).toEqual([[ROAD], 'complete']);
+  });
+
+  it('a rescue after the evacuation has failed is not a late save', () => {
+    const w = rcWorld({ counts_rescued: true, seconds: 1 });
+    w.step(25);
+    expect(status(w)).toBe('failed');
+    // Still running: `hold` keeps the mission open past `save` failing, so the rule decides and not the end (an ended
+    // mission's step returns [] and would pass the evacs check below whatever the rule said).
+    expect(w.runtime.result).toBe('ongoing');
+    const out = run(w, [admitted(VILLAGER)]);
+    expect(evacs(out)).toEqual([]);
+  });
+
+  it('counts_rescued on any other objective type throws at load', () => {
+    expect(() => rcWorld({ type: 'capture', counts_rescued: true })).toThrow(/takes no counts_rescued/);
   });
 });
