@@ -104,6 +104,11 @@ export interface PlacementJson {
    *  (the runtime would let a buried body work the dig). An unknown id
    *  throws at load. */
   digs?: string;
+  /** GH-1438 E6 (D18, Option A): an ENEMY placement (garrison, wave, `spawn` trigger) whose bodies, with no target of
+   *  the fighting sides in reach, fire on the nearest identified, standing civilian (`Sim.setCivFire`). Refused on any
+   *  other side, at load (here) and in validate:data. The civilians fall in place (`down`, the shipped pose); a civilian
+   *  downed by side 1 costs the player no Conduct, since `stepRoe` charges side 0's fire alone. */
+  fires_on_civilians?: boolean;
   /**
    * Infantry authored *aboard* this carrier, seated at spawn rather than walking
    * in. The only way an AI-driven transport ever has passengers: every other
@@ -229,13 +234,15 @@ export interface ObjectiveJson {
    *  every civilian, one shared tally. */
   group?: string | readonly string[];
   /** `evacuate_before` only (E12, GH-1438, the civilian drama design §10.2 and G-7): a civilian of this evacuation's
-   *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues -- admitted to an aid post or
-   *  evacuated by a carrier (`woundAdmitted` / `woundEvacuated` with side 0) -- while this objective is active is counted
-   *  out exactly as one who walked into the zone: latched into the same tally, once, with the same `evacuated` event.
-   *  Absent or false: a rescued civilian counts toward nothing but Conduct, as before. The tally is shared, as an
-   *  arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one
-   *  without the flag. And a civilian counted at `woundAdmitted` stays counted even if the aid post later falls and he
-   *  is lost (`woundLost`): nothing takes a man out of the latch. Both pending a lead ruling. */
+   *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues is counted out exactly as one
+   *  who walked into the zone (latched into the same tally, once, with the same `evacuated` event) at the moment he
+   *  leaves the fight ALIVE: his `woundEvacuated` with side 0, either evacuated by a carrier (on an evac point, or an
+   *  air carrier lifting off) or discharged from an aid post (`carrier` -1), while this objective is active. Admission
+   *  to an aid post (`woundAdmitted`) counts nothing on its own (the lead's ruling, 20 Nov 2026, PR 1651 follow-up): a
+   *  patient whose post falls is lost (`woundLost`) and is never counted, and one still under treatment when the
+   *  objective resolves is not counted either. Absent or false: a rescued civilian counts toward nothing but Conduct,
+   *  as before. The tally is shared, as an arrival's is: with two unscoped evacuations, a rescue latched by the one that
+   *  opts in also counts for the one without the flag (pending a lead ruling). */
   counts_rescued?: boolean;
   text?: string;
   target?: string;
@@ -405,7 +412,8 @@ export interface MissionJson {
       at_seconds: number;
       trigger?: string;
       to?: string;
-      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string }[];
+      /** `fires_on_civilians` (GH-1438 E6) passes through to the spawn, as `group` and `tag` do. */
+      units: readonly { unit: string; count: number; from?: string; group?: string; tag?: string; fires_on_civilians?: boolean }[];
       /** Spoken when the wave spawns (G12, 2026-09-06): the same say a
        *  trigger carries, emitted right after the wave event. */
       say?: SayJson;
@@ -2950,6 +2958,25 @@ export class MissionRuntime {
    *  `onLayout` (GH-1360 S3b, tests and tools): told where the starting layout stood each body and how (`slot`,
    *  `free` or `authored`), in spawn order. Not called for a mission with no `start_layout`. */
   start(onLayout?: (placements: readonly StartPlacement[]) => void): void {
+    // GH-1438 E6: `fires_on_civilians` is an enemy placement's. On a player or a civilian placement, refuse it here, at
+    // load: a `reinforce` carrying it would otherwise throw from `spawnPlacement` in the middle of the mission. A
+    // carrier's `passengers` spawn on the carrier's side (`embarkPassengers`), so they are walked too, at any depth.
+    const friendly: { where: string; list: readonly PlacementJson[] }[] = [
+      { where: 'starting_force', list: this.mission.starting_force ?? [] },
+      { where: 'civilians.groups', list: this.mission.civilians?.groups ?? [] },
+      ...(this.mission.triggers ?? []).flatMap((t, i) =>
+        t.do.kind === 'reinforce' ? [{ where: `trigger "${t.id ?? `trigger_${i}`}" reinforce`, list: t.do.units ?? [] }] : []
+      ),
+    ];
+    const refuseCivFire = (where: string, list: readonly PlacementJson[]): void => {
+      for (const p of list) {
+        if (p.fires_on_civilians === true) {
+          throw new Error(`mission ${this.mission.id}: ${where} ${p.unit} carries fires_on_civilians, which only an enemy placement takes`);
+        }
+        if (p.passengers !== undefined) refuseCivFire(`${where} ${p.unit} passenger`, p.passengers);
+      }
+    };
+    for (const { where, list } of friendly) refuseCivFire(where, list);
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
@@ -3246,9 +3273,10 @@ export class MissionRuntime {
         const parent = this.woundParentOf.get(e.entity);
         if (parent !== undefined && this.sim.state.alive[parent] === 1) this.rescuedBack.set(parent, (this.rescuedBack.get(parent) ?? 0) + 1);
       }
-      // E12: a civilian the player rescued, for an active evacuation that counts rescues, is counted out like an arrival.
+      // E12: a civilian the player rescued, for an active evacuation that counts rescues, is counted out like an arrival,
+      // and only once he is OUT alive (carrier evacuation or aid-post discharge): never at admission (lead, 20 Nov).
       if (
-        (e.kind === 'woundAdmitted' || e.kind === 'woundEvacuated') &&
+        e.kind === 'woundEvacuated' &&
         e.side === 0 &&
         this.sim.state.side[e.entity] === 2 &&
         this.rescueCounts(e.entity) &&
@@ -4173,6 +4201,13 @@ export class MissionRuntime {
       this.assertGroundClear(p.unit, bx, by, drawn.length);
     }
 
+    // GH-1438 E6: only an enemy placement fires on civilians. `start()` refuses the flag on every player and civilian
+    // placement it can see (the starting force, the crowd, every `reinforce`, and every passenger of any of them), so this
+    // guard is never reached mid-mission.
+    if (p.fires_on_civilians === true && side !== 1) {
+      throw new Error(`mission ${this.mission.id}: ${p.unit} is a side-${side} placement; only an enemy placement takes fires_on_civilians`);
+    }
+
     const ids: number[] = [];
     for (let k = 0; k < drawn.length; k++) {
       const ox = (k % 3) * SPREAD;
@@ -4201,6 +4236,8 @@ export class MissionRuntime {
       // route, so on an unvalidated count > 1 the last body silently wins —
       // validate_data.mjs refuses such a placement before it ships.
       if (digsIdx >= 0) this.sim.assignDigger(digsIdx, id);
+      // GH-1438 E6: the enemy's fire on the crowd, by placement (side checked above, before any body spawned).
+      if (p.fires_on_civilians === true) this.sim.setCivFire(id);
       // Carry-over, consumed. A placement recon marked last mission is already known:
       // it spawns visible, and it does not get to spring an ambush. This is what makes
       // a thorough recon worth doing -- and why one mission file plays differently by
@@ -5096,7 +5133,7 @@ export class MissionRuntime {
         // through `timer_s` triggers instead (#88).
         spawned.push(
           ...this.spawnPlacement(
-            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
+            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag, fires_on_civilians: u.fires_on_civilians },
             1,
             undefined,
             true
@@ -5137,8 +5174,9 @@ export class MissionRuntime {
   }
 
   /** E12: whether an ACTIVE `evacuate_before` with `counts_rescued` counts civilian `id` (unscoped: every civilian; scoped:
-   *  its groups). Active only, as `collect` runs only for an active evacuation (E3): a rescue after the clock ran out is
-   *  Conduct, not a late save. Read on a rescue event alone, so the scan over a handful of objectives costs nothing. */
+   *  its groups). Active only, as `collect` runs only for an active evacuation (E3): a rescue that ends after the clock
+   *  ran out (a late evacuation, or a discharge from a post he was admitted to in time) is Conduct, not a late save.
+   *  Read on a `woundEvacuated` alone, so the scan over a handful of objectives costs nothing. */
   private rescueCounts(id: number): boolean {
     for (const o of this.objectives) {
       const d = o.def;

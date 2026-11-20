@@ -49,8 +49,9 @@ export function coinWhatText(what: CoinWhat, delta: number, names: CoinNames = N
     case 'tier': {
       const unit = names.unit(what.unitId);
       const trackKey = `garage.track.${what.track}`;
-      if (unit === undefined || !hasKey(trackKey)) return t(what.moved ? 'profile.coins.row.moved.unknown' : 'profile.coins.row.tier.unknown');
+      if (unit === undefined || !hasKey(trackKey)) return t(what.refund === true ? 'profile.coins.row.tier.refund.unknown' : what.moved ? 'profile.coins.row.moved.unknown' : 'profile.coins.row.tier.unknown');
       const item = t('stores.receipt.tier', { name: unit, track: t(trackKey), tier: what.tier });
+      if (what.refund === true) return t('profile.coins.row.tier.refund', { item });
       return what.moved ? t('profile.coins.row.moved', { item }) : t('profile.coins.row.unit', { unit: item });
     }
     case 'coupon':

@@ -1,9 +1,10 @@
 // GH-1438 E8 pacing, the PM ruling of 19 Nov 2026 (option b): the escort's pacing word `abductPace` is a `when: 'abduct'`
 // runtime row, so it exists in the snapshot only for a mission with an `abduct` trigger. No shipped mission authors one, so
 // every shipped mission's runtime schema digest, read where the SAVE PATH writes it (the snapshot header `cutMission` seals),
-// is still the one an earlier build wrote, 65675699, and a mission save made before E8 still loads (the second half here,
-// against saves dev made at 78e6cefbd, `fixtures/old-mission-saves/`). The sim half (the section, the refusal, the poison)
-// is `packages/sim/src/abduct-snapshot-row.test.ts`.
+// is still the one an earlier build wrote, 65675699, and a mission save made before the next change still loads (the second
+// half here, against the saves in `fixtures/old-mission-saves/`; its README says which build made them: the E6 merge, since
+// E6's epoch bump retired dev's 78e6cefbd pair, as the lead accepted on 20 Nov 2026). The sim half (the section, the
+// refusal, the poison) is `packages/sim/src/abduct-snapshot-row.test.ts`.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -62,7 +63,7 @@ interface OldSave {
 const OLD_DIR = join(HERE, 'fixtures', 'old-mission-saves');
 const OLD = readdirSync(OLD_DIR).filter((f) => f.endsWith('.json')).sort();
 
-describe('a mission save dev made before E8 still loads, and plays on as dev played it', () => {
+describe('a mission save an earlier build made still loads, and plays on as that build played it', () => {
   it('there are old saves to read', () => {
     expect(OLD.length).toBeGreaterThan(0);
   });
