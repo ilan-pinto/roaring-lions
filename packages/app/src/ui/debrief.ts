@@ -24,6 +24,7 @@ import { footBack, footLink, screenFoot } from './foot';
 import { panel } from './panel';
 import { mountEndPanel } from './end-panel';
 import { focusTrap } from './focus-trap';
+import { scrollerFocusable } from './scroll-focus';
 import { tierName } from './grade-copy';
 import { markSvg } from './mark';
 import { unitIcon } from './portrait';
@@ -354,6 +355,9 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   // it marked the end screen's next-mission link.
   markConfirm(primary);
   mountEndPanel(host, p, nav, primary, o.prompt);
+  // KS-14 (GH-1408): on a short window the body scrolls and the action row is outside it, so a keyboard could not read the end
+  // of the report. The body takes a tab stop only while it overflows.
+  const releaseScroller = scrollerFocusable(b, t('debrief.scrollRegion'));
   // Keyboard walk (polish/keyboard-and-saves): the backdrop hides the live
   // HUD, but Tab still walked out onto its strip -- leave, pause, the speed
   // chips -- invisible and live. One trap, released with the report.
@@ -361,6 +365,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   return () => {
     unsubscribeCoins?.();
     releaseTrap();
+    releaseScroller();
     p.el.remove();
     backdrop.remove();
   };

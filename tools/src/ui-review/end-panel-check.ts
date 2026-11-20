@@ -15,6 +15,11 @@
 // centre land on it (so a HUD element drawn over it counts as unreachable)? It
 // also reports which element holds focus. Exit 1 on any miss.
 //
+// GH-1408 (KS-14): it also asks, at every size, whether the report's SCROLLING BODY is reachable by keyboard. When the body overflows
+// (`scrollHeight > clientHeight`) a keyboard player must be able to Tab to it (the report traps Tab) and scroll it with Page Down.
+// The same page is then re-read with the body's `tabindex` taken off, which is how the report behaved before `scroll-focus.ts`, so
+// one browser session shows both the defect and the fix. A body that fits must add no tab stop.
+//
 // Run locally, once, one browser -- it is evidence for a bug fix, not a CI
 // gate: `pnpm --filter @lions/tools end-panel:check [--port=<n>] [--out=<dir>]`.
 // `--out` writes the 1440x900 and 1280x720 screenshots the PR quotes.
@@ -159,12 +164,68 @@ async function measure(page: Page): Promise<{ actions: Reading[]; primary: strin
   });
 }
 
+/** Two animation frames: a ResizeObserver callback and the app's own resize handlers have run by the second. Under SwiftShader a frame can
+ *  take a second, so a fixed `waitForTimeout` after a resize reads the page before the observer has spoken (the first run of the keyboard
+ *  probe did exactly that). */
+async function settle(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+}
+
+interface KeyReading {
+  overflow: boolean;
+  stop: boolean;
+  reached: boolean;
+  scrolled: boolean;
+}
+
+/** Tab (real key events, through the report's focus trap) from the primary action until the body holds focus, up to a full lap;
+ *  then Page Down on it. `overflow` is the body's own sizes; `stop` is whether it carries a tab stop right now. */
+async function keyboardReach(page: Page): Promise<KeyReading> {
+  const start = await page.evaluate(() => {
+    const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
+    const p = panels[panels.length - 1];
+    const body = p.querySelector<HTMLElement>('.rl-panel__body');
+    const primary = p.querySelector<HTMLElement>('.rl-foot [data-end-primary]');
+    if (!body || !primary) return null;
+    body.scrollTop = 0;
+    primary.focus();
+    return { overflow: body.scrollHeight > body.clientHeight + 1, stop: body.hasAttribute('tabindex') };
+  });
+  if (!start) return { overflow: false, stop: false, reached: false, scrolled: false };
+  let reached = false;
+  for (let i = 0; i < 16 && !reached; i++) {
+    await page.keyboard.press('Tab');
+    reached = await page.evaluate(() => {
+      const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
+      const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
+      return body !== undefined && body !== null && document.activeElement === body;
+    });
+  }
+  let scrolled = false;
+  if (reached) {
+    await page.keyboard.press('PageDown');
+    // Keyboard scrolling is animated by the browser, one frame at a time: poll for up to 6 s, not a fixed 120 ms.
+    for (let i = 0; i < 30 && !scrolled; i++) {
+      await page.waitForTimeout(200);
+      scrolled = await page.evaluate(() => {
+        const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
+        const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
+        return body !== undefined && body !== null && body.scrollTop > 0;
+      });
+    }
+  }
+  return { ...start, reached, scrolled };
+}
+
 const port = await claimPort(TAG, 'END_PANEL_PORT', 5194);
 const devServer = await ensureDevServer(port, REPO_ROOT, TAG);
 let browser: Browser | null = null;
 let failures = 0;
 try {
-  browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(claimGpuBackend(TAG)) });
+  // A machine whose Playwright browser build does not match this package's pin (a container with another revision installed) names
+  // its own Chromium here; unset, Playwright finds its own. Never `playwright install` for this.
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+  browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(claimGpuBackend(TAG)), ...(executablePath ? { executablePath } : {}) });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   await ctx.addInitScript(musicOffInitScript());
   // tsx compiles this file with esbuild's keepNames, which wraps named
@@ -184,6 +245,7 @@ try {
     for (const [w, h] of VIEWPORTS) {
       await page.setViewportSize({ width: w, height: h });
       await page.waitForTimeout(150);
+      await settle(page);
       const m = await measure(page);
       const bad = m.actions.filter((a) => !a.inView || !a.hit);
       if (m.actions.length === 0) failures++;
@@ -195,6 +257,27 @@ try {
           `${bad.length ? ` [${bad.map((b) => `${b.label}@${b.rect.join(',')}${b.inView ? ' covered' : ''}`).join('; ')}]` : ''}` +
           ` | primary=${m.primary ?? '-'} focus=${m.focused ?? '-'}`
       );
+      // KS-14: the same panel, with the scroller's tab stop as shipped, then with it taken off (the pre-fix behaviour).
+      await settle(page);
+      const withFix = await keyboardReach(page);
+      const kbBad = withFix.overflow ? !withFix.reached || !withFix.scrolled : withFix.stop;
+      await page.evaluate(() => {
+        const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
+        const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
+        body?.removeAttribute('tabindex');
+      });
+      const without = await keyboardReach(page);
+      if (kbBad) failures++;
+      console.log(
+        `[${TAG}] ${kbBad ? 'FAIL' : 'PASS'} ${kind.padEnd(8)} ${`${w}x${h}`.padEnd(9)} keyboard: overflow=${withFix.overflow} ` +
+          `tab-stop=${withFix.stop} reached=${withFix.reached} scrolled=${withFix.scrolled} | without the stop: reached=${without.reached}`
+      );
+      // Put the page back as the app left it for the next size: a resize makes the observer re-read it anyway.
+      await page.evaluate(() => {
+        const panels = [...document.querySelectorAll<HTMLElement>('body > .rl-panel')];
+        const body = panels[panels.length - 1]?.querySelector<HTMLElement>('.rl-panel__body');
+        if (body && body.scrollHeight > body.clientHeight + 1) body.setAttribute('tabindex', '0');
+      });
       const key = `${w}x${h}`;
       if (OUT && SHOTS.has(key) && (kind === 'victory' || kind === 'debrief')) {
         await page.screenshot({ path: path.join(OUT, `${kind}-${key}.png`) });

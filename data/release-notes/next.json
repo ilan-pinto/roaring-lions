@@ -3,6 +3,7 @@
   "units": [],
   "rules": [],
   "fixes": [
-    "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on."
+    "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on.",
+    "On a short window, the end-of-mission report can now be scrolled with the keyboard."
   ]
 }
