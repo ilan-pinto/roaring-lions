@@ -109,7 +109,7 @@ import {
 import { isMapId, loadMap, loadMaps, loadMission } from '@lions/data/content-lazy';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
-import { sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
+import { sandboxWorksBuilders, sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
@@ -285,7 +285,6 @@ import {
   sandboxTunnelRoute,
 } from './sandbox-extras';
 import {
-  SANDBOX_WORKS_KDF,
   bootPicks,
   bootTiers,
   sandboxUnitTypes,
@@ -4954,7 +4953,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       sim,
       sandboxWorksMission(
         sim.structureTypes,
-        SANDBOX_WORKS_KDF.map(([unit, dx, dy]) => ({ unit, at: [anchors.friendly[0] + dx, anchors.friendly[1] + dy] }))
+        sandboxWorksBuilders(sim, typeOf, anchors)
       ),
       {
         typeIdOf: (id) => typeOf.get(id) ?? 0,
