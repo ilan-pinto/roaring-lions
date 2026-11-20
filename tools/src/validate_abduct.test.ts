@@ -1,22 +1,17 @@
-// GH-1438 E8: tools/validate_abduct.mjs, the authoring guards on `do.kind: abduct`. The behaviour the route bound rests
-// on (at shipped speeds a captive keeps up inside it and is left behind beyond it) is packages/sim/src/mission.test.ts,
-// "E8: abduct", the shipped-speed case.
+// GH-1438 E8: tools/validate_abduct.mjs, the authoring guards on `do.kind: abduct`. The route-length cap is retired: the
+// escort paces to its captives, which packages/sim/src/abduct-pace.test.ts proves at the shipped speeds (taken on 60 and
+// 120 tiles). What stays is every way an abduct holds nobody: captives, escort side, `to` in the zone, the start gap and
+// a `to` no walk reaches, and the evacuation-crossing warning.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { abductFailures, abductRouteBound, ABDUCT_RELEASE_TILES, ABDUCT_ROUTE_MARGIN_TILES } from '../validate_abduct.mjs';
+import { abductFailures, ABDUCT_RELEASE_TILES } from '../validate_abduct.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const unit = (rel: string): { id: string; mobility: { speed_tiles_s: number } } =>
-  JSON.parse(readFileSync(join(ROOT, 'data', 'units', rel), 'utf8')) as { id: string; mobility: { speed_tiles_s: number } };
-const MILITIA = unit('enemy/militia_cell.json');
-const CIVILIANS = unit('civilians.json');
-const UNITS = new Map([MILITIA, CIVILIANS, unit('kdf/inf_squad.json')].map((u) => [u.id, u]));
 const BLOCKED = new Set(['#']);
 
-const run = (mission: unknown, map: unknown): { failures: string[]; warnings: string[] } =>
-  abductFailures(mission, map, UNITS, BLOCKED, 'm.json');
+const run = (mission: unknown, map: unknown): { failures: string[]; warnings: string[] } => abductFailures(mission, map, BLOCKED, 'm.json');
 
 /** A 64 x 12 open map; `wall` puts a `^` column at x = 20 over rows 0-10, leaving a gap at row 11. */
 function map(opts: { to?: [number, number]; wall?: boolean; exitZone?: number[] } = {}): unknown {
@@ -52,22 +47,7 @@ function mission(opts: { group?: string; extra?: Record<string, unknown>; evac?:
   };
 }
 
-describe('abductRouteBound', () => {
-  it('is (6 - gap) x vE / (vE - vC) - 2, from literals', () => {
-    expect(ABDUCT_RELEASE_TILES).toBe(6);
-    expect(ABDUCT_ROUTE_MARGIN_TILES).toBe(2);
-    expect(abductRouteBound(1, 0.5, 0)).toBeCloseTo(10, 9); // 6 x 1 / 0.5 - 2
-    expect(abductRouteBound(1, 0.5, 2)).toBeCloseTo(6, 9); // 4 x 2 - 2
-    expect(abductRouteBound(0.8, 0.8, 0)).toBe(Infinity); // the gap never opens
-    expect(abductRouteBound(0.7, 0.8, 0)).toBe(Infinity);
-  });
-
-  it('at the shipped speeds, read from data/units: militia_cell over civilians, 29.67 tiles a tile apart, 36 beside', () => {
-    expect([MILITIA.mobility.speed_tiles_s, CIVILIANS.mobility.speed_tiles_s]).toEqual([0.95, 0.8]);
-    expect(abductRouteBound(MILITIA.mobility.speed_tiles_s, CIVILIANS.mobility.speed_tiles_s, 1)).toBeCloseTo(29.667, 3);
-    expect(abductRouteBound(MILITIA.mobility.speed_tiles_s, CIVILIANS.mobility.speed_tiles_s, 0)).toBeCloseTo(36, 9);
-  });
-
+describe('the release radius', () => {
   it('pins the release radius to the sim: ABDUCT_RELEASE_SQ = 36 * 65536 in mission.ts is 6 tiles squared', () => {
     const src = readFileSync(join(ROOT, 'packages', 'sim', 'src', 'mission.ts'), 'utf8');
     const m = /const ABDUCT_RELEASE_SQ = (\d+) \* 65536;/.exec(src);
@@ -80,22 +60,13 @@ describe('abductFailures', () => {
     expect(run(mission(), map({ to: [30, 5] }))).toEqual({ failures: [], warnings: [] });
   });
 
-  it('refuses a route past the bound, naming the trigger: 29 tiles pass, 30 do not (bound 29.67)', () => {
-    expect(run(mission(), map({ to: [34, 5] })).failures).toEqual([]); // (5,5) -> (34,5): 29
-    expect(run(mission(), map({ to: [35, 5] })).failures).toEqual([
-      'm.json: abduct trigger "led_away": escort route 30.0 tiles to "exit" is longer than the 29.7 on which its ' +
-        'captives keep up (escort 0.95 t/s, captives 0.8 t/s, 1.0 tiles apart at the start, released past 6): they ' +
-        'would be left behind, never taken',
-    ]);
+  it('a long route is no fault: the escort paces (30 tiles, the 1655 cap refused it, and 58)', () => {
+    expect(run(mission(), map({ to: [35, 5] }))).toEqual({ failures: [], warnings: [] }); // (5,5) -> (35,5): 30
+    expect(run(mission(), map({ to: [63, 5], exitZone: [61, 2, 3, 7] }))).toEqual({ failures: [], warnings: [] }); // 58
   });
 
-  it('measures the WALKING route: a ridge that forces a detour refuses a goal the straight line would pass', () => {
-    // (5,5) -> (30,3) is 25.8 straight (2 diagonals and 23 steps); round the ridge's end at row 11 it is
-    // 6 sqrt 2 + 9 + 8 sqrt 2 + 2 = 30.8, past the 29.67.
-    expect(run(mission(), map({ to: [30, 3] })).failures).toEqual([]);
-    const f = run(mission(), map({ to: [30, 3], wall: true })).failures;
-    expect(f).toHaveLength(1);
-    expect(f[0]).toMatch(/escort route 30\.8 tiles/);
+  it('walks round a ridge with a gap: no fault (the 1655 cap refused this 30.8-tile detour)', () => {
+    expect(run(mission(), map({ to: [30, 3], wall: true })).failures).toEqual([]);
   });
 
   it('refuses captives that start beyond the release radius, whatever the route', () => {
@@ -138,7 +109,7 @@ describe('abductFailures', () => {
   });
 
   it('accepts a `to` on the zone`s first and last tiles and refuses one a tile beyond (the rectangle`s edges)', () => {
-    // exit_zone [28, 2, 3, 7] covers x 28..30, y 2..8. A short route from (5,5), well inside the bound.
+    // exit_zone [28, 2, 3, 7] covers x 28..30, y 2..8. A short route from (5,5).
     const z = [28, 2, 3, 7];
     const outside = 'm.json: abduct trigger "led_away" marker "exit" is outside zone "exit_zone": the escort stops there and nobody is ever taken';
     expect(run(mission(), map({ to: [30, 8], exitZone: z })).failures).toEqual([]); // the last tile, both axes
@@ -149,25 +120,17 @@ describe('abductFailures', () => {
     expect(run(mission(), map({ to: [28, 1], exitZone: z })).failures).toEqual([outside]); // a tile before y
   });
 
-  it('bounds with the FASTEST escort and the SLOWEST captive: two of each, from literal unit records', () => {
-    // Literal unit records, listed slow-escort first and fast-captive first, so neither the first placement nor the
-    // wrong extreme stands in. Escorts at (5,5) and (5,6), captives at (4,5) and (4,6): the largest start gap is
-    // sqrt 2. Route: the longer body's walk, (5,6) -> (15,5), 9 + sqrt 2 = 10.41 tiles.
-    const units = new Map(
-      [
-        { id: 'esc_slow', mobility: { speed_tiles_s: 0.5 } },
-        { id: 'esc_fast', mobility: { speed_tiles_s: 1.0 } },
-        { id: 'cap_fast', mobility: { speed_tiles_s: 0.8 } },
-        { id: 'cap_slow', mobility: { speed_tiles_s: 0.4 } },
-      ].map((u) => [u.id, u]),
-    );
+  it('two escorts and two captives (the fixture 1655 bounded by the fastest and slowest): speeds no longer matter, the start gap is over EVERY pair', () => {
+    // Escorts at (5,5) and (5,6), captives at (4,5) and (4,6), on unit ids no catalogue knows: the validator reads no
+    // speed. The 1655 cap refused this 10.4-tile walk at 1.0 over 0.4 t/s; it passes now.
     const m = mission();
-    m.enemy = {
+    const escorts = (at: [number, number]): Record<string, unknown> => ({
       garrison: [
         { unit: 'esc_slow', count: 1, at: [5, 5], group: 'takers' },
-        { unit: 'esc_fast', count: 1, at: [5, 6], group: 'takers' },
+        { unit: 'esc_fast', count: 1, at, group: 'takers' },
       ],
-    };
+    });
+    m.enemy = escorts([5, 6]);
     m.civilians = {
       refuge: 'refuge',
       groups: [
@@ -175,17 +138,12 @@ describe('abductFailures', () => {
         { unit: 'cap_slow', count: 1, at: [4, 6], group: 'taken' },
       ],
     };
-    // (6 - sqrt 2) x 1.0 / 0.6 - 2 = 5.64 refuses 10.41; either wrong pair, (0.5 over 0.4) or (1.0 over 0.8), gives
-    // (6 - sqrt 2) x 5 - 2 = 20.93 and would accept it.
-    const route = 9 + Math.SQRT2;
-    const gap = Math.SQRT2;
-    expect(abductRouteBound(1.0, 0.4, gap)).toBeLessThan(route);
-    expect(abductRouteBound(0.5, 0.4, gap)).toBeGreaterThan(route);
-    expect(abductRouteBound(1.0, 0.8, gap)).toBeGreaterThan(route);
-    expect(abductFailures(m, map({ to: [15, 5] }), units, BLOCKED, 'm.json').failures).toEqual([
-      'm.json: abduct trigger "led_away": escort route 10.4 tiles to "exit" is longer than the 5.6 on which its ' +
-        'captives keep up (escort 1 t/s, captives 0.4 t/s, 1.4 tiles apart at the start, released past 6): they ' +
-        'would be left behind, never taken',
+    expect(run(m, map({ to: [15, 5] }))).toEqual({ failures: [], warnings: [] });
+    // The second escort moved to (5,0): it is sqrt 37 = 6.08 tiles from the captive at (4,6), though the first escort
+    // stands a tile from both. The largest pair decides, so it is refused.
+    m.enemy = escorts([5, 0]);
+    expect(run(m, map({ to: [15, 5] })).failures).toEqual([
+      'm.json: abduct trigger "led_away": its captives start 6.1 tiles from escort "takers", past the 6-tile release: none would ever be held',
     ]);
   });
 

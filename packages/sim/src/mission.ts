@@ -799,6 +799,27 @@ const SCORE_UNITS = 60 * TICKS_PER_SECOND;
 const ABDUCT_RELEASE_SQ = 36 * 65536;
 /** GH-1438 E8: each captive is re-ordered to the leader once in this many ticks (half a second), staggered by id. */
 const ABDUCT_FOLLOW_TICKS = 10;
+/** GH-1438 E8 pacing: the escort halts when a held captive is more than three tiles from its leader (3 x 3 tiles^2,
+ *  Q8.8 squared as `ABDUCT_RELEASE_SQ`): half the release radius, so a walking captive is never past 3 tiles plus the
+ *  one tick a halt takes to land (0.05 tiles at 0.95 t/s), three tiles inside the six that would let him go. */
+const ABDUCT_PACE_WAIT_SQ = 9 * 65536;
+/** GH-1438 E8 pacing: ... and walks on once every held captive is within two (2 x 2 tiles^2). A tile of hysteresis:
+ *  at the shipped 0.15 t/s gap rate (militia_cell 0.95 over civilians 0.8) that is about 6.7 s of walking a stop. */
+const ABDUCT_PACE_GO_SQ = 4 * 65536;
+/** GH-1438 E8 pacing: the longest the escort waits for one halt (10 s). A captive who has not closed to two tiles by
+ *  then cannot (a shut gate, a crowd, a hobble): the escort walks on, unpaced, for `ABDUCT_PACE_WALK_ON_TICKS`. */
+const ABDUCT_PACE_CAP_TICKS = 10 * TICKS_PER_SECOND;
+/** GH-1438 E8 pacing: after a wait ran out the escort walks this long (10 s) before it may halt again. Long enough for
+ *  the one who cannot follow to fall past six and be let go (from two tiles off, four tiles at any gap rate of 0.4 t/s
+ *  or more; a captive who cannot move at all opens it at the escort's own 0.95), short enough that one who CAN follow,
+ *  within two when the wait ran out, opens only 1.5 tiles more at the shipped 0.15 t/s and is still held. No deadlock:
+ *  at worst the escort walks ten seconds in every twenty. */
+const ABDUCT_PACE_WALK_ON_TICKS = 10 * TICKS_PER_SECOND;
+/** `abductPace` codes. A positive value is a halt: the tick it was ordered, plus one. A value below `ABDUCT_PACE_OFF`
+ *  is a walk-on after a wait ran out: minus (the tick it began, plus three). This one is walking, pacing armed. */
+const ABDUCT_PACE_WALK = 0;
+/** A later trigger ordered the escort (`commit`, `withdraw_to` or another `abduct` of its group): pacing is over. */
+const ABDUCT_PACE_OFF = -2;
 /** Score units a unit of destroyed value is worth per point-per-100: `SCORE_UNITS / 100`. */
 const SCORE_PER_VALUE = (SCORE_UNITS / 100) | 0;
 
@@ -1269,6 +1290,9 @@ export class MissionRuntime {
   private resultValue: 'ongoing' | 'victory' | 'defeat' = 'ongoing';
   /** #540: set by `checkEnd` when the time limit was the ONLY reason the mission was lost. */
   private withdrawnValue = false;
+  /** GH-1438 E8 pacing: per trigger, an `abduct`'s escort state (`ABDUCT_PACE_WALK`, `ABDUCT_PACE_OFF`, a halt or a
+   *  walk-on, each with its tick). 0 for every other trigger, and never written for one. `stepAbductPace`. */
+  private readonly abductPace: number[] = [];
 
   constructor(sim: Sim, mission: MissionJson, ctx: MissionContext) {
     this.sim = sim;
@@ -1367,6 +1391,7 @@ export class MissionRuntime {
       this.objectives.push({ def, status: 'active', holdTicks: 0, paused: null, completeTick: -1 });
     }
     this.firedTriggers = new Array(mission.triggers?.length ?? 0).fill(false);
+    this.abductPace = new Array(mission.triggers?.length ?? 0).fill(ABDUCT_PACE_WALK);
     this.spawnedWaves = new Array(mission.enemy?.waves?.length ?? 0).fill(false);
     this.rosterPool = [...(ctx.ledger?.['roster.surviving_units'] ?? [])];
     // What recon marked last mission. A tag in here spawns pre-revealed and gives up
@@ -1700,6 +1725,10 @@ export class MissionRuntime {
       if (this.ctx.goalsOnly === true) h = hashWord(h, o.completeTick | 0);
     }
     for (let i = 0; i < this.firedTriggers.length; i++) h = hashWord(h, this.firedTriggers[i] ? 1 : 0);
+    // GH-1438 E8: an abduct's pacing state decides when its escort halts and walks on. Folded for an abduct trigger
+    // only, so a mission without one (every shipped mission) folds nothing and its digest is byte-identical.
+    const trig = this.mission.triggers ?? [];
+    for (let i = 0; i < this.abductPace.length; i++) if (trig[i].do.kind === 'abduct') h = hashWord(h, this.abductPace[i] | 0);
     for (let i = 0; i < this.spawnedWaves.length; i++) h = hashWord(h, this.spawnedWaves[i] ? 1 : 0);
     // Floored: every deduction is an integer today, and `| 0` floors the
     // non-negative score (it is clamped at 0) without Math.
@@ -4834,6 +4863,7 @@ export class MissionRuntime {
           // `Command`'s `sweep`; the lead's ruling, 2026-10-11).
           if (t.do.kind === 'commit') this.sim.queueCommand({ kind: 'attackMove', ids, x, y, sweep: true });
           else this.sim.queueCommand({ kind: 'move', ids, x, y });
+          this.abductOrdered(t.do.group ?? '', i);
           // A trigger order overrides the standing stance, and for a patrol it
           // has to say so out loud. `stepPatrols` re-issues the next waypoint
           // the instant a unit stops moving, so without this the ordered move
@@ -4854,6 +4884,7 @@ export class MissionRuntime {
         if (ids.length > 0 && t.do.to) {
           const [x, y] = this.markerPos(t.do.to);
           this.sim.queueCommand({ kind: 'move', ids, x, y });
+          this.abductOrdered(t.do.group ?? '', i);
           const ordered = new Set(ids);
           for (let k = this.patrols.length - 1; k >= 0; k--) {
             if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
@@ -4940,11 +4971,10 @@ export class MissionRuntime {
    *   - a captive standing in `zone` while the leader lives is TAKEN: `removeFromPlay`, and the same `removed` event a
    *     `remove` trigger raises (no harm, no other effect: D18);
    *   - every other captive is ordered to the leader's position (an `exact` move), once every ten ticks, staggered by id
-   *     (`(tick + id) % 10 === 0`).
-   * NO new state: every input is sim state or a fired trigger's latch (`firedTriggers`, folded), so no digest word, no
-   * snapshot row and no save moves. The cost, disclosed: "more than six tiles off" is read each tick rather than latched,
-   * so an escort that a later trigger walks back past a captive it left behind would hold him again. Integer only,
-   * ascending ids, no draw.
+   *     (`(tick + id) % 10 === 0`);
+   *   - and the escort PACES to the held captives (`stepAbductPace`), so none is let go by being outwalked.
+   * The cost, disclosed: "more than six tiles off" is read each tick rather than latched, so an escort that a later
+   * trigger walks back past a captive it left behind would hold him again. Integer only, ascending ids, no draw.
    */
   private stepAbductions(tick: number, out: MissionEvent[]): void {
     const triggers = this.mission.triggers ?? [];
@@ -4958,22 +4988,88 @@ export class MissionRuntime {
         if (leader < 0 || id < leader) leader = id;
       }
       const zone = this.zone(t.do.zone);
+      // The largest squared gap (Q8.8, as `ABDUCT_RELEASE_SQ`) between the leader and a captive held after this tick's
+      // takes; -1 when none is held.
+      let lag = -1;
       for (const c of this.groups.get(t.do.captives ?? '') ?? []) {
         if (st.alive[c] !== 1 || st.side[c] !== 2 || st.tunnelIn[c] >= 0 || st.carriedBy[c] >= 0) continue;
         if (leader < 0 || this.civFlight.hasFled(c) || st.woundState[c] !== 0) continue;
         const dx = (fx.sub(st.posX[c], st.posX[leader]) >> 8) | 0;
         const dy = (fx.sub(st.posY[c], st.posY[leader]) >> 8) | 0;
-        if (dx * dx + dy * dy > ABDUCT_RELEASE_SQ) continue;
+        const gap = dx * dx + dy * dy;
+        if (gap > ABDUCT_RELEASE_SQ) continue;
         if (zone !== undefined && zoneContains(zone, st.posX[c] >> 16, st.posY[c] >> 16)) {
           const unit = this.sim.unitTypes[st.typeIdx[c]].id;
           this.sim.removeFromPlay(c);
           out.push({ kind: 'removed', tick, entity: c, side: 2, unit });
           continue;
         }
+        if (gap > lag) lag = gap;
         if ((tick + c) % ABDUCT_FOLLOW_TICKS === 0) {
           this.sim.queueCommand({ kind: 'move', ids: [c], x: st.posX[leader], y: st.posY[leader], exact: true });
         }
       }
+      if (leader >= 0) this.stepAbductPace(i, t.do.group ?? '', t.do.to ?? '', leader, lag, tick);
+    }
+  }
+
+  /**
+   * GH-1438 E8 pacing: the escort waits for its slowest held captive, so that no route is too long to take anyone on
+   * (the escort, `militia_cell` 0.95 t/s, outwalks `civilians` 0.8, and without this the gap passed the six-tile
+   * release after about 36 tiles). One state word a trigger, `abductPace[i]`:
+   *   - WALKING (`ABDUCT_PACE_WALK`): while the leader is under way (`moving`) and a held captive is more than three
+   *     tiles off (`ABDUCT_PACE_WAIT_SQ`), the escort is HALTED (the `halt` command, its living surface side-1 members)
+   *     and the word records the tick;
+   *   - HALTED (positive): once every held captive is within two tiles (`ABDUCT_PACE_GO_SQ`), or none is held any more
+   *     (taken, fled, killed, down, or more than six off: no deadlock), the escort's `move` to `to` is RE-ISSUED, as the
+   *     trigger issued it, and it is WALKING again. A halt that lasts `ABDUCT_PACE_CAP_TICKS` walks on regardless;
+   *   - WALK-ON (below `ABDUCT_PACE_OFF`, with its tick): walking without pacing for `ABDUCT_PACE_WALK_ON_TICKS` (the one
+   *     who could not follow falls past six and is let go), then WALKING;
+   *   - OFF (`ABDUCT_PACE_OFF`): a later trigger ordered the escort's group (`abductOrdered`); its order stands.
+   * The release rules are not touched: suppression, the shepherd rule, the escort's death and the six-tile gap all
+   * free a captive exactly as before; pacing only keeps the gap from reaching six by walking. Every input is sim state
+   * or this word (a runtime snapshot row, folded into `digest` for an abduct trigger); integer only, no draw, and the
+   * only allocation is the order's id list, on a change of state (never per tick).
+   */
+  private stepAbductPace(i: number, group: string, to: string, leader: number, lag: number, tick: number): void {
+    const st = this.sim.state;
+    const pace = this.abductPace[i];
+    if (pace === ABDUCT_PACE_OFF) return;
+    if (pace > 0) {
+      const spent = tick - (pace - 1) >= ABDUCT_PACE_CAP_TICKS;
+      if (lag > ABDUCT_PACE_GO_SQ && !spent) return;
+      const ids = this.escortIds(group);
+      if (ids.length > 0 && to !== '') {
+        const [x, y] = this.markerPos(to);
+        this.sim.queueCommand({ kind: 'move', ids, x, y });
+      }
+      this.abductPace[i] = spent && lag > ABDUCT_PACE_GO_SQ ? -(tick + 3) : ABDUCT_PACE_WALK;
+    } else if (pace < ABDUCT_PACE_OFF) {
+      if (tick - (-pace - 3) >= ABDUCT_PACE_WALK_ON_TICKS) this.abductPace[i] = ABDUCT_PACE_WALK;
+    } else if (lag > ABDUCT_PACE_WAIT_SQ && st.moving[leader] === 1) {
+      const ids = this.escortIds(group);
+      if (ids.length > 0) {
+        this.sim.queueCommand({ kind: 'halt', ids });
+        this.abductPace[i] = tick + 1;
+      }
+    }
+  }
+
+  /** The escort members pacing orders: the living, surface side-1 members of `group` (the trigger's own filter, and the
+   *  leader's side rule). Allocates; called only when the pacing state changes. */
+  private escortIds(group: string): number[] {
+    const st = this.sim.state;
+    return (this.groups.get(group) ?? []).filter((id) => st.alive[id] === 1 && st.tunnelIn[id] < 0 && st.side[id] === 1);
+  }
+
+  /** GH-1438 E8 pacing: trigger `by` has just ordered `group` (a `commit`, `withdraw_to` or `abduct` that queued an order).
+   *  Every abduct of that group stops pacing (`ABDUCT_PACE_OFF`), so it never halts or re-routes an escort a later
+   *  trigger sent elsewhere; the one that IS `by` starts walking (`ABDUCT_PACE_WALK`). */
+  private abductOrdered(group: string, by: number): void {
+    const triggers = this.mission.triggers ?? [];
+    for (let k = 0; k < triggers.length; k++) {
+      const d = triggers[k].do;
+      if (d.kind === 'abduct' && d.group === group) this.abductPace[k] = k === by ? ABDUCT_PACE_WALK : ABDUCT_PACE_OFF;
     }
   }
 

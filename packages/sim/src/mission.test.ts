@@ -8347,10 +8347,12 @@ describe('E8: abduct', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// GH-1438 E8, AT THE SHIPPED SPEEDS: the physics tools/validate_abduct.mjs's route bound rests on. The escort walks
-// faster than its captives (`militia_cell` over `civilians`, read off data/units), so the gap opens with every tile of
-// route and a captive is let go once it passes six. A 64-wide strip, the escort at (5,5), one villager a tile BEHIND it
-// at (4,5) (the start gap the validator measures), `to` the route length east and a 3-wide exit zone round it.
+// GH-1438 E8, AT THE SHIPPED SPEEDS. The escort walks faster than its captives (`militia_cell` over `civilians`, read off
+// data/units), so without pacing the gap opened with every tile of route and a captive was let go once it passed six
+// (PR 1655 capped the route in validate:data at 29.67 tiles for this world). The escort now paces to him
+// (`stepAbductPace`), so the route length no longer decides it; packages/sim/src/abduct-pace.test.ts holds the pacing
+// itself. A 64-wide strip, the escort at (5,5), one villager a tile BEHIND it at (4,5), `to` the route length east and a
+// 3-wide exit zone round it.
 describe('E8: abduct at the shipped speeds', () => {
   const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'units');
   const read = (rel: string): UnitTypeJson => JSON.parse(readFileSync(join(DATA, rel), 'utf8')) as UnitTypeJson;
@@ -8358,11 +8360,8 @@ describe('E8: abduct at the shipped speeds', () => {
   const CIVILIANS = read('civilians.json');
   const V_ESCORT = MILITIA.mobility.speed_tiles_s;
   const V_CAPTIVE = CIVILIANS.mobility.speed_tiles_s;
-  /** The validator's bound, written out from literals (an oracle never imports the code it checks): release 6,
-   *  start gap 1, margin 2. 29.67 tiles at 0.95 over 0.8. */
-  const BOUND = ((6 - 1) * V_ESCORT) / (V_ESCORT - V_CAPTIVE) - 2;
 
-  function shipped(route: number): { taken: number[]; left: { alive: number; x: number } } {
+  function shipped(route: number): { taken: number[] } {
     const sim = new Sim({ seed: 0x1438e8, width: 64, height: 12, capacity: 8 });
     const ids = new Map<string, number>();
     for (const t of [MILITIA, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
@@ -8397,26 +8396,19 @@ describe('E8: abduct at the shipped speeds', () => {
     for (let i = 0; i < 120 * TICKS_PER_SECOND; i++) {
       for (const e of runtime.step(sim.tick())) if (e.kind === 'removed' && e.side === 2) out.push(e.entity);
     }
-    return { taken: out, left: { alive: sim.state.alive[1], x: sim.state.posX[1] >> 16 } };
+    return { taken: out };
   }
 
-  it('reads a faster escort than captive off the shipped data, so the bound is finite', () => {
+  it('reads a faster escort than captive off the shipped data (the case pacing exists for)', () => {
     expect(V_ESCORT).toBeGreaterThan(V_CAPTIVE);
-    expect(BOUND).toBeGreaterThan(20);
-    expect(BOUND).toBeLessThan(40);
   });
 
-  it('inside the bound the villager keeps up and is taken', () => {
-    expect(shipped(Math.floor(BOUND)).taken).toEqual([1]);
+  it('a 29-tile route (inside the retired bound): the villager keeps up and is taken', () => {
+    expect(shipped(29).taken).toEqual([1]);
   });
 
-  it('well beyond it he falls more than six tiles behind, is let go and is never taken', () => {
-    const route = Math.ceil(BOUND) + 15;
-    const r = shipped(route);
-    expect(r.taken).toEqual([]);
-    // Alive, still on the map, and stopped more than six tiles short of the exit zone (which starts at x = route + 4).
-    expect(r.left.alive).toBe(1);
-    expect(r.left.x).toBeLessThan(route + 4 - 6);
+  it('a 44-tile route, on which he was let go before pacing (1655 measured let go from 36): he is taken', () => {
+    expect(shipped(44).taken).toEqual([1]);
   });
 });
 

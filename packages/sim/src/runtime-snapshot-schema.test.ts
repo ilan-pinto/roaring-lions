@@ -228,12 +228,13 @@ describe('runtime snapshot schema: completeness over the versus works world', ()
 });
 
 describe('runtime snapshot schema: the table itself', () => {
-  it('the 104 rows are in creation order, each name once', () => {
-    // 100, then the four side-1 works rows of a works-only runtime (versus field works), which every runtime HAS.
+  it('the 105 rows are in creation order, each name once', () => {
+    // 100, then the four side-1 works rows of a works-only runtime (versus field works), which every runtime HAS, then
+    // E8's `abductPace` (GH-1438, the escort's pacing word per trigger).
     const { rt } = economySetup(ECONOMY_SEED);
     expect(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).toEqual(Object.keys(rt));
-    expect(RUNTIME_SNAPSHOT_SCHEMA).toHaveLength(104);
-    expect(new Set(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).size).toBe(104);
+    expect(RUNTIME_SNAPSHOT_SCHEMA).toHaveLength(105);
+    expect(new Set(RUNTIME_SNAPSHOT_SCHEMA.map((r) => r.name)).size).toBe(105);
   });
 
   it('the classes are exactly the ones the design names; everything else is state', () => {
@@ -822,7 +823,7 @@ describe('runtime snapshot schema: the kind checks added in Task 2 can fail', ()
 const ROWS_ONLY_THE_SINK_WORLD_FILLS: readonly string[] = [
   'CivilianFlight.evacuatedSet', 'CivilianFlight.fledSet', 'MissionRuntime.aimedAtWounded', 'MissionRuntime.appendedAnchors', 'MissionRuntime.civIds',
   'MissionRuntime.collapseTargets', 'MissionRuntime.enemyLast', 'MissionRuntime.enemyMenu', 'MissionRuntime.entityRoster',
-  'MissionRuntime.externallyCompleted', 'MissionRuntime.firedTriggers', 'MissionRuntime.marked', 'MissionRuntime.markedThisMission',
+  'MissionRuntime.abductPace', 'MissionRuntime.externallyCompleted', 'MissionRuntime.firedTriggers', 'MissionRuntime.marked', 'MissionRuntime.markedThisMission',
   'MissionRuntime.onLoan', 'MissionRuntime.patrols', 'MissionRuntime.pendingIntelEvents', 'MissionRuntime.razeExempt',
   'MissionRuntime.razeTargets', 'MissionRuntime.rescuedBack', 'MissionRuntime.roeGainJudged', 'MissionRuntime.rosterPool',
   'MissionRuntime.routeFoundBy', 'MissionRuntime.spawnedWaves', 'MissionRuntime.tags', 'MissionRuntime.ventXY',

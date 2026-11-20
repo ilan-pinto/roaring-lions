@@ -1016,6 +1016,12 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'runtime.firedTriggers runtime.spawnedWaves runtime.ended runtime.externallyCompleted runtime.resultValue runtime.withdrawnValue',
     'the mission script and its end: no witness world has a trigger, a wave or a mission that ends inside its horizon (a versus room is played to a tick count, not to a result). Covered by a campaign mission replay played to victory'
   ),
+  ...rows(
+    'runtime.abductPace',
+    'an abduct\'s escort pacing (GH-1438 E8), a `when: \'abduct\'` row: only a runtime whose mission has an abduct carries it, no witness world here has a trigger, ' +
+      'let alone an abduct, and no shipped mission authors one. Its restore is forked in the sim package (`ABDUCT_WORLD` in `snapshot-witness-runtime.test.ts`: poisoned, cut ' +
+      'mid-halt and at OFF, and a self-check) and cut mid-halt in `abduct-pace.test.ts`. Covered by a mission replay whose script abducts'
+  ),
 ];
 
 export interface CensusVerdict {
