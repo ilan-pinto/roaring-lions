@@ -300,6 +300,8 @@ import {
   deferredBuildables,
   hasUnitMesh,
   meshPlanFor,
+  riggedUnitFiles,
+  civilianFiguresOf,
   meshManifestFor,
   dracoDecoderPath,
 } from './mesh-catalogue';
@@ -2842,11 +2844,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
   );
   // An economy room's camps (N3 Task 6) are the runtime's structures: the room has no mission.
-  const meshPlan = meshPlanFor(map, meshRoster, [
-    ...(mission?.structures ?? []).map((s) => s.type),
-    ...(versusWorld?.structureTypes ?? []),
-    ...worksIds,
-  ]);
+  // GH-1438 E14: `civilians.figures: "adults"` (D18) leaves the child figure out of the civilians' variants.
+  const civilianFigures = civilianFiguresOf(mission);
+  const meshPlan = meshPlanFor(
+    map,
+    meshRoster,
+    [...(mission?.structures ?? []).map((s) => s.type), ...(versusWorld?.structureTypes ?? []), ...worksIds],
+    civilianFigures
+  );
   // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
   // nothing between here and the renderer's construction may throw, because
   // its teardown is not registered until the context exists.
@@ -3052,7 +3057,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // player orders one (`warmUnitMesh`, per tick below) -- most are never
     // ordered, and each costs 16-48 MiB decoded.
     const job = rigged
-      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction, { cold })
+      ? three.loadMeshUnit(typeId, riggedUnitFiles(typeId, civilianFigures).map(meshUrl), rigged.faction, { cold })
       : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]), { cold });
     job.then(
       () => {

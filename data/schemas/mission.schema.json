@@ -573,6 +573,10 @@
         "refuge": {
           "type": "string",
           "description": "Marker civilians run to once spooked."
+        },
+        "figures": {
+          "enum": ["all", "adults"],
+          "description": "GH-1438 E14 (D18, Option A): which of the civilian figures the game draws. adults leaves out the child figure, as the adopted D18 requires wherever civilians are under aimed fire (proposal N8, not adopted, would extend that to civilians led away or carried off). Absent or all: every figure. Presentation only: the simulation never reads it."
         }
       }
     },

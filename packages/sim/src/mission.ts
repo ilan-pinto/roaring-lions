@@ -372,6 +372,11 @@ export interface MissionJson {
   civilians?: {
     groups: readonly PlacementJson[];
     refuge?: string;
+    /** GH-1438 E14 (D18, Option A, adopted: no child figure among people under aimed fire; proposal N8, not adopted,
+     *  would extend it to people led away or carried off): which of the `civilians` type's figures the app draws.
+     *  `adults` drops the child variant; absent or `all` draws every one. Type-only here --
+     *  presentation alone reads it (`meshManifestFor` in packages/app); the sim never does. */
+    figures?: 'all' | 'adults';
   };
   roe?: {
     enabled?: boolean;
