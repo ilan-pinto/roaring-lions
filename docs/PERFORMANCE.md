@@ -57,8 +57,9 @@ So the synced frame on `high` crosses 16.7 ms between 65 and 146 living in this 
 
 ### The CI gate: the 300-unit draw-call census
 
-`pnpm perf:census` runs in CI's `memory` job, on SwiftShader. It is the same bench in census mode at `high`: two pages, `tools/src/perf/draw-census.ts`. It reads `perUnit = (calls at the 300 checkpoint - calls in the empty scene) / living` and fails in four cases:
+`pnpm perf:census` runs in CI's `memory` job, on SwiftShader. It is the same bench in census mode at `high`: two pages, `tools/src/perf/draw-census.ts`. It reads `perUnit = (calls at the 300 checkpoint - calls in the empty scene) / living` and fails in five cases:
 - with exit 1, when `perUnit` falls outside `12.348 +-5%`, either way, or the empty scene exceeds 145 calls;
+- with exit 1, when the SHADOW pass alone falls outside `3.745 +-2%` a living unit (either way), or the empty scene's shadow pass exceeds 35 calls. The shadow pass is counted by wrapping `shadowMap.render` for the census frames (`readCensus`, `three-units.ts`): the calls it adds are the counter's difference across it. 1,031 of the 3,428 calls at 267 living are the sun's depth pass (31 in the empty scene), read identically on two SwiftShader pages, 2026-11-20. This closes the blind spot of the total alone, where calls moved between the colour and shadow passes, or a shadow-only change under 5% of the total, passed unseen;
 - with exit 2, when the two pages disagree by a single call;
 - with exit 2, when a census frame moves more than 1%;
 - with exit 2, when fewer than 200 units are living, or on any page error. A GLB that fails to load draws a proxy box, and a proxy's count is not the shipped one.
@@ -69,7 +70,7 @@ Falsified 2026-11-19, each mutation one line, run through `pnpm perf:census` on 
 - **Green:** 12.348, exit 0, two pages agreeing.
 - **Wreck twins drawn** (`mesh-vehicle.ts`, the `death_root` `visible = false` set to `true`): 4,880 calls, 17.787 a unit, OVER, exit 1.
 - **GTAO pre-pass not built** (`ThreeRenderer.ts`, `if (quality.ao)` set to `if (quality.ao && false)`): 2,406 calls, 8.663 a unit, UNDER, exit 1.
-- **Two survivors, inside the band:** infantry ramp-path meshes not casting shadows (-22 calls, 12.266 a unit), and vehicle ramp-path meshes not casting (-30 calls, 12.236).
+- **Two survivors of the total band:** infantry ramp-path meshes not casting shadows (-22 calls, 12.266 a unit), and vehicle ramp-path meshes not casting (-30 calls, 12.236). Both are CAUGHT by the shadow band (2026-11-20, SwiftShader, one page each): 3.663 a unit against a floor of 3.670 (`mesh-unit.ts` line 211, `castShadow = false`), and 3.633 (`mesh-vehicle.ts` line 432). The infantry margin is thin (2.19% against 2%), which is why the band is not wider. The textured infantry path (line 192) reads 1.910 and fails both bands.
 
 So the gate sees a change of about 5% of the per-unit submissions, roughly 0.6 calls a unit, and not less.
 

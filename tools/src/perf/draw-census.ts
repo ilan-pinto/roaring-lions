@@ -37,6 +37,11 @@ export interface CensusBudget {
   maxEmptyCalls: number;
   /** Fewer living units than this at the checkpoint and the world did not fight the way the figure assumes. */
   minLiving: number;
+  /** The sun's shadow pass alone, per living unit, and its own band (GH-1411 follow-up). */
+  shadowPerUnit: number;
+  shadowTolerance: number;
+  /** The empty scene's shadow calls may not exceed this (a ceiling only, as `maxEmptyCalls`). */
+  maxEmptyShadowCalls: number;
 }
 
 /**
@@ -57,6 +62,15 @@ export const CENSUS_BUDGET: CensusBudget = {
   // 131 measured; the ceiling leaves room for a prop or two on the bench map, not for a new full-screen pass.
   maxEmptyCalls: 145,
   minLiving: 200,
+  // (1031 - 31) / 267 = 3.745: 1031 of the 3428 calls are the sun's depth pass, 31 of them in the empty scene. Read on
+  // SwiftShader, two pages, to the call. +-2%, tighter than the total's 5%, because this figure is the one a shadow-only
+  // change moves without moving the total much: the two survivors of the first falsification (infantry ramp meshes not
+  // casting, -22 calls; vehicle ramp meshes, -30) are 2.2% and 3.0% of it. The colour and AO passes are the remainder
+  // (8.603 a unit) and are held through the total.
+  shadowPerUnit: 1000 / 267,
+  shadowTolerance: 0.02,
+  // 31 measured, as `maxEmptyCalls` leaves room for a prop or two.
+  maxEmptyShadowCalls: 35,
 };
 
 export interface CensusReading {
@@ -66,6 +80,10 @@ export interface CensusReading {
   living: number;
   tickCount: number;
   perUnit: number;
+  /** Of `calls`, those inside `shadowMap.render`; the empty scene's likewise. */
+  shadowCalls: number;
+  emptyShadowCalls: number;
+  shadowPerUnit: number;
 }
 
 export type CensusVerdict =
@@ -96,7 +114,10 @@ export function censusRepeatsAgree(reports: readonly BackendReport[], target: nu
   if (reports.length < 2) return null;
   const key = (r: BackendReport): string => {
     const cp = r.checkpoints.find((c) => c.target === target);
-    return `empty ${r.emptyCensus.calls[0]}, target ${target} ${cp === undefined ? 'missing' : `${cp.census.calls[0]} at ${cp.livingAtMeasure} living`}`;
+    return (
+      `empty ${r.emptyCensus.calls[0]} (shadow ${r.emptyCensus.shadowCalls[0]}), target ${target} ` +
+      `${cp === undefined ? 'missing' : `${cp.census.calls[0]} (shadow ${cp.census.shadowCalls[0]}) at ${cp.livingAtMeasure} living`}`
+    );
   };
   const keys = reports.map(key);
   if (keys.every((k) => k === keys[0])) return null;
@@ -106,7 +127,7 @@ export function censusRepeatsAgree(reports: readonly BackendReport[], target: nu
 /** Pure: the verdict on one census-mode report. `pageErrors` are the page's `pageerror` and `console.error` lines. */
 export function censusVerdict(report: BackendReport, budget: CensusBudget, pageErrors: readonly string[]): CensusVerdict {
   const lines: string[] = [];
-  if (!Number.isFinite(budget.perUnit) || !Number.isFinite(budget.maxEmptyCalls)) {
+  if (!Number.isFinite(budget.perUnit) || !Number.isFinite(budget.maxEmptyCalls) || !Number.isFinite(budget.shadowPerUnit) || !Number.isFinite(budget.maxEmptyShadowCalls)) {
     return { kind: 'instrument', lines: ['the census budget is not pinned (a NaN in CENSUS_BUDGET)'] };
   }
   if (pageErrors.length > 0) {
@@ -135,6 +156,9 @@ export function censusVerdict(report: BackendReport, budget: CensusBudget, pageE
   const emptyCalls = report.emptyCensus.calls[0];
   const calls = cp.census.calls[0];
   const perUnit = (calls - emptyCalls) / cp.livingAtMeasure;
+  const shadowCalls = cp.census.shadowCalls[0];
+  const emptyShadowCalls = report.emptyCensus.shadowCalls[0];
+  const shadowPerUnit = (shadowCalls - emptyShadowCalls) / cp.livingAtMeasure;
   const reading: CensusReading = {
     emptyCalls,
     calls,
@@ -142,6 +166,9 @@ export function censusVerdict(report: BackendReport, budget: CensusBudget, pageE
     living: cp.livingAtMeasure,
     tickCount: cp.tickCount,
     perUnit,
+    shadowCalls,
+    emptyShadowCalls,
+    shadowPerUnit,
   };
   const lo = budget.perUnit * (1 - budget.tolerance);
   const hi = budget.perUnit * (1 + budget.tolerance);
@@ -161,6 +188,27 @@ export function censusVerdict(report: BackendReport, budget: CensusBudget, pageE
       `UNDER: ${perUnit.toFixed(3)} calls per unit is below ${lo.toFixed(3)}: units that stopped drawing read as a saving; ` +
         'if it is a real one, re-pin CENSUS_BUDGET with the reason'
     );
+  }
+  const slo = budget.shadowPerUnit * (1 - budget.shadowTolerance);
+  const shi = budget.shadowPerUnit * (1 + budget.shadowTolerance);
+  lines.push(
+    `shadow pass: ${shadowCalls} calls (empty scene ${emptyShadowCalls}); per living unit ${shadowPerUnit.toFixed(3)} ` +
+      `(band ${slo.toFixed(3)}-${shi.toFixed(3)}, pinned ${budget.shadowPerUnit.toFixed(3)} +-${(budget.shadowTolerance * 100).toFixed(0)}%); ` +
+      `colour and AO passes ${(perUnit - shadowPerUnit).toFixed(3)} per unit`
+  );
+  if (shadowPerUnit > shi) {
+    over = true;
+    lines.push(`OVER: the shadow pass submits ${shadowPerUnit.toFixed(3)} calls per unit, above ${shi.toFixed(3)}: a second caster, or a mesh that began to cast`);
+  } else if (shadowPerUnit < slo) {
+    over = true;
+    lines.push(
+      `UNDER: the shadow pass submits ${shadowPerUnit.toFixed(3)} calls per unit, below ${slo.toFixed(3)}: a unit mesh stopped casting ` +
+        '(calls moved between passes keep the total in its band and show here); if it is a real saving, re-pin with the reason'
+    );
+  }
+  if (emptyShadowCalls > budget.maxEmptyShadowCalls) {
+    over = true;
+    lines.push(`OVER: the empty scene's shadow pass submits ${emptyShadowCalls} calls, above its ceiling ${budget.maxEmptyShadowCalls}`);
   }
   if (emptyCalls > budget.maxEmptyCalls) {
     over = true;

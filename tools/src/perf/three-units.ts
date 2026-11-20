@@ -627,6 +627,9 @@ export interface DrawCensus {
   /** Calls a frame, one entry per census frame (they must agree: a census that moves with no tick is a defect). */
   calls: number[];
   triangles: number[];
+  /** Of `calls`, those submitted INSIDE `shadowMap.render` (the sun's depth pass), one per census frame. Read by
+   *  wrapping that one method for the length of the census (`readCensus`), so the colour passes are the remainder. */
+  shadowCalls: number[];
 }
 
 /** What the canvas really was, read from the WebGLRenderer, not assumed from the host's CSS size. */
@@ -666,6 +669,8 @@ interface InfoLike {
 }
 interface GlRendererLike {
   info: InfoLike;
+  /** three's `WebGLShadowMap`: `render` is an own-property function, so a perf tool can wrap it. */
+  shadowMap: { render: (...args: unknown[]) => unknown };
   getPixelRatio(): number;
   /** The canvas: its `width`/`height` are the drawing buffer, in device pixels. */
   domElement: { width: number; height: number; getContext(kind: 'webgl2'): WebGL2RenderingContext | null };
@@ -694,15 +699,32 @@ function readCensus(renderer: Renderer, frames: number, dtMs: number): DrawCensu
   const gl = glRendererOf(renderer);
   if (gl === null) throw new Error('three-units: no WebGLRenderer behind this renderer, so no draw census');
   const info = gl.info;
-  const census: DrawCensus = { calls: [], triangles: [] };
-  for (let i = 0; i < frames; i++) {
-    const auto = info.autoReset;
-    info.autoReset = false;
-    info.reset();
-    renderer.frame(1, dtMs);
-    census.calls.push(info.render.calls);
-    census.triangles.push(info.render.triangles);
-    info.autoReset = auto;
+  const census: DrawCensus = { calls: [], triangles: [], shadowCalls: [] };
+  // The seam (GH-1411 follow-up): the shadow pass is one call to `shadowMap.render`, so the calls it adds are the
+  // counter's difference across it. Wrapped for the census only and put back in `finally`.
+  const sm = gl.shadowMap;
+  const original = sm.render;
+  let shadow = 0;
+  sm.render = function (this: unknown, ...args: unknown[]): unknown {
+    const before = info.render.calls;
+    const out = original.apply(this, args);
+    shadow += info.render.calls - before;
+    return out;
+  };
+  try {
+    for (let i = 0; i < frames; i++) {
+      const auto = info.autoReset;
+      info.autoReset = false;
+      info.reset();
+      shadow = 0;
+      renderer.frame(1, dtMs);
+      census.calls.push(info.render.calls);
+      census.triangles.push(info.render.triangles);
+      census.shadowCalls.push(shadow);
+      info.autoReset = auto;
+    }
+  } finally {
+    sm.render = original;
   }
   return census;
 }
