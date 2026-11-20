@@ -40,6 +40,14 @@
  * exposure 4) minus any pixel the repaint control saw move; on `day` and `dusk-before` it is units shown against units
  * hidden, which also takes in each unit's own shadow (said in the report).
  *
+ * TWO SUBJECTS (`--subject=`):
+ *   - `ring` (default; the lead's ruling of 20 Nov 2026, option B): the brighter dusk TEAM ring. Pages `day`, `dusk-before`
+ *     (`&tod=dusk&duskring=0`, today's ring) and `dusk-after` (`&tod=dusk`, the ring gain on by default); on `dusk-after` a
+ *     sweep of the gain (`debugSetTeamRingGain`: 1, 1.4, 1.8). The report reads each squad's RING against the ground behind
+ *     it (mask: the frame against the same frame with the `selection-ring` layer hidden) and its FIGURE against the ground
+ *     (mask: units shown against units hidden), and the sheet's rows are day / dusk today / dusk with the ring gain.
+ *   - `read` (run 2, 20 Nov 2026): the figure read, as described above, with the ring gain off on its dusk pages.
+ *
  * History: the first run (19 Nov 2026) put the sides inside weapon range on a relative tick schedule; a missile, a burst and
  * a wounded man landed in the group and the repaint control differed by 2,912 px. This layout is the fix.
  */
@@ -62,7 +70,9 @@ if (!REPORT_ONLY) {
   if (PORT === 5177) throw new Error('5177 is the lead’s dev server');
   await requireAttach('dusk-read', [PORT]);
 }
-const OUT = path.resolve(arg('out', '../.superpowers/gh1403'));
+const SUBJECT = arg('subject', 'ring');
+if (SUBJECT !== 'ring' && SUBJECT !== 'read') throw new Error(`--subject must be ring or read, got ${SUBJECT}`);
+const OUT = path.resolve(arg('out', SUBJECT === 'ring' ? '../.superpowers/gh1403/run3' : '../.superpowers/gh1403/run2'));
 const VIEWPORT = { width: 1600, height: 900 } as const;
 const ZOOMS: readonly number[] = [1, 1.6];
 fs.mkdirSync(OUT, { recursive: true });
@@ -131,16 +141,28 @@ const ARMS: readonly Arm[] = [
   { name: 'mask-e4', exposure: 4, contrast: 1, rimGain: 0 },
 ];
 
+/** The ring subject's sweep on `dusk-after`: the team ring's gain (`debugSetTeamRingGain`); 1 is today's ring. */
+const RING_GAINS: readonly number[] = [1, 1.4, 1.8];
+
 interface PageSpec {
   readonly id: string;
   readonly flags: string;
   readonly duskRead: boolean;
+  /** The team ring gain the page must read back (`debugTeamRingGain`). */
+  readonly ringGain: number;
 }
-const PAGES: readonly PageSpec[] = [
-  { id: 'day', flags: '&tod=day', duskRead: false },
-  { id: 'dusk-before', flags: '&tod=dusk', duskRead: false },
-  { id: 'dusk-after', flags: '&tod=dusk&duskread', duskRead: true },
-];
+const PAGES: readonly PageSpec[] =
+  SUBJECT === 'ring'
+    ? [
+        { id: 'day', flags: '&tod=day', duskRead: false, ringGain: 1 },
+        { id: 'dusk-before', flags: '&tod=dusk&duskring=0', duskRead: false, ringGain: 1 },
+        { id: 'dusk-after', flags: '&tod=dusk', duskRead: false, ringGain: 1.8 },
+      ]
+    : [
+        { id: 'day', flags: '&tod=day', duskRead: false, ringGain: 1 },
+        { id: 'dusk-before', flags: '&tod=dusk&duskring=0', duskRead: false, ringGain: 1 },
+        { id: 'dusk-after', flags: '&tod=dusk&duskread&duskring=0', duskRead: true, ringGain: 1 },
+      ];
 
 interface Read {
   rimGain: number;
@@ -161,6 +183,8 @@ interface L {
     selection: number[];
     debugSetDuskRead(p: { rimGain: number; rimPower: number; exposure: number; contrast: number }): void;
     debugDuskRead(): Read;
+    debugSetTeamRingGain(g: number): void;
+    debugTeamRingGain(): number;
   };
   sim: {
     tickCount: number;
@@ -210,6 +234,10 @@ interface Meta {
   camera: readonly [number, number];
   tick: number;
   read: Read;
+  /** Absent on run 2's meta (written before the ring existed): 1. */
+  ringGain?: number;
+  /** Absent on run 2's meta: `read`. */
+  subject?: string;
   squads: Squad[];
   shots: ZoomShot[];
 }
@@ -411,11 +439,13 @@ async function runPage(page: Page, spec: PageSpec, gpu: string): Promise<Meta> {
   }
   const read = await page.evaluate(() => (window as unknown as W).__lions.renderer.debugDuskRead());
   if (read.built !== spec.duskRead) throw new Error(`${spec.id}: debugDuskRead().built is ${read.built}, wanted ${spec.duskRead}`);
-  console.log(`  tick ${captureTick}; read ${JSON.stringify(read)}`);
+  const ringGain = await page.evaluate(() => (window as unknown as W).__lions.renderer.debugTeamRingGain());
+  if (ringGain !== spec.ringGain) throw new Error(`${spec.id}: debugTeamRingGain() is ${ringGain}, wanted ${spec.ringGain}`);
+  console.log(`  tick ${captureTick}; read ${JSON.stringify(read)}; team ring gain ${ringGain}`);
   for (const s of squads) {
     console.log(`    ${s.name}: pinned ${s.pinned}, clip ${s.clip}, hp ${s.hp}/${s.hpAtSpawn}, target ${s.target}, moved ${s.moved.toFixed(2)}`);
   }
-  const meta: Meta = { page: spec.id, gpu, viewport: VIEWPORT, camera: CAMERA, tick: captureTick, read, squads, shots: [] };
+  const meta: Meta = { page: spec.id, gpu, viewport: VIEWPORT, camera: CAMERA, tick: captureTick, read, ringGain, subject: SUBJECT, squads, shots: [] };
   for (const z of ZOOMS) {
     const pos = await page.evaluate(
       ([all, cam, zoom]) => {
@@ -445,6 +475,22 @@ async function runPage(page: Page, spec: PageSpec, gpu: string): Promise<Meta> {
         await shoot(page, `${tag}-${a.name}`);
       }
       await setArm(page, shipped);
+    } else if (SUBJECT === 'ring' && spec.id === 'dusk-after') {
+      for (const g of RING_GAINS) {
+        const got = await page.evaluate((gain) => {
+          const r = (window as unknown as W).__lions.renderer;
+          r.debugSetTeamRingGain(gain);
+          r.frame(1, 0);
+          return r.debugTeamRingGain();
+        }, g);
+        if (got !== g) throw new Error(`ring arm ${g}: the renderer reads ${got}`);
+        await shoot(page, `${tag}-ring${g}`);
+      }
+      await page.evaluate((gain) => {
+        const r = (window as unknown as W).__lions.renderer;
+        r.debugSetTeamRingGain(gain);
+        r.frame(1, 0);
+      }, ringGain);
     } else {
       await page.evaluate(() => (window as unknown as W).__lions.renderer.frame(1, 0));
     }
@@ -460,6 +506,13 @@ async function runPage(page: Page, spec: PageSpec, gpu: string): Promise<Meta> {
     await page.evaluate(() => {
       const r = (window as unknown as W).__lions.renderer;
       r.setDebugLayerVisible('units', true);
+      r.setDebugLayerVisible('selection-ring', false);
+      r.frame(1, 0);
+    });
+    await shoot(page, `${tag}-rings-hidden`);
+    await page.evaluate(() => {
+      const r = (window as unknown as W).__lions.renderer;
+      r.setDebugLayerVisible('selection-ring', true);
       r.frame(1, 0);
     });
     meta.shots.push({ zoom: z, squads: pos.map((p, k) => ({ name: GROUP[k].name, ...p })), repaintIdentical: identical });
@@ -486,7 +539,7 @@ function diffPixels(a: Frame, b: Frame): Uint8Array {
 
 /** The four-row A/B sheet for one zoom, cropped to the group's screen box plus a margin, scaled by `scale`. */
 function sheet(metas: Meta[], zoom: number, scale: number): string {
-  const rows = ['day', 'dusk-before', 'dusk-after', 'dusk-after@e2-rim0.4'];
+  const rows = SUBJECT === 'ring' ? ['day', 'dusk-before', 'dusk-after'] : ['day', 'dusk-before', 'dusk-after', 'dusk-after@e2-rim0.4'];
   const after = metas.find((m) => m.page === 'dusk-after');
   const shot = after?.shots.find((s) => s.zoom === zoom);
   if (!shot) throw new Error(`no dusk-after shot at zoom ${zoom}`);
@@ -519,19 +572,20 @@ function sheet(metas: Meta[], zoom: number, scale: number): string {
 function report(metas: Meta[]): string {
   const lines: string[] = [];
   const f = (n: number): string => n.toFixed(1).padStart(5);
-  lines.push('GH-1403 dusk read: each squad\'s figure against the ground behind it (CIEDE2000; wet-readability.ts).');
+  lines.push(`GH-1403 dusk ${SUBJECT === 'ring' ? 'team ring' : 'read'}: each squad against the ground behind it (CIEDE2000; wet-readability.ts).`);
   lines.push(`share = figure pixels at dE >= ${READABILITY_FLOOR} against the pixel behind them; median = per-pixel median dE;`);
   lines.push('mean = the figure\'s mean colour against the ground ring around it.');
   for (const m of metas) {
     lines.push('');
     lines.push(`${m.page}: tick ${m.tick}, camera ${m.camera.join(',')}, ${m.viewport.width}x${m.viewport.height} at DPR 1, ${m.gpu}`);
-    lines.push(`  read ${JSON.stringify(m.read)}`);
+    lines.push(`  read ${JSON.stringify(m.read)}; team ring gain ${m.ringGain ?? 1}`);
     for (const s of m.squads) {
       lines.push(
         `  ${s.name}: pinned ${s.pinned}, clip ${s.clip}, hp ${s.hp}/${s.hpAtSpawn}, target ${s.target}, moved ${s.moved.toFixed(2)} t, contact ${s.contact}`
       );
     }
-    const after = m.page === 'dusk-after';
+    const after = m.page === 'dusk-after' && (m.subject ?? 'read') === 'read';
+    const ringAfter = m.page === 'dusk-after' && m.subject === 'ring';
     for (const shot of m.shots) {
       const tag = `${m.page}-z${shot.zoom}`;
       const hidden = load(path.join(OUT, `${tag}-units-hidden.png`));
@@ -557,11 +611,31 @@ function report(metas: Meta[]): string {
           lines.push(`  ${s.name.padEnd(13)} ${label.padEnd(14)} ${f(100 * r.shareAboveFloor)}% ${f(r.perPixelMedian)} ${f(r.mean)} ${String(r.pixels).padStart(5)}`);
         }
       }
+      if (m.subject !== 'ring') continue;
+      // The RING against the ground: its pixels are those the `selection-ring` layer moves (frame vs rings hidden).
+      const ringsHidden = load(path.join(OUT, `${tag}-rings-hidden.png`));
+      lines.push('  RING visibility (mask: the frame vs the same frame with the selection-ring layer hidden)');
+      lines.push(`  ${'squad'.padEnd(13)} ${'frame'.padEnd(14)} share median  mean   px`);
+      const ringFrames = ringAfter ? RING_GAINS.map((g) => `${tag}-ring${g}`) : [tag];
+      for (const s of shot.squads) {
+        const mask = figureMask(load(path.join(OUT, `${tag}.png`)), ringsHidden, s.sx, s.sy, MASK_RADIUS_PX * shot.zoom);
+        for (let i = 0; i < mask.length; i++) if (noise[i] === 1) mask[i] = 0;
+        if (maskSize(mask) === 0) {
+          lines.push(`  ${s.name.padEnd(13)} (empty ring mask)`);
+          continue;
+        }
+        for (const frame of ringFrames) {
+          const r = readability(load(path.join(OUT, `${frame}.png`)), ringsHidden, mask);
+          const label = frame === tag ? m.page : frame.replace(`${tag}-`, '');
+          lines.push(`  ${s.name.padEnd(13)} ${label.padEnd(14)} ${f(100 * r.shareAboveFloor)}% ${f(r.perPixelMedian)} ${f(r.mean)} ${String(r.pixels).padStart(5)}`);
+        }
+      }
     }
   }
   lines.push('');
   for (const z of ZOOMS) {
-    lines.push(`sheet: ${sheet(metas, z, z === 1 ? 2 : 1)} (day / dusk today / dusk with the read / dusk with the read plus rim 0.4)`);
+    const rowsSaid = SUBJECT === 'ring' ? 'day / dusk today / dusk with the ring gain' : 'day / dusk today / dusk with the read / dusk with the read plus rim 0.4';
+    lines.push(`sheet: ${sheet(metas, z, z === 1 ? 2 : 1)} (${rowsSaid})`);
   }
   return lines.join('\n');
 }

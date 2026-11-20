@@ -544,6 +544,14 @@ export interface RendererOptions {
    */
   duskRead?: boolean;
   /**
+   * GH-1403 (the lead's ruling of 20 Nov 2026, option B): the faint TEAM ring under every unselected unit is brighter at
+   * dusk, its team colour x `HDR_GAINS.duskTeamRing` (`three/units/hdr-gains.ts`); size, width, alpha and zoom scaling are
+   * untouched. **ON by default at dusk**; only an explicit `false` draws today's ring (the app's `&duskring=0`, an A/B
+   * switch). On any other light the gain is exactly 1 and the ring's colour path is today's, to the bit. Three-only.
+   * Presentation only: nothing here is read by the sim.
+   */
+  duskTeamRing?: boolean;
+  /**
    * GH-943 WebGPU-primary migration, P0: which renderer draws. `legacy` (and absent) is today's WebGLRenderer plus
    * EffectComposer, to the bit. `webgpu` / `webgl2` / `auto` draw through three's WebGPURenderer on its WebGPU or its own WebGL2
    * backend (`three/backend/node-backend.ts`, a second dynamic import); P0 draws the bare scene pass there, and the rest of the

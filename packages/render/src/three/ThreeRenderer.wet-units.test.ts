@@ -355,3 +355,45 @@ describe('the dusk figure read reaches the table only on an opted-in, dry, dusk 
     r.dispose();
   });
 });
+
+describe('the dusk team ring gain reaches the ring colour at dusk only (GH-1403, option B)', () => {
+  /** The colour of the first team ring pushed by one overlay pass (the `ThreeRenderer.selection-ring.test.ts` drive). */
+  const refs: (readonly number[])[] = [];
+  function teamRingColour(r: ThreeRenderer): number[] | null {
+    const w = r as unknown as { teamRing: { push: (p: { color: readonly number[] }) => boolean }; updateOverlays(alpha: number): void };
+    const got: number[][] = [];
+    refs.length = 0;
+    const real = w.teamRing.push.bind(w.teamRing);
+    vi.spyOn(w.teamRing, 'push').mockImplementation(((p: { color: readonly number[] }, ...rest: unknown[]) => {
+      got.push([...p.color]);
+      refs.push(p.color);
+      return (real as (...a: unknown[]) => boolean)(p, ...rest);
+    }) as never);
+    r.snapshot();
+    r.snapshot();
+    w.updateOverlays(1);
+    return got[0] ?? null;
+  }
+  const own = hexToLinear('#C8B494'); // `makeOpts`'s side-0 team colour, a literal
+  // Falsified: drop the `batch === this.teamRing` gain block in `pushSelectionRing` (the dusk rows go red), or make
+  // `teamRingGain` ignore the light (the day/dawn rows go red).
+  const ROWS: ReadonlyArray<readonly [string, Partial<RendererOptions>, number]> = [
+    ['day (absent)', {}, 1],
+    ['day', { timeOfDay: 'day' }, 1],
+    ['dawn', { timeOfDay: 'dawn' }, 1],
+    ['dusk', { timeOfDay: 'dusk' }, 1.8],
+    ['night (is dusk, D10)', { timeOfDay: 'night' }, 1.8],
+    ['dusk, opted out (&duskring=0)', { timeOfDay: 'dusk', duskTeamRing: false }, 1],
+  ];
+  it.each(ROWS)('%s', (_name, extra, gain) => {
+    const { r } = setUp(extra);
+    expect(r.debugTeamRingGain()).toBe(gain);
+    const got = teamRingColour(r);
+    expect(got, 'a team ring was drawn').not.toBeNull();
+    for (let k = 0; k < 3; k++) expect((got as number[])[k]).toBeCloseTo(own[k] * gain, 6);
+    // At a gain of 1 the ring pushes the cached tuple itself, never the gain scratch: today's colour path, untouched.
+    const scratch = (r as unknown as { teamRingColor: readonly number[] }).teamRingColor;
+    expect(refs[0] === scratch).toBe(gain !== 1);
+    r.dispose();
+  });
+});

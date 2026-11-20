@@ -23,6 +23,9 @@
  * it is the lead's option, kept at 0 here until he judges it. The numbers below are the lead's to judge. Vehicles do not take it: they
  * are large, they read at dusk, and the Lavi carries its own team mark.
  *
+ * The lead's ruling of 20 Nov 2026 chose option B instead, the brighter dusk TEAM ring (`units/hdr-gains.ts`'s
+ * `duskTeamRing`), so this read stays switched off and is kept only as an opt-in look.
+ *
  * OPT-IN, and the default is OFF: `RendererOptions.duskRead` (the app's `&duskread` switch) and only on a dusk renderer
  * that is not raining (rain has its own read, and rain wins). Off, `surfaceTableFor` returns the shipped tables by
  * identity, so no clone, cache key, program or uniform differs from today's: day, and the gated `graded` frame (which is

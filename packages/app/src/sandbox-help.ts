@@ -222,6 +222,12 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '=0 draws the pre-L1 frame: no sky environment, the shipped hemisphere, the 0.45 metal cap (GH-943; on by default)',
   },
   {
+    name: 'duskring',
+    // GH-1403, the lead's option B: ON by default at dusk (`dusk-ring-flag.ts`); `=0` is the A/B switch. Like `envlight`,
+    // not a SANDBOX_FLAGS entry: it works on a mission too, and it is presentation only.
+    blurb: '=0 draws today\'s team rings at dusk (GH-1403: they are brighter at dusk by default); no effect on a day or dawn map',
+  },
+  {
     name: 'duskread',
     // GH-1403, held for the lead: OFF by default (`dusk-read-flag.ts`). Not a SANDBOX_FLAGS entry: like `envlight` it
     // works on a mission too (a dusk mission is where it matters) and it is presentation only.
