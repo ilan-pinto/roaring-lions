@@ -27,9 +27,10 @@ already is, so `main` must be green before it moves again. This is the whole rul
 1. Open the run it links and find the first red job. A `version` job that never ran because `gates` or `visual` was red also means **no release was cut**.
 2. Look at whether the same tip was green on `dev` (the dev CI line): a red that only happens on `main` is an environment or merge-commit difference
    (the merge commit is the only thing `main` has that `dev` has not run), not a flaky test, until shown otherwise.
-3. Fix on `dev`, wait for green there, and let the next promotion carry it. Do not re-run a red `main` run until it is green and call that a fix:
+3. Fix on `dev`, wait for green there, and let the next promotion carry it. Re-running a red `main` run until it passes is not a fix; find the cause:
    a rerun that passes is a flake report, to be filed against the test, not a repair.
 
 ## Tests
 
-`tools/src/ci/promotion-pr.test.ts` (`mainLine`, the body order, the CLI with and without `--ci`) and a pin that the workflow reads `branch=main`.
+`tools/src/ci/promotion-pr.test.ts` (`mainLine`, the body order, the CLI with and without `--ci`) and a pin that the workflow reads `branch=main`
+into `main.json` and hands the body `m` from `main.json` alone (so dev's `latest.json` can never be reported as main's run).
