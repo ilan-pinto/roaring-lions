@@ -331,8 +331,9 @@ const IN_PLACE: UnitTypeJson = {
 };
 
 /** The sim's one damage path, as a hit takes it. */
+/** A direct hit by a made-up round, `wt_round`: its id is what a fatal hit's `destroyed` must carry (GH-1380). */
 function hit(sim: Sim, id: number, hp: number, by: number): void {
-  (sim as unknown as { applyDamage(t: number, d: Fx, by: number): void }).applyDamage(id, fx.fromInt(hp), by);
+  (sim as unknown as { applyDamage(t: number, d: Fx, by: number, how: string, weaponId: string): void }).applyDamage(id, fx.fromInt(hp), by, 'direct', 'wt_round');
 }
 
 /** A sim with the wounded type registered, one squad of `sq` on side 0 at (5.5, 5.5) and a
@@ -405,7 +406,7 @@ describe('falling (GH-707 Task 2)', () => {
     expect(s.figuresUp[squad]).toBe(0);
     expect(s.woundedAlive[0]).toBe(4);
     const evs = sim.tick();
-    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 1, entity: squad, by: shooter }]);
+    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 1, entity: squad, by: shooter, cause: 'direct', weaponId: 'wt_round' }]);
     expect(of(evs, 'woundedDown').map((e) => e.parent)).toEqual([squad, squad, squad, -1]);
     expect(of(evs, 'manKilled')).toEqual([]);
   });
@@ -515,7 +516,7 @@ describe('falling (GH-707 Task 2)', () => {
     expect(s.alive[civ]).toBe(0);
     expect(s.woundedAlive[0]).toBe(0);
     evs = sim.tick();
-    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 402, entity: civ, by: shooter }]);
+    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 402, entity: civ, by: shooter, cause: 'direct', weaponId: 'wt_round' }]);
   });
 
   it('in place with chance 0 dies as today', () => {
@@ -602,7 +603,7 @@ describe('the wounded cap in place (GH-707 Task 2 review)', () => {
     expect(sim.state.woundedAlive[0]).toBe(24);
     const evs = sim.tick();
     expect(of(evs, 'woundedDown')).toEqual([]);
-    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 2, entity: civ, by: shooter }]);
+    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 2, entity: civ, by: shooter, cause: 'direct', weaponId: 'wt_round' }]);
   });
 });
 
@@ -686,7 +687,7 @@ describe('bleeding (GH-707 Task 3)', () => {
     const mine = evs.filter((e) => (e.kind === 'bledOut' || e.kind === 'destroyed') && e.entity === w);
     expect(mine).toEqual([
       { kind: 'bledOut', tick: 40, entity: w },
-      { kind: 'destroyed', tick: 40, entity: w, by: shooter },
+      { kind: 'destroyed', tick: 40, entity: w, by: shooter, cause: 'bleed' }, // GH-1380: no weapon, the bleed did it
     ]);
     expect(sim.state.woundedAlive[0]).toBe(0);
   });

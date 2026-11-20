@@ -1,6 +1,6 @@
 # The kill-cause line (GH-1380)
 
-Status: built read-only on existing events; the lead reviews the mock and the wording. One proposed sim-side addition is NOT built (§5).
+Status: built (PR 1435, read-only on existing events), then the §5 sim step (GH-1380 follow-up: `cause` and `weaponId` on `destroyed`, §7). The lead reviews the mock and the wording.
 
 ## 1. What a player sees
 
@@ -16,7 +16,12 @@ Shoded Jeep ×1 lost (fresh crew)
   Destroyed by Rifle Squad.
 ```
 
-Two or more nameless crews of one type print no cause: one sentence cannot be both causes, and a summary of causes is a separate design.
+Two or more nameless crews of one type print a tally (§7): each distinct line with its count, the commonest first, at most two, then how many more:
+
+```
+Shoded Jeep ×3 lost (fresh crew)
+  2× Destroyed by Rifle Squad. 1× Caught in a blast from Spike AT Team (Spike anti-tank missile).
+```
 
 **The unit card.** The card of whoever took a fallen unit's place already says "in Barkai's place". It now says why, when the record has it:
 
@@ -39,6 +44,11 @@ All through `t()` (`cause.*`, `aar.poor.lostAtCause`, `aar.poor.lostAtReplacedCa
 | the kamikaze itself | Spent on its target. |
 | killer known, weapon not | Destroyed by {who}. |
 | nothing recorded | Cause not recorded. |
+| splash (§7) | Caught in a blast from {who} ({weapon}). / … from {who}. / Caught in a blast. |
+| called strike (§7) | Caught in a strike called in by {who}. / Caught in a strike. |
+| bled out (§7) | Bled out from wounds dealt by {who}. / Bled out from wounds. |
+| collapse, building or tunnel (§7) | Killed in a collapse brought down by {who}. / Killed in a collapse. |
+| went down with its carrier (§7) | Went down with its carrier, destroyed by {who}. / Went down with its carrier. |
 | victim was pinned | + "It was pinned down." |
 
 A flank shot is the same line with `side` or `rear` in it. The line states only what an event said: it never says "not penetrated" for a death (a bounce kills nothing, since HP alone ends a vehicle, GH-560).
@@ -73,3 +83,18 @@ A death in a mission is kept as structure, not text: `LostRecord.cause` (`ledger
 ## 6. Tests
 
 `kill-cause.test.ts`: the real sim run to a death for a gun penetration on the front, the rear and a flank (side) plate (the expected plate is read off the sim's own `impact`), a soft target shot, a kamikaze on a hull and on a man, the munition's own death, and a beam; the join rules by hand (bounce, next-round `fire`, someone else's hit, window edge, miss, building round, lockout, pinned, bounded memory); the parser. Each has a mutation that turns it red (commit message). The tester criterion (4 of 5 answer "why did it die" within 10 s) belongs to tester session 2 on GH-302 and is not met by this change.
+
+## 7. The sim step (GH-1380 follow-up, after PR 1435's review)
+
+Built: `destroyed` carries `cause: DeathCause` (always) and `weaponId` (when a weapon dealt the killing damage), pushed at the one site,
+`Sim.destroy`, with every caller naming how: `direct` (a round, a beam or a kamikaze strike that named the victim), `splash`, `strike`,
+`bleed`, `collapse` (a building or a tunnel), `carrier` (an air carrier shot down, or a rider's bail-out injuries), `spent` (a kamikaze, a
+swarm's last dive) and `other` (a dev kill). Both fields are optional in the type only so a hand-built event stays legal. No event is folded
+into `hash()`: the determinism golden did not move.
+
+The tracker now: words every non-`direct` cause from the event alone (a blast never claims a plate, even when the same shooter holed the hull a
+moment earlier); joins a `direct` one on `shooter === by` and `weapon === weaponId`; and keeps its candidates per shooter and weapon, so a second
+attacker's later `fire` never hides the first one's (the review's two-attacker case), and a beam that finishes a hull holed by the same unit's gun
+names the beam. An event with no `cause` (a replay from before this step) takes the old join.
+
+Still open: the bleed and the collapse name who, never the weapon that wounded the man or brought the roof down.

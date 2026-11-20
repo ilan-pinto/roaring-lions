@@ -1,15 +1,16 @@
 /**
- * Why a unit died (GH-1380): the one line the unit card and the debrief print, derived from `SimEvent`s the sim already emits.
+ * Why a unit died (GH-1380): the one line the unit card and the debrief print, derived from `SimEvent`s the sim emits.
  *
- * Invariant 4: this only READS events. It writes nothing back to the sim and adds no field to any event. `destroyed` carries
- * `{ entity, by }` and no weapon, so the cause is a join across the target's earlier events:
+ * Invariant 4: this only READS events. It writes nothing back to the sim. `destroyed` says HOW (`cause`: direct, splash, strike, bleed,
+ * collapse, carrier, spent, other) and, when a weapon dealt it, WHICH (`weaponId`). Only a `direct` kill needs more than that, the plate
+ * and whether it penetrated, so for that one the cause is a join across the target's earlier events:
  *   - `impact` that PENETRATED (a hard hull; carries the weapon, the arc that was hit, `penetrated`) -- a gun, or a kamikaze's terminal strike;
  *   - `fire` that `willHit` (a soft target: no impact event exists, so this names the weapon);
  *   - `beam` `struck` (a directed-energy hit);
  *   - `pinned` / `unpinned`, which say whether the victim was suppressed when it fell.
- * The join keys on `shooter === by`: a record from anyone else is not the killing blow, and the line then names only the attacker.
- * What the events cannot say (a splash or an indirect round that never named the victim) comes out as `other`, never a guess. The smallest
- * sim-side addition that would close that gap is a `weaponId` on `destroyed`; it is NOT made here (the event is the sim's, guarded separately).
+ * The join keys on `shooter === by` AND, when the event names one, `weapon === weaponId`: a record from anyone else, or from another of
+ * the attacker's weapons, is not the killing blow. Candidates are kept per shooter and weapon, so a second attacker's later shot never
+ * hides the first one's. A `destroyed` with no `cause` (a hand-built event, or a replay from before GH-1380's sim step) takes the join alone.
  */
 import type { SimEvent } from '@lions/sim';
 import { t } from './i18n/t';
@@ -21,7 +22,7 @@ export const CAUSE_WINDOW_TICKS = 200;
 /** The plate a round met, as the sim's `impact` event names it. */
 export type KillArc = Extract<SimEvent, { kind: 'impact' }>['arc'];
 
-export type KillCauseKind = 'gun' | 'kamikaze' | 'beam' | 'spent' | 'other';
+export type KillCauseKind = 'gun' | 'kamikaze' | 'beam' | 'spent' | 'splash' | 'strike' | 'bleed' | 'collapse' | 'carrier' | 'other';
 
 /** Structured, so it can be saved (`LostRecord.cause`) and re-worded in any language; never a pre-rendered sentence. */
 export interface KillCause {
@@ -38,7 +39,7 @@ export interface KillCause {
   suppressed: boolean;
 }
 
-const KINDS: readonly string[] = ['gun', 'kamikaze', 'beam', 'spent', 'other'];
+const KINDS: readonly string[] = ['gun', 'kamikaze', 'beam', 'spent', 'splash', 'strike', 'bleed', 'collapse', 'carrier', 'other'];
 const ARCS: readonly string[] = ['front', 'side', 'rear'];
 
 /**
@@ -80,8 +81,17 @@ interface Hit {
   penetrated?: boolean;
 }
 
+/** One shooter's candidates with one weapon on one victim: the latest of any kind, and the latest penetration. */
+interface Slot {
+  last: Hit;
+  pen?: Hit;
+}
+
+type Destroyed = Extract<SimEvent, { kind: 'destroyed' }>;
+
 export class KillCauseTracker {
-  private readonly hits = new Map<number, Hit>();
+  /** victim -> `${shooter}:${weapon}` -> its candidates. */
+  private readonly hits = new Map<number, Map<string, Slot>>();
   private readonly pinned = new Set<number>();
 
   constructor(private readonly world: CauseWorld) {}
@@ -122,7 +132,7 @@ export class KillCauseTracker {
         this.pinned.delete(ev.entity);
         return undefined;
       case 'destroyed': {
-        const cause = this.causeOf(ev.entity, ev.by, ev.tick);
+        const cause = this.causeOf(ev);
         this.hits.delete(ev.entity);
         this.pinned.delete(ev.entity);
         return cause;
@@ -133,19 +143,62 @@ export class KillCauseTracker {
   }
 
   private note(target: number, hit: Hit): void {
-    const prior = this.hits.get(target);
-    // A penetration is the only thing that ends a hard hull, and the `fire` of the NEXT round (same shooter) is not a later cause: it
-    // never replaces a penetrating `impact`. Anything else, the latest event wins.
-    if (prior !== undefined && prior.shooter === hit.shooter && prior.penetrated === true && hit.penetrated !== true) return;
-    this.hits.set(target, hit);
+    let slots = this.hits.get(target);
+    if (slots === undefined) {
+      slots = new Map();
+      this.hits.set(target, slots);
+    }
+    const key = `${hit.shooter}:${hit.weapon}`;
+    const slot = slots.get(key);
+    if (slot === undefined) slots.set(key, hit.penetrated === true ? { last: hit, pen: hit } : { last: hit });
+    else {
+      slot.last = hit;
+      if (hit.penetrated === true) slot.pen = hit;
+    }
   }
 
-  private causeOf(entity: number, by: number, tick: number): KillCause {
+  /**
+   * The killing blow among `by`'s candidates on `entity` (with `weapon` when the event names it), or undefined. Within one shooter and
+   * weapon a fresh penetration wins over a later `fire` (the NEXT round of the same gun is not a later cause: only a penetration ends a
+   * hard hull). Across weapons the latest wins, so a beam that finishes a hull an earlier gun round holed names the beam.
+   */
+  private killingHit(entity: number, by: number, weapon: string | undefined, tick: number): Hit | undefined {
+    const slots = this.hits.get(entity);
+    if (slots === undefined || by < 0) return undefined;
+    const fresh = (h: Hit | undefined): h is Hit => h !== undefined && tick - h.tick <= CAUSE_WINDOW_TICKS;
+    let best: Hit | undefined;
+    for (const slot of slots.values()) {
+      if (slot.last.shooter !== by || (weapon !== undefined && slot.last.weapon !== weapon)) continue;
+      const rep = fresh(slot.pen) ? slot.pen : fresh(slot.last) ? slot.last : undefined;
+      if (rep !== undefined && (best === undefined || rep.tick >= best.tick)) best = rep;
+    }
+    return best;
+  }
+
+  private causeOf(ev: Destroyed): KillCause {
+    const { entity, by, tick } = ev;
     const suppressed = this.pinned.has(entity);
     const attacker = by >= 0 ? this.world.typeIdOf(by) : undefined;
     const base = { ...(attacker === undefined ? {} : { attacker }), suppressed };
-    const hit = this.hits.get(entity);
-    if (hit !== undefined && hit.shooter === by && tick - hit.tick <= CAUSE_WINDOW_TICKS) {
+    const weapon = ev.weaponId;
+    const withWeapon = weapon === undefined ? {} : { weapon };
+    switch (ev.cause) {
+      case 'spent':
+        return { kind: 'spent', ...base };
+      case 'splash':
+        // A blast names no plate and no penetration, even when the same shooter holed this hull a moment earlier.
+        return { kind: 'splash', ...base, ...withWeapon };
+      case 'strike':
+      case 'bleed':
+      case 'collapse':
+      case 'carrier':
+      case 'other':
+        return { kind: ev.cause, ...base };
+      default:
+        break; // 'direct', or no cause at all: the join below
+    }
+    const hit = this.killingHit(entity, by, weapon, tick);
+    if (hit !== undefined) {
       return {
         kind: hit.kind,
         ...base,
@@ -154,12 +207,40 @@ export class KillCauseTracker {
         ...(hit.penetrated === undefined ? {} : { penetrated: hit.penetrated }),
       };
     }
-    // A kamikaze spends itself on its target: the sim destroys it `by` the thing it hit, which never fired on it.
-    if (this.world.isKamikaze(entity)) return { kind: 'spent', ...base };
-    // A kamikaze's strike on a SOFT target pushes no impact event: the attacker's ability is all the events can say.
-    if (by >= 0 && this.world.isKamikaze(by)) return { kind: 'kamikaze', ...base };
+    // A kamikaze spends itself on its target: the sim destroys it `by` the thing it hit, which never fired on it. (An event with a `cause`
+    // says `spent` itself, above; this is for one without.)
+    if (ev.cause === undefined && this.world.isKamikaze(entity)) return { kind: 'spent', ...base };
+    // A kamikaze's strike on a SOFT target pushes no impact event: the attacker's ability, and the event's weapon, are all there is.
+    if (by >= 0 && this.world.isKamikaze(by)) return { kind: 'kamikaze', ...base, ...withWeapon };
+    // A direct kill whose round left no candidate still names its weapon.
+    if (weapon !== undefined && attacker !== undefined) return { kind: 'gun', ...base, weapon };
     return { kind: 'other', ...base };
   }
+}
+
+/** Catalogue KEYS (not text: nothing is resolved at module load), for the kinds that name only who, or nobody. */
+const BY_KEY = { strike: 'cause.strikeBy', bleed: 'cause.bleedBy', collapse: 'cause.collapseBy', carrier: 'cause.carrierBy' } as const;
+const ANON_KEY = { strike: 'cause.strike', bleed: 'cause.bleed', collapse: 'cause.collapse', carrier: 'cause.carrier' } as const;
+
+/**
+ * The debrief's line for several nameless losses of one type: each distinct cause line with how many it took, the commonest first (ties
+ * in the order they fell), at most `CAUSE_SUMMARY_MAX` of them and then how many more fell some other way. A loss with no stored cause
+ * counts under "Cause not recorded". Undefined for an empty list. Worded at call time, in the active language.
+ */
+export const CAUSE_SUMMARY_MAX = 2;
+export function causeSummary(causes: readonly (KillCause | undefined)[], typeName: (id: string) => string): string | undefined {
+  if (causes.length === 0) return undefined;
+  const counts = new Map<string, number>();
+  for (const c of causes) {
+    const line = c === undefined ? t('cause.unknown') : causeText(c, typeName);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  // Map keeps first-seen order and the sort is stable, so equal counts stay in the order they fell.
+  const groups = [...counts].sort((a, b) => b[1] - a[1]);
+  const shown = groups.slice(0, CAUSE_SUMMARY_MAX).map(([cause, n]) => t('cause.tally', { n, cause }));
+  const rest = groups.slice(CAUSE_SUMMARY_MAX).reduce((sum, [, n]) => sum + n, 0);
+  if (rest > 0) shown.push(t('cause.tallyMore', { n: rest }));
+  return shown.join(' ');
 }
 
 /**
@@ -185,6 +266,16 @@ export function causeText(c: KillCause, typeName: (id: string) => string): strin
       break;
     case 'spent':
       head = t('cause.spent');
+      break;
+    case 'splash':
+      head = c.attacker === undefined ? t('cause.splash') : c.weapon === undefined ? t('cause.splashBy', { who }) : t('cause.splashWeapon', { who, weapon });
+      break;
+    case 'strike':
+    case 'bleed':
+    case 'collapse':
+    case 'carrier':
+      // One key per kind with an attacker, one without; written out, so a key search finds each.
+      head = c.attacker === undefined ? t(ANON_KEY[c.kind]) : t(BY_KEY[c.kind], { who });
       break;
     default:
       head = c.attacker === undefined ? t('cause.unknown') : t('cause.other', { who });
