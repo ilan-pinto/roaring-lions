@@ -148,6 +148,20 @@ describe('item states', () => {
     expect(item?.honest).toEqual({ kind: 'conduct', floor: 70 });
   });
 
+  // F2 (GH-1385 C1): no test tried credits EQUAL to the price, so `>=` -> `>` in either
+  // affordability line (`unitItem`, `tierItem`) went unseen.
+  it('credits that cover the price exactly are affordable; one short is not (unit and tier)', () => {
+    const drone = byId(input({ credits: 220 }), 'recon_drone');
+    expect(drone?.credits).toBe(220);
+    expect(drone?.state).toBe('affordable');
+    expect(byId(input({ credits: 219 }), 'recon_drone')?.state).toBe('locked');
+    const kipod = kdfUnits().find((u) => u.id === 'apc_kipod');
+    if (kipod === undefined) throw new Error('apc_kipod missing');
+    const owned = { apc_kipod: { armour: 1 } };
+    expect(tierItem(kipod, 'armour', input({ credits: 335, owned }), true).state).toBe('affordable');
+    expect(tierItem(kipod, 'armour', input({ credits: 334, owned }), true).state).toBe('locked');
+  });
+
   it('locked when the credits fall short; the stars line counts missions', () => {
     // 18 stars over 6 graded missions = 3 a mission; 44 - 18 = 26 -> 9 missions.
     const results: Record<string, MissionResult> = {};
