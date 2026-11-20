@@ -1868,6 +1868,8 @@ async function main(): Promise<void> {
         renderer: gpuName,
         settings: settingsDeps,
         inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+        // Null until the route's mount resolves (a deep link, or the leave animation of a click): wait, do not void (GH-1413).
+        routePending: () => router.current() === null,
         frames: {
           raf: (cb) => requestAnimationFrame(cb),
           cancel: (id) => cancelAnimationFrame(id),
