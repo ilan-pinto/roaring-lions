@@ -27,6 +27,7 @@ import {
   type WalletView,
 } from '@lions/economy';
 import { coupons } from '@lions/data';
+import { BRANCHES_OPEN } from '@lions/data/branches-open';
 import type { D1Like, D1Stmt } from '../d1';
 import { budgetedOp } from './budget';
 import { campaignViewOf, campaignWrite, readCampaign, type CampaignRead } from './campaign';
@@ -58,11 +59,19 @@ async function open(ctx: AccountCtx, max?: number) {
   return { db: ctx.env.ACCOUNTS, memberId: got.session.memberId, setCookie: got.setCookie, raw };
 }
 
-/** The wire ask, or null for anything that is not exactly one of the two shapes. */
+/**
+ * The wire ask, or null for anything that is not exactly one of the two shapes. GH-1384: `branch` is read only while
+ * branching is open, and then must be exactly 1 or 2 when present (a closed Worker ignores it, as it ignored any unknown
+ * field before). A branched tier with no `branch` is the store's to refuse (`buyWithCoins`).
+ */
 function parseAsk(v: Record<string, unknown>): CoinAskWire | null {
   if (typeof v.unitId !== 'string' || v.unitId === '') return null;
   if (v.item === 'unit') return { item: 'unit', unitId: v.unitId };
   if (v.item === 'tier' && typeof v.track === 'string' && v.track !== '' && typeof v.tier === 'number' && Number.isInteger(v.tier) && v.tier >= 1) {
+    if (BRANCHES_OPEN && v.branch !== undefined) {
+      if (v.branch !== 1 && v.branch !== 2) return null;
+      return { item: 'tier', unitId: v.unitId, track: v.track, tier: v.tier, branch: v.branch };
+    }
     return { item: 'tier', unitId: v.unitId, track: v.track, tier: v.tier };
   }
   return null;
@@ -101,7 +110,7 @@ export async function spend(ctx: AccountCtx): Promise<Response> {
       kind: coinAsk.kind,
       delta: after.coins.free - wallet.free,
       receipt,
-      detail: coinAsk.kind === 'unit' ? { unitId: coinAsk.unitId } : { unitId: coinAsk.unitId, track: coinAsk.track, tier: coinAsk.tier },
+      detail: coinAsk.kind === 'unit' ? { unitId: coinAsk.unitId } : { unitId: coinAsk.unitId, track: coinAsk.track, tier: coinAsk.tier, ...(coinAsk.branch !== undefined ? { branch: coinAsk.branch } : {}) },
       opId: raw.op_id as string,
       at: ctx.now,
     };

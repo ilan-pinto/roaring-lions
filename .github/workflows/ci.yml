@@ -32,6 +32,8 @@ concurrency:
 jobs:
   gates:
     runs-on: ubuntu-latest
+    # last 20 runs 43-81 min (median 61); 1.6x the slowest
+    timeout-minutes: 130
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -256,6 +258,8 @@ jobs:
   # the SPRITE_MAP failure mode this repo already knows.
   visual:
     runs-on: ubuntu-latest
+    # last 20 runs 40-93 min (median 56); 1.5x the slowest
+    timeout-minutes: 140
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -468,6 +472,27 @@ jobs:
           path: visual-baseline-output
           if-no-files-found: ignore
           retention-days: 3
+      # GH-1409 (b): the contact sheet. `tools/ci/ui-shots-index.mjs` writes ONE page (thumbnails embedded, each linking to its full-size PNG by relative
+      # path) into the capture directory, so the `ui-shots` zip is browsable once unzipped, and prints a count table into this run's summary. The copy
+      # uploaded below with `archive: false` is a single file GitHub opens in the browser straight from the run page, with no download; its full-size
+      # links point at nothing (the originals are only in the zip), and the page says so. Report-only like the walk it indexes: it writes a page even
+      # when the walk wrote nothing, and a PNG it cannot decode becomes a placeholder tile.
+      - name: Index the shell captures (report-only)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          node tools/ci/ui-shots-index.mjs ui-shots-output --out=ui-shots-output/index.html --summary >> "$GITHUB_STEP_SUMMARY"
+          cp ui-shots-output/index.html ui-shots-index.html
+      - name: Upload the contact sheet (opens in the browser)
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ui-shots-index.html
+          archive: false
+          if-no-files-found: ignore
+          retention-days: 3
       # GH-1409: the shell captures. Same three-day retention and same `continue-on-error` as the upload above, for the same reason (the
       # private repository's artifact quota); PNGs are already compressed, so the level is 0 rather than spending time re-deflating them.
       - name: Upload the shell captures
@@ -500,6 +525,8 @@ jobs:
   # nightly-only if the wgpu arm needs more than 3x the legacy arm's time.
   visual-backends:
     runs-on: ubuntu-latest
+    # last 20 runs 9-44 min (webgpu arm slowest); 1.6x the slowest
+    timeout-minutes: 70
     strategy:
       fail-fast: false
       matrix:
@@ -629,6 +656,8 @@ jobs:
     needs: visual-backends
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    # last 20 runs 17-35 min; 1.6x the slowest
+    timeout-minutes: 55
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -718,6 +747,8 @@ jobs:
   # `memory-budgets.ts` measured on this runner type.
   memory:
     runs-on: ubuntu-latest
+    # last 20 runs 9-23 min; 1.5x the slowest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -751,6 +782,15 @@ jobs:
             sleep 30
           done
           exit 1
+      # GH-1411: the 300-unit draw-call census (`tools/src/perf/draw-census.ts`). The bench world of every 300-unit
+      # curve in docs/PERFORMANCE.md, every roster GLB, `high`, counted with `info.autoReset` off: calls per living
+      # unit over the empty scene, two-sided against `CENSUS_BUDGET`. A COUNT, not a time: SwiftShader's frame time is
+      # no frame time a player sees, but what a frame submits is decided on the CPU and reads the same here as on Metal
+      # (measured), and submission is the frame's measured bottleneck. Two pages, which must agree to the call; about
+      # 2 min on an M3 Pro's SwiftShader. Exit 1 over or under the band, 2 the instrument failing (pages that disagree,
+      # a page error, a world that did not fight).
+      - name: perf -- the 300-unit draw-call census
+        run: pnpm perf:census -- --port=5183 --out=memory-output/census.json
       - name: memory -- the walk, and the leave
         run: pnpm perf:memory -- --gate --port=5179 --out=memory-output/memory.json
       - name: Upload the readings
@@ -776,6 +816,8 @@ jobs:
   # lists the PR's whole diff against its base, not the last push's.
   changes:
     runs-on: ubuntu-latest
+    # last 20 runs under 1 min
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -784,7 +826,7 @@ jobs:
     steps:
       - id: filter
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
             sim:
@@ -818,6 +860,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' || needs.changes.outputs.sim != 'false') && matrix.os || 'ubuntu-latest' }}
+    # last 20 runs 1-3 min on every OS; five times the slowest leg
+    timeout-minutes: 15
     env:
       RUN_LEG: ${{ github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest' || needs.changes.outputs.sim != 'false' }}
     steps:
@@ -854,16 +898,21 @@ jobs:
   # makes that true. A version that cannot survive the determinism matrix is
   # not a version anyone should be able to point at.
   #
-  # The rule lives in tools/next_version.mjs and is tested: any feat is a
-  # minor, any other player-facing type (fix, sim, app, net, worker, polish,
-  # art, data, vfx, audio, perf ...; the table is BUMP_BY_TYPE there) is a
-  # patch, and docs/chore/test/ci/tools alone cut NOTHING. That
-  # last case is the common one here — a spec, a plan and a ledger correction
-  # are a normal merge, and they change nothing a player can see.
+  # The rule lives in tools/next_version.mjs and is tested: the stronger of
+  # two signals (lead, 19 Nov 2026). The release notes at the pushed commit
+  # (data/release-notes/next.json): any units or rules entry is a minor, only
+  # fixes a patch. The commits: any feat is a minor, any other player-facing
+  # type (fix, sim, app, net, worker, polish, art, data, vfx, audio, perf ...;
+  # the table is BUMP_BY_TYPE there) is a patch, and docs/chore/test/ci/tools
+  # alone cut NOTHING. Empty notes leave the commit rule as it was. That last
+  # case is the common one here — a spec, a plan and a ledger correction are a
+  # normal merge, and they change nothing a player can see.
   version:
     needs: [gates, visual, determinism]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    # last 8 main runs 32-58 s; main only; it pushes a commit and a tag
+    timeout-minutes: 10
     permissions:
       # contents to push the bump and the tag, to publish the GitHub release (GH-1622) and to push the cut/vX tag
       # (lead, 19 Nov). Nothing broader.
@@ -899,13 +948,15 @@ jobs:
             echo "::notice title=Release skipped::main moved on to ${tip:0:8} after ${GITHUB_SHA:0:8}; the newest commit's own run releases both."
           fi
 
+      # Reads next.json from HEAD (the pushed promotion merge) BEFORE the next
+      # step renames it; tools/src/decide_version.test.ts pins that order.
       - id: decide
         name: Decide the next version
         if: steps.tip.outputs.is_tip == 'true'
         run: node tools/decide_version.mjs >> "$GITHUB_OUTPUT"
 
-      # Everything below is skipped when the range holds no feat and no other
-      # player-facing type (see BUMP_BY_TYPE in tools/next_version.mjs).
+      # Everything below is skipped when the notes are empty and the range holds
+      # no feat and no other player-facing type (see tools/next_version.mjs).
       - name: Write, commit and tag
         if: steps.decide.outputs.next != ''
         env:

@@ -222,3 +222,53 @@ describe('the member\'s coin history reads the refund row', () => {
     ]);
   });
 });
+
+// The PR 1664 review: a credits-only legacy owner (the campaign holds the branched tier with its marker, the wallet holds no tier on
+// the track) through the whole one-time choice, with PR 1664's rule in force behind it: a campaign PUT never moves a stored pick.
+describe('a credits-only legacy owner: Switch, then Return, then a PUT with the old pick (PR 1664)', () => {
+  const entitlements = async (h: H) => JSON.parse((await first<{ e: string }>(h, 'SELECT entitlements AS e FROM wallet')).e) as unknown;
+  const putCampaign = (h: H, cookie: string, base: number, b: object) => h.call('PUT', '/api/account/campaign', { cookie, body: { op_id: op(), base, ...b } });
+
+  it('Switch is 200 and moves the account to pick 2 with no marker, the wallet untouched; Return is then 409; a PUT sending pick 1 and the marker keeps pick 2', async () => {
+    const { h, cookie } = await seed({ coin: null, account: { tier: 3, extra: { picks: { mbt_lavi: { firepower: 1 } }, legacy: { mbt_lavi: { firepower: true } } } } });
+    const ents = await entitlements(h);
+    expect(JSON.stringify(ents)).not.toContain('firepower'); // the wallet holds no tier on the track: credits only
+    const rows = (await journal(h)).length;
+
+    const s = await post(h, cookie, 'switch');
+    expect(s.status).toBe(200);
+    const b = await brigade(h);
+    expect([b.picks, b.legacy, b.upgrades.mbt_lavi.firepower, b.balance]).toEqual([{ mbt_lavi: { firepower: 2 } }, {}, 3, 0]);
+    expect(await entitlements(h)).toEqual(ents);
+    expect((await first<{ free: number }>(h, 'SELECT free FROM wallet')).free).toBe(200);
+    expect((await journal(h)).length).toBe(rows);
+    expect(await campRevision(h)).toBe(2);
+
+    const r = await post(h, cookie, 'return');
+    expect(r.status).toBe(409);
+    expect(((await r.json()) as { error: string }).error).toBe('refused');
+    expect(await brigade(h)).toEqual(b);
+    expect(await entitlements(h)).toEqual(ents);
+
+    // An older device still holding the pre-Switch body sends pick 1 and the marker back at the current revision: written, and kept.
+    const p = await putCampaign(h, cookie, 2, { ledger: {}, brigade: { ...b, picks: { mbt_lavi: { firepower: 1 } }, legacy: { mbt_lavi: { firepower: true } } }, tutorialDone: false });
+    expect(p.status).toBe(200);
+    const answered = ((await p.json()) as { campaign: { brigade: { picks?: unknown; legacy?: unknown } } }).campaign.brigade;
+    expect([answered.picks, answered.legacy]).toEqual([{ mbt_lavi: { firepower: 2 } }, {}]);
+    const after = await brigade(h);
+    expect([after.picks, after.legacy]).toEqual([{ mbt_lavi: { firepower: 2 } }, {}]);
+    expect(await campRevision(h)).toBe(3);
+    expect((await post(h, cookie, 'switch')).status).toBe(409); // the choice was made once; the PUT did not hand it back
+  });
+
+  it('a coin and campaign owner: after the route Switch, a PUT with the old pick and marker keeps pick 2 and leaves the wallet on branch 2', async () => {
+    const { h, cookie } = await seed();
+    expect((await post(h, cookie, 'switch')).status).toBe(200);
+    const b = await brigade(h);
+    const p = await putCampaign(h, cookie, 2, { ledger: {}, brigade: { ...b, picks: { mbt_lavi: { firepower: 1 } }, legacy: { mbt_lavi: { firepower: true } } }, tutorialDone: false });
+    expect(p.status).toBe(200);
+    const after = await brigade(h);
+    expect([after.picks, after.legacy]).toEqual([{ mbt_lavi: { firepower: 2 } }, {}]);
+    expect((await wallet(h)).firepower).toEqual({ tier: 3, paidTiers: 0, branch: 2 });
+  });
+});

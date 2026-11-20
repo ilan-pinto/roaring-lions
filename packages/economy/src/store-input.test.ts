@@ -44,4 +44,29 @@ describe('storeInputFor', () => {
     expect(items.tiers.some((t) => t.state === 'coins')).toBe(true);
     expect(items.units.some((u) => u.state === 'earned')).toBe(true);
   });
+
+  // F1 (GH-1385 C1): the test above compares storeInputFor with a copy that calls the same
+  // buildCoinHalf and kdfUnlockGate, so a changed default moves both sides. These read literals.
+  it('literal tables: the unlock gate, the explicit 0 earned tier and a held upgrade', () => {
+    const held = { ...brigade, upgrades: { mbt_lavi: { armour: 2 } } };
+    const made = storeInputFor({ ledger, brigade: held, roar });
+    const lavi = units.mbt_lavi.unlock as { roe_rating_min: number; price: number };
+    const namer = units.ifv_namer.unlock as { roe_rating_min: number; price: number };
+    const drone = units.recon_drone.unlock as { roe_rating_min: number; price: number };
+    const gate = (id: string) => made.units.find((u) => u.id === id)?.unlock;
+    // Authored names mapped to UnlockGate, `bought` resolved from the account's unlocks.
+    expect(gate('mbt_lavi')).toEqual({ roeMin: lavi.roe_rating_min, starsMin: undefined, afterMission: undefined, price: lavi.price, bought: true });
+    // The Namer is held on coins (the fixture's `roar`): the single-player view counts that as bought.
+    expect(gate('ifv_namer')).toEqual({ roeMin: namer.roe_rating_min, starsMin: undefined, afterMission: undefined, price: namer.price, bought: true });
+    expect(gate('recon_drone')).toEqual({ roeMin: drone.roe_rating_min, starsMin: undefined, afterMission: undefined, price: drone.price, bought: false });
+    // A track the account holds keeps its value; every other track of an unbought unit is an
+    // EXPLICIT 0 (an absent entry would fall back to `owned` and read a coin tier as earned).
+    expect(made.coin.earnedTiers['mbt_lavi']).toEqual({ armour: 2, sensors: 0, firepower: 0 });
+    expect(made.coin.earnedTiers['ifv_namer']).toEqual({ armour: 0, sensors: 0, firepower: 0 });
+    expect(made.coin.earnedTiers['aa_remetz']).toEqual({});
+    expect(made.coin.earnedTiers['recon_drone']).toEqual({ armour: 0, sensors: 0 });
+    // A unit the account holds that the roster does not list keeps its stored tracks.
+    const ghost = storeInputFor({ ledger, brigade: { ...brigade, upgrades: { not_a_unit: { armour: 1 } } }, roar });
+    expect(ghost.coin.earnedTiers['not_a_unit']).toEqual({ armour: 1 });
+  });
 });

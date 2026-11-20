@@ -5,7 +5,10 @@
 // and the runtime is held apart from the battlefield's own `runtime`, so no mission-only path
 // (the strip, the end screen, the debrief, the ledger) wakes up for it.
 
-import type { MissionJson } from '@lions/sim';
+import type { MissionJson, Sim } from '@lions/sim';
+import type { SandboxAnchors } from './sandbox-anchors';
+import { SANDBOX_WORKS_KDF } from './sandbox-force';
+import { openTileFor } from './sandbox-place';
 
 /** The logistics a `&works` sandbox starts with: enough for every offer twice over. */
 export const SANDBOX_WORKS_LOGISTICS = 5000;
@@ -34,6 +37,23 @@ export function sandboxWorksMission(
     resources: { logistics_start: SANDBOX_WORKS_LOGISTICS, intel_start: 0 },
     field_works: fieldWorks,
   } as MissionJson;
+}
+
+/**
+ * The `&works` builders, each on the tile the sandbox's own placer (`openTileFor`, `sandbox-place.ts`) would stand
+ * it on: its `SANDBOX_WORKS_KDF` offset from the friendly anchor, or the nearest tile open on its own mask and not
+ * already taken. The runtime spawns them and refuses a blocked tile outright, and an offset knows nothing of the
+ * ground: on Bir Tarsha, Bir Tarsha 2 and Umm Zeitoun the raw offset is a wall, and Free play failed to start with
+ * the works on (their default). Call it AFTER the sandbox force stands, so a builder does not take a body's tile.
+ */
+export function sandboxWorksBuilders(
+  sim: Sim,
+  typeOf: Map<string, number>,
+  anchors: SandboxAnchors
+): { unit: string; at: [number, number] }[] {
+  const tileFor = openTileFor(sim, typeOf);
+  const [ax, ay] = anchors.friendly;
+  return SANDBOX_WORKS_KDF.map(([unit, dx, dy]) => ({ unit, at: tileFor(unit, ax + dx, ay + dy) }));
 }
 
 /**

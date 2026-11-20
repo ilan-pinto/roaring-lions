@@ -173,6 +173,8 @@ describe('versus field works: the snapshot carries side 1 only for a works-only 
 
   it('the digest of every other runtime is the table\'s before the rows existed (pinned), and a works-only one differs', () => {
     // Pinned from the table at 93448908f (before the side-1 rows): a mission save or a snapshot an earlier build wrote restores.
+    // GH-1438 E8 pacing's `abductPace` is a `when: 'abduct'` row (abduct missions only), so it does not enter this digest
+    // either: `runtimeSchemaDigest(false, true)` is the one that moves.
     expect(runtimeSchemaDigest()).toBe(RUNTIME_DIGEST_BEFORE_ROWS);
     expect(runtimeSchemaDigest(true)).not.toBe(runtimeSchemaDigest());
   });
@@ -195,5 +197,7 @@ describe('versus field works: the snapshot carries side 1 only for a works-only 
   });
 });
 
-/** `runtimeSchemaDigest()` with the table as it stood at 93448908f (measured by restoring that file and reading it). */
+/** `runtimeSchemaDigest()` with the table as it stood at 93448908f (measured by restoring that file and reading it). Unmoved by
+ *  GH-1438 E8 pacing: an unconditional `abductPace` row moved it to 170229527 (PR 1663's first head, 12faf7407), the
+ *  `when: 'abduct'` form leaves it here (the PM ruling, option (b), 19 Nov 2026). */
 const RUNTIME_DIGEST_BEFORE_ROWS = 65675699;

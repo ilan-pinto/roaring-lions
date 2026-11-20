@@ -60,6 +60,10 @@ th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--
 <div class="stats" id="health"></div>
 <div class="wrap"><table id="health-errors"></table></div>
 <div class="wrap"><table id="health-frames"></table></div>
+<h2>Desktop crashes</h2>
+<p class="muted">Reports from the packaged desktop build's own endpoint (GH-1414), stored only while the crash flag is open. The newest 50 in the range, then a count by kind, version and graphics-card family. Stack locations are inside the game's own files.</p>
+<div class="wrap"><table id="crash-groups"></table></div>
+<div class="wrap"><table id="crash-latest"></table></div>
 <h2>Testers</h2>
 <div class="controls">
 <input id="share-name" placeholder="tester name" maxlength="32" autocomplete="off">
@@ -91,7 +95,7 @@ function accountRow(a){
   return '<tr>'+'<td>'+esc(a.player)+'</td>'+'<td>'+esc(a.tester??'—')+'</td>'+'<td class="n">'+fmt(a.credits,0)+'</td>'+'<td class="n">'+fmt(a.earned,0)+'</td>'+'<td class="n" title="'+esc(a.unlocks.join(', '))+'">'+fmt(a.unlocks.length,0)+'</td>'+'<td>'+esc(a.tiers.map((t)=>t.replace(/\\./g,' ')).join(', '))+'</td>'+'<td>'+esc(new Date(a.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td>'+'</tr>';
 }
 async function load(){
-  const [s,days,fun,mis,tes,acc,loads,hl]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),getOr('accounts',[]),getOr('loadouts',[]),getOr('health',null)]);
+  const [s,days,fun,mis,tes,acc,loads,hl,cr]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),getOr('accounts',[]),getOr('loadouts',[]),getOr('health',null),getOr('crashes',null)]);
   $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back another day',s.returnedDay2,0,' ('+Math.round(100*s.returnRate)+'%)']]
     .map(([l,v,d,suffix])=>'<div class="stat"><b>'+fmt(v,d)+(suffix||'')+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));
@@ -121,6 +125,13 @@ async function load(){
     table($('health-frames'),['GPU family','Samples','Sessions','p50 ms','p95 ms','p99 ms','Median units'],hl.frames.map((r)=>'<tr><td>'+esc(r.family)+'</td><td class="n">'+fmt(r.samples,0)+'</td><td class="n">'+fmt(r.sessions,0)+'</td><td class="n">'+fmt(r.p50)+'</td><td class="n">'+fmt(r.p95)+'</td><td class="n">'+fmt(r.p99)+'</td><td class="n">'+fmt(r.medianUnits,0)+'</td></tr>'));
   }
   /*/gh1410*/
+  /*gh1414*/
+  if(cr&&Array.isArray(cr.latest)&&Array.isArray(cr.groups)){
+    table($('crash-groups'),['Kind','Version','GPU family','Reports','Launches'],cr.groups.map((g)=>'<tr><td>'+esc(g.kind)+'</td><td>'+esc(g.version)+'</td><td>'+esc(g.gpu)+'</td><td class="n">'+fmt(g.n,0)+'</td><td class="n">'+fmt(g.launches,0)+'</td></tr>'));
+    const what=(c)=>c.name?c.name+': '+c.message:(c.process?c.process+(c.service?' ('+c.service+')':'')+' ':'')+c.reason+(c.exit_code==null?'':', exit '+c.exit_code);
+    table($('crash-latest'),['Received','Kind','What','Build','Machine','Screen','Up (s)','Stack'],cr.latest.map((c)=>'<tr><td>'+esc(new Date(c.received_at).toISOString().slice(0,16).replace('T',' '))+'</td><td>'+esc(c.kind)+'</td><td>'+esc(what(c))+'</td><td>'+esc(c.version+(c.commit?' '+c.commit.slice(0,9):'')+', Electron '+c.electron)+'</td><td>'+esc(c.platform+' '+c.arch+', '+c.gpu)+'</td><td>'+esc((c.screen??'—')+(c.mission?' '+c.mission:''))+'</td><td class="n">'+fmt(c.uptime_s,0)+'</td><td class="mono"><pre>'+esc(c.stack.join('\\n'))+'</pre></td></tr>'));
+  }
+  /*/gh1414*/
 }
 async function showTimeline(name){
   const rows=await get('timeline',new URLSearchParams({tester:name}));

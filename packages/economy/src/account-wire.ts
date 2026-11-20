@@ -3,6 +3,7 @@
  * account client and by the Worker's routes, so the two cannot drift. Every write body carries
  * `op_id` (a UUID, `validOpId`). `toCoinAsk` is the one converter to `stores.ts`'s `CoinAsk`.
  */
+import type { BranchPick } from './branches';
 import type { CoinAsk } from './stores';
 import type { BrigadeAccount } from './brigade';
 import type { SaveSlot } from './slot';
@@ -22,7 +23,8 @@ export type InventoryItem =
   | { deviceId: string; status: 'stored'; serverId: string; digest: string }
   | { deviceId: string; status: 'rejected'; reason: 'cap' | 'size' | 'invalid' };
 // Not `CoinAsk`: that name is stores.ts's `{ kind }` type (§0.45). `toCoinAsk` converts.
-export type CoinAskWire = { item: 'unit'; unitId: string } | { item: 'tier'; unitId: string; track: string; tier: number };
+/** `branch` (GH-1384) names the branch of a BRANCHED tier and is absent on every other ask: the server reads it only while branching is open. */
+export type CoinAskWire = { item: 'unit'; unitId: string } | { item: 'tier'; unitId: string; track: string; tier: number; branch?: BranchPick };
 
 export interface ClaimBody {
   op_id: string;
@@ -45,7 +47,9 @@ export interface ClaimResult {
 
 /** The wire form of a coin ask, as `stores.ts` names it. */
 export function toCoinAsk(w: CoinAskWire): CoinAsk {
-  return w.item === 'unit' ? { kind: 'unit', unitId: w.unitId } : { kind: 'tier', unitId: w.unitId, track: w.track, tier: w.tier };
+  return w.item === 'unit'
+    ? { kind: 'unit', unitId: w.unitId }
+    : { kind: 'tier', unitId: w.unitId, track: w.track, tier: w.tier, ...(w.branch !== undefined ? { branch: w.branch } : {}) };
 }
 
 // GH-1075 A3: `GET /api/account/matches`. The opponent's name is read NOW (a rename follows, §5.3).
