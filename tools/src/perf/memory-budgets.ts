@@ -237,14 +237,21 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
     // lead ruling 10 Nov: Meshy Rifle Squad template +7.9 MiB, measured on CI run 42778024885: 68.2-68.9 MiB
     // (menu after leaving umm_zeitoun_4 / khan_rafid_3; locally 67.4-67.7, SwiftShader); the first menu stays at 65
     // lead ruling 10 Nov: GH-1197 P1 blast ring and munitions table, measured 70.1 on CI. Was 70.
-    menuAfterJsTotalMiB: 72,
+    // lead ruling 20 Nov 2026 (GH-1400), ragdolls ON at `high`: 72 -> 78. The Rapier wasm module (about 5-9 MiB of
+    // JS heap + ArrayBuffers, resident for the page once the first ragdoll loads it and never unloaded) is the whole
+    // difference: CI run 44578814135 read 77.6 / 74.8 / 75.8 after leaving qarn_hadid_3 / umm_zeitoun_4 / khan_rafid_3
+    // where the same base without it reads 68.8-70.8 (run 44579375242). Flat across missions, so no leak. Was 72.
+    menuAfterJsTotalMiB: 78,
     // lead ruling 15 Nov 2026: board JS 26 -> 27. No leak: every main run through 9e9b10e read 25.9 MiB, and the
     // eager app code merged 15 Nov (telemetry client_error/perf/boot, PR 1427; the quality hint, PR 1430) added
     // ~44 KB of board heap, reading 26.0 on CI (runs 43719869311, 43717382552). PR 1449 lazy-loads the hint (-19 KB).
     // Was 26.
     board: { jsTotalMiB: 27, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
     mission: { jsTotalMiB: 154, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
-    leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
+    // lead ruling 20 Nov 2026 (GH-1400): the JS leak bound +20% -> +25%, for the same Rapier module (about 5-9 MiB
+    // resident, one time): the three readings above are +24.8 / +20.3 / +21.9% over the first menu's 62.2 MiB. The GPU
+    // bound (+2%), the live-context, DOM-node and released-context limits are unchanged. Was 20.
+    leak: { jsOverMenuPct: 25, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
   // Local only -- CI never runs here. M3 Pro, ANGLE/Metal, 1400x900 @1x, dev
   // server, n=4 walks (2026-10-08). Largest readings: menu-kind JS 62.6 /
