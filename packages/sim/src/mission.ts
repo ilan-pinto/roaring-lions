@@ -429,8 +429,11 @@ export interface MissionJson {
      *  act, not a kill; `to`/`units` are meaningless for it and the schema
      *  refuses them. Anyone riding in a removed carrier leaves with it, whether
      *  or not he is in the group or the zone. commit/withdraw_to: a `zone`
-     *  orders only the members whose tile is inside it (GH-1438 E5). */
-    do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string };
+     *  orders only the members whose tile is inside it (GH-1438 E5). abduct (GH-1438 E8):
+     *  `group` (the escort, side 1) walks to `to`; the civilians of `captives` follow its
+     *  leader, and one standing in `zone` while the escort lives is taken (`removed`). See
+     *  `stepAbductions`. */
+    do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string; captives?: string };
     /** Fires as a `MissionEvent` the tick this trigger fires, right after the
      *  `trigger` event it annotates. */
     say?: SayJson;
@@ -791,6 +794,11 @@ const SUPPORTED = new Set([
 const SIDED = new Set(['capture', 'hold_for', 'raze', 'score']);
 /** A score is held in 1/1200ths of a point (a minute of ticks), so `per_min` is units a tick, exactly. */
 const SCORE_UNITS = 60 * TICKS_PER_SECOND;
+/** GH-1438 E8: a captive more than six tiles from his escort's leader is not held: 6 x 6 tiles^2 in the Q8.8 squared form
+ *  the shepherd test uses (36 x 65536 = 2,359,296, inside int32). */
+const ABDUCT_RELEASE_SQ = 36 * 65536;
+/** GH-1438 E8: each captive is re-ordered to the leader once in this many ticks (half a second), staggered by id. */
+const ABDUCT_FOLLOW_TICKS = 10;
 /** Score units a unit of destroyed value is worth per point-per-100: `SCORE_UNITS / 100`. */
 const SCORE_PER_VALUE = (SCORE_UNITS / 100) | 0;
 
@@ -2982,6 +2990,34 @@ export class MissionRuntime {
       if (t.do.zone !== undefined && !this.zone(t.do.zone)) {
         throw new Error(`mission ${this.mission.id}: trigger "${t.id ?? `trigger_${i}`}" do.zone names unknown zone "${t.do.zone}"`);
       }
+      // GH-1438 E8: an abduct needs its exit zone, its destination and a CIVILIAN group to take (civilians spawn at start
+      // alone, so the groups are final here). Without any of them it could never take anyone, or would lead soldiers away.
+      if (t.do.kind === 'abduct') {
+        const name = t.id ?? `trigger_${i}`;
+        if (t.do.zone === undefined || t.do.to === undefined || t.do.group === undefined) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" needs group, to and zone`);
+        }
+        const caps = this.groups.get(t.do.captives ?? '') ?? [];
+        if (caps.length === 0 || caps.some((id) => this.sim.state.side[id] !== 2)) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" captives "${t.do.captives}" is not a civilian group`);
+        }
+        // The escort is an ENEMY group: only a side-1 member leads (`stepAbductions`), so one that names a player or
+        // civilian placement would fire, latch and hold nobody. Every member standing now must be side 1; an escort that
+        // a later `spawn` or wave raises is empty here and passes (validate:data checks the placements by side).
+        const escort = this.groups.get(t.do.group) ?? [];
+        if (escort.some((id) => this.sim.state.side[id] !== 1)) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" escort group "${t.do.group}" is not an enemy group`);
+        }
+        // Mirrors the refuge rule (evacuate_before, below): the escort stops at `to`, so a `to` outside the exit zone
+        // parks the column beside the zone with the captives held round it, and nobody is ever taken.
+        const exit = this.zone(t.do.zone);
+        const [ax, ay] = this.markerPos(t.do.to);
+        const tx = ax >> 16;
+        const ty = ay >> 16;
+        if (exit && !(tx >= exit[0] && tx < exit[0] + exit[2] && ty >= exit[1] && ty < exit[1] + exit[3])) {
+          throw new Error(`mission ${this.mission.id}: abduct "${name}" marker "${t.do.to}" is outside zone "${t.do.zone}"`);
+        }
+      }
     }
     for (const o of this.objectives) {
       if (o.def.type === 'eliminate_hvt') {
@@ -3230,6 +3266,7 @@ export class MissionRuntime {
     this.stepCivilians();
     this.stepPatrols();
     this.stepTriggers(tick, out, simEvents);
+    this.stepAbductions(tick, out);
     this.stepWaves(tick, out);
     this.stepHighGround(tick, out);
     // Guarded: `splice(0)` allocates an array every call, and this runs every tick.
@@ -4808,6 +4845,20 @@ export class MissionRuntime {
             if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
           }
         }
+      } else if (t.do.kind === 'abduct') {
+        // GH-1438 E8: the escort sets off for `to` (the captives' following is `stepAbductions`, from this tick on). Its
+        // living, surface members only, like a `withdraw_to`, and a patroller among them drops its beat.
+        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
+          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+        );
+        if (ids.length > 0 && t.do.to) {
+          const [x, y] = this.markerPos(t.do.to);
+          this.sim.queueCommand({ kind: 'move', ids, x, y });
+          const ordered = new Set(ids);
+          for (let k = this.patrols.length - 1; k >= 0; k--) {
+            if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
+          }
+        }
       } else if (t.do.kind === 'spawn') {
         for (const p of t.do.units ?? []) this.spawnPlacement(p, 1, undefined, true);
       } else if (t.do.kind === 'reinforce') {
@@ -4870,6 +4921,57 @@ export class MissionRuntime {
           }));
           this.sim.removeFromPlay(id);
           for (const n of named) out.push({ kind: 'removed', tick, entity: n.e, side: n.side, unit: n.unit });
+        }
+      }
+    }
+  }
+
+  /**
+   * GH-1438 E8 (the civilian drama design §10.2 E8, "the simplest honest version"; D18 Option A: an enemy group may lead
+   * civilians away on foot toward the edge of the map, where they leave play as taken). For every `abduct` trigger that
+   * has fired, in authored order:
+   *   - the LEADER is the lowest-id living, surface, standing side-1 member of the escort `group`. With none (dead, down,
+   *     removed or buried) nobody is held: the abduction is over;
+   *   - a CAPTIVE is a living, standing, surface, uncarried civilian of `captives` who has not fled (`civFlight.hasFled`,
+   *     for good; nothing holds him against it). Fleeing needs a `civilians.refuge`: fire landing close frees him in any
+   *     such mission, and a KDF ground soldier within four tiles (the shepherd rule) only in one that also declares an
+   *     `evacuate_before` (`missionShepherds`);
+   *   - a captive more than six tiles from the leader is not held (no order, never taken): he is the flight rule's;
+   *   - a captive standing in `zone` while the leader lives is TAKEN: `removeFromPlay`, and the same `removed` event a
+   *     `remove` trigger raises (no harm, no other effect: D18);
+   *   - every other captive is ordered to the leader's position (an `exact` move), once every ten ticks, staggered by id
+   *     (`(tick + id) % 10 === 0`).
+   * NO new state: every input is sim state or a fired trigger's latch (`firedTriggers`, folded), so no digest word, no
+   * snapshot row and no save moves. The cost, disclosed: "more than six tiles off" is read each tick rather than latched,
+   * so an escort that a later trigger walks back past a captive it left behind would hold him again. Integer only,
+   * ascending ids, no draw.
+   */
+  private stepAbductions(tick: number, out: MissionEvent[]): void {
+    const triggers = this.mission.triggers ?? [];
+    const st = this.sim.state;
+    for (let i = 0; i < triggers.length; i++) {
+      const t = triggers[i];
+      if (t.do.kind !== 'abduct' || !this.firedTriggers[i]) continue;
+      let leader = -1;
+      for (const id of this.groups.get(t.do.group ?? '') ?? []) {
+        if (st.alive[id] !== 1 || st.side[id] !== 1 || st.tunnelIn[id] >= 0 || this.sim.isDown(id)) continue;
+        if (leader < 0 || id < leader) leader = id;
+      }
+      const zone = this.zone(t.do.zone);
+      for (const c of this.groups.get(t.do.captives ?? '') ?? []) {
+        if (st.alive[c] !== 1 || st.side[c] !== 2 || st.tunnelIn[c] >= 0 || st.carriedBy[c] >= 0) continue;
+        if (leader < 0 || this.civFlight.hasFled(c) || st.woundState[c] !== 0) continue;
+        const dx = (fx.sub(st.posX[c], st.posX[leader]) >> 8) | 0;
+        const dy = (fx.sub(st.posY[c], st.posY[leader]) >> 8) | 0;
+        if (dx * dx + dy * dy > ABDUCT_RELEASE_SQ) continue;
+        if (zone !== undefined && zoneContains(zone, st.posX[c] >> 16, st.posY[c] >> 16)) {
+          const unit = this.sim.unitTypes[st.typeIdx[c]].id;
+          this.sim.removeFromPlay(c);
+          out.push({ kind: 'removed', tick, entity: c, side: 2, unit });
+          continue;
+        }
+        if ((tick + c) % ABDUCT_FOLLOW_TICKS === 0) {
+          this.sim.queueCommand({ kind: 'move', ids: [c], x: st.posX[leader], y: st.posY[leader], exact: true });
         }
       }
     }

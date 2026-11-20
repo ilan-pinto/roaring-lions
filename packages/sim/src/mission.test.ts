@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { fx, type Fx } from './fixed';
 import { FlowField } from './flowfield';
@@ -8112,6 +8115,308 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     // Tile (3,4)'s centre: 3.5 x 65536 = 229376, 4.5 x 65536 = 294912.
     expect([e.evacCount, e.evacX[0], e.evacY[0], e.evacSide[0]]).toEqual([1, 229376, 294912, 0]);
     expect((cgWorld({ enabled: true }).sim as unknown as Evac).evacCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E8: `do.kind: abduct` (D18, Option A: an enemy group may lead civilians away on foot to the edge of the map,
+// where they leave play as taken). An escort of one cell at (5,5) takes two villagers standing beside it, walking them
+// east to an exit zone at x >= 26; a KDF squad waits at (2,1), out of the shepherd rule's four tiles.
+describe('E8: abduct', () => {
+  const AB_ESCORT: UnitTypeJson = {
+    id: 'ab_escort',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 0.9 },
+    sensors: { optics: 1, sight_tiles: 6, signature: 0.6 },
+    weapons: [],
+  };
+  const AB_KDF: UnitTypeJson = { ...AB_ESCORT, id: 'ab_kdf', mobility: { speed_tiles_s: 1.6 } };
+  const AB_CIV: UnitTypeJson = {
+    id: 'ab_civ',
+    role: 'civilian',
+    hull: { hp: 200, armor: { front: 0, side: 0, rear: 0 } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7 },
+  };
+  /** Ids: 0 the KDF squad (group `kdf`), 1 the escort, 2-3 the villagers (group `taken`), 4 a far villager when `far`
+   *  (group `taken`). `reinforce` drops a second KDF squad INTO the escort group at that tile when the abduct fires (the
+   *  next id); `shepherd: false` drops the evacuation, so no KDF soldier frees anyone by coming close. */
+  function abWorld(
+    opts: {
+      far?: boolean;
+      captives?: string;
+      zone?: string | null;
+      at?: number;
+      to?: string;
+      group?: string;
+      reinforce?: [number, number];
+      shepherd?: boolean;
+    } = {},
+  ): World {
+    const sim = new Sim({ seed: 0x1438e8, width: 32, height: 12, capacity: 16 });
+    const ids = new Map<string, number>();
+    for (const t of [AB_ESCORT, AB_KDF, AB_CIV]) ids.set(t.id, sim.addUnitType(t));
+    const groups: PlacementJson[] = [{ unit: 'ab_civ', count: 2, at: [6, 5], group: 'taken' }];
+    if (opts.far === true) groups.push({ unit: 'ab_civ', count: 1, at: [5, 10], group: 'taken' }); // 5 tiles below the escort
+    const zone = opts.zone === undefined ? 'exit_zone' : opts.zone;
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 300 },
+          // An evacuation, so the shepherd rule is on (`missionShepherds`): a KDF ground soldier within four tiles frees them.
+          ...(opts.shepherd === false
+            ? []
+            : [{ id: 'home', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 300 }]),
+        ],
+        starting_force: [{ unit: 'ab_kdf', count: 1, at: [2, 1], group: 'kdf' }],
+        enemy: { garrison: [{ unit: 'ab_escort', count: 1, at: [5, 5], group: 'takers' }] },
+        civilians: { refuge: 'refuge', groups },
+        triggers: [
+          {
+            id: 'led_away',
+            label: 'They are led away',
+            on: { kind: 'timer_s', value: opts.at ?? 1 },
+            do: {
+              kind: 'abduct',
+              group: opts.group ?? 'takers',
+              captives: opts.captives ?? 'taken',
+              to: opts.to ?? 'exit',
+              ...(zone === null ? {} : { zone }),
+            },
+          },
+          ...(opts.reinforce === undefined
+            ? []
+            : [
+                {
+                  id: 'into_the_escort',
+                  label: 'A squad joins them',
+                  on: { kind: 'timer_s' as const, value: opts.at ?? 1 },
+                  do: { kind: 'reinforce', units: [{ unit: 'ab_kdf', count: 1, at: opts.reinforce, group: 'takers' }] },
+                },
+              ]),
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        // `pen` [4, 3, 4, 4] is x 4..7, y 3..6: the `pen_*` markers sit on its first and last tiles and a tile beyond.
+        markers: {
+          exit: [29, 5],
+          refuge: [1, 10],
+          pen_post: [5, 4],
+          pen_first: [4, 3],
+          pen_last: [7, 6],
+          pen_past_x: [8, 6],
+          pen_past_y: [7, 7],
+          pen_before_x: [3, 3],
+          pen_before_y: [4, 2],
+        },
+        zones: { exit_zone: [26, 2, 6, 7], refuge_zone: [0, 8, 4, 4], pen: [4, 3, 4, 4] },
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  const taken = (out: MissionEvent[]): number[] => out.flatMap((e) => (e.kind === 'removed' && e.side === 2 ? [e.entity] : []));
+  const ESCORT = 1;
+  const VILLAGERS = [2, 3];
+
+  it('the captives follow the escort east and are taken in the exit zone: removed, with a removed event each', () => {
+    const w = abWorld();
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS);
+    expect(VILLAGERS.map((id) => w.sim.state.removed[id])).toEqual([1, 1]);
+    expect(w.sim.state.alive[ESCORT]).toBe(1);
+    // ...and nobody counted them as saved.
+    expect(out.mission.some((e) => e.kind === 'evacuated')).toBe(false);
+  });
+
+  it('before the trigger nobody is led anywhere: the villagers stand where they were placed', () => {
+    const w = abWorld({ at: 30 });
+    const x = VILLAGERS.map((id) => w.sim.state.posX[id]);
+    w.step(25 * TICKS_PER_SECOND);
+    expect(VILLAGERS.map((id) => w.sim.state.posX[id])).toEqual(x);
+  });
+
+  it('freed by a KDF soldier coming within four tiles, they are never taken: they run home instead', () => {
+    const w = abWorld();
+    w.step(3 * TICKS_PER_SECOND);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: w.sim.state.posX[2], y: w.sim.state.posY[2] });
+    const out = w.step(80 * TICKS_PER_SECOND);
+    expect(taken(out.mission)).toEqual([]);
+    expect(out.mission.filter((e) => e.kind === 'evacuated').length).toBeGreaterThan(0);
+  });
+
+  it('the escort killed: nobody is held -- no further order to a captive, and nobody taken', () => {
+    const w = abWorld();
+    w.step(4 * TICKS_PER_SECOND);
+    w.sim.debugKill(ESCORT);
+    w.step(1); // the kill lands
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(spy.mock.calls.filter(([c]) => 'ids' in c && c.ids.some((id) => VILLAGERS.includes(id)))).toEqual([]);
+    spy.mockRestore();
+    expect(taken(out.mission)).toEqual([]);
+  });
+
+  it('taken only while an escort lives: villagers standing in the exit zone with the escort dead are not taken', () => {
+    const w = abWorld({ zone: 'pen', to: 'pen_post' }); // the pen is drawn round where they already stand
+    w.sim.debugKill(ESCORT);
+    const out = w.step(5 * TICKS_PER_SECOND);
+    expect(taken(out.mission)).toEqual([]);
+    const alive = abWorld({ zone: 'pen', to: 'pen_post' });
+    expect(taken(alive.step(5 * TICKS_PER_SECOND).mission).sort()).toEqual(VILLAGERS); // the control: alive, they are
+  });
+
+  it('a captive more than six tiles from the leader is not held: the far villager stays, the near two are taken', () => {
+    const w = abWorld({ far: true });
+    const fx0 = [w.sim.state.posX[4], w.sim.state.posY[4]];
+    // Moved six and a half tiles off before the trigger, below the escort (the placement is 5 below; this is the walk).
+    w.sim.teleport(4, fx.from(5.5), fx.from(11.9));
+    const at = [w.sim.state.posX[4], w.sim.state.posY[4]];
+    expect(at).not.toEqual(fx0);
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS);
+    expect([w.sim.state.alive[4], w.sim.state.removed[4]]).toEqual([1, 0]);
+    expect([w.sim.state.posX[4], w.sim.state.posY[4]]).toEqual(at);
+  });
+
+  it('refuses at load: captives that are not civilians, and an abduct with no zone', () => {
+    expect(() => abWorld({ captives: 'takers' })).toThrow(/captives "takers" is not a civilian group/);
+    expect(() => abWorld({ captives: 'nobody' })).toThrow(/is not a civilian group/);
+    expect(() => abWorld({ zone: null })).toThrow(/abduct "led_away" needs group, to and zone/);
+  });
+
+  it('refuses at load: an escort group that is the player`s, or the civilians`; the control loads', () => {
+    expect(() => abWorld({ group: 'kdf' })).toThrow(/abduct "led_away" escort group "kdf" is not an enemy group/);
+    expect(() => abWorld({ group: 'taken' })).toThrow(/escort group "taken" is not an enemy group/);
+    expect(() => abWorld()).not.toThrow();
+  });
+
+  it('refuses at load: a `to` marker outside the exit zone (the refuge rule`s twin); inside it loads', () => {
+    expect(() => abWorld({ zone: 'pen' })).toThrow(/abduct "led_away" marker "exit" is outside zone "pen"/);
+    expect(() => abWorld({ zone: 'pen', to: 'pen_post' })).not.toThrow();
+  });
+
+  it('refuses at load: the zone`s first and last tiles load, a tile beyond either edge does not', () => {
+    expect(() => abWorld({ zone: 'pen', to: 'pen_first' })).not.toThrow();
+    expect(() => abWorld({ zone: 'pen', to: 'pen_last' })).not.toThrow();
+    for (const to of ['pen_past_x', 'pen_past_y', 'pen_before_x', 'pen_before_y']) {
+      expect(() => abWorld({ zone: 'pen', to })).toThrow(new RegExp(`marker "${to}" is outside zone "pen"`));
+    }
+  });
+
+  it('only a SIDE-1 member leads: a KDF squad a reinforce drops into the escort group never holds a captive', () => {
+    // The escort dies at once; a KDF squad lands in its group (id 4) five tiles from the villagers, outside the four a
+    // shepherd needs and with no evacuation, so nobody flees. Were a side-0 member allowed to lead, he would: every
+    // villager within six tiles of him would be ordered to him.
+    const ordersToVillagers = (w: World): number => {
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      w.step(10 * TICKS_PER_SECOND);
+      const n = spy.mock.calls.filter(([c]) => 'ids' in c && c.ids.some((id) => VILLAGERS.includes(id))).length;
+      spy.mockRestore();
+      return n;
+    };
+    const w = abWorld({ reinforce: [6, 10], shepherd: false });
+    w.sim.debugKill(ESCORT);
+    w.step(2 * TICKS_PER_SECOND); // the kill lands, the trigger fires, the squad arrives
+    expect([w.sim.state.alive[4], w.sim.state.side[4], w.sim.state.alive[ESCORT]]).toEqual([1, 0, 0]);
+    expect(ordersToVillagers(w)).toBe(0);
+    // The control: the same world with its escort alive does order them.
+    const c = abWorld({ reinforce: [6, 10], shepherd: false });
+    c.step(2 * TICKS_PER_SECOND);
+    expect(ordersToVillagers(c)).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E8, AT THE SHIPPED SPEEDS: the physics tools/validate_abduct.mjs's route bound rests on. The escort walks
+// faster than its captives (`militia_cell` over `civilians`, read off data/units), so the gap opens with every tile of
+// route and a captive is let go once it passes six. A 64-wide strip, the escort at (5,5), one villager a tile BEHIND it
+// at (4,5) (the start gap the validator measures), `to` the route length east and a 3-wide exit zone round it.
+describe('E8: abduct at the shipped speeds', () => {
+  const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'units');
+  const read = (rel: string): UnitTypeJson => JSON.parse(readFileSync(join(DATA, rel), 'utf8')) as UnitTypeJson;
+  const MILITIA = read('enemy/militia_cell.json');
+  const CIVILIANS = read('civilians.json');
+  const V_ESCORT = MILITIA.mobility.speed_tiles_s;
+  const V_CAPTIVE = CIVILIANS.mobility.speed_tiles_s;
+  /** The validator's bound, written out from literals (an oracle never imports the code it checks): release 6,
+   *  start gap 1, margin 2. 29.67 tiles at 0.95 over 0.8. */
+  const BOUND = ((6 - 1) * V_ESCORT) / (V_ESCORT - V_CAPTIVE) - 2;
+
+  function shipped(route: number): { taken: number[]; left: { alive: number; x: number } } {
+    const sim = new Sim({ seed: 0x1438e8, width: 64, height: 12, capacity: 8 });
+    const ids = new Map<string, number>();
+    for (const t of [MILITIA, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
+    const tx = 5 + route;
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 900 }],
+        enemy: { garrison: [{ unit: 'militia_cell', count: 1, at: [5, 5], group: 'takers' }] },
+        civilians: { refuge: 'refuge', groups: [{ unit: 'civilians', count: 1, at: [4, 5], group: 'taken' }] },
+        triggers: [
+          {
+            id: 'led_away',
+            label: 'They are led away',
+            on: { kind: 'timer_s', value: 1 },
+            do: { kind: 'abduct', group: 'takers', captives: 'taken', to: 'exit', zone: 'exit_zone' },
+          },
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers: { exit: [tx, 5], refuge: [1, 10] },
+        zones: { exit_zone: [tx - 1, 2, 3, 7] },
+      }
+    );
+    runtime.start();
+    const out: number[] = [];
+    for (let i = 0; i < 120 * TICKS_PER_SECOND; i++) {
+      for (const e of runtime.step(sim.tick())) if (e.kind === 'removed' && e.side === 2) out.push(e.entity);
+    }
+    return { taken: out, left: { alive: sim.state.alive[1], x: sim.state.posX[1] >> 16 } };
+  }
+
+  it('reads a faster escort than captive off the shipped data, so the bound is finite', () => {
+    expect(V_ESCORT).toBeGreaterThan(V_CAPTIVE);
+    expect(BOUND).toBeGreaterThan(20);
+    expect(BOUND).toBeLessThan(40);
+  });
+
+  it('inside the bound the villager keeps up and is taken', () => {
+    expect(shipped(Math.floor(BOUND)).taken).toEqual([1]);
+  });
+
+  it('well beyond it he falls more than six tiles behind, is let go and is never taken', () => {
+    const route = Math.ceil(BOUND) + 15;
+    const r = shipped(route);
+    expect(r.taken).toEqual([]);
+    // Alive, still on the map, and stopped more than six tiles short of the exit zone (which starts at x = route + 4).
+    expect(r.left.alive).toBe(1);
+    expect(r.left.x).toBeLessThan(route + 4 - 6);
   });
 });
 

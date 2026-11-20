@@ -51,6 +51,7 @@ import { timeLimitFailures } from './validate_time_limit.mjs';
 import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { triggerZoneFailures } from './validate_trigger_zone.mjs';
+import { abductFailures } from './validate_abduct.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
@@ -994,14 +995,16 @@ const garrisonableSymbols = new Set(
       // runtime only queues the order when `to` is present, so the trigger
       // fires, latches, and moves nobody. Verified in play — the breach's
       // infiltrators sat at their tunnels all mission. Fail here, by name.
-      if ((kind === 'commit' || kind === 'withdraw_to') && !t.do.to) {
+      if ((kind === 'commit' || kind === 'withdraw_to' || kind === 'abduct') && !t.do.to) {
         failures.push(
           `${rel(file)}: ${kind} trigger "${name}" has no "to" — it would fire and move nobody`
         );
       }
       // Same silent-no-op family: these three act on a group, and a group no
       // placement declares filters to an empty id list at runtime.
-      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount') continue;
+      // GH-1438 E8: an abduct's captives, escort side, `to`-in-zone and route length are tools/validate_abduct.mjs
+      // (called below, once per mission).
+      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount' && kind !== 'abduct') continue;
       if (!t.do.group) {
         failures.push(`${rel(file)}: a ${kind} trigger needs "group"`);
       } else if (!declaredGroups.has(t.do.group)) {
@@ -1027,6 +1030,13 @@ const garrisonableSymbols = new Set(
     failures.push(...entityBudgetFailures(mi, rel(file)));
     // GH-1438 E5: `do.zone` only where the runtime reads it, and only naming a zone the map has.
     failures.push(...triggerZoneFailures(mi, map, rel(file)));
+    // GH-1438 E8: an abduct's captives are civilians, its escort is an enemy group, its `to` is inside its zone and
+    // its route is short enough for the captives to keep up; a route across an evacuation zone is a warning.
+    {
+      const report = abductFailures(mi, map, unitsById, new Set(structureSymbols.keys()), rel(file));
+      failures.push(...report.failures);
+      warnings.push(...report.warnings);
+    }
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
