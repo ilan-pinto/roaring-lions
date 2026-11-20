@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { world as shippedWorld } from '@lions/data';
 import type { LedgerData } from '@lions/sim';
-import { campaignWorldJson, cutWorld, demoCut, demoLeaveFor, freePlayOpen, gateDemoRoutes, missionInDemo, type DemoCut } from './demo-cut';
+import { campaignWorldJson, cutWorld, demoCut, freePlayOpen, missionInDemo, type DemoCut } from './demo-cut';
+import { demoLeaveFor, gateDemoRoutes } from './demo-routes';
 import { Router, type Disposer, type RouteDef, type RouteRequest } from './router';
 import { continueTarget, missionOpen, nextMissionAfter, nextMissionOf, nextOperation, parseWorld, regionProgress } from '../campaign';
 import { boardRestingLine, campaignComplete, closingExchange } from '../campaign-close';
@@ -336,6 +337,21 @@ describe('the wiring (pinned as text)', () => {
     expect(readers.sort()).toEqual(['shell/demo-cut.ts', 'ui/stores-adds-view.ts']);
     const constant = files.filter((f) => readFileSync(path.join(appSrc, f), 'utf8').includes('__DEMO_MISSIONS__'));
     expect(constant.filter((f) => f !== 'vite-env.d.ts')).toEqual(['shell/demo-cut.ts']);
+  });
+  it('demo-cut.ts stays headless-safe: it imports only @lions/data and reads nothing Vite-only but the guarded constant', () => {
+    // The playtest and backtest harnesses load it under plain Node/tsx (through challenge.ts and mission-save.ts), where
+    // `import.meta.env` is undefined and `shell/links.ts` throws at load. The route gate, which needs links, is demo-routes.ts.
+    // Comments removed, so a comment can neither satisfy nor trip the pin.
+    const pure = src('demo-cut.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    // Every import, a bare side-effect one included.
+    expect([...pure.matchAll(/^\s*import\b[^']*'([^']+)'/gm)].map((m) => m[1])).toEqual(['@lions/data']);
+    expect(pure).not.toMatch(/\bimport\s*\(/);
+    expect(pure).not.toMatch(/import\.meta/);
+    expect(pure).toContain("typeof __DEMO_MISSIONS__ === 'undefined' ? null : __DEMO_MISSIONS__");
+    expect(pure.match(/__DEMO_MISSIONS__/g)).toHaveLength(2);
+    expect(pure).not.toMatch(/\broutes\.|from '\.\/links'|from '\.\/router'/);
   });
   it('the menu asks freePlayOpen, and the save check asks missionInDemo', () => {
     expect(src('../ui/menu.ts')).toContain("if (freePlayOpen()) addAside(t('menu.aside.freePlay'), routes.freePlay());");

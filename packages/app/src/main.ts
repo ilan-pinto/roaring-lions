@@ -353,7 +353,8 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { reloadMenuHref, routes } from './shell/links';
-import { campaignWorldJson, gateDemoRoutes } from './shell/demo-cut';
+import { campaignWorldJson } from './shell/demo-cut';
+import { gateDemoRoutes } from './shell/demo-routes';
 import { playerHost } from './shell/player-host';
 import { ChunkLoadError, importWithRetry } from './shell/chunk';
 import { chunkFailedCard } from './shell/chunk-card';
