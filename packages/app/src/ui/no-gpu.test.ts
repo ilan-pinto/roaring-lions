@@ -82,7 +82,7 @@ describe('isSoftwareRenderer: real strings', () => {
 
 const prodEnv: NoGpuEnv = { prod: true, hostname: 'roaring-lions.example.workers.dev', query: new URLSearchParams() };
 
-describe('noGpuNoticeAllowed: the same gate as telemetry and feedback', () => {
+describe('noGpuNoticeAllowed: a player\'s real host (playerHost; the desktop build: shell/player-host.test.ts)', () => {
   it('a production build on a real host', () => expect(noGpuNoticeAllowed(prodEnv)).toBe(true));
   it('never in dev (pnpm dev, ui:routes, ui:shots, the golden gate)', () =>
     expect(noGpuNoticeAllowed({ ...prodEnv, prod: false })).toBe(false));

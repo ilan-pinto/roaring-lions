@@ -18,6 +18,7 @@ import { footBack, screenFoot } from './foot';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { SANDBOX_FLAGS, SANDBOX_SIDES, type SandboxFlagName, type SandboxSide } from '../sandbox-help';
 import { routes } from '../shell/links';
+import { freePlayOpen } from '../shell/demo-cut';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { stagger } from './motion';
@@ -233,7 +234,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // map" and fell back to beit_sahwan_outskirts, so one of five shipped maps
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
-  addAside(t('menu.aside.freePlay'), routes.freePlay());
+  // GH-1418: not in the desktop demo, which plays its cut of missions only (`shell/demo-cut.ts`).
+  if (freePlayOpen()) addAside(t('menu.aside.freePlay'), routes.freePlay());
   addAside(t('menu.aside.saves'), routes.saves());
   addAside(t('menu.aside.settings'), routes.settings());
   // A button, not a link: this one destroys the campaign, so it is confirmed
