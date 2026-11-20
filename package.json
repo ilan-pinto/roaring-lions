@@ -39,6 +39,7 @@
     "versus:breach": "pnpm --filter @lions/tools versus:breach",
     "perf:units": "pnpm --filter @lions/tools perf:units",
     "perf:load": "pnpm --filter @lions/tools perf:load",
+    "perf:census": "pnpm --filter @lions/tools perf:census",
     "perf:memory": "pnpm --filter @lions/tools perf:memory",
     "perf:recompute": "pnpm --filter @lions/tools perf:recompute",
     "perf:flowfield": "pnpm --filter @lions/tools perf:flowfield",
