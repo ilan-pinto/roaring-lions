@@ -1,7 +1,9 @@
 // GH-1387 S0: the spend probe's arithmetic and its refusal, on numbers written out by hand (C10, C11). Nothing here runs a mission.
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Banking } from './banking';
-import { SPEND_BOUND, installRefusal, spendProbeFailures, spendReport, spendRows, type SpendRow, type SpendRun } from './spend-table';
+import { SPEND_BOUND, SPEND_METHODS, installRefusal, spendProbeFailures, spendReport, spendRows, type SpendRow, type SpendRun } from './spend-table';
 
 const run = (id: string, b: Banking, o: Partial<SpendRun> = {}): SpendRun => ({ id, result: 'victory', minutes: 6, stars: 2, roe: 80, banking: b, refused: 0, ...o });
 
@@ -41,15 +43,28 @@ describe('spendRows, against a hand recomputation (C10)', () => {
 });
 
 describe('the refusal refuses (C11)', () => {
-  it('installRefusal makes both spend methods answer false, counts each call, and reports which runtime it was', () => {
-    const proto = { requestBuild: () => true, requestSupport: () => true, other: () => 'kept' };
+  it('installRefusal makes all three spend methods answer false, counts each call, and reports which runtime it was', () => {
+    const proto = { requestBuild: () => true, requestSupport: () => true, requestConstruct: () => true, other: () => 'kept' };
     const seen: string[] = [];
     const count = installRefusal(proto, (_rt, m) => seen.push(m));
-    expect([proto.requestBuild(), proto.requestSupport(), proto.requestBuild(), proto.other()]).toEqual([false, false, false, 'kept']);
-    expect([count(), seen]).toEqual([3, ['requestBuild', 'requestSupport', 'requestBuild']]);
+    expect([proto.requestBuild(), proto.requestSupport(), proto.requestConstruct(), proto.requestBuild(), proto.other()]).toEqual([false, false, false, false, 'kept']);
+    expect([count(), seen]).toEqual([4, ['requestBuild', 'requestSupport', 'requestConstruct', 'requestBuild']]);
+  });
+  it('the refused set is every purse-taking method, field works included (literal list)', () => {
+    expect([...SPEND_METHODS]).toEqual(['requestBuild', 'requestSupport', 'requestConstruct']);
   });
   it('a runtime with no such method is an error, not a silent no-op', () => {
+    expect(() => installRefusal({ requestBuild: () => true, requestSupport: () => true }, () => undefined)).toThrow(/no requestConstruct/);
     expect(() => installRefusal({ requestBuild: () => true }, () => undefined)).toThrow(/no requestSupport/);
+  });
+  it('a run that still spent with the refusal on is an instrument error (a spend path the probe does not refuse); off, it is the play', () => {
+    // ein_qasab_2_foothold before the works refusal: start 400, earned 600, held 650, so it spent 350 with 0 refused.
+    const leaked = spendRows([
+      run('ein_qasab_2_foothold', { start: 400, earned: 600, zoneEarned: 0, held: 650 }),
+      run('a_refuser', { start: 400, earned: 100, zoneEarned: 0, held: 500 }, { refused: 2 }),
+    ]);
+    expect(spendProbeFailures(leaked, true)).toEqual([expect.stringContaining('ein_qasab_2_foothold spent 350 with every spend refused')]);
+    expect(spendProbeFailures(leaked, false)).toEqual([]);
   });
   it('a refusal that refused nothing in any run fails the table (the control reading "wins" because the probe did nothing)', () => {
     const rows: SpendRow[] = spendRows([run('a', { start: 1, earned: 0, zoneEarned: 0, held: 1 })]);
@@ -57,6 +72,38 @@ describe('the refusal refuses (C11)', () => {
     expect(spendProbeFailures(rows, false)).toEqual([]);
     expect(spendProbeFailures(spendRows([run('a', { start: 1, earned: 0, zoneEarned: 0, held: 1 }, { refused: 2 })]), true)).toEqual([]);
   });
+});
+
+describe('a forked sweep child installs the refusal too (per-process guard)', () => {
+  // plan-sweep.ts forks with `execArgv: process.execArgv` and `env: { ...process.env, ... }`. The child here gets the probe the same
+  // way (as an `--import`), an IPC channel (so it prints no table), and an environment carrying the marker the old env-var guard set
+  // in the parent: a guard that reads the environment skips the install in exactly this child.
+  it('the child, preloaded with the probe under PT_NOSPEND=1 and an inherited marker, refuses all three spend methods', async () => {
+    const tools = fileURLToPath(new URL('../..', import.meta.url));
+    const probe = fileURLToPath(new URL('./spend-probe.ts', import.meta.url));
+    const code = [
+      "import { MissionRuntime } from '@lions/sim';",
+      "const p = MissionRuntime.prototype;",
+      "const out = {};",
+      // A refused method answers false on any receiver; the real one, on a bare object, throws or answers otherwise.
+      "for (const m of ['requestBuild', 'requestSupport', 'requestConstruct']) { try { out[m] = p[m].call({}) === false ? 'refused' : 'real'; } catch { out[m] = 'real'; } }",
+      "process.send(out, () => process.disconnect());",
+    ].join('\n');
+    const child = spawn(process.execPath, ['--import', 'tsx', '--import', probe, '--input-type=module', '-e', code], {
+      cwd: tools,
+      env: { ...process.env, PT_NOSPEND: '1', PT_SPEND_PROBE_LOADED: '1' },
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    });
+    let err = '';
+    child.stderr?.on('data', (d: Buffer) => (err += d.toString()));
+    const reply = await new Promise<unknown>((resolve, reject) => {
+      let got: unknown;
+      child.on('message', (m) => (got = m));
+      child.on('error', reject);
+      child.on('exit', (c) => (got === undefined ? reject(new Error(`child exited ${c} with no reply: ${err}`)) : resolve(got)));
+    });
+    expect(reply).toEqual({ requestBuild: 'refused', requestSupport: 'refused', requestConstruct: 'refused' });
+  }, 30_000);
 });
 
 describe('SPEND_BOUND', () => {

@@ -5,7 +5,7 @@
 // The design (`docs/superpowers/specs/2026-11-16-purse-binding-design.md`, sections 2, 9 and 10) found that the purse binds on none of
 // the 20 economy missions: with every build and support spend refused, all 20 winning plans still win. S0 makes that measurement
 // repeatable; `SPEND_BOUND` (empty until slice S1) is the set of missions that must LOSE under refusal.
-import { availableOf, bankedOver, bankedPercent, spentOf, type Banking } from './banking';
+import { availableOf, bankedOver, spentOf, type Banking } from './banking';
 
 /** One winning plan's run, as the playtest harness records it (`runLog`) plus the spend calls the probe refused during it. */
 export interface SpendRun {
@@ -15,7 +15,7 @@ export interface SpendRun {
   stars: number;
   roe: number;
   banking: Banking;
-  /** `requestBuild` and `requestSupport` calls refused during this run. Always 0 with the refusal off. */
+  /** `requestBuild`, `requestSupport` and `requestConstruct` calls refused during this run. Always 0 with the refusal off. */
   refused: number;
 }
 
@@ -63,6 +63,11 @@ export function spendProbeFailures(rows: readonly SpendRow[], refusalOn: boolean
     // C11: a control that proves the probe refuses. A refusal that refused nothing leaves every plan winning for the wrong reason.
     const spenders = rows.filter((r) => r.refused > 0).length;
     if (rows.length > 0 && spenders === 0) out.push('the refusal was on and refused 0 spend calls in every run: the table is the ordinary playtest, not a no-spend one');
+    // A run that still spent with every spend refused took logistics through a path `SPEND_METHODS` does not cover (field works did,
+    // before `requestConstruct` was added): the table would credit the purse with not binding a plan that in fact spent.
+    for (const r of rows) {
+      if (r.spent > 0) out.push(`${r.id} spent ${r.spent} with every spend refused: a spend path the probe does not refuse (instrument error)`);
+    }
     for (const id of bound) {
       const r = rows.find((x) => x.id === id);
       if (r === undefined) out.push(`${id} is bound but no run of it was recorded`);
@@ -75,7 +80,7 @@ export function spendProbeFailures(rows: readonly SpendRow[], refusalOn: boolean
 const pad = (s: string, n: number): string => s.padEnd(n);
 /** The report: one line per run, then the counts the design's section 2 states. */
 export function spendReport(rows: readonly SpendRow[], refusalOn: boolean): string[] {
-  const lines = [`spend probe (${refusalOn ? 'every build and support spend REFUSED' : 'as played, nothing refused'}): ${rows.length} winning-plan runs`];
+  const lines = [`spend probe (${refusalOn ? 'every build, support and works spend REFUSED' : 'as played, nothing refused'}): ${rows.length} winning-plan runs`];
   const w = Math.max(0, ...rows.map((r) => r.id.length));
   for (const r of rows) {
     lines.push(
@@ -91,9 +96,9 @@ export function spendReport(rows: readonly SpendRow[], refusalOn: boolean): stri
   return lines;
 }
 
-export { bankedPercent };
-
-const SPEND_METHODS = ['requestBuild', 'requestSupport'] as const;
+/** Every `MissionRuntime` method that takes logistics from the purse: a unit (`requestBuild`), fire support (`requestSupport`) and a
+ *  field work (`requestConstruct`). Each answers `false` for a refusal, which changes nothing. */
+export const SPEND_METHODS = ['requestBuild', 'requestSupport', 'requestConstruct'] as const;
 
 /** Replaces each spend method on `proto` with one that refuses and counts, and returns the count's reader. It lives here, not in the
  *  preload, so a test can install it on a stand-in object: the preload patches the real `MissionRuntime` the moment it is imported. */

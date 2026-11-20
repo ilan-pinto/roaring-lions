@@ -1,9 +1,10 @@
 // GH-1387 S0 (REPORT-ONLY, not wired into CI, `pnpm test` or `pnpm playtest`): a preload for `playtest.ts` that, with `PT_NOSPEND=1`,
-// refuses every `requestBuild` and `requestSupport` and prints, when the process exits, the table of `spend-table.ts` over the
+// refuses every `requestBuild`, `requestSupport` and `requestConstruct` and prints, when the process exits, the table of `spend-table.ts` over the
 // winning plans' first-seed runs (the ones `BANKING_OVER_30_MAX` counts). Without `PT_NOSPEND` it refuses nothing and prints the same
 // table, so the two runs are directly comparable. The harness's own plan code runs unchanged: a refused spend is the only difference,
 // and a plan that goes on to win has shown that the purse did not bind it. The sweeps fork with `process.execArgv` and so refuse too,
-// but print nothing (a child has an IPC channel).
+// but print nothing (a child has an IPC channel). The install guard is a `globalThis` symbol, per PROCESS: an environment variable
+// would be inherited by every forked child (plan-sweep.ts spreads `process.env`), and the child would then skip the refusal.
 //
 //   cd tools
 //   PT_NOSPEND=1 pnpm exec tsx --import ./src/backtest/spend-probe.ts src/backtest/playtest.ts
@@ -15,8 +16,10 @@ import { MissionRuntime } from '@lions/sim';
 import { runLog } from './playtest-run';
 import { installRefusal, spendProbeFailures, spendReport, spendRows, type SpendRun } from './spend-table';
 
-if (process.env.PT_SPEND_PROBE_LOADED !== '1') {
-  process.env.PT_SPEND_PROBE_LOADED = '1';
+const INSTALLED = Symbol.for('lions.spendProbe.installed');
+const realm = globalThis as unknown as Record<symbol, unknown>;
+if (realm[INSTALLED] !== true) {
+  realm[INSTALLED] = true;
   const refusalOn = process.env.PT_NOSPEND === '1';
   /** runLog index -> refusals during that run (`start()` is called once per `run()`, which pushes its record). */
   const refusals: number[] = [];
