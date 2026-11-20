@@ -572,4 +572,24 @@ describe('the promotion workflow reads main\'s own ci run (GH-1409 c)', () => {
     expect(wf).toContain('ci.yml/runs?branch=main&event=push&per_page=1');
     expect(wf).toContain("'{tip: $t[0], latest: $l[0], main: $m[0]}'");
   });
+
+  // The two strings above stay true if `main` is fed dev's newest run (`--slurpfile m ".../latest.json"`), and the body
+  // would then report dev's run as main's. So pin the plumbing end to end: main's query writes main.json, and `m` reads
+  // main.json and nothing else.
+  it('writes the main-branch query to main.json, and `m` is slurped from main.json alone', () => {
+    const lines = wf.split('\n');
+    const at = lines.findIndex((l) => l.includes('ci.yml/runs?branch=main&event=push&per_page=1'));
+    expect(at, 'the main-branch query').toBeGreaterThanOrEqual(0);
+    // The query's whole command: its line and every continuation (a trailing backslash) after it.
+    let end = at;
+    while (lines[end].trimEnd().endsWith('\\')) end++;
+    const query = lines.slice(at, end + 1).join('\n');
+    // Every file the command writes (the query's own redirect and the "unknown" fallback's) is main.json.
+    expect(query.match(/> "\$RUNNER_TEMP\/[^"]*"/g)).toEqual(['> "$RUNNER_TEMP/main.json"', '> "$RUNNER_TEMP/main.json"']);
+    expect(query).not.toMatch(/(tip|latest)\.json/);
+    expect(wf).toContain('--slurpfile m "$RUNNER_TEMP/main.json"');
+    expect(wf.match(/--slurpfile m "[^"]*"/g)).toEqual(['--slurpfile m "$RUNNER_TEMP/main.json"']);
+    // And dev's two files are still dev's: t from tip.json, l from latest.json.
+    expect(wf).toContain('--slurpfile t "$RUNNER_TEMP/tip.json" --slurpfile l "$RUNNER_TEMP/latest.json"');
+  });
 });
