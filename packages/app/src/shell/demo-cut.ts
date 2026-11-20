@@ -1,6 +1,6 @@
 /**
- * The desktop demo's content cut (GH-1418; the lead's ruling of 20 Nov 2026: the demo plays the tutorial and Beit Sahwan
- * I to IV). The ONE module the app reads it through.
+ * The desktop demo's content cut (GH-1418; the lead's rulings of 20 Nov 2026: the demo plays the tutorial, First Light,
+ * then Beit Sahwan I to IV). The ONE module the app reads it through.
  *
  * WHERE IT COMES FROM. `tools/desktop/demo.json` lists the mission ids; `tools/desktop/build-local.mjs` hands them to
  * `pnpm build` as `RL_DEMO_MISSIONS`, and `packages/app/vite-plugin-demo-cut.ts` bakes them into the bundle as the

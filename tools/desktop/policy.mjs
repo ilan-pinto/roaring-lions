@@ -149,8 +149,8 @@ export const FUSES = Object.freeze({
 });
 
 /**
- * The demo's content cut, read from `tools/desktop/demo.json` (GH-1418; the lead's ruling of 20 Nov 2026: the tutorial
- * plus Beit Sahwan I to IV). `missions` is a list of mission ids, or `null` for the whole build. A list must be non-empty,
+ * The demo's content cut, read from `tools/desktop/demo.json` (GH-1418; the lead's rulings of 20 Nov 2026: the tutorial,
+ * First Light, then Beit Sahwan I to IV). `missions` is a list of mission ids, or `null` for the whole build. A list must be non-empty,
  * name only missions in `missionIds` (data/missions: `build-local.mjs` reads them, this module does no I/O) and name none
  * twice. The list goes to the web build as `RL_DEMO_MISSIONS` (`DEMO_CUT_ENV`), which bakes it into the bundle
  * (`packages/app/vite-plugin-demo-cut.ts`) and writes `demo-cut.json` beside index.html (`checkBundleCut`).

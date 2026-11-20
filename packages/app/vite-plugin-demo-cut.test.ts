@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DEMO_CUT_ENV, DEMO_CUT_FILE, demoCutDefine, demoCutFromEnv, demoCutPlugin } from './vite-plugin-demo-cut';
 
-const LEAD = ['beit_sahwan_0_tutorial', 'beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
+const LEAD = ['beit_sahwan_0_tutorial', 'beit_sahwan_breach', 'beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
 
 describe('demoCutFromEnv', () => {
   it('unset or empty is no cut', () => {

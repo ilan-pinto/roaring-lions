@@ -2,8 +2,8 @@
 // GH-1418: package the production web build into an UNSIGNED local Electron desktop build (`pnpm desktop:package`).
 //
 // What it does, in order:
-//   1. reads the demo's content cut (`tools/desktop/demo.json`: the lead's ruling of 20 Nov 2026, the tutorial plus Beit
-//      Sahwan I to IV), every id checked against data/missions (`policy.mjs`'s `readDemoConfig`);
+//   1. reads the demo's content cut (`tools/desktop/demo.json`: the lead's rulings of 20 Nov 2026, the tutorial, First
+//      Light, then Beit Sahwan I to IV), every id checked against data/missions (`policy.mjs`'s `readDemoConfig`);
 //   2. `pnpm build` (skip with --skip-build to reuse an existing packages/app/dist), VITE_BASE cleared and the cut handed
 //      over as RL_DEMO_MISSIONS, which bakes it into the bundle and writes `demo-cut.json` beside index.html; then refuses
 //      a build that does not carry exactly that cut (`checkBundleCut`, so a --skip-build over a full build is caught) and

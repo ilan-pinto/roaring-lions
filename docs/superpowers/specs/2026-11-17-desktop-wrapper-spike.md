@@ -370,12 +370,13 @@ is off whatever the app says; the same collision is the one reported for the Ste
 - The shipped-bundle check with the shipped bundle packaged `smoke: true`: FAIL (`ready.smoke` true), exit 1.
 - `_headers` moved out of `packages/app/dist`: the package step refused ("no Content-Security-Policy"), exit 1.
 
-### 9.4 The demo content cut (the lead's ruling of 20 Nov 2026)
+### 9.4 The demo content cut (the lead's rulings of 20 Nov 2026)
 
-The demo plays the tutorial plus Beit Sahwan I to IV: `beit_sahwan_0_tutorial`, `beit_sahwan_1_recon`,
-`beit_sahwan_2_foothold`, `beit_sahwan_3_clearance`, `beit_sahwan_4_subterranean` (GH-1379's slice). First Light
-(`beit_sahwan_breach`), which opens the town in the full campaign, is not one of I to IV, so in the demo the town opens
-on I. The one config point is `tools/desktop/demo.json`; `readDemoConfig` checks every id against data/missions, no
+The demo plays the tutorial, First Light, then Beit Sahwan I to IV: `beit_sahwan_0_tutorial`, `beit_sahwan_breach`,
+`beit_sahwan_1_recon`, `beit_sahwan_2_foothold`, `beit_sahwan_3_clearance`, `beit_sahwan_4_subterranean`. The lead
+first ruled the tutorial plus I to IV (GH-1379's slice) and then, the same day, included First Light, which opens the
+town in the full campaign: so the demo's Beit Sahwan is the whole town, in campaign order, and opens on First Light as
+the full game does. The one config point is `tools/desktop/demo.json`; `readDemoConfig` checks every id against data/missions, no
 duplicates, non-empty (`null` still means the whole build).
 
 How it reaches the app: `build-local.mjs` passes the list to `pnpm build` as `RL_DEMO_MISSIONS`;
@@ -384,7 +385,7 @@ other build, the deployed web game included) and writes `demo-cut.json` beside `
 bundle whose file does not match `demo.json` (a `--skip-build` over a full build is caught). The app reads the constant
 through ONE module, `packages/app/src/shell/demo-cut.ts`:
 
-- the campaign world is cut to those missions (one town pin, Beit Sahwan I to IV; the other regions read "no
+- the campaign world is cut to those missions (one town pin, Beit Sahwan: First Light, I to IV; the other regions read "no
   operations yet") and marked `cut`, so it is never a won war (`@lions/economy`'s `campaignComplete`: no closing
   exchange, no "every front is closed" line, no campaign coin bonus). The menu's Continue, the board's Next and the
   debrief's next mission read it, so there is no next mission after IV;

@@ -21,11 +21,23 @@ import countriesJson from '../../../../data/campaign/countries.json';
 import { MISSION_SAVE_VERSION, digestOf, parseSuspended } from '../mission-save';
 import { SIM_EPOCH, SNAPSHOT_FORMAT } from '@lions/sim';
 
-const LEAD: DemoCut = ['beit_sahwan_0_tutorial', 'beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
+// The lead's rulings of 20 Nov 2026: the tutorial, First Light, then Beit Sahwan I to IV.
+const LEAD: DemoCut = [
+  'beit_sahwan_0_tutorial',
+  'beit_sahwan_breach',
+  'beit_sahwan_1_recon',
+  'beit_sahwan_2_foothold',
+  'beit_sahwan_3_clearance',
+  'beit_sahwan_4_subterranean',
+];
 const I_TO_IV = ['beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
-const OUTSIDE = ['beit_sahwan_breach', 'qasr_liwan_1_recon', 'tel_marum_1_recon', 'wadi_halam_1_recon'];
+/** The town's missions in the demo: First Light, then I to IV (world.json's own order). */
+const TOWN = ['beit_sahwan_breach', ...I_TO_IV];
+const OUTSIDE = ['qasr_liwan_1_recon', 'khan_rafid_1_recon', 'tel_marum_1_recon', 'wadi_halam_1_recon'];
 // jsdom's URL is not node's, so files are named by path.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** What `tools/desktop/demo.json` ships: the cut the world tests below are built from, so a change there reaches them. */
+const SHIPPED_CUT = (JSON.parse(readFileSync(path.join(HERE, '..', '..', '..', '..', 'tools', 'desktop', 'demo.json'), 'utf8')) as { missions: string[] }).missions;
 const MISSIONS = path.join(HERE, '..', '..', '..', '..', 'data', 'missions');
 const ALL_MISSIONS = readdirSync(MISSIONS)
   .filter((f) => f.endsWith('.json'))
@@ -62,7 +74,8 @@ describe('the build constant', () => {
 });
 
 describe('the campaign world', () => {
-  const cut = parseWorld(cutWorld(shippedWorld, LEAD));
+  const cut = parseWorld(cutWorld(shippedWorld, SHIPPED_CUT));
+  it('is cut by what demo.json ships, which is the lead\'s six', () => expect(SHIPPED_CUT).toEqual(LEAD));
   const full = parseWorld(shippedWorld);
 
   it('with no cut is world.json itself, the same object', () => {
@@ -72,12 +85,12 @@ describe('the campaign world', () => {
   });
   it('campaignWorldJson cuts world.json by the build constant', () => {
     vi.stubGlobal('__DEMO_MISSIONS__', LEAD);
-    expect(parseWorld(campaignWorldJson()).regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions))).toEqual(I_TO_IV);
+    expect(parseWorld(campaignWorldJson()).regions.flatMap((r) => r.towns.flatMap((tw) => tw.missions))).toEqual(TOWN);
   });
-  it('with the cut holds one town, Beit Sahwan, with I to IV in order, and is marked cut', () => {
+  it('with the cut holds one town, Beit Sahwan, with First Light then I to IV in order, and is marked cut', () => {
     const towns = cut.regions.flatMap((r) => r.towns);
     expect(towns.map((tw) => tw.id)).toEqual(['beit_sahwan']);
-    expect(towns[0]?.missions).toEqual(I_TO_IV);
+    expect(towns[0]?.missions).toEqual(TOWN);
     expect(cut.cut).toBe(true);
     expect(full.cut).toBeUndefined();
   });
@@ -89,30 +102,35 @@ describe('the campaign world', () => {
     }
     expect(regionProgress(cut.regions[0]!, {}).status).toBe('live');
   });
-  it('opens on Beit Sahwan I (First Light is not in the cut), the tutorial first', () => {
+  it('opens on First Light, the tutorial first, exactly as the full game does', () => {
     const town = cut.regions[0]!.towns[0]!;
-    expect(nextMissionOf(town, {})).toBe('beit_sahwan_1_recon');
+    expect(nextMissionOf(town, {})).toBe('beit_sahwan_breach');
     expect(continueTarget(cut, {}, { id: 'beit_sahwan_0_tutorial', done: false })).toEqual({ missionId: 'beit_sahwan_0_tutorial', kind: 'tutorial' });
-    expect(nextMissionAfter(cut, 'beit_sahwan_0_tutorial', {})).toBe('beit_sahwan_1_recon');
-    expect(missionOpen(cut, 'beit_sahwan_1_recon', {})).toBe(true);
-    // The same question of the full world: First Light comes first there.
+    expect(nextMissionAfter(cut, 'beit_sahwan_0_tutorial', {})).toBe('beit_sahwan_breach');
+    expect(continueTarget(cut, done('beit_sahwan_0_tutorial'), { id: 'beit_sahwan_0_tutorial', done: true })).toEqual({ missionId: 'beit_sahwan_breach', kind: 'next' });
+    expect(missionOpen(cut, 'beit_sahwan_breach', {})).toBe(true);
+    expect(missionOpen(cut, 'beit_sahwan_1_recon', {})).toBe(false);
+    // First Light leads on to I.
+    expect(nextMissionAfter(cut, 'beit_sahwan_breach', done('beit_sahwan_breach'))).toBe('beit_sahwan_1_recon');
+    expect(missionOpen(cut, 'beit_sahwan_1_recon', done('beit_sahwan_breach'))).toBe(true);
+    // The same questions of the full world give the same answers.
     expect(nextMissionOf(full.regions[0]!.towns[0]!, {})).toBe('beit_sahwan_breach');
-    expect(missionOpen(full, 'beit_sahwan_1_recon', {})).toBe(false);
+    expect(nextMissionAfter(full, 'beit_sahwan_0_tutorial', {})).toBe('beit_sahwan_breach');
   });
-  it('walks I to IV in order, and after IV there is no next mission, no Next, no Continue', () => {
-    expect(nextMissionAfter(cut, 'beit_sahwan_1_recon', done('beit_sahwan_1_recon'))).toBe('beit_sahwan_2_foothold');
-    expect(nextMissionAfter(cut, 'beit_sahwan_3_clearance', done(...I_TO_IV.slice(0, 3)))).toBe('beit_sahwan_4_subterranean');
-    const after = done('beit_sahwan_0_tutorial', ...I_TO_IV);
+  it('walks First Light and I to IV in order, and after IV there is no next mission, no Next, no Continue', () => {
+    expect(nextMissionAfter(cut, 'beit_sahwan_1_recon', done('beit_sahwan_breach', 'beit_sahwan_1_recon'))).toBe('beit_sahwan_2_foothold');
+    expect(nextMissionAfter(cut, 'beit_sahwan_3_clearance', done(...TOWN.slice(0, 4)))).toBe('beit_sahwan_4_subterranean');
+    const after = done('beit_sahwan_0_tutorial', ...TOWN);
     expect(nextMissionAfter(cut, 'beit_sahwan_4_subterranean', after)).toBeUndefined();
     expect(nextOperation(cut, after)).toBeNull();
     expect(continueTarget(cut, after, { id: 'beit_sahwan_0_tutorial', done: true })).toBeNull();
     // The full game goes on to the next town.
-    expect(nextOperation(full, done('beit_sahwan_breach', ...I_TO_IV))).toBe('qasr_liwan_1_recon');
+    expect(nextOperation(full, done(...TOWN))).toBe('qasr_liwan_1_recon');
   });
   it('is never a won war: no closing exchange, no "every front is closed" line', () => {
-    const after = done(...I_TO_IV);
+    const after = done(...TOWN);
     expect(campaignComplete(cut, after)).toBe(false);
-    expect(closingExchange(cut, done(...I_TO_IV.slice(0, 3)), after, 'victory')).toBeNull();
+    expect(closingExchange(cut, done(...TOWN.slice(0, 4)), after, 'victory')).toBeNull();
     expect(boardRestingLine(cut, after)).toBe(t('world3d.hint'));
     // The same world without the mark would have said the war was over.
     expect(campaignComplete({ ...cut, cut: undefined }, after)).toBe(true);
@@ -123,12 +141,12 @@ describe('the campaign world', () => {
       [...worldMap({ base: '/', world: w, countries, ledger, href: (id) => `/mission/${id}` }).querySelectorAll<HTMLElement>('.rl-world__town')].map((el) => el.dataset.town ?? '');
     expect(pins(cut, {})).toEqual(['beit_sahwan']);
     expect(pins(full, {}).length).toBeGreaterThan(5);
-    const board = worldMap({ base: '/', world: cut, countries, ledger: done(...I_TO_IV), href: (id) => `/mission/${id}` });
+    const board = worldMap({ base: '/', world: cut, countries, ledger: done(...TOWN), href: (id) => `/mission/${id}` });
     expect(board.querySelector('.rl-world__say')).toBeNull();
     const fresh = worldMap({ base: '/', world: cut, countries, ledger: {}, href: (id) => `/mission/${id}` });
     const links = [...fresh.querySelectorAll<HTMLAnchorElement>('a[href^="/mission/"]')].map((a) => a.getAttribute('href'));
     expect(links.length).toBeGreaterThan(0);
-    for (const h of links) expect(I_TO_IV.map((id) => `/mission/${id}`)).toContain(h);
+    for (const h of links) expect(TOWN.map((id) => `/mission/${id}`)).toContain(h);
   });
 });
 
@@ -176,7 +194,8 @@ describe('a saved mission', () => {
   it('of a mission outside the cut is refused as one this build does not ship; one inside still loads', () => {
     vi.stubGlobal('__DEMO_MISSIONS__', LEAD);
     expect(parseSuspended(record('qasr_liwan_1_recon'))).toEqual({ ok: false, reason: 'mission_unknown' });
-    expect(parseSuspended(record('beit_sahwan_breach'))).toEqual({ ok: false, reason: 'mission_unknown' });
+    expect(parseSuspended(record('khan_rafid_1_recon'))).toEqual({ ok: false, reason: 'mission_unknown' });
+    expect(parseSuspended(record('beit_sahwan_breach')).ok).toBe(true);
     expect(parseSuspended(record('beit_sahwan_2_foothold')).ok).toBe(true);
   });
 });
@@ -241,7 +260,8 @@ describe('the routes', () => {
     ['/mission/beit_sahwan_1_recon', '/mission/beit_sahwan_1_recon', ['mission:beit_sahwan_1_recon']],
     ['/mission/beit_sahwan_0_tutorial?tutorial=1', '/mission/beit_sahwan_0_tutorial?tutorial=1', ['mission:beit_sahwan_0_tutorial']],
     ['/mission/qasr_liwan_1_recon', '/campaign', ['campaign']],
-    ['/mission/beit_sahwan_breach', '/campaign', ['campaign']],
+    ['/mission/beit_sahwan_breach', '/mission/beit_sahwan_breach', ['mission:beit_sahwan_breach']],
+    ['/mission/khan_rafid_1_recon', '/campaign', ['campaign']],
     ['/mission/qasr_liwan_1_recon?resume=1', '/campaign', ['campaign']],
     ['/?mission=qasr_liwan_1_recon', '/campaign', ['campaign']],
     ['/?mission=beit_sahwan_3_clearance', '/mission/beit_sahwan_3_clearance', ['mission:beit_sahwan_3_clearance']],

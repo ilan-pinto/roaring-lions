@@ -1866,7 +1866,7 @@ async function main(): Promise<void> {
   // it; the preset applies at the next mission's boot.
   // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
   // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
-  // GH-1418: `playerHost`, the helpers' half of "a real host" (the desktop build counts; telemetry and feedback keep `feedbackSends`).
+  // GH-1418: `playerHost`, the helpers' half of "a real host" (the desktop build counts; telemetry, accounts and feedback keep their own gates).
   const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, protocol: location.protocol, query: new URLSearchParams(location.search) };
   if (playerHost(qualityEnv) || qualityEnv.query.has('qualityhint')) {
     void import('./ui/quality-hint').then(({ watchQualityHint }) => {

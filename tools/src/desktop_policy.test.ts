@@ -270,15 +270,23 @@ describe("the demo content cut (the lead's ruling of 20 Nov 2026)", () => {
   const missionIds = readdirSync(path.join(ROOT, 'data', 'missions'))
     .filter((f) => f.endsWith('.json'))
     .map((f) => (JSON.parse(read(`data/missions/${f}`)) as { id: string }).id);
-  const LEAD = ['beit_sahwan_0_tutorial', 'beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
+  // The lead's rulings of 20 Nov 2026: the tutorial, First Light, then Beit Sahwan I to IV.
+  const LEAD = [
+    'beit_sahwan_0_tutorial',
+    'beit_sahwan_breach',
+    'beit_sahwan_1_recon',
+    'beit_sahwan_2_foothold',
+    'beit_sahwan_3_clearance',
+    'beit_sahwan_4_subterranean',
+  ];
 
-  it('demo.json is the tutorial plus Beit Sahwan I to IV, in campaign order', () => {
+  it('demo.json is the tutorial, First Light and Beit Sahwan I to IV, in campaign order', () => {
     expect(readDemoConfig(JSON.parse(read('tools/desktop/demo.json')), missionIds)).toEqual({ missions: LEAD });
   });
-  it('I to IV are Beit Sahwan\'s campaign missions after First Light, in world.json\'s order', () => {
+  it('after the tutorial, the cut is the whole of Beit Sahwan, in world.json\'s order (First Light, then I to IV)', () => {
     const world = JSON.parse(read('data/campaign/world.json')) as { regions: { towns: { id: string; missions: string[] }[] }[] };
     const town = world.regions.flatMap((r) => r.towns).find((t) => t.id === 'beit_sahwan');
-    expect(town?.missions).toEqual(['beit_sahwan_breach', ...LEAD.slice(1)]);
+    expect(town?.missions).toEqual(LEAD.slice(1));
   });
   it('accepts null (the whole build) and refuses an empty list, an unknown id, a duplicate and a non-string', () => {
     expect(readDemoConfig({ missions: null }, missionIds)).toEqual({ missions: null });
