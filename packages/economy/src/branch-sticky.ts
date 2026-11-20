@@ -8,8 +8,12 @@
  *   that tier or more:
  *     - no incoming pick: the stored pick and the stored marker stand;
  *     - the same pick: the stored marker stands (the body's own `legacy` is never read);
- *     - a different pick: accepted only where the stored row held a marker on that track (a Switch), and then the marker is
- *       cleared; with no stored marker the stored pick stands (a fresh branch buy is final).
+ *     - a different pick: the stored pick and the stored marker stand too, marker or none. A body can never Switch: with no
+ *       marker a fresh branch buy is final (Q2), and with one the Switch is the `branch/switch` route's ALONE, because it
+ *       must move every store holding the tier in one write (Q11). A body that switched the credits store alone would leave
+ *       the coin wallet on the old pick and its marker (a second, paid Return), or split a mix of legacy and fresh (both
+ *       branches owned); a loaded save slot holding the other pick would silently spend the free Switch. Kept, not refused:
+ *       the body's ledger and balance are written as sent, and the answer carries the stored pick back to the device.
  *   Where the stored account holds no pick at the branched tier, an incoming pick is a fresh buy and carries no marker; an
  *   incoming tier with no pick is an old build's linear tier 3, which `migrateAccount` makes pick 1 with a marker, as it should.
  *   A body below the branched tier is untouched: a pick leaves only with its tier (a Return, or a reset).
@@ -42,10 +46,8 @@ export function stickyPicks(stored: BrigadeAccount | undefined, incoming: Brigad
         else delete legacy[unit]?.[track];
         continue;
       }
-      const storedMarker = stored?.legacy?.[unit]?.[track] === true;
-      if (incomingPick === undefined || incomingPick === storedPick) set(unit, track, storedPick, storedMarker);
-      else if (storedMarker) set(unit, track, incomingPick, false);
-      else set(unit, track, storedPick, false);
+      // Whatever the body says (none, the same, the other): the stored pick and the stored marker stand (Q11, above).
+      set(unit, track, storedPick, stored?.legacy?.[unit]?.[track] === true);
     }
   }
   return { ...incoming, picks, legacy };

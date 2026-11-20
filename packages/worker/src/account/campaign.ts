@@ -58,7 +58,8 @@ export async function readCampaign(db: D1Like, memberId: string): Promise<Campai
 }
 
 /**
- * GH-1384 §4.4: the body to WRITE for a campaign the device sent, with the stored picks kept. `sent` is the raw body (a build from
+ * GH-1384 §4.4: the body to WRITE for a campaign the device sent, with the stored picks kept, and never switched: a member's Switch
+ * moves both stores in one write, so it is the `branch/switch` route's alone (Q11, `stickyPicks`). `sent` is the raw body (a build from
  * before branching strips the picks, and the canonical form would read that as a fresh tier 3); `sentText` is its canonical text,
  * which is returned unchanged when nothing moves (always, while branching is closed). Used where the write lands at the current
  * revision, and nowhere else: a stale body goes to a conflict slot as it came.
