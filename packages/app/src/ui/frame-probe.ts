@@ -15,6 +15,14 @@
 // THE SAMPLE IS VOIDED, NEVER GUESSED AT. A hidden tab (rAF is throttled to about 1 Hz), a stalled page (one interval of 2 s or
 // more: a modal alert, a debugger, a laptop waking) and a player who has gone into a mission (a battlefield boot is slow for
 // reasons that are not the machine's) all void it, and a voided sample suggests nothing. A verdict also needs a FULL sample.
+//
+// "NOT YET" IS NOT "LEFT". The shell does not know which screen it is on until the route's mount resolves: `router.current()` is
+// null on the first frames of a deep link to `/campaign` or `/brigade`, and again during the 200 ms leave animation of a click. A
+// probe that read null as "left the shell" voided its sample on frame one and the suggestion fired less often than intended (GH-1413,
+// the 15 Nov follow-up). `pending` says "the route is not known yet": such a frame is skipped, counted for nothing and voiding
+// nothing, and the warm-up starts over once the route is known (the page is still painting, which is what the warm-up is for). The
+// give-up timer keeps running through it, so a route that never resolves ends the probe, and a mission that mounts next voids it
+// through `steady` as before.
 
 /** Frames presented before the first one counts: the page is still painting, fonts and the first route are loading. */
 export const PROBE_WARMUP_FRAMES = 30;
@@ -65,6 +73,11 @@ export interface ProbeDeps {
   visible: () => boolean;
   /** False once the player is somewhere a sample means nothing (a mission). Asked every frame. */
   steady: () => boolean;
+  /**
+   * True while the route is not known yet (a deep link before its mount resolves, the leave animation of a click). Asked every
+   * frame, before `steady`: such a frame is skipped, neither counted nor voiding, and the warm-up restarts. Absent: never pending.
+   */
+  pending?: () => boolean;
 }
 
 export type ProbeResult = { kind: 'sample'; stats: FrameStats } | { kind: 'void'; why: 'hidden' | 'stall' | 'left' | 'gave-up' };
@@ -89,8 +102,17 @@ export function sampleFrames(deps: ProbeDeps, done: (r: ProbeResult) => void): (
   const tick = (ts: number): void => {
     if (stopped) return;
     if (!deps.visible()) return finish({ kind: 'void', why: 'hidden' });
-    if (!deps.steady()) return finish({ kind: 'void', why: 'left' });
+    const waiting = deps.pending?.() === true;
+    if (!waiting && !deps.steady()) return finish({ kind: 'void', why: 'left' });
     if (deps.now() - started > PROBE_GIVE_UP_MS) return finish({ kind: 'void', why: 'gave-up' });
+    if (waiting) {
+      // The route is not known yet: this frame is neither a sample nor a departure. Start the warm-up over.
+      last = null;
+      seen = 0;
+      intervals.length = 0;
+      id = deps.raf(tick);
+      return;
+    }
     if (last !== null) {
       seen++;
       const dt = ts - last;
