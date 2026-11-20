@@ -6632,12 +6632,16 @@ describe('a removal is not a loss (GH-1380)', () => {
   // destroyed, 2 holds.
   // Falsified: dropping the kept-removal line in `checkEnd` (a body off the board is skipped, as before), and marking an
   // abducted man lost (`isTaken` read as `isLost`), each turn these red.
-  function rosterWin(o: { loaned?: number[]; abducted?: boolean; prior?: LedgerMissingEntry[] } = {}): {
+  /** `unfired`: the abduct trigger names man 0 among its captives but fires only at 600 s (never, here), and a `remove`
+   *  trigger takes him at 0 s instead. `rescued`: man 0, in a FIRED abduction's captives, leaves as a rescued wounded man
+   *  does (ADMITTED 3 or GONE 4), not as one taken. */
+  function rosterWin(o: { loaned?: number[]; abducted?: boolean; prior?: LedgerMissingEntry[]; unfired?: boolean; rescued?: 3 | 4 } = {}): {
     w: World;
     end: Extract<MissionEvent, { kind: 'missionEnd' }>;
     events: MissionEvent[];
   } {
-    const abducted = o.abducted === true;
+    const abducted = o.abducted === true || o.unfired === true || o.rescued !== undefined;
+    const unfired = o.unfired === true;
     const w = makeWorld(
       baseMission({
         starting_force: [
@@ -6653,9 +6657,12 @@ describe('a removal is not a loss (GH-1380)', () => {
           : {}),
         ledger: { requires: [], produces: ['roster.surviving_units'] },
         objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 10 }],
-        triggers: abducted
-          ? [{ id: 'led_away', on: { kind: 'timer_s', value: 0 }, do: { kind: 'abduct', group: 'takers', captives: 'villagers', to: 'exit', zone: 'exit_zone' } }]
-          : [{ id: 'take_one', on: { kind: 'timer_s', value: 0 }, do: { kind: 'remove', group: 'taken' } }],
+        triggers: [
+          ...(abducted
+            ? [{ id: 'led_away', on: { kind: 'timer_s' as const, value: unfired ? 600 : 0 }, do: { kind: 'abduct', group: 'takers', captives: 'villagers', to: 'exit', zone: 'exit_zone' } }]
+            : []),
+          ...(!abducted || unfired ? [{ id: 'take_one', on: { kind: 'timer_s' as const, value: 0 }, do: { kind: 'remove', group: 'taken' } }] : []),
+        ],
       }),
       {
         ...(o.loaned !== undefined ? { loaned: o.loaned } : {}),
@@ -6672,7 +6679,8 @@ describe('a removal is not a loss (GH-1380)', () => {
     }
     w.sim.debugKill(1);
     const events = w.step(1).mission;
-    if (abducted) w.sim.removeFromPlay(0);
+    if (abducted && !unfired) w.sim.removeFromPlay(0);
+    if (o.rescued !== undefined) (w.sim.state.woundState as Uint8Array)[0] = o.rescued;
     events.push(...w.step(11 * TICKS_PER_SECOND).mission);
     const end = events.find((e) => e.kind === 'missionEnd');
     if (end?.kind !== 'missionEnd') throw new Error('no end');
@@ -6719,6 +6727,29 @@ describe('a removal is not a loss (GH-1380)', () => {
     ]);
     // Loaned: nothing to add, so the key is not written at all (the prior rides `ctx.ledger`, untouched).
     expect('roster.missing' in rosterWin({ abducted: true, loaned: [0], prior }).end.ledger).toBe(false);
+  });
+
+  // The two guards in `isTaken` (the PR 1683 delta review): an abduction takes a man only once its trigger has FIRED,
+  // and a rescued wounded man is never taken. The control for both is the abducted test above (fired, not rescued:
+  // missing). Falsified: `isTaken` ignoring `firedTriggers` turns (a) red; `isTaken` without its ADMITTED/GONE guard
+  // turns (b) red.
+  it('(a) a man named in an UNFIRED abduction`s captives, taken by a remove trigger, is kept, not missing', () => {
+    const { end, w } = rosterWin({ unfired: true });
+    // The abduction never fired; the `remove` trigger did, and it is what took him.
+    expect((w.runtime as unknown as { firedTriggers: boolean[] }).firedTriggers).toEqual([false, true]);
+    expect((w.runtime as unknown as { groups: Map<string, number[]> }).groups.get('villagers')).toContain(0);
+    expect(rosterOf(end)).toHaveLength(2);
+    expect('roster.missing' in end.ledger).toBe(false);
+  });
+
+  it('(b) a rescued man (ADMITTED or GONE) in a FIRED abduction`s captives is kept, not missing', () => {
+    for (const rescued of [3, 4] as const) {
+      const { end, w } = rosterWin({ rescued });
+      expect((w.runtime as unknown as { firedTriggers: boolean[] }).firedTriggers).toEqual([true]);
+      expect(w.sim.state.woundState[0]).toBe(rescued);
+      expect(rosterOf(end)).toHaveLength(2);
+      expect('roster.missing' in end.ledger).toBe(false);
+    }
   });
 });
 
