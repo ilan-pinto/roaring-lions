@@ -16,6 +16,22 @@ export function placeOnOpen(
   sim: Sim,
   typeOf: Map<string, number>
 ): (id: string, side: number, x: number, y: number, facing?: number) => number {
+  const tileFor = openTileFor(sim, typeOf);
+  return (id, side, x, y, facing = 0) => {
+    const [ox, oy] = tileFor(id, x, y);
+    return sim.spawn(typeOf.get(id) as number, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing);
+  };
+}
+
+/**
+ * The tile `placeOnOpen` would stand a body of unit `id` on, asked for at (x, y), WITHOUT spawning it: for a body
+ * something else spawns, which is the `&works` builder (`sandbox-works.ts`'s `sandboxWorksBuilders`), raised by a
+ * `MissionRuntime` that refuses a blocked tile outright instead of searching. One rule, one copy.
+ */
+export function openTileFor(
+  sim: Sim,
+  typeOf: Map<string, number>
+): (id: string, x: number, y: number) => [number, number] {
   // GH-1360 S1: a tile is open for a body iff it is clear on THAT body's own mask (the vehicle mask, `blocked |
   // boulder`, for anything that paths as a vehicle; air and foot read `blocked`) and no living body already stands
   // on it. "Vehicle" is the type's `moveDomain`, which is `mobility.wheeled` and never `FOOT_ROLES` (CLAUDE.md).
@@ -51,11 +67,10 @@ export function placeOnOpen(
     return firstClear ?? [cx, cy];
   };
 
-  return (id, side, x, y, facing = 0) => {
+  return (id, x, y) => {
     const t = typeOf.get(id);
     if (t === undefined) throw new Error(`unknown unit ${id}`);
     const mask = sim.unitTypes[t].moveDomain === DOMAIN_VEHICLE ? sim.blockedVehicle : sim.blocked;
-    const [ox, oy] = open(x, y, mask, occupied());
-    return sim.spawn(t, side, fx.from(ox + 0.5), fx.from(oy + 0.5), facing);
+    return open(x, y, mask, occupied());
   };
 }

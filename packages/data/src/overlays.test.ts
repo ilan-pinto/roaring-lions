@@ -204,3 +204,70 @@ describe('a posture composes with amendments: the posture first, the amendments 
     expect(o.time_limit_s).toBe(788); // ceil(ceil(840 * 5/4) * 3/4) = ceil(1050 * 3/4)
   });
 });
+
+describe('no overlay operation can add an abduct trigger (GH-1438 E8)', () => {
+  // E8 pacing is armed by an `abduct` trigger alone, and validate:data's route checks read the AUTHORED mission. So no
+  // posture or amendment may put one into a run: the one op that adds a trigger is `reinforce_player`, and what it adds
+  // is always a `reinforce`. One op of every kind, keyed by kind (a new kind in `OverlayOp` does not compile until it
+  // is listed here, and the schema test below holds the list), every free string the word 'abduct', and a stray
+  // `kind`/`do` field riding along, so an op that took a trigger's kind (or any of it) from its arguments shows it.
+  const stray = { kind: 'abduct', do: { kind: 'abduct', group: 'abduct' } } as object;
+  const EVERY: { [K in OverlayOp['op']]: Extract<OverlayOp, { op: K }> } = {
+    scale_time_limit: { ...stray, op: 'scale_time_limit', num: 5, den: 4 },
+    scale_waves: { ...stray, op: 'scale_waves', num: 5, den: 4, skip_tagged: true },
+    shift_waves: { ...stray, op: 'shift_waves', seconds: 30 },
+    reinforce_player: { ...stray, op: 'reinforce_player', at_seconds: 90, label_key: 'abduct', units: [{ unit: 'abduct', count: 1 }] },
+    uncarry: { ...stray, op: 'uncarry' },
+    add_wave: { ...stray, op: 'add_wave', wave: { at_seconds: 1, trigger: 'abduct', units: [{ unit: 'abduct', count: 1, tag: 'abduct' }] } },
+    raise_fail_below: { ...stray, op: 'raise_fail_below', by: 10 },
+    remove_starting: { ...stray, op: 'remove_starting', unit: 'abduct', count: 1 },
+    scale_resources: { ...stray, op: 'scale_resources', num: 1, den: 2 },
+    set_intel_start: { ...stray, op: 'set_intel_start', value: 0 },
+  };
+  /** A mission every op changes, with an authored (non-abduct) trigger of its own. */
+  const base: M = {
+    id: 'no_abduct',
+    ledger: { produces: ['x'] },
+    time_limit_s: 600,
+    objectives: [{ id: 'o', type: 'survive_until', primary: true, seconds: 300, carries: true }],
+    enemy: { waves: [{ at_seconds: 60, units: [{ unit: 'sarim_rifles', count: 2 }] }] },
+    starting_force: [{ unit: 'abduct', count: 2 }],
+    roe: { fail_below: 40 },
+    triggers: [{ id: 'fall_back', on: { kind: 'timer_s', value: 120 }, do: { kind: 'withdraw_to' } }],
+  };
+  const withResources = { ...base, resources: { logistics_start: 100, logistics_rate_per_min: 10, intel_start: 3 } };
+  const abducts = (m: M): number => (m.triggers ?? []).filter((t) => t.do.kind === 'abduct').length;
+
+  it('the table names every operation the schema does', () => {
+    const schema = JSON.parse(readFileSync(join(ROOT, 'data/schemas/overlay_ops.schema.json'), 'utf8'));
+    const inSchema = (schema.$defs.op.oneOf as { properties: { op: { const: string } } }[]).map((o) => o.properties.op.const).sort();
+    expect(Object.keys(EVERY).sort()).toEqual(inSchema);
+  });
+
+  it('no shipped mission carries an abduct, so every one below is a mission without one', () => {
+    expect(all.filter((m) => abducts(m) > 0).map((m) => m.id)).toEqual([]);
+  });
+
+  it.each(Object.keys(EVERY))('%s adds no trigger but a reinforce, and only reinforce_player adds one', (name) => {
+    const op = EVERY[name as OverlayOp['op']];
+    let applied = 0;
+    for (const m of [withResources, ...all]) {
+      let out: M;
+      try {
+        out = applyOps(m, [op], { label: (k) => k });
+      } catch (e) {
+        // remove_starting of 'abduct' on a shipped mission (which has none): an authoring error. Never on `base`.
+        expect(m, String(e)).not.toBe(withResources);
+        continue;
+      }
+      applied++;
+      const authored = new Set<unknown>(m.triggers ?? []);
+      const added = (out.triggers ?? []).filter((t) => !authored.has(t));
+      expect(added.map((t) => t.do.kind), m.id).toEqual(name === 'reinforce_player' ? ['reinforce'] : []);
+      expect(abducts(out), m.id).toBe(0);
+    }
+    expect(applied).toBeGreaterThan(0);
+    // ...and on the synthetic mission every op did something, so a quiet early `return m` is not what kept it green.
+    expect(applyOps(withResources, [op], { label: (k) => k })).not.toBe(withResources);
+  });
+});

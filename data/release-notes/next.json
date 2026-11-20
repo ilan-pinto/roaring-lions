@@ -1,6 +1,10 @@
 {
   "version": "next",
   "units": [],
-  "rules": [],
-  "fixes": []
+  "rules": [
+    "The system's increase contrast setting now brightens dim text and the borders of panels."
+  ],
+  "fixes": [
+    "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on."
+  ]
 }

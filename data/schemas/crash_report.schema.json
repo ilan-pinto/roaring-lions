@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaring-lions/schemas/crash_report.schema.json",
+  "title": "Desktop crash report: the body of POST /api/crash",
+  "description": "GH-1414. What the packaged desktop build's main process sends when the game, one of its processes, or a JavaScript error in it fails. Built by tools/desktop/crash.mjs; the Worker's twin is packages/worker/src/crash-meta.ts, pinned to this file by crash-meta.test.ts. No minidump, no user text, no save data, no path outside the game, no URL query, no IP: a stack location is `web/<path>` (the page's own file), `asar/<path>` (the main process's own file), `node:<module>`, `<native>` or `<other>`. Rules a JSON Schema cannot state, enforced by the Worker: the body is at most 6144 UTF-8 bytes, and it is application/json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "t", "kind", "launch", "uptimeS", "version", "electron", "platform", "arch", "gpu"],
+  "properties": {
+    "v": { "const": 1 },
+    "t": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "description": "Client epoch milliseconds." },
+    "kind": { "enum": ["renderer_gone", "child_gone", "main_exception", "main_rejection", "page_exception", "page_rejection"] },
+    "launch": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A random id made at launch and kept in memory only (never stored on the player's machine), so one launch's reports group together. It names no player and no machine."
+    },
+    "uptimeS": { "type": "integer", "minimum": 0, "maximum": 10000000, "description": "Seconds since launch." },
+    "version": { "type": "string", "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,6}$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "electron": { "type": "string", "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,6}$" },
+    "chrome": { "type": "string", "pattern": "^[0-9]{1,4}(\\.[0-9]{1,6}){3}$" },
+    "platform": { "enum": ["linux", "win32", "darwin"] },
+    "arch": { "enum": ["x64", "arm64", "ia32"] },
+    "gpu": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ().+-]{0,39}$",
+      "description": "The graphics card's FAMILY (gpuFamily: `NVIDIA RTX 30-series`, `Software (no GPU)`, `Unknown`), never the raw renderer string."
+    },
+    "screen": { "enum": ["menu", "campaign", "brigade", "mission", "tutorial", "sandbox", "other"] },
+    "mission": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "reason": { "type": "string", "pattern": "^[a-z][a-z-]{0,23}$", "not": { "const": "clean-exit" }, "description": "Electron's process-gone reason (`crashed`, `oom`, `killed`, ...)." },
+    "exitCode": { "type": "integer", "minimum": -2147483648, "maximum": 4294967295 },
+    "process": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9 ._-]{0,47}$", "description": "child_gone: Electron's process type (`GPU`, `Utility`, ...)." },
+    "service": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9 ._-]{0,47}$", "description": "child_gone: the utility process's service name (`Network Service`, `Audio Service`, ...)." },
+    "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$", "description": "The error's class name." },
+    "message": {
+      "type": "string",
+      "pattern": "^[\\x20-\\x7e]{0,120}$",
+      "not": { "pattern": "[^\\s@]+@[^\\s@]+\\.[^\\s@]+|://|(/[^\\s/]+){2,}|[A-Za-z]:\\\\|\\\\\\\\" },
+      "description": "One line, scrubbed by rule (crash.mjs scrubMessage, the twin of the app's GH-1410 scrubber). The second lock: a message that still holds an email, a URL, a POSIX path of two segments or more, a Windows drive path or a UNC share is refused, whatever the client's scrubber did."
+    },
+    "stack": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_$.<>]{1,64} \\((web/[A-Za-z0-9_./-]{1,160}|asar/[A-Za-z0-9_./-]{1,160}|node:[A-Za-z0-9_/.-]{1,80}|<native>|<other>):[0-9]{1,7}:[0-9]{1,7}\\)$"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "enum": ["renderer_gone", "child_gone"] } }, "required": ["kind"] },
+      "then": { "required": ["reason"], "properties": { "name": false, "message": false, "stack": false } },
+      "else": { "required": ["name", "message"], "properties": { "reason": false, "exitCode": false, "process": false, "service": false } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "child_gone" } }, "required": ["kind"] },
+      "then": { "required": ["process"] },
+      "else": { "properties": { "process": false, "service": false } }
+    }
+  ]
+}

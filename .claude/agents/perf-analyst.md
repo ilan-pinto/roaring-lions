@@ -30,19 +30,36 @@ per-tick budget and fixing one in isolation just moves the cliff.
 
 ## The renderer scaling picture, measured 2026-08-28
 
-There are two renderer backends now (`CLAUDE.md`, "The three.js backend"), and
-the three.js one has been measured. Do not re-derive these; do challenge them
-with new measurements if you have reason to.
+three.js is the only renderer (`CLAUDE.md`, "The three.js backend"). Do not
+re-derive these; do challenge them with new measurements if you have reason to.
 
-- **Rigged mesh infantry reaches ~420-460 units of one type** on a real
-  `WebGLRenderer` with hardware acceleration confirmed, across repeated runs.
-  That clears the GDD's 300-unit target with margin, so it is not blocking.
-- **The bottleneck is draw-call SUBMISSION** — 74-84% of `renderer.render()` —
-  **not `AnimationMixer` update and not bone-matrix computation.** This is the
-  load-bearing fact: it means vertex count is comparatively cheap (a rifle went
-  144 -> 612 verts for zero new draw calls) and the remedy for pushing past the
-  ceiling is FEWER SUBMISSIONS, not simpler geometry. Reach for that conclusion
-  before optimising a mesh.
+- **The 300-unit frame is over budget** (R1, `docs/PERFORMANCE.md`, "The
+  300-unit figure, reconciled", 2026-11-19, GH-1411). The shipped roster at 300
+  units (267 living, tick 135), the `high` preset, 1280x720 at DPR 1, ANGLE/Metal
+  on an Apple M3 Pro: render p95 21.8-23.2 ms to SUBMIT a frame and 33.4-35.8 ms
+  GPU-synced, against 16.7 ms. `medium` and `low` are over it synced as well. No
+  "300 units at 60 fps" claim is supported. Quote R1 with its conditions; F6's
+  6.5 ms drew a roster the game no longer draws, and F9's 30.0 ms was re-read
+  as R1.
+- **The figure ceilings are not the game's frame.** "~420-460 of one infantry
+  type" (item 15, conditions not recoverable) and "~1,150-1,180 figures" (the
+  stand-in `measureSkinnedInfantry`, 2026-08-30, M3 Pro hardware GPU) are one
+  skinned type on a bare `WebGLRenderer`: no sun, no shadow map, no composer, no
+  AO. Never cite either as headroom at 300 units.
+- **On that bare-renderer bench, draw-call SUBMISSION was 74-84% of
+  `renderer.render()`** — **not `AnimationMixer` update and not bone-matrix
+  computation.** Vertex count is comparatively cheap (a rifle went 144 -> 612
+  verts for zero new draw calls), so FEWER SUBMISSIONS beats simpler geometry.
+  But at 300 units with the lit chain the frame is not submission alone: submit
+  is about 65% of the synced median at DPR 1 and 56% at DPR 2, and the remainder
+  grows with the pixels (R1). Read both clocks before choosing a remedy.
+- **CI gates submissions, not frame time.** `pnpm perf:census`
+  (`tools/src/perf/draw-census.ts`, CI's `memory` job, SwiftShader) holds
+  (calls at the 300 checkpoint - calls in the empty scene) / living at
+  `CENSUS_BUDGET` 12.348 +-5%, two-sided, with the empty scene at 145 calls or
+  fewer. It sees about 0.6 calls a unit and not less, and it cannot see fill,
+  shader cost, CPU work that submits nothing, or frame time. A real saving is
+  re-pinned in `CENSUS_BUDGET` with its reason.
 - **`SkinnedMesh` does not instance in three.js** — `InstancedMesh` and skinning
   do not compose — so N units is N x (meshes per team) draw calls.
 - The known way past the ceiling is a **vertex animation texture**: bake clips

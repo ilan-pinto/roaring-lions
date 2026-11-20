@@ -31,7 +31,7 @@ import { minWinSeconds, world } from '@lions/data';
 import type { D1Stmt } from '../d1';
 import { budgetedOp } from './budget';
 import { asRoar, readWallet, receiptsOf, walletWrite, type JournalEntry } from './coin';
-import { campaignViewOf, campaignWrite, conflictSlot, digestOf, readCampaign } from './campaign';
+import { campaignViewOf, campaignWrite, conflictSlot, digestOf, keepStoredPicks, readCampaign } from './campaign';
 import { CAMPAIGN_BODY_MAX, START_MAX_AGE_MS } from './config';
 import { accountJson, readAccountBody } from './http';
 import { validOpId } from './op';
@@ -190,8 +190,10 @@ export async function victory(ctx: AccountCtx): Promise<Response> {
     if (sent !== null) {
       const expected = camp?.revision ?? 0;
       if (body.base === expected) {
-        statements.push(...(await campaignWrite(db, memberId, camp === null ? null : camp.revision, sent, ctx.now)));
-        campaignOut = { ...sent, revision: expected + 1, digest: await digestOf(sentText) };
+        // GH-1384 §4.4: the stored picks stand over a body that carries none (an older build's strip).
+        const kept = keepStoredPicks(camp, body.campaign as CampaignBody, sentText);
+        statements.push(...(await campaignWrite(db, memberId, camp === null ? null : camp.revision, kept.body, ctx.now)));
+        campaignOut = { ...kept.body, revision: expected + 1, digest: await digestOf(kept.text) };
       } else {
         const c = await conflictSlot(db, memberId, sent, ctx.now, 'conflict');
         conflict = c.answer;

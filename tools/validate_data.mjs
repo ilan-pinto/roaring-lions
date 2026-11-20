@@ -51,6 +51,8 @@ import { timeLimitFailures } from './validate_time_limit.mjs';
 import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
 import { civFireFailures } from './validate_civ_fire.mjs';
+import { triggerZoneFailures } from './validate_trigger_zone.mjs';
+import { abductFailures } from './validate_abduct.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
@@ -984,23 +986,26 @@ const garrisonableSymbols = new Set(
       // GH-912: a `group_in_zone` condition watches a group, and one no placement declares
       // never exists at runtime, so the trigger could never fire. (Its zone is checked with
       // every other trigger zone, above.)
-      if (t.on?.kind === 'group_in_zone' && !declaredGroups.has(t.on.group)) {
+      // GH-1438 E7: `group_fired` the same: a group nobody declares never fires, so its cue never plays.
+      if ((t.on?.kind === 'group_in_zone' || t.on?.kind === 'group_fired') && !declaredGroups.has(t.on.group)) {
         failures.push(
-          `${rel(file)}: group_in_zone trigger "${name}" watches group "${t.on.group}", which no placement declares`
+          `${rel(file)}: ${t.on.kind} trigger "${name}" watches group "${t.on.group}", which no placement declares`
         );
       }
       // A commit or withdraw_to with no destination is a silent no-op: the
       // runtime only queues the order when `to` is present, so the trigger
       // fires, latches, and moves nobody. Verified in play — the breach's
       // infiltrators sat at their tunnels all mission. Fail here, by name.
-      if ((kind === 'commit' || kind === 'withdraw_to') && !t.do.to) {
+      if ((kind === 'commit' || kind === 'withdraw_to' || kind === 'abduct') && !t.do.to) {
         failures.push(
           `${rel(file)}: ${kind} trigger "${name}" has no "to" — it would fire and move nobody`
         );
       }
       // Same silent-no-op family: these three act on a group, and a group no
       // placement declares filters to an empty id list at runtime.
-      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount') continue;
+      // GH-1438 E8: an abduct's captives, escort side, `to`-in-zone, start gap and reachability are tools/validate_abduct.mjs
+      // (called below, once per mission).
+      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount' && kind !== 'abduct') continue;
       if (!t.do.group) {
         failures.push(`${rel(file)}: a ${kind} trigger needs "group"`);
       } else if (!declaredGroups.has(t.do.group)) {
@@ -1026,6 +1031,15 @@ const garrisonableSymbols = new Set(
     failures.push(...entityBudgetFailures(mi, rel(file)));
     // GH-1438 E6: `fires_on_civilians` on an enemy placement only.
     failures.push(...civFireFailures(mi, rel(file)));
+    // GH-1438 E5: `do.zone` only where the runtime reads it, and only naming a zone the map has.
+    failures.push(...triggerZoneFailures(mi, map, rel(file)));
+    // GH-1438 E8: an abduct's captives are civilians, its escort is an enemy group, its `to` is inside its zone and
+    // reachable, and its captives start inside the release; a route across an evacuation zone is a warning.
+    {
+      const report = abductFailures(mi, map, new Set(structureSymbols.keys()), rel(file));
+      failures.push(...report.failures);
+      warnings.push(...report.warnings);
+    }
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
@@ -1223,7 +1237,7 @@ const garrisonableSymbols = new Set(
       const tr = loadJson(file);
       if (!tr) continue;
       const id = entry.name.slice(0, -'.json'.length);
-      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(id)));
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, { locale: id, ...stagingOf(id) }));
       // The stale-translation guard: data/locales/<id>/chrome.src.json carries the hash of the English each string was translated from.
       const srcFile = join(ROOT, 'data/locales', id, 'chrome.src.json');
       if (!existsSync(srcFile)) failures.push(`${rel(file)}: has no source-hash sidecar ${rel(srcFile)} (run \`pnpm locales:chrome-src -- ${id} --write\`)`);

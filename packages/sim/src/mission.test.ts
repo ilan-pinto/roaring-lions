@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { fx } from './fixed';
+import { fx, type Fx } from './fixed';
 import { FlowField } from './flowfield';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 import { CORRIDOR_RECHECK_TICKS, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
@@ -1348,6 +1351,118 @@ describe('group_in_zone', () => {
       ZONES
     );
     expect(fired(w.step(5 * TICKS_PER_SECOND), 'turn')).toBe(0);
+  });
+});
+
+// GH-1438 E7: `group_fired`, a cue line the first time any member of a group fires a weapon. Two enemy cells, one in
+// reach of the player's squad and one far out of it: the near cell's first `fire` event fires the trigger watching it,
+// once, on that tick, and the far cell's trigger stays quiet through the same firefight.
+describe('group_fired', () => {
+  const fired = (mission: MissionEvent[], id: string): number =>
+    mission.filter((e) => e.kind === 'trigger' && e.id === id).length;
+  function fight(watch: string): World {
+    return makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5], group: 'ours' }],
+        enemy: {
+          garrison: [
+            { unit: 'm_squad', count: 1, at: [7, 5], group: 'near_cell' },
+            { unit: 'm_squad', count: 1, at: [26, 11], group: 'far_cell' },
+          ],
+        },
+        triggers: [{ id: 'cue', label: 'They open fire', on: { kind: 'group_fired', group: watch }, do: { kind: 'dismount', group: watch } }],
+      })
+    );
+  }
+  /** Runs 20 s; returns the step of each trigger event and of each `fire` by each entity (same clock for both). */
+  function run(w: World): { triggerTicks: number[]; fireTicks: Map<number, number[]> } {
+    const triggerTicks: number[] = [];
+    const fireTicks = new Map<number, number[]>();
+    for (let t = 0; t < 20 * TICKS_PER_SECOND; t++) {
+      const out = w.step(1);
+      for (const e of out.sim) {
+        if (e.kind === 'fire') fireTicks.set(e.shooter, [...(fireTicks.get(e.shooter) ?? []), t]);
+      }
+      if (fired(out.mission, 'cue') > 0) triggerTicks.push(t);
+    }
+    return { triggerTicks, fireTicks };
+  }
+
+  it("fires once, on the tick of the group's first shot, though the group goes on shooting", () => {
+    const { triggerTicks, fireTicks } = run(fight('near_cell'));
+    const near = fireTicks.get(1) ?? []; // entity 1: the near cell's squad
+    expect(near.length).toBeGreaterThan(1); // the fight is real: it fired more than once
+    expect(triggerTicks).toEqual([near[0]]);
+  });
+
+  it("another group's shots do not fire it: the far cell never shoots, and its trigger never fires", () => {
+    const { triggerTicks, fireTicks } = run(fight('far_cell'));
+    // The control half: in the same 20 s both near sides shot, and the far cell (entity 2) did not.
+    expect((fireTicks.get(0) ?? []).length).toBeGreaterThan(0);
+    expect((fireTicks.get(1) ?? []).length).toBeGreaterThan(0);
+    expect(fireTicks.get(2)).toBeUndefined();
+    expect(triggerTicks).toEqual([]);
+  });
+
+  it("any side's group: the player's own squad's first shot fires a trigger watching it", () => {
+    const { triggerTicks, fireTicks } = run(fight('ours'));
+    expect(triggerTicks).toEqual([(fireTicks.get(0) ?? [-1])[0]]);
+  });
+
+  it('a group no placement declares never fires', () => {
+    expect(run(fight('nobody')).triggerTicks).toEqual([]);
+  });
+
+  // The fixtures above are symmetric duels: the watched group shoots and is shot on the same ticks, so they cannot
+  // tell "the group fired" from "the group was fired at". These two can: the watched group is SHOT AT for ticks on
+  // end while it cannot shoot back.
+  it('being shot at is not firing: an unarmed group under fire never fires it', () => {
+    const w = makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+        starting_force: [{ unit: 'm_squad', count: 1, at: [2, 5], group: 'ours' }],
+        enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [6, 5], group: 'mute' }] },
+        triggers: [{ id: 'cue', label: 'They open fire', on: { kind: 'group_fired', group: 'mute' }, do: { kind: 'dismount', group: 'mute' } }],
+      })
+    );
+    const { triggerTicks, fireTicks } = run(w);
+    // The control half: the squad (entity 0) shot, and the truck (entity 1, no weapons) never did.
+    expect((fireTicks.get(0) ?? []).length).toBeGreaterThan(1);
+    expect(fireTicks.get(1)).toBeUndefined();
+    expect(triggerTicks).toEqual([]);
+  });
+
+  it('being shot at is not firing: an outranged group under fire waits for its own first shot', () => {
+    // A tank (12-tile gun, 12-tile sight) on a tough rifle team (7-tile rifles) 10 tiles off: the tank fires, the
+    // team cannot answer. At 8 s the team is walked in to rifle range, and only its own first shot fires the trigger.
+    const w = makeWorld(
+      baseMission({
+        objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+        starting_force: [{ unit: 'm_tank', count: 1, at: [2, 5], group: 'ours' }],
+        enemy: { garrison: [{ unit: 'm_holder', count: 1, at: [12, 5], group: 'outranged' }] },
+        triggers: [{ id: 'cue', label: 'They open fire', on: { kind: 'group_fired', group: 'outranged' }, do: { kind: 'dismount', group: 'outranged' } }],
+      })
+    );
+    const team = 1;
+    const shotAt: number[] = [];
+    const teamFires: number[] = [];
+    const triggerTicks: number[] = [];
+    for (let t = 0; t < 30 * TICKS_PER_SECOND; t++) {
+      if (t === 8 * TICKS_PER_SECOND) w.sim.queueCommand({ kind: 'move', ids: [team], x: fx.from(6), y: fx.from(5) });
+      const out = w.step(1);
+      for (const e of out.sim) {
+        if (e.kind !== 'fire') continue;
+        if (e.target === team) shotAt.push(t);
+        if (e.shooter === team) teamFires.push(t);
+      }
+      if (fired(out.mission, 'cue') > 0) triggerTicks.push(t);
+    }
+    expect(w.sim.state.alive[team]).toBe(1);
+    expect(teamFires.length).toBeGreaterThan(0); // it did close and answer
+    // It was under fire before it could answer: shots at it land on ticks before its first shot.
+    expect(shotAt.filter((t) => t < teamFires[0]).length).toBeGreaterThan(0);
+    expect(triggerTicks).toEqual([teamFires[0]]);
   });
 });
 
@@ -5956,6 +6071,84 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
     expect(w.sim.state.removed[1]).toBe(0);
   });
 
+  // GH-1438 E5: `zone` on `commit` and `withdraw_to`. One member stands inside the pen, one outside; the order goes to
+  // the one inside only. The zone is read when the trigger FIRES, by the tile rule `remove` uses.
+  describe('E5: a zone on commit and withdraw_to orders only the members inside it', () => {
+    function zonedWorld(kind: 'commit' | 'withdraw_to', zone: string | undefined) {
+      return makeWorld(
+        baseMission({
+          objectives: [{ id: 'noop', type: 'survive_until', primary: true, seconds: 60 }],
+          enemy: {
+            garrison: [
+              { unit: 'm_tech', count: 1, at: [4, 2], group: 'taken' }, // inside the pen [0,0,10,10]
+              { unit: 'm_tech', count: 1, at: [20, 2], group: 'taken' }, // outside it
+            ],
+          },
+          triggers: [
+            { id: 'walk_them', label: 'They are walked out', on: { kind: 'timer_s', value: 1 }, do: { kind, group: 'taken', to: 'exit', ...(zone === undefined ? {} : { zone }) } },
+          ],
+        }),
+        { zones: { pen: [0, 0, 10, 10] }, markers: { exit: [14, 10] } }
+      );
+    }
+    /** The ids of every order the trigger queued, per command kind. */
+    function ordered(w: World): { kind: string; ids: number[] }[] {
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      w.step(25); // past the 1 s trigger
+      const out = spy.mock.calls.map(([c]) => ({ kind: c.kind, ids: 'ids' in c ? [...c.ids] : [] }));
+      spy.mockRestore();
+      return out;
+    }
+
+    it('withdraw_to with a zone moves the member inside and leaves the one outside', () => {
+      expect(ordered(zonedWorld('withdraw_to', 'pen'))).toEqual([{ kind: 'move', ids: [0] }]);
+    });
+
+    it('commit with a zone attack-moves only the member inside', () => {
+      expect(ordered(zonedWorld('commit', 'pen'))).toEqual([{ kind: 'attackMove', ids: [0] }]);
+    });
+
+    it('with no zone, both are ordered, as before E5', () => {
+      expect(ordered(zonedWorld('withdraw_to', undefined))).toEqual([{ kind: 'move', ids: [0, 1] }]);
+      expect(ordered(zonedWorld('commit', undefined))).toEqual([{ kind: 'attackMove', ids: [0, 1] }]);
+    });
+
+    it('the one outside the pen stays where it stood; the one inside walks to the marker', () => {
+      const w = zonedWorld('withdraw_to', 'pen');
+      const x1 = w.sim.state.posX[1];
+      const y1 = w.sim.state.posY[1];
+      w.step(30 * TICKS_PER_SECOND);
+      expect(Math.abs(fx.toNumber(w.sim.state.posX[0]) - 14.5)).toBeLessThan(2.0);
+      expect(Math.abs(fx.toNumber(w.sim.state.posY[0]) - 10.5)).toBeLessThan(2.0);
+      expect([w.sim.state.posX[1], w.sim.state.posY[1]]).toEqual([x1, y1]);
+    });
+
+    it('nobody left in the zone: the trigger fires and orders nobody', () => {
+      const w = zonedWorld('withdraw_to', 'pen');
+      w.sim.debugKill(0);
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      const { mission } = w.step(25);
+      expect(mission.some((e) => e.kind === 'trigger' && e.id === 'walk_them')).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('a do.zone the map lacks throws at start, on every kind that reads it', () => {
+      for (const kind of ['commit', 'withdraw_to'] as const) {
+        expect(() => zonedWorld(kind, 'no_such_pen')).toThrow(/do\.zone names unknown zone "no_such_pen"/);
+      }
+      expect(() =>
+        makeWorld(
+          baseMission({
+            enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [4, 2], group: 'squad' }] },
+            triggers: [{ id: 'take', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'squad', zone: 'cgae' } }],
+          }),
+          { zones: { cage: [0, 0, 10, 10] } }
+        )
+      ).toThrow(/trigger "take" do\.zone names unknown zone "cgae"/);
+    });
+  });
+
   it('a removed player unit is absent from roster.surviving_units', () => {
     const w = makeWorld(
       baseMission({
@@ -7923,6 +8116,457 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     // Tile (3,4)'s centre: 3.5 x 65536 = 229376, 4.5 x 65536 = 294912.
     expect([e.evacCount, e.evacX[0], e.evacY[0], e.evacSide[0]]).toEqual([1, 229376, 294912, 0]);
     expect((cgWorld({ enabled: true }).sim as unknown as Evac).evacCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E8: `do.kind: abduct` (D18, Option A: an enemy group may lead civilians away on foot to the edge of the map,
+// where they leave play as taken). An escort of one cell at (5,5) takes two villagers standing beside it, walking them
+// east to an exit zone at x >= 26; a KDF squad waits at (2,1), out of the shepherd rule's four tiles.
+describe('E8: abduct', () => {
+  const AB_ESCORT: UnitTypeJson = {
+    id: 'ab_escort',
+    role: 'infantry',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 0.9 },
+    sensors: { optics: 1, sight_tiles: 6, signature: 0.6 },
+    weapons: [],
+  };
+  const AB_KDF: UnitTypeJson = { ...AB_ESCORT, id: 'ab_kdf', mobility: { speed_tiles_s: 1.6 } };
+  const AB_CIV: UnitTypeJson = {
+    id: 'ab_civ',
+    role: 'civilian',
+    hull: { hp: 200, armor: { front: 0, side: 0, rear: 0 } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7 },
+  };
+  /** Ids: 0 the KDF squad (group `kdf`), 1 the escort, 2-3 the villagers (group `taken`), 4 a far villager when `far`
+   *  (group `taken`). `reinforce` drops a second KDF squad INTO the escort group at that tile when the abduct fires (the
+   *  next id); `shepherd: false` drops the evacuation, so no KDF soldier frees anyone by coming close. */
+  function abWorld(
+    opts: {
+      far?: boolean;
+      captives?: string;
+      zone?: string | null;
+      at?: number;
+      to?: string;
+      group?: string;
+      reinforce?: [number, number];
+      shepherd?: boolean;
+    } = {},
+  ): World {
+    const sim = new Sim({ seed: 0x1438e8, width: 32, height: 12, capacity: 16 });
+    const ids = new Map<string, number>();
+    for (const t of [AB_ESCORT, AB_KDF, AB_CIV]) ids.set(t.id, sim.addUnitType(t));
+    const groups: PlacementJson[] = [{ unit: 'ab_civ', count: 2, at: [6, 5], group: 'taken' }];
+    if (opts.far === true) groups.push({ unit: 'ab_civ', count: 1, at: [5, 10], group: 'taken' }); // 5 tiles below the escort
+    const zone = opts.zone === undefined ? 'exit_zone' : opts.zone;
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 300 },
+          // An evacuation, so the shepherd rule is on (`missionShepherds`): a KDF ground soldier within four tiles frees them.
+          ...(opts.shepherd === false
+            ? []
+            : [{ id: 'home', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 300 }]),
+        ],
+        starting_force: [{ unit: 'ab_kdf', count: 1, at: [2, 1], group: 'kdf' }],
+        enemy: { garrison: [{ unit: 'ab_escort', count: 1, at: [5, 5], group: 'takers' }] },
+        civilians: { refuge: 'refuge', groups },
+        triggers: [
+          {
+            id: 'led_away',
+            label: 'They are led away',
+            on: { kind: 'timer_s', value: opts.at ?? 1 },
+            do: {
+              kind: 'abduct',
+              group: opts.group ?? 'takers',
+              captives: opts.captives ?? 'taken',
+              to: opts.to ?? 'exit',
+              ...(zone === null ? {} : { zone }),
+            },
+          },
+          ...(opts.reinforce === undefined
+            ? []
+            : [
+                {
+                  id: 'into_the_escort',
+                  label: 'A squad joins them',
+                  on: { kind: 'timer_s' as const, value: opts.at ?? 1 },
+                  do: { kind: 'reinforce', units: [{ unit: 'ab_kdf', count: 1, at: opts.reinforce, group: 'takers' }] },
+                },
+              ]),
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        // `pen` [4, 3, 4, 4] is x 4..7, y 3..6: the `pen_*` markers sit on its first and last tiles and a tile beyond.
+        markers: {
+          exit: [29, 5],
+          refuge: [1, 10],
+          pen_post: [5, 4],
+          pen_first: [4, 3],
+          pen_last: [7, 6],
+          pen_past_x: [8, 6],
+          pen_past_y: [7, 7],
+          pen_before_x: [3, 3],
+          pen_before_y: [4, 2],
+        },
+        zones: { exit_zone: [26, 2, 6, 7], refuge_zone: [0, 8, 4, 4], pen: [4, 3, 4, 4] },
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  const taken = (out: MissionEvent[]): number[] => out.flatMap((e) => (e.kind === 'removed' && e.side === 2 ? [e.entity] : []));
+  const ESCORT = 1;
+  const VILLAGERS = [2, 3];
+
+  it('the captives follow the escort east and are taken in the exit zone: removed, with a removed event each', () => {
+    const w = abWorld();
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS);
+    expect(VILLAGERS.map((id) => w.sim.state.removed[id])).toEqual([1, 1]);
+    expect(w.sim.state.alive[ESCORT]).toBe(1);
+    // ...and nobody counted them as saved.
+    expect(out.mission.some((e) => e.kind === 'evacuated')).toBe(false);
+  });
+
+  it('before the trigger nobody is led anywhere: the villagers stand where they were placed', () => {
+    const w = abWorld({ at: 30 });
+    const x = VILLAGERS.map((id) => w.sim.state.posX[id]);
+    w.step(25 * TICKS_PER_SECOND);
+    expect(VILLAGERS.map((id) => w.sim.state.posX[id])).toEqual(x);
+  });
+
+  it('freed by a KDF soldier coming within four tiles, they are never taken: they run home instead', () => {
+    const w = abWorld();
+    w.step(3 * TICKS_PER_SECOND);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: w.sim.state.posX[2], y: w.sim.state.posY[2] });
+    const out = w.step(80 * TICKS_PER_SECOND);
+    expect(taken(out.mission)).toEqual([]);
+    expect(out.mission.filter((e) => e.kind === 'evacuated').length).toBeGreaterThan(0);
+  });
+
+  it('the escort killed: nobody is held -- no further order to a captive, and nobody taken', () => {
+    const w = abWorld();
+    w.step(4 * TICKS_PER_SECOND);
+    w.sim.debugKill(ESCORT);
+    w.step(1); // the kill lands
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(spy.mock.calls.filter(([c]) => 'ids' in c && c.ids.some((id) => VILLAGERS.includes(id)))).toEqual([]);
+    spy.mockRestore();
+    expect(taken(out.mission)).toEqual([]);
+  });
+
+  it('taken only while an escort lives: villagers standing in the exit zone with the escort dead are not taken', () => {
+    const w = abWorld({ zone: 'pen', to: 'pen_post' }); // the pen is drawn round where they already stand
+    w.sim.debugKill(ESCORT);
+    const out = w.step(5 * TICKS_PER_SECOND);
+    expect(taken(out.mission)).toEqual([]);
+    const alive = abWorld({ zone: 'pen', to: 'pen_post' });
+    expect(taken(alive.step(5 * TICKS_PER_SECOND).mission).sort()).toEqual(VILLAGERS); // the control: alive, they are
+  });
+
+  it('a captive more than six tiles from the leader is not held: the far villager stays, the near two are taken', () => {
+    const w = abWorld({ far: true });
+    const fx0 = [w.sim.state.posX[4], w.sim.state.posY[4]];
+    // Moved six and a half tiles off before the trigger, below the escort (the placement is 5 below; this is the walk).
+    w.sim.teleport(4, fx.from(5.5), fx.from(11.9));
+    const at = [w.sim.state.posX[4], w.sim.state.posY[4]];
+    expect(at).not.toEqual(fx0);
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS);
+    expect([w.sim.state.alive[4], w.sim.state.removed[4]]).toEqual([1, 0]);
+    expect([w.sim.state.posX[4], w.sim.state.posY[4]]).toEqual(at);
+  });
+
+  it('refuses at load: captives that are not civilians, and an abduct with no zone', () => {
+    expect(() => abWorld({ captives: 'takers' })).toThrow(/captives "takers" is not a civilian group/);
+    expect(() => abWorld({ captives: 'nobody' })).toThrow(/is not a civilian group/);
+    expect(() => abWorld({ zone: null })).toThrow(/abduct "led_away" needs group, to and zone/);
+  });
+
+  it('refuses at load: an escort group that is the player`s, or the civilians`; the control loads', () => {
+    expect(() => abWorld({ group: 'kdf' })).toThrow(/abduct "led_away" escort group "kdf" is not an enemy group/);
+    expect(() => abWorld({ group: 'taken' })).toThrow(/escort group "taken" is not an enemy group/);
+    expect(() => abWorld()).not.toThrow();
+  });
+
+  it('refuses at load: a `to` marker outside the exit zone (the refuge rule`s twin); inside it loads', () => {
+    expect(() => abWorld({ zone: 'pen' })).toThrow(/abduct "led_away" marker "exit" is outside zone "pen"/);
+    expect(() => abWorld({ zone: 'pen', to: 'pen_post' })).not.toThrow();
+  });
+
+  it('refuses at load: the zone`s first and last tiles load, a tile beyond either edge does not', () => {
+    expect(() => abWorld({ zone: 'pen', to: 'pen_first' })).not.toThrow();
+    expect(() => abWorld({ zone: 'pen', to: 'pen_last' })).not.toThrow();
+    for (const to of ['pen_past_x', 'pen_past_y', 'pen_before_x', 'pen_before_y']) {
+      expect(() => abWorld({ zone: 'pen', to })).toThrow(new RegExp(`marker "${to}" is outside zone "pen"`));
+    }
+  });
+
+  it('only a SIDE-1 member leads: a KDF squad a reinforce drops into the escort group never holds a captive', () => {
+    // The escort dies at once; a KDF squad lands in its group (id 4) five tiles from the villagers, outside the four a
+    // shepherd needs and with no evacuation, so nobody flees. Were a side-0 member allowed to lead, he would: every
+    // villager within six tiles of him would be ordered to him.
+    const ordersToVillagers = (w: World): number => {
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      w.step(10 * TICKS_PER_SECOND);
+      const n = spy.mock.calls.filter(([c]) => 'ids' in c && c.ids.some((id) => VILLAGERS.includes(id))).length;
+      spy.mockRestore();
+      return n;
+    };
+    const w = abWorld({ reinforce: [6, 10], shepherd: false });
+    w.sim.debugKill(ESCORT);
+    w.step(2 * TICKS_PER_SECOND); // the kill lands, the trigger fires, the squad arrives
+    expect([w.sim.state.alive[4], w.sim.state.side[4], w.sim.state.alive[ESCORT]]).toEqual([1, 0, 0]);
+    expect(ordersToVillagers(w)).toBe(0);
+    // The control: the same world with its escort alive does order them.
+    const c = abWorld({ reinforce: [6, 10], shepherd: false });
+    c.step(2 * TICKS_PER_SECOND);
+    expect(ordersToVillagers(c)).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E8, AT THE SHIPPED SPEEDS. The escort walks faster than its captives (`militia_cell` over `civilians`, read off
+// data/units), so without pacing the gap opened with every tile of route and a captive was let go once it passed six
+// (PR 1655 capped the route in validate:data at 29.67 tiles for this world). The escort now paces to him
+// (`stepAbductPace`), so the route length no longer decides it; packages/sim/src/abduct-pace.test.ts holds the pacing
+// itself. A 64-wide strip, the escort at (5,5), one villager a tile BEHIND it at (4,5), `to` the route length east and a
+// 3-wide exit zone round it.
+describe('E8: abduct at the shipped speeds', () => {
+  const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'units');
+  const read = (rel: string): UnitTypeJson => JSON.parse(readFileSync(join(DATA, rel), 'utf8')) as UnitTypeJson;
+  const MILITIA = read('enemy/militia_cell.json');
+  const CIVILIANS = read('civilians.json');
+  const V_ESCORT = MILITIA.mobility.speed_tiles_s;
+  const V_CAPTIVE = CIVILIANS.mobility.speed_tiles_s;
+
+  function shipped(route: number): { taken: number[] } {
+    const sim = new Sim({ seed: 0x1438e8, width: 64, height: 12, capacity: 8 });
+    const ids = new Map<string, number>();
+    for (const t of [MILITIA, CIVILIANS]) ids.set(t.id, sim.addUnitType(t));
+    const tx = 5 + route;
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 900 }],
+        enemy: { garrison: [{ unit: 'militia_cell', count: 1, at: [5, 5], group: 'takers' }] },
+        civilians: { refuge: 'refuge', groups: [{ unit: 'civilians', count: 1, at: [4, 5], group: 'taken' }] },
+        triggers: [
+          {
+            id: 'led_away',
+            label: 'They are led away',
+            on: { kind: 'timer_s', value: 1 },
+            do: { kind: 'abduct', group: 'takers', captives: 'taken', to: 'exit', zone: 'exit_zone' },
+          },
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers: { exit: [tx, 5], refuge: [1, 10] },
+        zones: { exit_zone: [tx - 1, 2, 3, 7] },
+      }
+    );
+    runtime.start();
+    const out: number[] = [];
+    for (let i = 0; i < 120 * TICKS_PER_SECOND; i++) {
+      for (const e of runtime.step(sim.tick())) if (e.kind === 'removed' && e.side === 2) out.push(e.entity);
+    }
+    return { taken: out };
+  }
+
+  it('reads a faster escort than captive off the shipped data (the case pacing exists for)', () => {
+    expect(V_ESCORT).toBeGreaterThan(V_CAPTIVE);
+  });
+
+  it('a 29-tile route (inside the retired bound): the villager keeps up and is taken', () => {
+    expect(shipped(29).taken).toEqual([1]);
+  });
+
+  it('a 44-tile route, on which he was let go before pacing (1655 measured let go from 36): he is taken', () => {
+    expect(shipped(44).taken).toEqual([1]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-1438 E12: `counts_rescued` on an evacuate_before. A civilian the player's side rescues (admitted to an aid post or
+// evacuated by a carrier as a wounded man) counts out like one who walked in, for an ACTIVE evacuation that opts in and
+// covers him. One real rescue end to end (a downed villager, an ambulance standing on its own evac point), then the rules
+// one at a time on handed-in events (the shape of the Conduct tests above).
+describe('E12: counts_rescued, a rescued civilian counts as saved', () => {
+  const RC_WOUNDED: UnitTypeJson = {
+    id: 'rc_wounded',
+    role: 'wounded',
+    hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true },
+    mobility: { speed_tiles_s: 0.12 },
+    sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 },
+  };
+  /** One man who goes down in place; bleeds 60 s. */
+  const RC_CIV: UnitTypeJson = {
+    id: 'rc_civ',
+    role: 'civilian',
+    hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, wounds: { wound_chance: 1, bleed_s: 60, type: 'rc_wounded', in_place: true } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7 },
+  };
+  const RC_AMB: UnitTypeJson = {
+    id: 'rc_ambulance',
+    role: 'apc',
+    hull: { hp: 900, armor: { front: 40, side: 30, rear: 20 }, transport_slots: 4, can_carry: ['wounded'] },
+    mobility: { speed_tiles_s: 2 },
+    sensors: { optics: 1, sight_tiles: 1 },
+  };
+  const RC_ENEMY: UnitTypeJson = { ...RC_AMB, id: 'rc_enemy', role: 'infantry', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } } };
+
+  /** Ids by placement order: 0 the ambulance, 1 an enemy far off, 2 the villager (group `village`), 3 a road civilian
+   *  (group `road`), both more than four tiles from the ambulance so nobody is shepherded. */
+  function rcWorld(objective: Partial<ObjectiveJson>): World {
+    const sim = new Sim({ seed: 0x1438, width: 28, height: 12, capacity: 16 });
+    const ids = new Map<string, number>();
+    for (const t of [RC_WOUNDED, RC_CIV, RC_AMB, RC_ENEMY]) ids.set(t.id, sim.addUnitType(t));
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        starting_force: [{ unit: 'rc_ambulance', count: 1, at: [3, 2] }],
+        enemy: { garrison: [{ unit: 'rc_enemy', count: 1, at: [26, 1] }] },
+        civilians: {
+          refuge: 'refuge',
+          groups: [
+            { unit: 'rc_civ', count: 1, at: [3, 8], group: 'village' },
+            { unit: 'rc_civ', count: 1, at: [12, 10], group: 'road' },
+          ],
+        },
+        // `hold` keeps the mission running past `save` failing, so a late rescue is judged by the rule and not by `ended`.
+        objectives: [
+          { id: 'hold', type: 'survive_until', primary: true, seconds: 600 },
+          { id: 'save', type: 'evacuate_before', primary: false, target: 'yard', count: 1, seconds: 300, ...objective },
+        ],
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers: { refuge: [24, 5] },
+        zones: { yard: [21, 3, 6, 6] },
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  const VILLAGER = 2;
+  const ROAD = 3;
+  const status = (w: World): string | undefined => w.runtime.objectiveList.find((o) => o.id === 'save')?.status;
+  const evacs = (out: MissionEvent[]): number[] => out.flatMap((e) => (e.kind === 'evacuated' ? [e.entity] : []));
+  const admitted = (entity: number, side = 0): SimEvent => ({ kind: 'woundAdmitted', tick: 1, entity, structure: 0, side });
+  const evacuated = (entity: number, side = 0): SimEvent => ({ kind: 'woundEvacuated', tick: 1, entity, carrier: -1, side });
+  const run = (w: World, evs: SimEvent[]): MissionEvent[] => evs.flatMap((e) => w.runtime.step([e]));
+
+  /** The real rescue: the villager is shot down in place, put aboard the ambulance, and the ambulance stands on side 0's
+   *  evac point, so the sim evacuates him (`woundEvacuated`, side 0) on the next tick. */
+  function realRescue(w: World): { sim: SimEvent[]; mission: MissionEvent[] } {
+    (w.sim as unknown as { applyDamage(t: number, d: Fx, by: number): void }).applyDamage(VILLAGER, fx.fromInt(30), 1);
+    expect(w.sim.state.woundState[VILLAGER]).toBe(1); // DOWN, in place
+    expect(w.sim.embarkAtSpawn(0, VILLAGER)).toBe(true);
+    w.sim.addEvacPoint(0, w.sim.state.posX[0], w.sim.state.posY[0]);
+    return w.step(2);
+  }
+
+  it('the placement order the tests assume', () => {
+    const w = rcWorld({});
+    expect([0, 1, VILLAGER, ROAD].map((id) => w.sim.state.side[id])).toEqual([0, 1, 2, 2]);
+  });
+
+  it('end to end: a villager the ambulance evacuates completes a counts_rescued evacuation, with one evacuated event', () => {
+    const w = rcWorld({ group: 'village', counts_rescued: true });
+    const out = realRescue(w);
+    expect(out.sim.filter((e) => e.kind === 'woundEvacuated').map((e) => (e.kind === 'woundEvacuated' ? [e.entity, e.side] : []))).toEqual([[VILLAGER, 0]]);
+    expect(evacs(out.mission)).toEqual([VILLAGER]);
+    expect(status(w)).toBe('complete');
+  });
+
+  it('the same rescue without counts_rescued counts nothing (as before E12)', () => {
+    const w = rcWorld({ group: 'village' });
+    const out = realRescue(w);
+    expect(out.sim.some((e) => e.kind === 'woundEvacuated')).toBe(true);
+    expect(evacs(out.mission)).toEqual([]);
+    expect(status(w)).toBe('active');
+  });
+
+  it('a civilian of another group does not count toward a scoped evacuation; the unscoped one counts him', () => {
+    const scoped = rcWorld({ group: 'village', counts_rescued: true });
+    expect([evacs(run(scoped, [admitted(ROAD)])), status(scoped)]).toEqual([[], 'active']);
+    const all = rcWorld({ counts_rescued: true });
+    expect([evacs(run(all, [admitted(ROAD)])), status(all)]).toEqual([[ROAD], 'complete']);
+  });
+
+  it("only the player's rescue counts: the same villager rescued by side 1 counts nothing", () => {
+    const w = rcWorld({ group: 'village', counts_rescued: true });
+    expect([evacs(run(w, [admitted(VILLAGER, 1), evacuated(VILLAGER, 1)])), status(w)]).toEqual([[], 'active']);
+  });
+
+  it('only a civilian counts: an enemy wounded the player rescues does not', () => {
+    const w = rcWorld({ counts_rescued: true });
+    expect([evacs(run(w, [admitted(1)])), status(w)]).toEqual([[], 'active']);
+  });
+
+  it('one man counts once: admitted, then discharged as evacuated, is one evacuated event and a count of 1', () => {
+    const w = rcWorld({ counts_rescued: true, count: 2 });
+    expect([evacs(run(w, [admitted(VILLAGER), evacuated(VILLAGER)])), status(w)]).toEqual([[VILLAGER], 'active']);
+    expect([evacs(run(w, [admitted(ROAD)])), status(w)]).toEqual([[ROAD], 'complete']);
+  });
+
+  it('a rescue after the evacuation has failed is not a late save', () => {
+    const w = rcWorld({ counts_rescued: true, seconds: 1 });
+    w.step(25);
+    expect(status(w)).toBe('failed');
+    // Still running: `hold` keeps the mission open past `save` failing, so the rule decides and not the end (an ended
+    // mission's step returns [] and would pass the evacs check below whatever the rule said).
+    expect(w.runtime.result).toBe('ongoing');
+    const out = run(w, [admitted(VILLAGER)]);
+    expect(evacs(out)).toEqual([]);
+  });
+
+  it('counts_rescued on any other objective type throws at load', () => {
+    expect(() => rcWorld({ type: 'capture', counts_rescued: true })).toThrow(/takes no counts_rescued/);
   });
 });
 

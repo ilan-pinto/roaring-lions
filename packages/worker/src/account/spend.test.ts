@@ -99,6 +99,25 @@ describe('POST spend', () => {
     expect((await one<{ n: number }>(s, 'SELECT COUNT(*) AS n FROM account_op')).n).toBe(0);
   });
 
+  // GH-1385 F3: the refusal reason of a TIER ask was never read. `coins` (the item is on sale, the wallet is short)
+  // against `closed` (anything else) is decided by the lookup of the asked tier among the store's tier items.
+  it('a short tier ask is refused `coins`; a tier that is not the next, or not an item at all, is `closed`', async () => {
+    const s = setup();
+    // 70 coins: the unit (60) is bought first, since a tier of a unit the member does not hold is not for sale at all.
+    const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 70 });
+    expect((await buy(s, cookie, 9, 'dozer_d9')).status).toBe(200);
+    const tier = (n: number, ask: object) => post(s, cookie, 'spend', { op_id: op(n), item: 'tier', ...ask });
+    const reason = async (r: Response) => [r.status, ((await r.json()) as { reason: string }).reason];
+    // dozer_d9 armour tier 1 costs 25 coins (A2-7 above); the member holds 10 now.
+    expect(await reason(await tier(1, { unitId: 'dozer_d9', track: 'armour', tier: 1 }))).toEqual([409, 'coins']);
+    // Tier 2 is not the next rung, the track is not one the unit has, the unit does not exist: each is `closed`, not `coins`.
+    expect(await reason(await tier(2, { unitId: 'dozer_d9', track: 'armour', tier: 2 }))).toEqual([409, 'closed']);
+    expect(await reason(await tier(3, { unitId: 'dozer_d9', track: 'no_such_track', tier: 1 }))).toEqual([409, 'closed']);
+    expect(await reason(await tier(4, { unitId: 'no_such_unit', track: 'armour', tier: 1 }))).toEqual([409, 'closed']);
+    expect(await freeOf(s)).toBe(10);
+    expect(await sumOf(s)).toBe(10);
+  });
+
   it('a spend for a unit already bought is closed, and a malformed ask is a 400', async () => {
     const s = setup();
     const { cookie } = await seedWalletMember(s.h.db, 'm1', T0, { free: 1000 });

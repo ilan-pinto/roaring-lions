@@ -106,6 +106,29 @@ place of a Latin "C") is not folded, and there is no script check. The lead's re
 | "The relay split moves match rooms onto a second worker; agents ran a staging migration." | hosting work, worker, agents, migration | (nothing: leave it out) |
 | "Beit Sahwan IV: civilians moved clear of the force, grown to fifteen, with musters." | a design note, with "musters" as jargon | "Beit Sahwan IV: fifteen civilians now gather away from your troops at the start." |
 
+## The version it cuts
+
+The `version` job decides the release from two signals and takes the stronger (lead, 19 Nov 2026; the rule is
+`tools/next_version.mjs`, read by `tools/decide_version.mjs`):
+
+| Signal | Minor | Patch | Nothing |
+|---|---|---|---|
+| **The notes**: `next.json` at the commit being released | any `units` or `rules` entry | only `fixes` entries | all three empty, no file, or not JSON |
+| **The commits** since the last `v*` tag (`BUMP_BY_TYPE`) | any `feat:` | any other player-facing type (`app:`, `data:`, `fix:`, `sim:` ...) | only `docs:`, `ci:`, `tools:`, `chore:` ... |
+
+- **Why the notes.** Our squash titles are `app:`, `data:`, `ci:` and the like, almost never `feat:`, so the commit
+  rule alone gave a patch to 87 commits whose notes carried 16 rules and 2 fixes: main's merge 599d38012 was cut as
+  v0.134.1, not v0.135.0. The notes are the lead's own account of what a player gets, so a `units` or `rules` entry is a
+  minor. That is one more reason to sort each entry into the right section: a fix drafted under `rules` cuts a minor.
+- **When the notes say nothing** the commit rule decides exactly as before: a docs-only push still cuts nothing, a
+  hotfix straight to `main` a patch. Since the stronger wins, a `feat:` commit still cuts a minor whatever the notes say.
+- **Nothing cuts a major.** A breaking marker (`feat!:`) is read as its type, as before.
+- **Read at HEAD, before the rename.** `decide` runs before "Write, commit and tag" moves `next.json` to
+  `v<X.Y.Z>.json`, and reads it from the pushed promotion merge with `git show HEAD:data/release-notes/next.json`, never
+  from the working tree. The run log's `boundary:` line counts the notes' sections and names their bump.
+- **Pinned** in `tools/src/next_version.test.ts` (the rule) and `tools/src/decide_version.test.ts` (scratch promotions,
+  the 599d38012 notes among them as `tools/src/fixtures/release-notes-599d38012.json`, and the step order in `ci.yml`).
+
 ## The cut tag
 
 Every promotion also tags the `dev` commit it promoted (lead, 19 Nov 2026), so "what went out in vX" is one ref:
@@ -141,3 +164,5 @@ merge 599d38012 (PR 1634). The automation starts with the next release.
 - The release step: the `version` job in `.github/workflows/ci.yml`, with `tools/ci/release-notes-md.mjs` (tested in
   `tools/src/ci/release-notes-md.test.ts`).
 - The cut tag: `tools/ci/cut-tag.mjs`, the `version` job's last step, tested in `tools/src/ci/cut-tag.test.ts`.
+- The version a release cuts: `tools/next_version.mjs` (`notesBump`, `BUMP_BY_TYPE`) and `tools/decide_version.mjs`,
+  tested in `tools/src/next_version.test.ts` and `tools/src/decide_version.test.ts`.
