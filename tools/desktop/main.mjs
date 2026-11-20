@@ -1,8 +1,8 @@
 // GH-1418: the Electron main process of the UNSIGNED local desktop build (`pnpm desktop:package`).
 //
 // `tools/desktop/build-local.mjs` copies this file, unchanged, into the bundle's `app.asar` with `policy.mjs`,
-// `resolve.mjs` and a `desktop-build.json` manifest; the web build (`packages/app/dist`, unchanged) ships beside it as
-// loose files in `resources/web/`. It is not imported by anything in `packages/`, and it changes no app code.
+// `resolve.mjs` and a `desktop-build.json` manifest; the web build (`packages/app/dist`, built with the demo's content
+// cut baked in, GH-1418) ships beside it as loose files in `resources/web/`. It is not imported by anything in `packages/`, and it changes no app code.
 //
 // Why a custom scheme and not `file://`: the Vite build uses `base: '/'`, so every chunk, GLB, texture, audio file and
 // the Draco decoder is fetched by an ABSOLUTE path (`/assets/...`, `/draco/...`, `/meshes/...`). Under `file://` those

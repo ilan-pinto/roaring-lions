@@ -327,9 +327,13 @@ Every rule is data or a pure function in `tools/desktop/policy.mjs`; `main.mjs` 
 (`telemetry/enabled.ts`'s `LOCAL`, shared by `account/enabled.ts` and mirrored by `feedback/gate.ts`) reads `*.local`
 as this machine, so the packaged build sends no telemetry, never reaches `/api/account/*` and never posts feedback.
 `desktop_policy.test.ts` runs the three gates on the desktop host (off) and on the deployed host (on), so a gate that
-read "off" for every input would fail it. Three player-facing helpers share that gate and are also off in the desktop
-build: the software-renderer notice (`ui/no-gpu.ts`), the slow-frames Low suggestion (`ui/quality-hint.ts`), and What's
-new opening on its own (`ui/whats-new.ts`; the menu button still works). See 9.5.
+read "off" for every input would fail it. Since the lead's ruling of 20 Nov 2026 the three player-facing helpers ask
+the OTHER half of "a real host", `packages/app/src/shell/player-host.ts`'s `playerHost` (the deployed host, or the page
+at `app:` + `roaring-lions.local` in a production build), so a desktop player gets the software-renderer notice
+(`ui/no-gpu.ts`, and its one-line twin `ui/software-hint.ts`), the slow-frames Low suggestion (`ui/quality-hint.ts`)
+and What's new opening on its own (`ui/whats-new.ts`). Telemetry, accounts and feedback keep the networked rule and
+stay off. `shell/player-host.test.ts` runs all six gates on the web host, the desktop page, dev/CI and a production
+build on localhost.
 
 ### 9.3 What was run (19 Nov 2026)
 
@@ -366,13 +370,31 @@ is off whatever the app says; the same collision is the one reported for the Ste
 - The shipped-bundle check with the shipped bundle packaged `smoke: true`: FAIL (`ready.smoke` true), exit 1.
 - `_headers` moved out of `packages/app/dist`: the package step refused ("no Content-Security-Policy"), exit 1.
 
-### 9.4 The demo content cut: HOLD FOR LEAD
+### 9.4 The demo content cut (the lead's ruling of 20 Nov 2026)
 
-The slice is undecided: GH-1379 proposes the tutorial plus Beit Sahwan I to IV, and choosing it is a lead action. Its
-one config point is `tools/desktop/demo.json`, `"missions": null`, which means the whole build ships. `readDemoConfig`
-REFUSES any other value until the cut is built, so the file can never claim a cut the bundle does not make. Building
-the cut needs app work this change does not do (the menu and router offer every screen; a filtered asset set), and so
-does the commercial strip (9.3's 26 files, GH-1415).
+The demo plays the tutorial plus Beit Sahwan I to IV: `beit_sahwan_0_tutorial`, `beit_sahwan_1_recon`,
+`beit_sahwan_2_foothold`, `beit_sahwan_3_clearance`, `beit_sahwan_4_subterranean` (GH-1379's slice). First Light
+(`beit_sahwan_breach`), which opens the town in the full campaign, is not one of I to IV, so in the demo the town opens
+on I. The one config point is `tools/desktop/demo.json`; `readDemoConfig` checks every id against data/missions, no
+duplicates, non-empty (`null` still means the whole build).
+
+How it reaches the app: `build-local.mjs` passes the list to `pnpm build` as `RL_DEMO_MISSIONS`;
+`packages/app/vite-plugin-demo-cut.ts` bakes it in as the build-time constant `__DEMO_MISSIONS__` (`null` in every
+other build, the deployed web game included) and writes `demo-cut.json` beside `index.html`; `checkBundleCut` refuses a
+bundle whose file does not match `demo.json` (a `--skip-build` over a full build is caught). The app reads the constant
+through ONE module, `packages/app/src/shell/demo-cut.ts`:
+
+- the campaign world is cut to those missions (one town pin, Beit Sahwan I to IV; the other regions read "no
+  operations yet") and marked `cut`, so it is never a won war (`@lions/economy`'s `campaignComplete`: no closing
+  exchange, no "every front is closed" line, no campaign coin bonus). The menu's Continue, the board's Next and the
+  debrief's next mission read it, so there is no next mission after IV;
+- `/mission/<id>` and `/briefing/<id>` outside the cut leave softly for the campaign board (deep links, `?mission=`);
+- Free play is closed (it has no mission set and fields the full task force on any map): no menu entry, and
+  `/free-play`, `/free-play/<map>`, `?sandbox=` leave for the menu. A versus room's `/free-play/<map>?net=` is untouched;
+- a saved mission outside the cut is refused as one this build does not ship (the Resume row offers Discard).
+
+Not done (HOLD FOR LEAD): the asset set is not filtered (every mission's JSON and every map still ship in the bundle),
+versus is not hidden, and the commercial strip (9.3's 26 files, GH-1415) is not made.
 
 ### 9.5 Untested, open, and next
 
@@ -384,9 +406,7 @@ does the commercial strip (9.3's 26 files, GH-1415).
   integrity-checked.
 - **Versus** (question 3): the menu still offers Play with a friend; the lobby reaches the scheme's `/api/` 404 and
   fails cleanly. Hiding it is an app change and a lead call.
-- **Gated-off notices** (9.2): a desktop player gets no software-renderer notice, no slow-frames hint, and What's new
-  does not open by itself. Whether the desktop build should be a "real host" for those three (and not for telemetry)
-  is a lead call; it needs an app change.
+- **Notices** (9.2): built 20 Nov; the three helpers count the desktop build as a real host, telemetry does not.
 - **In-app licence links**: the Credits screen opens a library's bundled licence text with `target="_blank"` on the
   app's own origin; the window-open handler drops it (it is not an external https link), so the link does nothing on
   desktop. The URI stays readable on the screen.

@@ -2,9 +2,12 @@
 // GH-1418: package the production web build into an UNSIGNED local Electron desktop build (`pnpm desktop:package`).
 //
 // What it does, in order:
-//   1. `pnpm build` (skip with --skip-build to reuse an existing packages/app/dist), VITE_BASE cleared;
-//   2. reads the demo's content cut (`tools/desktop/demo.json`, HOLD FOR LEAD: `missions: null`, the whole build) and
-//      refuses a build whose `_headers` has no Content-Security-Policy (`policy.mjs`'s `requireCsp`);
+//   1. reads the demo's content cut (`tools/desktop/demo.json`: the lead's ruling of 20 Nov 2026, the tutorial plus Beit
+//      Sahwan I to IV), every id checked against data/missions (`policy.mjs`'s `readDemoConfig`);
+//   2. `pnpm build` (skip with --skip-build to reuse an existing packages/app/dist), VITE_BASE cleared and the cut handed
+//      over as RL_DEMO_MISSIONS, which bakes it into the bundle and writes `demo-cut.json` beside index.html; then refuses
+//      a build that does not carry exactly that cut (`checkBundleCut`, so a --skip-build over a full build is caught) and
+//      a build whose `_headers` has no Content-Security-Policy (`requireCsp`);
 //   3. stages the app code (package.json, main.mjs, policy.mjs, resolve.mjs, desktop-build.json) and, beside it, the web
 //      build copied unchanged;
 //   4. runs @electron/packager (pinned exactly) for linux/<this arch> at ELECTRON_VERSION: the code in `app.asar`, the web
@@ -34,11 +37,22 @@ import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ELECTRON_SHA256, ELECTRON_VERSION, FUSES, parseStaticHeaders, readDemoConfig, requireCsp } from './policy.mjs';
+import {
+  DEMO_CUT_ENV,
+  DEMO_CUT_FILE,
+  ELECTRON_SHA256,
+  ELECTRON_VERSION,
+  FUSES,
+  checkBundleCut,
+  parseStaticHeaders,
+  readDemoConfig,
+  requireCsp,
+} from './policy.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
 const APP_DIST = path.join(ROOT, 'packages', 'app', 'dist');
+const MISSIONS = path.join(ROOT, 'data', 'missions');
 const OUT = path.join(ROOT, 'dist-desktop');
 const CACHE = path.join(OUT, 'cache');
 const EXECUTABLE = 'roaring-lions';
@@ -81,24 +95,41 @@ if (process.platform !== 'linux') fail(`the desktop build packages Linux only (t
 if (process.arch !== 'x64' && process.arch !== 'arm64') fail(`unsupported arch ${process.arch}: linux-x64 or linux-arm64 only`);
 const arch = process.arch;
 
-// 1. The web build, exactly as it deploys. VITE_BASE must be '/': the custom scheme maps '/' to the bundle.
+// 1. The content cut, checked against the missions this checkout ships (each file's own `id`).
+let demo;
+try {
+  const missionIds = readdirSync(MISSIONS)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => JSON.parse(readFileSync(path.join(MISSIONS, f), 'utf8')).id);
+  demo = readDemoConfig(JSON.parse(readFileSync(path.join(HERE, 'demo.json'), 'utf8')), missionIds);
+} catch (err) {
+  fail(String(err?.message ?? err));
+}
+
+// 2. The web build, as it deploys but for the cut. VITE_BASE must be '/': the custom scheme maps '/' to the bundle.
 if (!args.has('--skip-build')) {
   const env = { ...process.env };
   delete env.VITE_BASE;
+  delete env[DEMO_CUT_ENV];
+  if (demo.missions !== null) env[DEMO_CUT_ENV] = JSON.stringify(demo.missions);
   if (run('pnpm', ['build'], { env }) !== 0) fail('pnpm build failed');
 }
 if (!existsSync(path.join(APP_DIST, 'index.html'))) fail(`no build at ${APP_DIST}; run without --skip-build`);
 
-// 2. The content cut and the CSP, both fail closed.
-let demo;
+// The build carries exactly that cut, and a CSP; both fail closed.
 try {
-  demo = readDemoConfig(JSON.parse(readFileSync(path.join(HERE, 'demo.json'), 'utf8')));
+  const cutFile = path.join(APP_DIST, DEMO_CUT_FILE);
+  checkBundleCut(demo, existsSync(cutFile) ? readFileSync(cutFile, 'utf8') : null);
   const headersFile = path.join(APP_DIST, '_headers');
   requireCsp(parseStaticHeaders(existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : ''));
 } catch (err) {
   fail(String(err?.message ?? err));
 }
-console.log('[desktop] demo content cut: NONE (demo.json missions: null; the whole build ships). HOLD FOR LEAD, GH-1379.');
+console.log(
+  demo.missions === null
+    ? '[desktop] demo content cut: NONE (demo.json missions: null; the whole build ships).'
+    : `[desktop] demo content cut: ${demo.missions.length} missions (${demo.missions.join(', ')}); baked into the bundle and checked.`,
+);
 
 const rootPkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const gitHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });

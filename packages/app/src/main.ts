@@ -74,7 +74,6 @@ import {
   mapManifest,
   missionManifest,
   tutorials,
-  world,
   countries,
   commander,
   names,
@@ -147,7 +146,7 @@ import { browserFeedbackSession, type FeedbackSession, type SessionNote } from '
 import { collectContext, type ContextInput } from './feedback/context';
 import { installErrorRing, recentErrors } from './feedback/errors';
 import { holdDraft, readDraft } from './feedback/draft';
-import { isClosed as feedbackClosed, feedbackSends } from './feedback/gate';
+import { isClosed as feedbackClosed } from './feedback/gate';
 import { gpuName } from './feedback/gpu';
 import { takePicture } from './feedback/picture';
 import { withGroundPhoto } from './ui/ground-photo';
@@ -354,6 +353,8 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { reloadMenuHref, routes } from './shell/links';
+import { campaignWorldJson, gateDemoRoutes } from './shell/demo-cut';
+import { playerHost } from './shell/player-host';
 import { ChunkLoadError, importWithRetry } from './shell/chunk';
 import { chunkFailedCard } from './shell/chunk-card';
 import { forgetRetiredKeys } from './retired-keys';
@@ -410,6 +411,8 @@ import { loadUnitOverlay, localizedUnit, setUnitOverlay, unitName as textUnitNam
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
+/** The campaign world this build plays: world.json, or the desktop demo's cut of it (GH-1418, `shell/demo-cut.ts`). */
+const world = campaignWorldJson();
 /** The callsign a player last typed on `/versus` (N1b), in `localStorage`. */
 const VERSUS_CALLSIGN_KEY = 'lions.versus.callsign';
 /** Every battlefield's `Sim` seed. A constant, so a feedback replay can rebuild
@@ -1668,7 +1671,8 @@ async function main(): Promise<void> {
   const router = new Router({
     base: BASE,
     stage,
-    routes: [
+    // GH-1418: outside the demo's cut a mission, a briefing or Free play leaves softly; with no cut (the web) the same routes.
+    routes: gateDemoRoutes([
       ...arenaRoutes,
       { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
@@ -1827,7 +1831,7 @@ async function main(): Promise<void> {
           return () => {};
         },
       },
-    ],
+    ], (href) => void router.navigate(href, { replace: true })),
     notFound: (host, req) => {
       bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), t('boot.notFound.next'), routes.menu());
       return () => host.replaceChildren();
@@ -1852,7 +1856,7 @@ async function main(): Promise<void> {
   // harness -- all SwiftShader -- never see it or even read the renderer. After
   // the phone notice on purpose: it never opens over another dialog.
   watchNoGpu({
-    env: { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) },
+    env: { prod: import.meta.env.PROD, hostname: location.hostname, protocol: location.protocol, query: new URLSearchParams(location.search) },
     renderer: gpuName,
   });
   // The slow-frames suggestion (GH-1413): after the notice above on purpose (it never probes a software renderer, which that
@@ -1862,8 +1866,9 @@ async function main(): Promise<void> {
   // it; the preset applies at the next mission's boot.
   // The gate is read HERE and the card's code (quality-hint, frame-probe) loaded only past it (`qualityHintAllowed`'s own test),
   // so a harness origin (CI, `pnpm dev`, every test) never carries the module on the board's heap (board budget, GH-1413).
-  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, query: new URLSearchParams(location.search) };
-  if (feedbackSends(qualityEnv) || qualityEnv.query.has('qualityhint')) {
+  // GH-1418: `playerHost`, the helpers' half of "a real host" (the desktop build counts; telemetry and feedback keep `feedbackSends`).
+  const qualityEnv = { prod: import.meta.env.PROD, hostname: location.hostname, protocol: location.protocol, query: new URLSearchParams(location.search) };
+  if (playerHost(qualityEnv) || qualityEnv.query.has('qualityhint')) {
     void import('./ui/quality-hint').then(({ watchQualityHint }) => {
       watchQualityHint({
         env: qualityEnv,

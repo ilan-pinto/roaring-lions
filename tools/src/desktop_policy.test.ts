@@ -2,19 +2,23 @@
 // into Electron (`tools/desktop/main.mjs`) and into the packager (`tools/desktop/build-local.mjs`), read from source
 // because both need Electron or a real build to run. Oracles are literals: a flag, a URL, a host, a permission name.
 // The live counterpart (the same rules seen from inside a packaged page) is `pnpm desktop:package --smoke`.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_PERMISSIONS,
+  DEMO_CUT_ENV,
+  DEMO_CUT_FILE,
   ELECTRON_SHA256,
   ELECTRON_VERSION,
   EXTERNAL_HOSTS,
   FUSES,
   HOST,
   ORIGIN,
+  SCHEME,
   WEB_PREFERENCES,
+  checkBundleCut,
   externalUrlAllowed,
   isAppUrl,
   parseStaticHeaders,
@@ -26,6 +30,8 @@ import {
 import { telemetryEnabled } from '../../packages/app/src/telemetry/enabled';
 import { accountsEnabled } from '../../packages/app/src/account/enabled';
 import { feedbackSends } from '../../packages/app/src/feedback/gate';
+import { DESKTOP_HOSTNAME, DESKTOP_PROTOCOL, isDesktopPage, playerHost } from '../../packages/app/src/shell/player-host';
+import { DEMO_CUT_ENV as APP_DEMO_CUT_ENV, DEMO_CUT_FILE as APP_DEMO_CUT_FILE, demoCutFromEnv } from '../../packages/app/vite-plugin-demo-cut';
 import { CREDITS } from '../../packages/app/src/credits-data';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -58,9 +64,18 @@ describe('the page host is not a real host (telemetry, accounts, feedback stay o
     expect(accountsEnabled(q(), { prod: true, hostname: HOST })).toBe(false);
     expect(accountsEnabled(q(), { prod: true, hostname: REAL })).toBe(true);
   });
-  it('feedback (and the notices that share its gate): off on the desktop host, on on the deployed one', () => {
+  it('feedback: off on the desktop host, on on the deployed one', () => {
     expect(feedbackSends({ prod: true, hostname: HOST })).toBe(false);
     expect(feedbackSends({ prod: true, hostname: REAL })).toBe(true);
+  });
+  // GH-1418 (lead, 20 Nov): the three player-facing helpers ask `playerHost`, which counts the desktop page as real.
+  it("the helpers' gate (playerHost) knows the desktop page by this scheme and host, and only by both", () => {
+    expect(`${SCHEME}:`).toBe(DESKTOP_PROTOCOL);
+    expect(HOST).toBe(DESKTOP_HOSTNAME);
+    expect(isDesktopPage({ prod: true, hostname: HOST, protocol: `${SCHEME}:` })).toBe(true);
+    expect(playerHost({ prod: true, hostname: HOST, protocol: `${SCHEME}:` })).toBe(true);
+    expect(playerHost({ prod: true, hostname: HOST, protocol: 'http:' })).toBe(false);
+    expect(playerHost({ prod: true, hostname: REAL, protocol: 'https:' })).toBe(true);
   });
   it('main.mjs serves and loads that one host', () => {
     const main = code('tools/desktop/main.mjs');
@@ -251,14 +266,58 @@ describe('the binary', () => {
   });
 });
 
-describe('the demo content cut (HOLD FOR LEAD)', () => {
-  it('ships as null: no cut yet', () => {
-    expect(readDemoConfig(JSON.parse(read('tools/desktop/demo.json')))).toEqual({ missions: null });
+describe("the demo content cut (the lead's ruling of 20 Nov 2026)", () => {
+  const missionIds = readdirSync(path.join(ROOT, 'data', 'missions'))
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => (JSON.parse(read(`data/missions/${f}`)) as { id: string }).id);
+  const LEAD = ['beit_sahwan_0_tutorial', 'beit_sahwan_1_recon', 'beit_sahwan_2_foothold', 'beit_sahwan_3_clearance', 'beit_sahwan_4_subterranean'];
+
+  it('demo.json is the tutorial plus Beit Sahwan I to IV, in campaign order', () => {
+    expect(readDemoConfig(JSON.parse(read('tools/desktop/demo.json')), missionIds)).toEqual({ missions: LEAD });
   });
-  it('refuses a cut it cannot make, an unknown key and a missing one', () => {
-    expect(() => readDemoConfig({ missions: ['beit_sahwan_0_tutorial'] })).toThrow(/HOLD FOR LEAD/);
-    expect(() => readDemoConfig({ missions: null, maps: [] })).toThrow(/unknown key maps/);
-    expect(() => readDemoConfig({})).toThrow(/missing "missions"/);
-    expect(() => readDemoConfig([])).toThrow(/expected an object/);
+  it('I to IV are Beit Sahwan\'s campaign missions after First Light, in world.json\'s order', () => {
+    const world = JSON.parse(read('data/campaign/world.json')) as { regions: { towns: { id: string; missions: string[] }[] }[] };
+    const town = world.regions.flatMap((r) => r.towns).find((t) => t.id === 'beit_sahwan');
+    expect(town?.missions).toEqual(['beit_sahwan_breach', ...LEAD.slice(1)]);
+  });
+  it('accepts null (the whole build) and refuses an empty list, an unknown id, a duplicate and a non-string', () => {
+    expect(readDemoConfig({ missions: null }, missionIds)).toEqual({ missions: null });
+    expect(() => readDemoConfig({ missions: [] }, missionIds)).toThrow(/empty/);
+    expect(() => readDemoConfig({ missions: ['beit_sahwan_9_nowhere'] }, missionIds)).toThrow(/no mission beit_sahwan_9_nowhere/);
+    expect(() => readDemoConfig({ missions: ['beit_sahwan_1_recon', 'beit_sahwan_1_recon'] }, missionIds)).toThrow(/twice/);
+    expect(() => readDemoConfig({ missions: [7] }, missionIds)).toThrow(/not a mission id/);
+    expect(() => readDemoConfig({ missions: 'beit_sahwan_1_recon' }, missionIds)).toThrow(/null or a list/);
+  });
+  it('refuses an unknown key, a missing one and a non-object', () => {
+    expect(() => readDemoConfig({ missions: null, maps: [] }, missionIds)).toThrow(/unknown key maps/);
+    expect(() => readDemoConfig({}, missionIds)).toThrow(/missing "missions"/);
+    expect(() => readDemoConfig([], missionIds)).toThrow(/expected an object/);
+  });
+  it('the web build must carry exactly the manifest\'s cut', () => {
+    const cut = { missions: ['a', 'b'] };
+    expect(() => checkBundleCut(cut, '{"missions":["a","b"]}\n')).not.toThrow();
+    expect(() => checkBundleCut({ missions: null }, null)).not.toThrow();
+    expect(() => checkBundleCut(cut, null)).toThrow(/carries no content cut/);
+    expect(() => checkBundleCut({ missions: null }, '{"missions":["a"]}')).toThrow(/names none/);
+    expect(() => checkBundleCut(cut, '{"missions":["a"]}')).toThrow(/is not demo.json/);
+    expect(() => checkBundleCut(cut, '{"missions":["b","a"]}')).toThrow(/is not demo.json/);
+    expect(() => checkBundleCut(cut, 'nope')).toThrow(/not JSON/);
+  });
+  it('the packager and the web build agree on the variable and the file, and the plugin reads the list back', () => {
+    expect(DEMO_CUT_ENV).toBe('RL_DEMO_MISSIONS');
+    expect(APP_DEMO_CUT_ENV).toBe(DEMO_CUT_ENV);
+    expect(DEMO_CUT_FILE).toBe('demo-cut.json');
+    expect(APP_DEMO_CUT_FILE).toBe(DEMO_CUT_FILE);
+    expect(demoCutFromEnv(JSON.stringify(LEAD))).toEqual(LEAD);
+  });
+  it('build-local.mjs reads the cut before the build, hands it to pnpm build, checks the build, and writes it into the manifest', () => {
+    const build = code('tools/desktop/build-local.mjs');
+    expect(build).toMatch(/demo = readDemoConfig\(JSON\.parse\(readFileSync\(path\.join\(HERE, 'demo\.json'\), 'utf8'\)\), missionIds\);/);
+    expect(build).toContain('if (demo.missions !== null) env[DEMO_CUT_ENV] = JSON.stringify(demo.missions);');
+    expect(build).toContain("delete env[DEMO_CUT_ENV];");
+    expect(build.indexOf('readDemoConfig(')).toBeLessThan(build.indexOf("run('pnpm', ['build'], { env })"));
+    expect(build).toContain("checkBundleCut(demo, existsSync(cutFile) ? readFileSync(cutFile, 'utf8') : null);");
+    expect(build.indexOf('checkBundleCut(')).toBeGreaterThan(build.indexOf("run('pnpm', ['build'], { env })"));
+    expect(build).toMatch(/const manifest = \{[^}]*\bdemo,/);
   });
 });

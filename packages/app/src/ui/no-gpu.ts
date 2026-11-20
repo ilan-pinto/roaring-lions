@@ -25,8 +25,10 @@
 // (`pnpm ui:routes`, `ui:shots`, the golden gate, `perf:*`, Playwright) run on
 // SwiftShader, so a notice that fired for it would put a modal over every one
 // of their frames and swallow their keys. It is therefore gated exactly as
-// telemetry and feedback are (`feedback/gate.ts`'s `feedbackSends`): a
-// PRODUCTION build on a host that is not this machine. `pnpm dev`, every vitest
+// a player's real host (`shell/player-host.ts`'s `playerHost`, GH-1418): a
+// PRODUCTION build on a host that is not this machine, or the packaged desktop
+// build (`app://roaring-lions.local`), which telemetry and feedback still treat
+// as this machine. `pnpm dev`, every vitest
 // run, and a production build served from localhost/127.0.0.1/[::1]/*.local/
 // *.localhost/*.test (`vite preview`, which `perf:load` uses) all fail that
 // test, and the renderer is not even read there. The one way in on such a host
@@ -45,7 +47,7 @@
 // a browser setting the player may not have been able to reach the first time.
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
-import { feedbackSends } from '../feedback/gate';
+import { playerHost } from '../shell/player-host';
 import { isDialogOpen } from './confirm';
 import { mountNotice, type NoticeHandle } from './notice-card';
 
@@ -65,13 +67,15 @@ export function isSoftwareRenderer(name: string | null | undefined): boolean {
 export interface NoGpuEnv {
   prod: boolean;
   hostname: string;
+  /** `location.protocol`: the desktop build's page is `app:` (`shell/player-host.ts`). Absent: not the desktop build. */
+  protocol?: string;
   query: URLSearchParams;
 }
 
-/** May the notice be considered at all here? A production build on a real
- *  host (the telemetry/feedback gate), or `?gpunotice`. */
+/** May the notice be considered at all here? A player's real host (a production
+ *  build on a real host, or the desktop build: `playerHost`), or `?gpunotice`. */
 export function noGpuNoticeAllowed(env: NoGpuEnv): boolean {
-  return feedbackSends(env) || env.query.has('gpunotice');
+  return playerHost(env) || env.query.has('gpunotice');
 }
 
 export interface NoGpuDeps {

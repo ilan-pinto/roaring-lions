@@ -12,6 +12,12 @@ export declare function parseStaticHeaders(text: string): Record<string, string>
 export declare function requireCsp(headers: Record<string, string>): string;
 export declare function smokeAllowed(build: unknown, env: Record<string, string | undefined>): boolean;
 export declare const FUSES: Readonly<Record<string, boolean>>;
-export declare function readDemoConfig(json: unknown): { missions: null };
+export interface DemoConfig {
+  missions: string[] | null;
+}
+export declare function readDemoConfig(json: unknown, missionIds: Iterable<string>): DemoConfig;
+export declare const DEMO_CUT_ENV: 'RL_DEMO_MISSIONS';
+export declare const DEMO_CUT_FILE: 'demo-cut.json';
+export declare function checkBundleCut(demo: DemoConfig, text: string | null): void;
 export declare const ELECTRON_VERSION: string;
 export declare const ELECTRON_SHA256: Readonly<Record<string, string>>;

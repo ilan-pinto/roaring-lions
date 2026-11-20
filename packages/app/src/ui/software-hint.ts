@@ -7,7 +7,7 @@
 // reads it, `no-gpu.ts`'s `isSoftwareRenderer`, so the strings are matched in ONE place (its table: `no-gpu.test.ts`).
 //
 // WHEN IT MAY SHOW (`softwareHintWanted`, all four):
-//   - the gate is open: a production build on a real host, or `?qualityhint` (`qualityHintAllowed`). CI, every harness, `pnpm dev`
+//   - the gate is open: a production build on a real host or the desktop build (`playerHost`), or `?qualityhint` (`qualityHintAllowed`). CI, every harness, `pnpm dev`
 //     and `vite preview` all fail it, and they are all SwiftShader;
 //   - the renderer names a software rasteriser (unknown, empty and null never do);
 //   - the saved preset is not already Low (nothing lighter to offer);

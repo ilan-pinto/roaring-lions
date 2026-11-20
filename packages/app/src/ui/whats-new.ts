@@ -7,8 +7,8 @@
  * major.minor only, and a patch release has notes of its own.
  *
  * WHEN IT OPENS BY ITSELF. All of these, on a menu mount:
- *   - the gate is open: a production build on a real host (`feedbackSends`, the gate the quality hint and the
- *     no-graphics notice use), or `?whatsnew`. `pnpm dev`, tests, CI and every harness stay closed, because a modal over
+ *   - the gate is open: a player's real host (`playerHost`, the gate the quality hint and the no-graphics notice use: a
+ *     production build on a real host, or the desktop build, GH-1418), or `?whatsnew`. `pnpm dev`, tests, CI and every harness stay closed, because a modal over
  *     the menu would sit in `ui:shots`' pictures and in front of `ui:routes`' clicks;
  *   - this browser has not been shown this version's notes (`whats-new-store.ts`, `lions.whatsNew.seen`);
  *   - notes EXIST for this version, with at least one line. A missing file means no auto-open. This is also the
@@ -29,7 +29,7 @@
  * THE DISPOSER CONTRACT. `mountWhatsNew` returns the menu's handle on all of it: idempotent, it closes only the dialog
  * THIS mount opened, takes its own listener off the button, and a load that lands afterwards opens nothing.
  */
-import { feedbackSends } from '../feedback/gate';
+import { playerHost } from '../shell/player-host';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { browserWhatsNewStore, markVersionSeen, readSeenVersion, type SeenStore } from '../whats-new-store';
@@ -55,9 +55,10 @@ export type NotesView = { kind: 'notes'; notes: ReleaseNotes } | { kind: 'none' 
 /** The query flag that opens the auto-open gate off a production host, for trying the panel in `pnpm dev`. */
 export const WHATS_NEW_FLAG = 'whatsnew';
 
-/** The gate for the panel opening by itself: a production build on a real host, or `?whatsnew`. */
-export function whatsNewAutoOpenAllowed(env: { prod: boolean; hostname: string; query: URLSearchParams }): boolean {
-  return feedbackSends(env) || env.query.has(WHATS_NEW_FLAG);
+/** The gate for the panel opening by itself: a player's real host (a production build on a real host, or the desktop
+ *  build: `playerHost`, GH-1418), or `?whatsnew`. */
+export function whatsNewAutoOpenAllowed(env: { prod: boolean; hostname: string; protocol?: string; query: URLSearchParams }): boolean {
+  return playerHost(env) || env.query.has(WHATS_NEW_FLAG);
 }
 
 /** This build's own version, as the build defines it; '' where nothing defined it (a test that stubs nothing), for
@@ -75,6 +76,7 @@ export function browserWhatsNewDeps(): WhatsNewDeps {
     autoOpen: whatsNewAutoOpenAllowed({
       prod: import.meta.env.PROD,
       hostname: location.hostname,
+      protocol: location.protocol,
       query: new URLSearchParams(location.search),
     }),
   };
