@@ -14,3 +14,8 @@ export function unitOverlayFailures(file: string, overlay: object | null, units:
 export function sourceHash(text: string): string;
 export function buildEnglishUnits(units: readonly object[]): Record<string, object>;
 export function englishUnitFailures(file: string, catalogue: unknown, units: readonly object[]): string[];
+/** GH-1406: place names (the world, its regions and towns, the maps). */
+export const MAX_PLACE_NAME: number;
+export function buildEnglishPlaces(world: object, maps: Iterable<object>): { world: string; regions: Record<string, string>; towns: Record<string, string>; maps: Record<string, string>; src: Record<string, string> };
+export function englishPlaceFailures(file: string, catalogue: unknown, world: object, maps: Iterable<object>): string[];
+export function placeOverlayFailures(file: string, overlay: unknown, world: object, maps: Map<string, object>, opts?: { staged?: boolean; lag?: string[] }): string[];

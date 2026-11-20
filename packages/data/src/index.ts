@@ -977,3 +977,74 @@ export function applyUnitLocale<T extends { id: string; name?: string; blurb?: s
     ...(o.blurb === undefined || unit.blurb === undefined ? {} : { blurb: o.blurb }),
   };
 }
+
+// --- place-name locale overlay -----------------------------------------------
+//
+// A map's `name` (the generated `mapManifest`, from data/maps/*.json) and the campaign world's names (data/campaign/world.json: the world,
+// each region, each town) are DATA like a unit's, authored in `en`. A shipped translation is a separate optional file,
+// `data/locales/<lang>/places.json` (`data/locales/README.md`), layered on at the point `@lions/app` hands a name to a screen
+// (`packages/app/src/place-text.ts`). It is never written into `mapManifest`, `maps` or `world`: the net content digest hashes the maps, so
+// two players in different languages would otherwise disagree about the content and be refused a room. Ids, grids, markers and every
+// other field are untouched; only the display name is replaced, on a COPY.
+
+/** One locale's place names. Every field is optional: a name the overlay does not carry keeps its `en` text. */
+export interface PlaceLocaleOverlay {
+  world?: string;
+  regions?: Readonly<Record<string, string>>;
+  towns?: Readonly<Record<string, string>>;
+  maps?: Readonly<Record<string, string>>;
+  /** `world`, `regions.<id>`, `towns.<id>`, `maps.<id>` to the 8 hex characters of the English it was translated from. Never read at runtime. */
+  src?: Readonly<Record<string, string>>;
+}
+
+/** The part of a world (the raw JSON, or `@lions/economy`'s parsed one) the overlay reads: a name on the world, each region and each town. */
+export interface PlaceNamedWorld {
+  name: string;
+  regions: readonly { id: string; name: string; towns: readonly { id: string; name: string }[] }[];
+}
+
+const placeOf = (table: Readonly<Record<string, string>> | undefined, id: string): string | undefined =>
+  table !== undefined && Object.hasOwn(table, id) ? table[id] : undefined;
+
+/**
+ * A map catalogue (`mapManifest`, or anything keyed by map id with a `name`) with the overlay's names on top. A null overlay, or one that
+ * names none of the catalogue's maps, returns `catalogue` BY REFERENCE; otherwise a new object (same keys, same order) whose changed
+ * entries are copies. The source is never written to.
+ */
+export function applyMapNamesLocale<M extends Readonly<Record<string, { readonly name: string }>>>(catalogue: M, overlay: PlaceLocaleOverlay | null): M {
+  const names = overlay?.maps;
+  if (names === undefined || !Object.keys(catalogue).some((id) => placeOf(names, id) !== undefined)) return catalogue;
+  const out: Record<string, { readonly name: string }> = {};
+  for (const [id, entry] of Object.entries(catalogue)) {
+    const name = placeOf(names, id);
+    out[id] = name === undefined ? entry : { ...entry, name };
+  }
+  return out as M;
+}
+
+/**
+ * A world with the overlay's world, region and town names on top, as a copy sharing every untouched branch with the source. A null overlay,
+ * or one that renames nothing in this world, returns `world` BY REFERENCE. Generic, so the raw JSON and the parsed world both come back as
+ * themselves, with every other field (positions, missions, unlock gates) carried by the spread.
+ */
+export function applyWorldLocale<W extends PlaceNamedWorld>(world: W, overlay: PlaceLocaleOverlay | null): W {
+  if (overlay === null) return world;
+  const worldName = overlay.world;
+  let changed = false;
+  const regions = world.regions.map((region) => {
+    const regionName = placeOf(overlay.regions, region.id);
+    let townsChanged = false;
+    const towns = region.towns.map((town) => {
+      const townName = placeOf(overlay.towns, town.id);
+      if (townName === undefined || townName === town.name) return town;
+      townsChanged = true;
+      return { ...town, name: townName };
+    });
+    if (!townsChanged && (regionName === undefined || regionName === region.name)) return region;
+    changed = true;
+    return { ...region, ...(regionName === undefined ? {} : { name: regionName }), towns: townsChanged ? towns : region.towns };
+  });
+  const renamed = worldName !== undefined && worldName !== world.name;
+  if (!changed && !renamed) return world;
+  return { ...world, ...(renamed ? { name: worldName } : {}), regions: changed ? regions : world.regions };
+}

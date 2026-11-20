@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyMissionLocale, type MissionLocaleOverlay } from '@lions/data';
 // @ts-expect-error: a plain .mjs module with no declarations, like the other validators the tools tests import.
-import { buildEnglishCatalogue, buildEnglishUnits, englishCatalogueFailures, englishMissionText, englishUnitFailures, overlayFailures, unitOverlayFailures } from '../validate_narrative.mjs';
+import { buildEnglishCatalogue, buildEnglishPlaces, buildEnglishUnits, englishCatalogueFailures, englishMissionText, englishPlaceFailures, englishUnitFailures, overlayFailures, placeOverlayFailures, unitOverlayFailures } from '../validate_narrative.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 interface Say { speaker: string; text: string }
@@ -259,5 +259,181 @@ describe('the English unit catalogue (GH-1406 part 5)', () => {
     const out = unitOverlayFailures('fr/units.json', JSON.parse(unitText), edited) as string[];
     expect(out).toHaveLength(1);
     expect(out[0]).toContain(`unit "${withBlurb.id}" overlay blurb is stale`);
+  });
+});
+
+// Place names (GH-1406): `data/locales/en/places.json` is generated from data/campaign/world.json and data/maps/*.json, carries a hash per name,
+// and a copy of it is the fixture locale. The oracles are LITERALS and hand reads of the source files, never the builder's own output.
+describe('the English place catalogue (GH-1406)', () => {
+  interface W { name: string; regions: { id: string; name: string; towns: { id: string; name: string }[] }[] }
+  interface P { world: string; regions: Record<string, string>; towns: Record<string, string>; maps: Record<string, string>; src: Record<string, string> }
+  const world = JSON.parse(readFileSync(join(ROOT, 'data/campaign/world.json'), 'utf8')) as W;
+  const mapFiles = readdirSync(join(ROOT, 'data/maps')).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(ROOT, 'data/maps', f), 'utf8')) as { id: string; name: string });
+  const placeText = readFileSync(join(ROOT, 'data/locales/en/places.json'), 'utf8');
+  const en = (): P => JSON.parse(placeText) as P;
+  const h8 = (t: string): string => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 8);
+  const byId = new Map(mapFiles.map((m) => [m.id, m]));
+  const towns = world.regions.flatMap((r) => r.towns);
+  const parity = (c: unknown, mf = mapFiles, w: unknown = world): string[] => englishPlaceFailures('en/places.json', c, w as object, mf) as string[];
+  const overlay = (c: unknown, opts: { staged?: boolean; lag?: string[] } = {}, mm = byId, w: unknown = world): string[] =>
+    placeOverlayFailures('fr/places.json', c, w as object, mm, opts) as string[];
+
+  it('has the world, every region, every town and every map, each equal to its source file (hand-compared, with literal census)', () => {
+    const c = en();
+    expect(mapFiles).toHaveLength(51);
+    expect(world.regions).toHaveLength(3);
+    expect(towns).toHaveLength(10);
+    expect(c.world).toBe(world.name);
+    expect(c.world).toBe('The Sahar Basin');
+    expect(Object.keys(c.regions)).toEqual(world.regions.map((r) => r.id));
+    expect(Object.keys(c.towns)).toEqual(towns.map((t) => t.id));
+    expect(Object.keys(c.maps).sort()).toEqual(mapFiles.map((m) => m.id).sort());
+    for (const r of world.regions) expect(c.regions[r.id], r.id).toBe(r.name);
+    for (const t of towns) expect(c.towns[t.id], t.id).toBe(t.name);
+    for (const m of mapFiles) expect(c.maps[m.id], m.id).toBe(m.name);
+    expect(c.src.world).toBe(h8(world.name));
+    for (const r of world.regions) expect(c.src[`regions.${r.id}`], r.id).toBe(h8(r.name));
+    for (const t of towns) expect(c.src[`towns.${t.id}`], t.id).toBe(h8(t.name));
+    for (const m of mapFiles) expect(c.src[`maps.${m.id}`], m.id).toBe(h8(m.name));
+    expect(Object.keys(c.src)).toHaveLength(1 + 3 + 10 + 51);
+  });
+
+  it('is byte-for-byte what the generator writes today, and checks clean', () => {
+    expect(placeText).toBe(JSON.stringify(buildEnglishPlaces(world, mapFiles), null, 2) + '\n');
+    expect(parity(en())).toEqual([]);
+  });
+
+  describe('the parity check fails on each fault (constructed, then run)', () => {
+    it('a missing file', () => expect(parity(null).join('\n')).toContain('is missing or is not a JSON object'));
+    it('a missing map (the catalogue lacks one the data has)', () => {
+      const c = en();
+      const gone = Object.keys(c.maps)[0];
+      delete c.maps[gone];
+      expect(parity(c)).toContain(`en/places.json: no entry for map "${gone}"`);
+    });
+    it('a map the data no longer has (stale)', () => {
+      const c = en();
+      c.maps.ghost_map = 'Ghost';
+      expect(parity(c).join('\n')).toContain('has a map "ghost_map", which is not in data/maps (stale)');
+    });
+    it('a map renamed in its file after the template was written (drift)', () => {
+      const m = mapFiles[0];
+      const out = parity(en(), [{ ...m, name: `${m.name}!` }, ...mapFiles.slice(1)]);
+      expect(out.join('\n')).toContain(`map "${m.id}" differs from data/maps`);
+      expect(out.join('\n')).toContain(`src.maps.${m.id} is not the hash of its English name`);
+    });
+    it('a region, a town and the world drifting', () => {
+      const w = JSON.parse(JSON.stringify(world)) as W;
+      w.name = 'Renamed';
+      w.regions[0].name = 'Renamed region';
+      w.regions[0].towns[0].name = 'Renamed town';
+      const out = parity(en(), mapFiles, w).join('\n');
+      expect(out).toContain('world differs from world.json');
+      expect(out).toContain(`region "${w.regions[0].id}" differs from world.json`);
+      expect(out).toContain(`town "${w.regions[0].towns[0].id}" differs from world.json`);
+    });
+    it('a missing, wrong or left-over hash, and a key the overlay does not read', () => {
+      const c = en();
+      const id = Object.keys(c.maps)[0];
+      delete c.src[`maps.${id}`];
+      c.src[`towns.${towns[0].id}`] = '00000000';
+      c.src['maps.ghost'] = 'deadbeef';
+      (c as unknown as Record<string, unknown>).blurb = 'x';
+      const out = parity(c).join('\n');
+      expect(out).toContain(`src.maps.${id} is missing`);
+      expect(out).toContain(`src.towns.${towns[0].id} is not the hash of its English name`);
+      expect(out).toContain('src has "maps.ghost", which names nothing (stale)');
+      expect(out).toContain('carries "blurb", which the overlay does not read');
+    });
+  });
+
+  describe('a translator\'s file (placeOverlayFailures)', () => {
+    const fr = (): P => {
+      const c = en();
+      return { ...c, world: 'Le bassin du Sahar', regions: { marj: 'La bande de Marj' }, towns: { beit_sahwan: 'Beit Sahwan' }, maps: { bir_tarsha: 'Puits de Tarsha' }, src: { world: c.src.world, 'regions.marj': c.src['regions.marj'], 'towns.beit_sahwan': c.src['towns.beit_sahwan'], 'maps.bir_tarsha': c.src['maps.bir_tarsha'] } };
+    };
+    it('a copy of the English template passes (the translator copies it and changes the values), and so does a partial translation', () => {
+      expect(overlay(en())).toEqual([]);
+      expect(overlay(fr())).toEqual([]);
+      expect(overlay({})).toEqual([]);
+      expect(overlay(null)).toEqual([]);
+    });
+    it('refuses an unknown region, town and map id', () => {
+      const c = fr();
+      c.regions.nowhere = 'X';
+      c.towns.nowhere = 'Y';
+      c.maps.nowhere = 'Z';
+      const out = overlay(c).join('\n');
+      expect(out).toContain('overlay names region "nowhere", which is not in world.json');
+      expect(out).toContain('overlay names town "nowhere", which is not in world.json');
+      expect(out).toContain('overlay names map "nowhere", which is not in data/maps');
+    });
+    it('refuses a value that is empty, not a string, untrimmed, or over 48 characters; and the cap is exact', () => {
+      for (const bad of ['', '  ', 7, null, ' x', 'x ']) {
+        const c = fr();
+        (c.maps as Record<string, unknown>).bir_tarsha = bad;
+        expect(overlay(c).length, JSON.stringify(bad)).toBeGreaterThan(0);
+      }
+      const c = fr();
+      c.maps.bir_tarsha = 'x'.repeat(49);
+      expect(overlay(c).join('\n')).toContain('is 49 characters; a place name is capped at 48');
+      c.maps.bir_tarsha = 'x'.repeat(48);
+      c.src['maps.bir_tarsha'] = en().src['maps.bir_tarsha'];
+      expect(overlay(c)).toEqual([]);
+      const w = fr();
+      w.world = '';
+      expect(overlay(w).join('\n')).toContain('world must be a non-empty string');
+    });
+    it('refuses a key it does not read, and a table that is not an object', () => {
+      expect(overlay({ ...fr(), blurb: 'x' }).join('\n')).toContain('overlay carries "blurb"');
+      expect(overlay({ ...fr(), maps: ['bir_tarsha'] }).join('\n')).toContain('maps is not an object');
+      expect(overlay([]).join('\n')).toContain('is not a JSON object');
+    });
+    it('a translated name with NO src, or a src that is not the English hash: lag when staged (collected, not failed), a failure when shipped', () => {
+      const missing = fr();
+      delete missing.src['maps.bir_tarsha'];
+      const wrong = fr();
+      wrong.src['towns.beit_sahwan'] = '00000000';
+      for (const c of [missing, wrong]) {
+        const lag: string[] = [];
+        expect(overlay(c, { staged: true, lag })).toEqual([]);
+        expect(lag).toHaveLength(1);
+        expect(overlay(c, { staged: false })).toHaveLength(1);
+        expect(overlay(c)).toHaveLength(1);
+      }
+      expect(overlay(missing).join('\n')).toContain(`carries no src hash for it: copy src.maps.bir_tarsha (${en().src['maps.bir_tarsha']})`);
+      expect(overlay(wrong).join('\n')).toContain('overlay towns.beit_sahwan is stale: it was translated from English 00000000');
+    });
+    it('a name edited in the data after translation goes stale, in a map, a town and the world', () => {
+      const w = JSON.parse(JSON.stringify(world)) as W;
+      w.name += '!';
+      w.regions[0].towns[0].name += '!';
+      const mm = new Map(byId);
+      mm.set('bir_tarsha', { ...(byId.get('bir_tarsha') as object), id: 'bir_tarsha', name: 'Bir Tarsha!' });
+      const lag: string[] = [];
+      expect(overlay(fr(), { staged: true, lag }, mm, w)).toEqual([]);
+      expect(lag).toHaveLength(3);
+      expect(overlay(fr(), { staged: false }, mm, w)).toHaveLength(3);
+    });
+    it('STAGED still fails on what is wrong rather than stale: a bad hash shape, a hash for an untranslated name, an unknown id, an over-cap name', () => {
+      const lag: string[] = [];
+      const shape = fr();
+      shape.src['maps.bir_tarsha'] = 'XYZ';
+      expect(overlay(shape, { staged: true, lag }).join('\n')).toContain('src.maps.bir_tarsha is not 8 lowercase hex characters');
+      const upper = fr();
+      upper.src['maps.bir_tarsha'] = en().src['maps.bir_tarsha'].toUpperCase().replace(/[0-9]/g, 'A');
+      expect(overlay(upper, { staged: true, lag }).join('\n')).toContain('not 8 lowercase hex characters');
+      const extra = fr();
+      extra.src['maps.tel_marum'] = en().src['maps.tel_marum'];
+      expect(overlay(extra, { staged: true, lag }).join('\n')).toContain('overlay src names maps.tel_marum, which this file does not translate');
+      const nonObjectSrc = { ...fr(), src: 'x' };
+      expect(overlay(nonObjectSrc, { staged: true, lag }).join('\n')).toContain('overlay src is not an object');
+      const ghost = fr();
+      ghost.maps.nowhere = 'Z';
+      expect(overlay(ghost, { staged: true, lag }).join('\n')).toContain('map "nowhere"');
+      const long = fr();
+      long.maps.bir_tarsha = 'x'.repeat(49);
+      expect(overlay(long, { staged: true, lag }).join('\n')).toContain('capped at 48');
+    });
   });
 });

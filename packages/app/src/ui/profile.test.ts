@@ -12,6 +12,7 @@ import { sha256Hex } from '../account/signed-in';
 import { parseSlot } from '@lions/economy';
 import { unusedA2Client } from '../account/fixtures';
 import { setCatalogue, t } from '../i18n/t';
+import { setPlaceOverlay } from '../place-text';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
 import type { MatchView, MatchesView } from '@lions/economy';
@@ -520,7 +521,10 @@ describe('C1: sign-out and deletion go through the sync module over the account 
 });
 
 describe('the history and the record (GH-1075 A3)', () => {
-  afterEach(() => setCatalogue('en', en));
+  afterEach(() => {
+    setCatalogue('en', en);
+    setPlaceOverlay(null);
+  });
   const view = (over: Partial<MatchView> & { opponent: MatchView['opponent'] }): MatchView => ({
     code: 'ABCDE',
     startedAt: 1_700_000_000_000,
@@ -582,6 +586,25 @@ describe('the history and the record (GH-1075 A3)', () => {
     expect(r[2]).toContain(t('profile.history.deleted'));
     expect(r[2]).toContain(t('profile.history.drawn'));
     expect(r[3]).toContain(t('profile.history.unconfirmed'));
+  });
+
+  it('history_map_names_follow_the_place_overlay (GH-1406): a translated map name, the English without one, the id for a map nobody lists', async () => {
+    setPlaceOverlay({ maps: { tel_marum: 'Tertre de Marum' } });
+    const { stage } = mount(
+      withMatches(
+        answer([
+          view({ opponent: { kind: 'bot', model: null } }),
+          view({ opponent: { kind: 'bot', model: null }, map: 'bir_tarsha' }),
+          view({ opponent: { kind: 'bot', model: null }, map: 'retired_map' }),
+        ])
+      )
+    );
+    await flush();
+    const r = rows(stage);
+    expect(r[0]).toContain('Tertre de Marum');
+    expect(r[0]).not.toContain('Tel Marum');
+    expect(r[1]).toContain('Bir Tarsha');
+    expect(r[2]).toContain('retired_map');
   });
 
   it('history_bot_models', async () => {

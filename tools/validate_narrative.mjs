@@ -618,3 +618,141 @@ export function englishUnitFailures(file, catalogue, units) {
   }
   return out;
 }
+
+// --- place names (GH-1406) ----------------------------------------------------
+// data/locales/<lang>/places.json: the world's name, each region's, each town's and each map's. The same machinery as the unit overlay: the
+// English template is GENERATED (`buildEnglishPlaces`, held to exact parity by `englishPlaceFailures`), and a translation carries `src`, the
+// `sourceHash` of the English name it was read from, so an edit to a name goes red (shipped) or is reported (staged) in every language that
+// translated it.
+
+/** The cap on a translated place name: a town pin, a map card and the profile history row all draw it on one line. */
+export const MAX_PLACE_NAME = 48;
+/** The tables of names in a places file, besides the single `world` string. */
+const PLACE_TABLES = ['regions', 'towns', 'maps'];
+
+/** `{ world, regions: Map, towns: Map, maps: Map }` of the English names, from world.json's JSON and the map files' JSON (an array, or any iterable). */
+function placeNamesOf(world, maps) {
+  const regions = new Map();
+  const towns = new Map();
+  for (const r of world?.regions ?? []) {
+    regions.set(r.id, r.name);
+    for (const t of r.towns ?? []) towns.set(t.id, t.name);
+  }
+  const mapNames = new Map();
+  for (const m of maps ?? []) if (typeof m?.id === 'string' && typeof m?.name === 'string') mapNames.set(m.id, m.name);
+  return { world: world?.name, regions, towns, maps: mapNames };
+}
+
+/**
+ * The English place-name catalogue (`data/locales/en/places.json`), GENERATED and never authored or fetched: the world's name, then every
+ * region and town in the order world.json lists them, then every map by id (sorted), then `src`, the hash of each name, so a translator who
+ * copies the file and translates the values carries the hashes of the English they read.
+ */
+export function buildEnglishPlaces(world, maps) {
+  const n = placeNamesOf(world, maps);
+  const out = { world: n.world, regions: {}, towns: {}, maps: {}, src: {} };
+  out.src.world = sourceHash(n.world);
+  for (const [id, name] of n.regions) {
+    out.regions[id] = name;
+    out.src[`regions.${id}`] = sourceHash(name);
+  }
+  for (const [id, name] of n.towns) {
+    out.towns[id] = name;
+    out.src[`towns.${id}`] = sourceHash(name);
+  }
+  for (const id of [...n.maps.keys()].sort()) {
+    out.maps[id] = n.maps.get(id);
+    out.src[`maps.${id}`] = sourceHash(n.maps.get(id));
+  }
+  return out;
+}
+
+/** Checks `data/locales/en/places.json` against world.json and the map files it was generated from: every name and hash equal, nothing left over. */
+export function englishPlaceFailures(file, catalogue, world, maps) {
+  if (!isRecord(catalogue)) return [`${file}: is missing or is not a JSON object -- run \`pnpm locales:en -- --write\``];
+  const out = [];
+  const want = buildEnglishPlaces(world, maps);
+  for (const k of Object.keys(catalogue)) if (k !== 'world' && k !== 'src' && !PLACE_TABLES.includes(k)) out.push(`${file}: carries "${k}", which the overlay does not read`);
+  if (catalogue.world !== want.world) out.push(`${file}: world ${catalogue.world === undefined ? 'is missing' : 'differs from world.json'}`);
+  const noun = { regions: 'region', towns: 'town', maps: 'map' };
+  const home = { regions: 'world.json', towns: 'world.json', maps: 'data/maps' };
+  for (const table of PLACE_TABLES) {
+    const have = isRecord(catalogue[table]) ? catalogue[table] : {};
+    if (!isRecord(catalogue[table])) out.push(`${file}: ${table} is missing or is not an object`);
+    for (const id of Object.keys(have)) if (!(id in want[table])) out.push(`${file}: has a ${noun[table]} "${id}", which is not in ${home[table]} (stale)`);
+    for (const [id, name] of Object.entries(want[table])) {
+      if (!(id in have)) out.push(`${file}: no entry for ${noun[table]} "${id}"`);
+      else if (have[id] !== name) out.push(`${file}: ${noun[table]} "${id}" differs from ${home[table]}`);
+    }
+  }
+  const haveSrc = isRecord(catalogue.src) ? catalogue.src : {};
+  for (const k of Object.keys(haveSrc)) if (!(k in want.src)) out.push(`${file}: src has "${k}", which names nothing (stale)`);
+  for (const [k, h] of Object.entries(want.src)) {
+    if (haveSrc[k] === undefined) out.push(`${file}: src.${k} is missing`);
+    else if (haveSrc[k] !== h) out.push(`${file}: src.${k} is not the hash of its English name`);
+  }
+  return out;
+}
+
+/**
+ * Cross-checks one place-name locale overlay (`data/locales/<lang>/places.json`, `@lions/data`'s `PlaceLocaleOverlay`) against the world and
+ * the maps it names. `applyWorldLocale` and `applyMapNamesLocale` silently ignore an id they do not know, so a translator's typo would
+ * otherwise ship invisibly, doing nothing, forever. Failures: a key the overlay does not read; a region, town or map id that is not in
+ * world.json / data/maps; a name that is not a non-empty trimmed string or is over 48 characters; a `src` key that names nothing the file
+ * translates, or is not 8 lowercase hex characters. Lag (collected in `opts.lag` for a STAGED language, a failure for a shipped one): a
+ * translated name with no `src` hash, or one that no longer equals the hash of the CURRENT English.
+ * `maps` is a Map from map id to its parsed JSON, `world` is world.json's parsed JSON.
+ */
+export function placeOverlayFailures(file, overlay, world, maps, opts = {}) {
+  const out = [];
+  if (overlay === null || overlay === undefined) return out;
+  if (!isRecord(overlay)) return [`${file}: is not a JSON object`];
+  const lagOut = opts.staged === true && opts.lag ? opts.lag : out;
+  const english = placeNamesOf(world, maps.values());
+  const here = new Map(); // the path of every translated name -> its text
+  for (const key of Object.keys(overlay)) if (key !== 'world' && key !== 'src' && !PLACE_TABLES.includes(key)) out.push(`${file}: overlay carries "${key}"; a place overlay may carry only world, regions, towns, maps and src`);
+  const nameFailure = (path, v) => (typeof v !== 'string' || v.trim() === '' ? `${file}: ${path} must be a non-empty string` : v !== v.trim() ? `${file}: ${path} has leading or trailing space` : v.length > MAX_PLACE_NAME ? `${file}: ${path} is ${v.length} characters; a place name is capped at ${MAX_PLACE_NAME}` : null);
+  if (overlay.world !== undefined) {
+    const bad = nameFailure('world', overlay.world);
+    if (bad !== null) out.push(bad);
+    else here.set('world', overlay.world);
+  }
+  for (const table of PLACE_TABLES) {
+    const names = overlay[table];
+    if (names === undefined) continue;
+    if (!isRecord(names)) {
+      out.push(`${file}: ${table} is not an object`);
+      continue;
+    }
+    const noun = { regions: 'region', towns: 'town', maps: 'map' }[table];
+    const home = { regions: 'world.json', towns: 'world.json', maps: 'data/maps' }[table];
+    for (const [id, v] of Object.entries(names)) {
+      if (!english[table].has(id)) {
+        out.push(`${file}: overlay names ${noun} "${id}", which is not in ${home}`);
+        continue;
+      }
+      const bad = nameFailure(`${table}.${id}`, v);
+      if (bad !== null) out.push(bad);
+      else here.set(`${table}.${id}`, v);
+    }
+  }
+  const englishOf = (path) => (path === 'world' ? english.world : english[path.slice(0, path.indexOf('.'))].get(path.slice(path.indexOf('.') + 1)));
+  const srcAt = overlay.src;
+  if (srcAt !== undefined && !isRecord(srcAt)) {
+    out.push(`${file}: overlay src is not an object`);
+    return out;
+  }
+  const src = srcAt ?? {};
+  for (const path of here.keys()) {
+    const want = sourceHash(englishOf(path));
+    if (src[path] === undefined) lagOut.push(`${file}: overlay translates ${path} but carries no src hash for it: copy src.${path} (${want}) from data/locales/en/places.json`);
+    else if (typeof src[path] === 'string' && /^[0-9a-f]{8}$/.test(src[path]) && src[path] !== want) {
+      lagOut.push(`${file}: overlay ${path} is stale: it was translated from English ${src[path]}, and the English is now ${want}; re-translate it, then set src.${path} to ${want}`);
+    }
+  }
+  for (const [k, h] of Object.entries(src)) {
+    if (!here.has(k)) out.push(`${file}: overlay src names ${k}, which this file does not translate`);
+    else if (typeof h !== 'string' || !/^[0-9a-f]{8}$/.test(h)) out.push(`${file}: overlay src.${k} is not 8 lowercase hex characters`);
+  }
+  return out;
+}

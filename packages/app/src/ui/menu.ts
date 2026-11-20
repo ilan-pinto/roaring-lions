@@ -13,6 +13,7 @@ import { mapManifest, parseMap, type MapJson } from '@lions/data';
 import { campaignComplete } from '../campaign-close';
 import { nextOperation, type CommanderData, type ParsedWorld, type WorldCountry } from '../campaign';
 import { hasKey, t } from '../i18n/t';
+import { localizedMapManifest } from '../place-text';
 import { symbolLabel } from './symbol';
 import { footBack, screenFoot } from './foot';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
@@ -646,7 +647,7 @@ export function showSandbox(stage: HTMLElement, previews: Readonly<Record<string
   // copy-link and the browser's own history all behave.
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav rl-mapcards';
-  const catalogue = mapManifest as Readonly<Record<string, { readonly name: string }>>;
+  const catalogue = localizedMapManifest() as Readonly<Record<string, { readonly name: string }>>;
   const links: { id: string; a: HTMLAnchorElement }[] = [];
   for (const id of freePlayMapIds()) {
     const a = document.createElement('a');
