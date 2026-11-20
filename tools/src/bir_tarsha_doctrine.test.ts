@@ -309,10 +309,10 @@ describe('BT-A13: the body counts the casualties_pct triggers divide by', () => 
   });
 });
 
-describe('BT-A14: time_limit_s is exactly twice target_minutes', () => {
+describe('BT-A14: time_limit_s is at least twice target_minutes (II is 900: the lead, 20 Nov 2026, Harder wins to 701 s)', () => {
   const LIMITS: readonly (readonly [string, number, number])[] = [
     [BT1, 6, 720],
-    [BT2, 7, 840],
+    [BT2, 7, 900],
     [BT3, 6, 720],
     [BT4, 7, 840],
     [BT5, 7, 840],
@@ -321,6 +321,6 @@ describe('BT-A14: time_limit_s is exactly twice target_minutes', () => {
     it(`${id}: ${minutes} minutes, ${limit} s`, () => {
       expect(mission(id).target_minutes).toBe(minutes);
       expect(mission(id).time_limit_s).toBe(limit);
-      expect(mission(id).time_limit_s).toBe(2 * 60 * minutes);
+      expect(mission(id).time_limit_s).toBeGreaterThanOrEqual(2 * 60 * minutes);
     });
 });
