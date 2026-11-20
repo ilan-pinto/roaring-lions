@@ -229,6 +229,7 @@ export default defineConfig(
       'packages/sim/src/runtime-versus-works-world.test-helper.ts',
       'packages/sim/src/snapshot-witness-worlds.test-helper.ts',
       'packages/sim/src/gate-world.test-helper.ts',
+      'packages/sim/src/civ-fire-world.test-helper.ts',
     ],
     rules: {
       'no-restricted-globals': 'off',

@@ -2,7 +2,8 @@
   "version": "next",
   "units": [],
   "rules": [
-    "The system's increase contrast setting now brightens dim text and the borders of panels."
+    "The system's increase contrast setting now brightens dim text and the borders of panels.",
+    "A mission you saved or paused in an earlier version now starts over instead of resuming."
   ],
   "fixes": [
     "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on."

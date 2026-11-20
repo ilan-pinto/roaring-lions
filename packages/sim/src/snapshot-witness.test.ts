@@ -467,7 +467,11 @@ describe('snapshot format pin', () => {
     // and stGateHold Int32Array x 256, and the `gateLive` scalar), encoded even when no gate is raised. With those four rows
     // cut from snapshot-schema.ts the same run reads 3165750916 again (watched), so the move is exactly the new rows.
     // 2772551002 is read off a fresh run. The golden hash did not move: nothing folds the block until a gate is raised.
-    expect(h >>> 0).toBe(2772551002);
+    // Was 2772551002. GH-1438 E6 (fires on civilians) appended two `state` rows (civFire Uint8Array x capacity, and the
+    // `civFireLive` scalar), encoded even when nothing is flagged. With those two rows cut from snapshot-schema.ts the
+    // same run reads 2772551002 again (watched), so the move is exactly the new rows. 303144036 is read off a fresh run.
+    // The golden hash did not move: nothing folds the column until a shooter is flagged.
+    expect(h >>> 0).toBe(303144036);
   });
 });
 

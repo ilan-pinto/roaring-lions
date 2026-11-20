@@ -51,6 +51,7 @@ import { timeLimitFailures } from './validate_time_limit.mjs';
 import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { musterZoneFailures, sealedCompoundFailures } from './validate_muster.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
+import { civFireFailures } from './validate_civ_fire.mjs';
 import { triggerZoneFailures } from './validate_trigger_zone.mjs';
 import { abductFailures } from './validate_abduct.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
@@ -1029,6 +1030,8 @@ const garrisonableSymbols = new Set(
     failures.push(...timeLimitFailures(mi, rel(file)));
     // GH-1438 E10: at most 160 authored entities, so the sim's 256 lifetime slots keep 96 for runtime spawns.
     failures.push(...entityBudgetFailures(mi, rel(file)));
+    // GH-1438 E6: `fires_on_civilians` on an enemy placement only.
+    failures.push(...civFireFailures(mi, rel(file)));
     // GH-1438 E5: `do.zone` only where the runtime reads it, and only naming a zone the map has.
     failures.push(...triggerZoneFailures(mi, map, rel(file)));
     // GH-1438 E8: an abduct's captives are civilians, its escort is an enemy group, its `to` is inside its zone and
