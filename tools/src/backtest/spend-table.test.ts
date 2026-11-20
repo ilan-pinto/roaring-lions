@@ -35,6 +35,8 @@ describe('spendRows, against a hand recomputation (C10)', () => {
     expect(lines[0]).toBe('spend probe (as played, nothing refused): 5 winning-plan runs');
     expect(lines.at(-1)).toBe('spend probe: 3 of 5 bank over 30%, 2 spend nothing, 5 of 5 win');
     expect(lines[1]).toContain('purse  1008  spent   292  bank 71%');
+    expect(lines[1]).toContain('victory in 6.0 min, stars 2  refused 0');
+    expect(spendReport(spendRows([run('x', { start: 1, earned: 0, zoneEarned: 0, held: 1 }, { minutes: 5.104166666666667 })]), false)[1]).toContain('in 5.1 min');
   });
 });
 

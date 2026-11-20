@@ -80,7 +80,7 @@ export function spendReport(rows: readonly SpendRow[], refusalOn: boolean): stri
   for (const r of rows) {
     lines.push(
       `${pad(r.id, w)}  purse ${String(r.purse).padStart(5)}  spent ${String(r.spent).padStart(5)}  bank ${r.bankPct === null ? '-' : `${r.bankPct}%`}  ` +
-        `${r.result} in ${r.minutes} min, stars ${r.stars}  refused ${r.refused}`
+        `${r.result} in ${r.minutes.toFixed(1)} min, stars ${r.stars}  refused ${r.refused}`
     );
   }
   const won = rows.filter((r) => r.result === 'victory').length;
