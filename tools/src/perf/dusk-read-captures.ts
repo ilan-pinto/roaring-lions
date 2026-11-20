@@ -19,9 +19,15 @@
  *   - `dusk-after`  `&tod=dusk&duskread`, the read at its shipped numbers, then a sweep of its knobs on the SAME frame
  *                   (`debugSetDuskRead`, repaint at zero elapsed time), the neutral arm (1, 1, 0) first.
  * Ticks are absolute and identical on every page: the first page finds the tick the spotters have identified every hostile
- * (`contactLevel === 2`), and every later page steps to that same tick and asserts the same facts there. The frame clock is
- * advanced by the same calls on every page too (meshes are waited for with zero-elapsed frames), so poses should match
- * across pages; the exact control is still inside `dusk-after`, whose neutral arm is the same frame with the read off.
+ * (`contactLevel === 2`), and every later page steps to that same tick and asserts the same facts there. The FRAME clock is
+ * not the same across pages (`__lions.step` itself calls `frame(1, lastFrameMs)`, the last real frame's length, and the
+ * mesh wait runs as many frames as the load takes), so a pose can differ between pages; the exact control is inside
+ * `dusk-after`, whose neutral arm is the same frame with the read off.
+ *
+ * `recon_zikit` is not in the sandbox roster, so its mesh is queued only by the app's once-a-second safety net inside
+ * `runTick` (`main.ts`, "reached the field with no mesh queued"), which runs on a tick that is a multiple of 20. The group
+ * is therefore stepped to `MESH_QUEUE_TICK` before the meshes are waited for. The second run (20 Nov 2026) waited at tick 3
+ * and gave up with the spotters' meshes never queued: zero frames, and the session spent.
  *
  * Run against a dev server YOU started from this worktree (never 5177), on the real Metal GPU, music off, one browser:
  *
@@ -64,6 +70,8 @@ fs.mkdirSync(OUT, { recursive: true });
 const MAP = 'wadi_halam_4';
 /** The absolute tick the stage is cleared and the group spawned at, on every page. */
 const START_TICK = 2;
+/** A multiple of 20 after the spawn: the app's once-a-second mesh safety net queues the spotter's (non-roster) mesh here. */
+const MESH_QUEUE_TICK = 20;
 /** The spotters must identify every hostile by the first page's search, between these ticks. */
 const OBSERVE_MIN = 40;
 const OBSERVE_MAX = 900;
@@ -265,12 +273,14 @@ async function spawnGroup(page: Page): Promise<{ ids: number[]; hp: number[] }> 
   }, GROUP as unknown as Placement[]);
 }
 
-/** Waits for every mesh with ZERO-elapsed frames, so the frame clock is the same on every page whatever the load time. */
+/** Waits for every mesh (16 ms frames, run 1's wait, which worked). On giving up it names, per MISSING id, its type, whether
+ *  the renderer holds a template for it and whether that type is still cold, so a failure says its cause. */
 async function waitMeshes(page: Page, ids: number[]): Promise<void> {
+  let missing: number[] = ids;
   for (let n = 0; n < 240; n++) {
-    const missing = await page.evaluate((want) => {
+    missing = await page.evaluate((want) => {
       const L = (window as unknown as W).__lions;
-      L.renderer.frame(1, 0);
+      L.renderer.frame(1, 16);
       return want.filter((id) => {
         const e = L.renderer.meshUnitEntities.get(id);
         return !e || e.actions.size === 0;
@@ -279,7 +289,15 @@ async function waitMeshes(page: Page, ids: number[]): Promise<void> {
     if (missing.length === 0) return;
     await page.waitForTimeout(250);
   }
-  throw new Error(`meshes never arrived for ${ids.join(',')}`);
+  const why = await page.evaluate((gone) => {
+    const L = (window as unknown as W).__lions;
+    const r = L.renderer as unknown as { meshUnitTemplates: Map<string, unknown>; coldUnitTypes: Set<string> };
+    return gone.map((id) => {
+      const t = L.sim.unitTypes[(L.sim.state as unknown as { typeIdx: Int32Array }).typeIdx[id]].id;
+      return `${id} ${t} template=${r.meshUnitTemplates.has(t)} cold=${r.coldUnitTypes.has(t)}`;
+    });
+  }, missing);
+  throw new Error(`meshes never arrived: ${why.join('; ')}`);
 }
 
 /** The first tick at or after `from` at which side 0 has identified every hostile in the group (or -1 by `to`). */
@@ -333,7 +351,7 @@ async function runPage(page: Page, spec: PageSpec, gpu: string): Promise<Meta> {
   const moved = await clearStage(page);
   const { ids, hp } = await spawnGroup(page);
   console.log(`  frozen at tick ${t0}, cleared ${moved} sandbox units at ${START_TICK}; group ${ids.join(',')}`);
-  await page.evaluate(() => (window as unknown as W).__lions.step(1));
+  await stepTo(page, MESH_QUEUE_TICK);
   await waitMeshes(page, ids);
   const foes = ids.filter((_, k) => GROUP[k].side === 1);
   let pinAt: number;
