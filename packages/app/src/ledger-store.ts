@@ -130,6 +130,11 @@ export interface CampaignLedger extends LedgerData {
    *  seeds its pool from `roster.surviving_units` and nothing else. */
   'roster.reserve'?: RosterEntry[];
   'roster.lost'?: LostRecord[];
+  /** GH-1380 (the lead's roster ruling, 20 Nov 2026): men an abduction took, MISSING and not dead -- no memorial, off
+   *  the roster, never counted against the cap. Written by `checkEnd` beside `roster.surviving_units` (the sim's
+   *  `LedgerMissingEntry`, here widened with the app's `slot`/`enlisted` it carried through opaquely). Absent on a
+   *  save that never had a man taken. */
+  'roster.missing'?: (RosterEntry & { missionId: string })[];
   /** Monotone slot counter, the mirror of `campaign.names_issued`. */
   'campaign.slots_issued'?: number;
 }

@@ -40,6 +40,17 @@
  *    and serving nowhere else, is replaced by this run's;
  * 8. `splitRoster` -- the cap, over active plus reserve.
  *
+ * **Removed and missing (GH-1380, the lead's roster ruling of 20 Nov 2026).**
+ * A man a mission script took off the field (a `remove` trigger) or a rescue
+ * took out alive is on the roster `checkEnd` produced, as a survivor, so every
+ * step above treats him as one: his slot reattached by name, the cap over him.
+ * A man an abduction took is MISSING: `checkEnd` writes him to
+ * `roster.missing` (appended to what came in), never to the roster, and this
+ * chain passes that key through `merged` untouched. He is not in
+ * `lostThisMission` (no `unitLost`), so he leaves no memorial, and his slot is
+ * not a vacancy (`fillVacancies` reads `roster.lost` alone). A loaned man goes
+ * back to the lender either way (L-1, `checkEnd`).
+ *
  * A produced ledger with no roster array at all (a mission whose contract does
  * not produce `roster.surviving_units`, on a campaign that has none yet) runs
  * none of it: the merged ledger goes back untouched, with no rows.

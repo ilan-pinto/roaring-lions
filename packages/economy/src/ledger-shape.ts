@@ -74,6 +74,8 @@ const ROSTER_REQUIRED = { type: isStr, veterancy: isNum } as const;
 const ROSTER_OPTIONAL = { name: isStr, missions: isNum, kills: isNum, slot: isNum, enlisted: isStr, wounded_in_action: isNum, rescued: isNum } as const;
 const LOST_REQUIRED = { slot: isNum, type: isStr, veterancy: isNum, missions: isNum, kills: isNum, missionId: isStr, tick: isNum } as const;
 const LOST_OPTIONAL = { name: isStr, cause: isRec } as const;
+// GH-1380: a missing man is his roster entry plus the mission that lost him.
+const MISSING_REQUIRED = { ...ROSTER_REQUIRED, missionId: isStr } as const;
 const RESULT_REQUIRED = { stars: isNum, roe: isNum, ticks: isNum, lost: isNum } as const;
 
 type KeyRule = (v: unknown) => unknown | undefined;
@@ -86,6 +88,7 @@ const RULES: Readonly<Record<string, KeyRule>> = {
   'roster.surviving_units': rows(ROSTER_REQUIRED, ROSTER_OPTIONAL),
   'roster.reserve': rows(ROSTER_REQUIRED, ROSTER_OPTIONAL),
   'roster.lost': rows(LOST_REQUIRED, LOST_OPTIONAL),
+  'roster.missing': rows(MISSING_REQUIRED, ROSTER_OPTIONAL),
   'campaign.completed_missions': stringList,
   'intel.marked_positions': stringList,
   'roe.mission_ratings': numberRecord,
