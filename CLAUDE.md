@@ -77,6 +77,7 @@ pnpm backdrop:layout -- --map=<id> [--write]   # a map's `backdrop` piece list f
 pnpm backdrop:test    # the kit build tools' unit tests (numpy only, ~2 min; not in CI)
 pnpm balance          # headless battle sim, prints win rates
 pnpm versus:probe     # report-only: who wins a versus map when both seats attack-move (west/east, KDF/Sarim); the bar for opening a map (GH-561)
+pnpm perf:census      # CI gate (GH-1411): draw calls a living unit at the 300 checkpoint on `high`, 12.348 +-5%, on SwiftShader; counts calls, not frame time
 pnpm spacing:census   # report-only (GH-1360): overlap by BODIES at tick 0, in play (`-- --play`), the choke probe; the baseline every spacing slice compares
 pnpm spacing:sheet -- --out=<json> [--png=<png>] [--layout=<json>]   # the top-down per-class layout sheet, today against a layout (needs python3 + matplotlib)
 ```
@@ -394,7 +395,7 @@ Full record: `scaling-debts.md`, `mission-findings.md`.
 
 - `roster.surviving_units` is cumulative; `roster-carryover.ts` caps it at `ROSTER_CAP` 150, and a replay replaces bodies that mission enlisted (R-2).
 - Detection and `selectTarget` are each O(N²) per tick. The 50 ms budget is not crossed until about 1,700–2,100 living units. Every per-tick scan bounds on `this.count`, the LIFETIME spawn count. The trail and route scans want staggering at the 300-unit target.
-- Rigged mesh units are draw-call bound (`SkinnedMesh` does not instance); the render budget is crossed at about 1,150 figures.
+- `SkinnedMesh` does not instance, so N figures cost N x (meshes per team) draw calls. The ~1,150-figure ceiling is one skinned type on a bare renderer, not the game's frame: the shipped roster at 300 units (267 living, `high`, 1280x720 DPR 1, ANGLE/Metal on an M3 Pro) reads 21.8-23.2 ms submit p95 and 33.4-35.8 ms synced, over 16.7 ms (R1, `docs/PERFORMANCE.md`). No 300-units-at-60-fps claim is supported. CI gates the draw-call census, not frame time (`pnpm perf:census`).
 - The flow-field pool cap, `MAX_FLOW_FIELDS` 128, is a floor, not a ceiling. A field issued this tick is never evicted.
 - `starting_force` ignores `unlock` gates on purpose: the issued force is on loan (`loanedPlacements`), and a loaned survivor goes back to the lender (L-1). A gated unit that arrives by a `reinforce` trigger is on loan the same way (`loanedReinforcements`, GH-801) and goes back too.
 - A wave's `from` cannot name a tunnel, though the schema text promises it. `intel.marked_positions` cannot pre-reveal a tunnel route.
