@@ -436,7 +436,10 @@ export interface OpenCellRow {
   matchup: Matchup;
   winMode: WinMode | null;
   games: number;
-  /** Games with the idle-unit stall (60 s with no order while an able, idle unit stood by), the literal stall, and games not played or with no order at all. */
+  /** Games with the stall that closes a cell: 60 s with no order while an able, idle unit stood by AWAY from home (beyond `RUSH_HOME_TILES` of the camp). An idle unit
+   *  inside the home radius is the commander's guard, not a seat that gave up (the lead's ruling, 20 Nov 2026). */
+  awayStalls: number;
+  /** Games with the broader idle-unit stall (any idle, able unit, home or away), reported but no longer closing a cell, the literal stall, and games not played or with no order at all. */
   idleStalls: number;
   literalStalls: number;
   broken: number;
@@ -449,7 +452,8 @@ export interface OpenCellRow {
 
 /**
  * The lobby seats the computer at SEAT 1 (the human is the host end), so only the commander-at-seat-1 games say whether a cell is playable. A cell is OPEN
- * when it has games and none of them stopped playing: every game was played, the seat gave an order, and no game had the idle-unit stall. The literal
+ * when it has games and none of them stopped playing: every game was played, the seat gave an order, and no game had the away-from-home idle stall (60 s with no order while an able,
+ * idle unit stood by beyond `RUSH_HOME_TILES` of the camp). An idle unit at home is the commander's guard and does not count (the lead's ruling, 20 Nov 2026; before it, any idle unit did). The literal
  * stall ("no order for 60 s") is counted and reported but does not close a cell: it fires in a firefight in 85% of games, so it cannot tell a seat in a fight
  * from a seat that gave up (docs/net/commander-coverage.md section 0). A cell with no games has no row here, and the lobby's table (`open-cells.ts`) treats a cell it does not list as closed.
  */
@@ -460,10 +464,11 @@ export function openCellsOf(records: readonly GameRecord[]): OpenCellRow[] {
     const key = `${r.cell.map}|${r.cell.matchup}|${r.cell.winMode ?? ''}`;
     let row = by.get(key);
     if (row === undefined) {
-      row = { map: r.cell.map, matchup: r.cell.matchup, winMode: r.cell.winMode, games: 0, idleStalls: 0, literalStalls: 0, broken: 0, decidedBy: {}, open: false, why: '' };
+      row = { map: r.cell.map, matchup: r.cell.matchup, winMode: r.cell.winMode, games: 0, awayStalls: 0, idleStalls: 0, literalStalls: 0, broken: 0, decidedBy: {}, open: false, why: '' };
       by.set(key, row);
     }
     row.games++;
+    if (r.stallAway) row.awayStalls++;
     if (r.stallIdle) row.idleStalls++;
     if (r.stallLiteral) row.literalStalls++;
     if (r.status !== 'played' || r.firstOrderTick === null) row.broken++;
@@ -472,7 +477,7 @@ export function openCellsOf(records: readonly GameRecord[]): OpenCellRow[] {
   const rows = [...by.values()];
   for (const row of rows) {
     const why: string[] = [];
-    if (row.idleStalls > 0) why.push(`${row.idleStalls} of ${row.games} games stopped playing (60 s with no order while an idle unit stood by)`);
+    if (row.awayStalls > 0) why.push(`${row.awayStalls} of ${row.games} games stopped playing (60 s with no order while an idle unit stood by away from home)`);
     if (row.broken > 0) why.push(`${row.broken} of ${row.games} games not played or without a single order`);
     row.open = why.length === 0;
     row.why = why.join('; ');
@@ -481,9 +486,9 @@ export function openCellsOf(records: readonly GameRecord[]): OpenCellRow[] {
 }
 
 export function openCellsTableOf(rows: readonly OpenCellRow[]): string {
-  const head = '| map | human plays | win mode | games | stopped playing (idle) | literal 60 s | decided by | verdict |';
-  const sep = '|---|---|---|---|---|---|---|---|';
-  const lines = rows.map((r) => `| ${r.map} | ${r.matchup} | ${r.winMode ?? 'annihilation'} | ${r.games} | ${r.idleStalls} | ${r.literalStalls} | ${Object.entries(r.decidedBy).map(([k, v]) => `${k} ${v}`).join(', ')} | ${r.open ? 'open' : `CLOSED: ${r.why}`} |`);
+  const head = '| map | human plays | win mode | games | stopped playing (idle, away from home) | idle at home or away | literal 60 s | decided by | verdict |';
+  const sep = '|---|---|---|---|---|---|---|---|---|';
+  const lines = rows.map((r) => `| ${r.map} | ${r.matchup} | ${r.winMode ?? 'annihilation'} | ${r.games} | ${r.awayStalls} | ${r.idleStalls} | ${r.literalStalls} | ${Object.entries(r.decidedBy).map(([k, v]) => `${k} ${v}`).join(', ')} | ${r.open ? 'open' : `CLOSED: ${r.why}`} |`);
   return [head, sep, ...lines].join('\n');
 }
 
