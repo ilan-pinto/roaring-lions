@@ -15,10 +15,12 @@
  *
  * Every faction's figures take it at dusk (friend, foe and civilian alike), but its EFFECT is not symmetric: it scales
  * the albedo, so it visibly lifts the tan Sarim and militia figures and barely moves the dark KDF camouflage (x2 of a dark
- * texel is still dark). The first Metal capture (`tools/src/perf/dusk-read-captures.ts`, 19 Nov 2026) shows exactly that,
- * and on the one squad its noise left measurable, a figure lifted toward the ground's own luminance read WORSE against it
- * (the rain read's finding again: a lift only moves a figure darker than the ground toward it). The rim, at 0 here, is the
- * one arm that put an edge on the KDF figures. The numbers below are the lead's to judge. Vehicles do not take it: they
+ * texel is still dark). The clean Metal capture (`tools/src/perf/dusk-read-captures.ts`, run 2, 20 Nov 2026: tick 118 on
+ * every page, repaint control 0 px) measured the share of figure pixels at dE >= 15.6 against the ground per squad: x2 lifts
+ * four of seven squads (the two spotters +9 and +6 points, the militia +8.5, the pinned rifles +1) and loses on three (the
+ * rifle squad on lit grass -7, the pinned militia -1, the RPG team -2): a figure darker than the ground moves toward it, the
+ * rain read's finding again. The rim at 0.4 adds +3 to +7 points on three KDF squads over x2 alone and -2 on the rifle squad;
+ * it is the lead's option, kept at 0 here until he judges it. The numbers below are the lead's to judge. Vehicles do not take it: they
  * are large, they read at dusk, and the Lavi carries its own team mark.
  *
  * OPT-IN, and the default is OFF: `RendererOptions.duskRead` (the app's `&duskread` switch) and only on a dusk renderer
