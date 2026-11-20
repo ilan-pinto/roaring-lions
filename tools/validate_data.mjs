@@ -16,7 +16,7 @@
 //   data/doctrines/picks/** against data/schemas/doctrine_pick.schema.json (GH-1383), plus P1-P10 in
 //                    tools/validate_doctrine.mjs and the cost-curve bar in tools/doctrine_balance.py (python3)
 //   data/computer/levels.json against data/schemas/computer_levels.schema.json (GH-1389), plus the
-//                    order, unit and no-boost rules in tools/validate_computer_levels.mjs
+//                    order, per-faction placed-force, superset and no-boost rules in tools/validate_computer_levels.mjs
 //   data/versus/modes/** against data/schemas/versus_mode.schema.json (GH-976), plus the camp, zone and
 //                    anchor rules in tools/validate_versus_modes.mjs
 //   data/versus/*    against data/schemas/versus_rules.schema.json, plus the camp,
@@ -50,13 +50,15 @@ import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
 import { authoredForceToGateFailures } from './validate_force_to_gate.mjs';
 import { entityBudgetFailures } from './validate_entity_budget.mjs';
+import { triggerZoneFailures } from './validate_trigger_zone.mjs';
+import { abductFailures } from './validate_abduct.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { objectiveFailures, razeZoneFailures } from './validate_objectives.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures, doctrinePickFailures } from './validate_doctrine.mjs';
 import { spawnSync } from 'node:child_process';
-import { computerLevelFailures } from './validate_computer_levels.mjs';
+import { computerLevelFailures, placedForcesFromSource, PLACED_FORCE_SOURCES } from './validate_computer_levels.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { versusModeFailures } from './validate_versus_modes.mjs';
 import { formationFailures } from './validate_formations.mjs';
@@ -983,23 +985,26 @@ const garrisonableSymbols = new Set(
       // GH-912: a `group_in_zone` condition watches a group, and one no placement declares
       // never exists at runtime, so the trigger could never fire. (Its zone is checked with
       // every other trigger zone, above.)
-      if (t.on?.kind === 'group_in_zone' && !declaredGroups.has(t.on.group)) {
+      // GH-1438 E7: `group_fired` the same: a group nobody declares never fires, so its cue never plays.
+      if ((t.on?.kind === 'group_in_zone' || t.on?.kind === 'group_fired') && !declaredGroups.has(t.on.group)) {
         failures.push(
-          `${rel(file)}: group_in_zone trigger "${name}" watches group "${t.on.group}", which no placement declares`
+          `${rel(file)}: ${t.on.kind} trigger "${name}" watches group "${t.on.group}", which no placement declares`
         );
       }
       // A commit or withdraw_to with no destination is a silent no-op: the
       // runtime only queues the order when `to` is present, so the trigger
       // fires, latches, and moves nobody. Verified in play — the breach's
       // infiltrators sat at their tunnels all mission. Fail here, by name.
-      if ((kind === 'commit' || kind === 'withdraw_to') && !t.do.to) {
+      if ((kind === 'commit' || kind === 'withdraw_to' || kind === 'abduct') && !t.do.to) {
         failures.push(
           `${rel(file)}: ${kind} trigger "${name}" has no "to" — it would fire and move nobody`
         );
       }
       // Same silent-no-op family: these three act on a group, and a group no
       // placement declares filters to an empty id list at runtime.
-      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount') continue;
+      // GH-1438 E8: an abduct's captives, escort side, `to`-in-zone, start gap and reachability are tools/validate_abduct.mjs
+      // (called below, once per mission).
+      if (kind !== 'commit' && kind !== 'withdraw_to' && kind !== 'dismount' && kind !== 'abduct') continue;
       if (!t.do.group) {
         failures.push(`${rel(file)}: a ${kind} trigger needs "group"`);
       } else if (!declaredGroups.has(t.do.group)) {
@@ -1023,6 +1028,15 @@ const garrisonableSymbols = new Set(
     failures.push(...timeLimitFailures(mi, rel(file)));
     // GH-1438 E10: at most 160 authored entities, so the sim's 256 lifetime slots keep 96 for runtime spawns.
     failures.push(...entityBudgetFailures(mi, rel(file)));
+    // GH-1438 E5: `do.zone` only where the runtime reads it, and only naming a zone the map has.
+    failures.push(...triggerZoneFailures(mi, map, rel(file)));
+    // GH-1438 E8: an abduct's captives are civilians, its escort is an enemy group, its `to` is inside its zone and
+    // reachable, and its captives start inside the release; a route across an evacuation zone is a warning.
+    {
+      const report = abductFailures(mi, map, new Set(structureSymbols.keys()), rel(file));
+      failures.push(...report.failures);
+      warnings.push(...report.warnings);
+    }
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
@@ -1220,7 +1234,7 @@ const garrisonableSymbols = new Set(
       const tr = loadJson(file);
       if (!tr) continue;
       const id = entry.name.slice(0, -'.json'.length);
-      failures.push(...chromeCatalogueFailures(rel(file), en, tr, stagingOf(id)));
+      failures.push(...chromeCatalogueFailures(rel(file), en, tr, { locale: id, ...stagingOf(id) }));
       // The stale-translation guard: data/locales/<id>/chrome.src.json carries the hash of the English each string was translated from.
       const srcFile = join(ROOT, 'data/locales', id, 'chrome.src.json');
       if (!existsSync(srcFile)) failures.push(`${rel(file)}: has no source-hash sidecar ${rel(srcFile)} (run \`pnpm locales:chrome-src -- ${id} --write\`)`);
@@ -1449,9 +1463,16 @@ const garrisonableSymbols = new Set(
     }
     for (const f of balance.failures) failures.push(`doctrine cost curve (T4): ${f}`);
   }
-  // GH-1389: the computer levels -- KDF units, strictly ordered by the force they field, no income or vision key.
+  // GH-1389: the computer levels -- per faction, units of that faction's placed force and no more than it fields, each level
+  // withholding at least what the one above does, strictly ordered by the force they field; no income or vision key.
   const levelsFile = join(ROOT, 'data/computer/levels.json');
-  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits));
+  let placed = null;
+  try {
+    placed = placedForcesFromSource(PLACED_FORCE_SOURCES.map((p) => readFileSync(join(ROOT, p), 'utf8')));
+  } catch (e) {
+    failures.push(`${rel(levelsFile)}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  failures.push(...computerLevelFailures({ file: rel(levelsFile), doc: loadJson(levelsFile) }, doctrineUnits, placed));
 }
 
 // --- versus rules files (N3 Task 1) -------------------------------------------

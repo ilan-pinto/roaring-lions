@@ -2,7 +2,8 @@
 // what is under test. Each fixture is one ordered ladder with one cell changed.
 import { describe, expect, it } from 'vitest';
 import { LADDER_MARGINS, orderingViolations, pooled, winRate, type LadderCells, type Tally } from './backtest/computer-ladder-gate';
-import { tally } from './backtest/computer-ladder-match';
+import { VERSUS_FAIR_MAPS } from '@lions/net';
+import { cellKey, computerFactionOf, ladderCells, ladderRequest, tally } from './backtest/computer-ladder-match';
 
 const t = (computer: number, player: number, draw = 0): Tally => ({ computer, player, draw });
 
@@ -105,5 +106,39 @@ describe('the tally', () => {
       { map: 'm', level: 'hard', plan: 'rush', seed: 1, verdict: 'draw', by: 'cap', ticks: 10 },
     ]);
     expect(cells.m.rush).toEqual({ easy: t(1, 1), medium: t(0, 0), hard: t(0, 0, 1) });
+  });
+});
+
+describe('the ladder cells (GH-1389, Sarim withholds)', () => {
+  it('by default are the ladder as it always ran: the mirror in annihilation on every open map, keyed by the map alone', () => {
+    const cells = ladderCells({});
+    expect(cells).toEqual(VERSUS_FAIR_MAPS.map((map) => ({ map, matchup: 'mirror', winMode: null })));
+    expect(cells.map(cellKey)).toEqual([...VERSUS_FAIR_MAPS]);
+    expect(ladderCells({ maps: 'tel_marum,milh_flats' })).toEqual([{ map: 'tel_marum', matchup: 'mirror', winMode: null }, { map: 'milh_flats', matchup: 'mirror', winMode: null }]);
+    expect(cells.map(computerFactionOf)).toEqual(VERSUS_FAIR_MAPS.map(() => 'kdf'));
+  });
+
+  it('the default request is the one playMatch always armed, key for key (no winMode key, no matchup but the mirror)', () => {
+    // The literal is the request playMatch built before cells existed (origin/dev at 30cca0749).
+    expect(JSON.stringify(ladderRequest('tel_marum', 'easy', 89000))).toBe(JSON.stringify({ map: 'tel_marum', matchup: 'mirror', callsign: 'Plan', computerName: 'Computer', build: 'ladder+0', seed: 89000, level: 'easy' }));
+    expect(Object.keys(ladderRequest('tel_marum', 'easy', 89000))).toEqual(['map', 'matchup', 'callsign', 'computerName', 'build', 'seed', 'level']);
+    expect(JSON.stringify(ladderRequest('tel_marum', null, 7))).toBe(JSON.stringify({ map: 'tel_marum', matchup: 'mirror', callsign: 'Plan', computerName: 'Computer', build: 'ladder+0', seed: 7 }));
+  });
+
+  it('--cells names a pairing and a win mode, seats the computer on the other faction, and keys the tally apart', () => {
+    const cells = ladderCells({ cells: 'wadi_tarfan:kdf:camp,wadi_tarfan_l:kdf:camp' });
+    expect(cells).toEqual([{ map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' }, { map: 'wadi_tarfan_l', matchup: 'kdf', winMode: 'camp' }]);
+    expect(cells.map(computerFactionOf)).toEqual(['sarim', 'sarim']);
+    expect(computerFactionOf({ matchup: 'sarim' })).toBe('kdf');
+    expect(ladderRequest('wadi_tarfan', 'easy', 1, cells[0])).toMatchObject({ matchup: 'kdf', winMode: 'camp', level: 'easy' });
+    expect(cellKey(cells[0])).toBe('wadi_tarfan kdf camp');
+    const t2 = tally([
+      { map: 'wadi_tarfan', level: 'easy', plan: 'rush', seed: 1, verdict: 'player', by: 'camp', ticks: 10 },
+      { map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp', level: 'easy', plan: 'rush', seed: 1, verdict: 'computer', by: 'camp', ticks: 10 },
+    ]);
+    expect(Object.keys(t2)).toEqual(['wadi_tarfan', 'wadi_tarfan kdf camp']);
+    expect(() => ladderCells({ maps: 'a', cells: 'a:kdf' })).toThrow(/not both/);
+    expect(() => ladderCells({ cells: 'a:kfd:camp' })).toThrow(/bad matchup/);
+    expect(() => ladderCells({ cells: 'a:kdf:camps' })).toThrow(/bad win mode/);
   });
 });

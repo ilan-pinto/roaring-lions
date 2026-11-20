@@ -5,6 +5,7 @@
 // a GitHub Actions step can run it directly, and this file exists only for
 // the test's benefit.
 export function commitType(subject: string): string | null;
-export function nextVersion(current: string, subjects: readonly string[]): string | null;
+export function nextVersion(current: string, subjects: readonly string[], notes?: unknown): string | null;
+export function notesBump(notes: unknown): "minor" | "patch" | "none";
 export const BUMP_BY_TYPE: Readonly<Record<string, "minor" | "patch" | "none">>;
 export function bumpOf(type: string): "minor" | "patch" | "none";

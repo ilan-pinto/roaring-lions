@@ -26,10 +26,13 @@ import {
   parseSlot,
   parseWorld,
   raiseBy,
+  shippedBranched,
   spendable,
   storeInputFor,
   storeItems,
+  toCoinAsk,
   MAX_COINS,
+  type BranchedTable,
   type CampaignBody,
   type CoinAskWire,
   type InventoryItem,
@@ -103,7 +106,7 @@ interface Mark {
 }
 
 /** The asks a device wallet carries, in its receipt order, then what no receipt names (units by id, then tracks). */
-function askOrder(device: RoarWallet, knownUnits: ReadonlySet<string>, trackLen: ReadonlyMap<string, number>): CoinAskWire[] {
+function askOrder(device: RoarWallet, knownUnits: ReadonlySet<string>, trackLen: ReadonlyMap<string, number>, branched: BranchedTable = shippedBranched()): CoinAskWire[] {
   const out: CoinAskWire[] = [];
   const seen = new Set<string>();
   const push = (a: CoinAskWire): void => {
@@ -120,7 +123,14 @@ function askOrder(device: RoarWallet, knownUnits: ReadonlySet<string>, trackLen:
     const held = device.entitlements.upgrades[unitId]?.[name]?.tier ?? 0;
     const len = trackLen.get(`${unitId}\u0000${name}`);
     if (len === undefined) return;
-    for (let t = 1; t <= Math.min(held, upTo, len); t++) push({ item: 'tier', unitId, track: name, tier: t });
+    // GH-1384: the branched tier of a track is carried as a fresh buy of the device's pick, whatever marker its wallet
+    // holds (the server's own `migrateRoar` already settled `branch`); every other tier carries no `branch`. `branched`
+    // is empty while branching is closed, so a closed claim is dev's.
+    const forkTier = branched[unitId]?.[name]?.tier;
+    const pick = device.entitlements.upgrades[unitId]?.[name]?.branch;
+    for (let t = 1; t <= Math.min(held, upTo, len); t++) {
+      push(t === forkTier && pick !== undefined ? { item: 'tier', unitId, track: name, tier: t, branch: pick } : { item: 'tier', unitId, track: name, tier: t });
+    }
   };
   for (const r of device.receipts) {
     if (r.kind === 'unit') unit(r.unitId);
@@ -298,7 +308,7 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
           notCarried.push({ ask, reason: 'owned' });
           continue;
         }
-        const coinAsk = ask.item === 'unit' ? ({ kind: 'unit', unitId: ask.unitId } as const) : ({ kind: 'tier', unitId: ask.unitId, track: ask.track, tier: ask.tier } as const);
+        const coinAsk = toCoinAsk(ask);
         const item = coinAsk.kind === 'unit' ? items.units.get(coinAsk.unitId) : items.tiers.get(`${coinAsk.unitId}\u0000${coinAsk.track}\u0000${coinAsk.tier}`);
         const cost = item === undefined ? null : coinCost(item);
         // Short of the price: refused without pricing it through the Stores again.
@@ -320,7 +330,7 @@ export async function claim(ctx: AccountCtx): Promise<Response> {
           kind: coinAsk.kind,
           delta: -price,
           receipt: scratch.receipts[scratch.receipts.length - 1] ?? null,
-          detail: coinAsk.kind === 'unit' ? { unitId: coinAsk.unitId } : { unitId: coinAsk.unitId, track: coinAsk.track, tier: coinAsk.tier },
+          detail: coinAsk.kind === 'unit' ? { unitId: coinAsk.unitId } : { unitId: coinAsk.unitId, track: coinAsk.track, tier: coinAsk.tier, ...(coinAsk.branch !== undefined ? { branch: coinAsk.branch } : {}) },
           opId: body.opId,
           at: ctx.now,
         });

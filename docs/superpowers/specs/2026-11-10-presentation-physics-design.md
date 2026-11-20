@@ -191,7 +191,7 @@ The bench ran 11-capsule chains, a slight overestimate. Per step, in Node on an 
 
 - **Isolation costs** about +32% on top of the shared world, plus 0.54–0.58 ms to create each incident's world.
 - Every case reproduced its own digest on a rebuild.
-- **Headroom:** the 300-unit acceptance reads 6.50–6.70 ms p95 against 16.7 ms (`PERFORMANCE.md`).
+- **Headroom:** ~~the 300-unit acceptance reads 6.50–6.70 ms p95 against 16.7 ms (`PERFORMANCE.md`).~~ **Withdrawn (GH-1411):** that figure (row F6) drew five roster types as meshes over a billboard majority, a roster the game no longer draws. The shipped roster at 300 units has no headroom against 16.7 ms on the reference Mac: see row R1 of `docs/PERFORMANCE.md`, "The 300-unit figure, reconciled".
 
 **Proposed ceilings:**
 - **Cost:** physics ≤ 1.0 ms median and ≤ 2.0 ms p95 per frame on the reference Mac at the `high` cap.

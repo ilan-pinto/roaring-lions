@@ -47,6 +47,18 @@
  *      tile since the last decision is let go, so one cripple never holds the rest. All
  *      whole-number comparisons; no new tuned number.
  *
+ * SLICE 4 (GH-1391) decides WHEN the march goes, OFF unless `CommanderOptions.mass` is set, from the same view (fog-visible contacts only):
+ *   5. THE MARCH, MASSED. The seat is MASSING or COMMITTED. While massing, the units task 5 would send (idle at home) are held where they stand (kept from the
+ *      march and from the straggler sweep). Its strength is the sum of `cost x hp` over its able units; the foe's is the largest sum over the contacts in sight at one
+ *      decision, remembered after they leave sight (what it HAS SEEN: nothing it cannot see is read), and never less than what the seat started with (a matched
+ *      room: the foe's first force is assumed to be its own, since a snapshot of the fog under-counts). It COMMITS (the march runs, as `rush`) when its strength is strictly greater than that,
+ *      or, in a room with no economy, while it has seen nothing (there is nothing to wait for or to learn by waiting). It RE-PLANS after a lost engagement, which is the retreat's
+ *      reading: the units away from home with a contact in reach are worth strictly less than the contacts around them. It then masses again until its
+ *      strength is strictly greater than the same foe it commits on (the largest force it has now seen, never below its own first force). Units already
+ *      out are never recalled (that is `retreat`), and only the idle units AT HOME are held: a zone share away from home still goes forward. Whole-number
+ *      comparisons; no new tuned number. With it on, task 4 (the guard) is off: the army massed at home is the defending group, and a guard that never
+ *      marches could never add to the edge the seat waits for.
+ *
  * `CommanderOptions` switch tasks 1 to 3 off one at a time. They exist for the scenarios of the tests ("removing it changes the result"), and the
  * default is all on.
  */
@@ -82,6 +94,8 @@ export interface CommanderOptions { defend?: boolean; zones?: boolean; produce?:
   counter?: boolean;
   /** Slice 3, OFF unless asked for: pull a losing group back to the camp, regroup, and let the march send it out again. */
   retreat?: boolean;
+  /** Slice 4, OFF unless asked for: hold the march until the seat's strength beats the strongest force it has seen, and mass again after a lost engagement. */
+  mass?: boolean;
 }
 
 const MAX_IDS_PER_COMMAND = 256;
@@ -160,16 +174,22 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
   const defendOn = o.defend !== false;
   const zonesOn = o.zones !== false;
   const produceOn = o.produce !== false;
-  const guardOn = o.guard !== false;
+  // Slice 4 replaces the guard: the army it masses at home IS the defending group (a guard that never marches could never add to the edge it waits for).
+  const guardOn = o.guard !== false && o.mass !== true;
   const takeOn = o.takeZones !== false;
   const scoutOn = o.scout === true;
   const counterOn = o.counter === true;
   const retreatOn = o.retreat === true;
+  const massOn = o.mass === true;
   /** Units ordered home and not yet released (slice 3), and the foe's value that beat them (`cost x hp`). */
   const retreating = new Set<number>();
   /** Where each retreating unit stood at the last decision: one that has not moved a tile since is stuck. */
   const lastTile = new Map<number, [number, number]>();
   let beatenBy = 0;
+  /** Slice 4. Massing until the seat out-strengths what it has seen; the largest contact value seen at one decision; the seat's own first force, the assumed foe. */
+  let massing = true;
+  let seenPeakValue = 0;
+  let startValue = 0;
   /** The scout's unit id once chosen (null before, and kept after it dies: it is never replaced). */
   let scoutId: number | null = null;
   /** The scout is chosen at one decision only, whether or not anyone qualified. */
@@ -362,7 +382,32 @@ export function createCommander(o: CommanderOptions = {}): CommanderPolicy {
       }
     }
 
-    // 5. THE MARCH: rush over what is left.
+    // 5. THE MARCH: rush over what is left; with slice 4, only once the seat is committed.
+    if (massOn) {
+      const worthOf = (type: string, hp: number): number => costOf(type) * hp;
+      if (startValue === 0) startValue = view.units.reduce((a, u) => a + worthOf(u.type, u.hp), 0);
+      seenPeakValue = Math.max(seenPeakValue, view.contacts.reduce((a, c) => a + worthOf(c.type, c.hp), 0));
+      const strength = view.units.filter((u) => able(u.flags)).reduce((a, u) => a + worthOf(u.type, u.hp), 0);
+      // Never less than its own first force: a snapshot of the fog under-counts a matched foe (version 1 took the snapshot alone, attacked on a few units seen, and lost
+      // the clock to a foe that had never been dented: wins 665 to 607).
+      const foe = Math.max(seenPeakValue, startValue);
+      if (massing) {
+        // With no economy and nothing yet seen there is nothing to wait for or to learn by waiting: go. Once a foe has been seen the edge is required, whatever the room.
+        if (strength > foe || (view.economy === undefined && seenPeakValue === 0)) massing = false;
+      } else {
+        // A lost engagement: the units away from home with a contact in reach are worth strictly less than the contacts around them. It masses again against the
+        // same floor it commits on (`foe`, never below its own first force), so a snapshot it has seen cannot hold it committed where it would not have committed.
+        const out = view.units.filter((u) => able(u.flags) && !home(u) && u.id !== scoutId && view.contacts.some((c) => dist(c.tile, u.tile) <= RUSH_HOME_TILES));
+        if (out.length > 0) {
+          const mine = out.reduce((a, u) => a + worthOf(u.type, u.hp), 0);
+          const theirs = view.contacts.filter((c) => out.some((u) => dist(c.tile, u.tile) <= RUSH_HOME_TILES)).reduce((a, c) => a + worthOf(c.type, c.hp), 0);
+          if (theirs > mine) massing = strength <= foe;
+        }
+      }
+      if (massing) {
+        for (const u of view.units) if (u.flags.includes('idle') && home(u) && !taken.has(u.id)) keep.add(u.id);
+      }
+    }
     const free = view.units.filter((u) => !taken.has(u.id) && !keep.has(u.id));
     commands.push(...(rush({ ...view, units: free }) as Command[]));
     return { commands, keep };

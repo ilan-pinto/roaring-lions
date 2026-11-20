@@ -37,6 +37,9 @@ describe('wiring in main.ts (pinned as text)', () => {
       expect(src, file).toMatch(/settings\.set\(/);
     }
   });
+  it('waits while the route is not known yet instead of voiding (a deep link, or the leave animation of a click)', () => {
+    expect(call).toContain('routePending: () => router.current() === null,');
+  });
   it('measures and shows only on the shell screens, never on a battlefield', () => {
     expect(call).toContain("inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? '')");
     expect(call).not.toContain("'mission'");

@@ -4,7 +4,7 @@
 export interface Commit { sha: string; parents: string[]; subject: string; body: string }
 export interface Entry { pr: number | null; sha: string; group: string; line: string }
 export interface Run { id?: number; status?: string | null; conclusion?: string | null; html_url?: string; head_sha?: string }
-export interface CiRuns { tip?: Run | null; latest?: Run | null }
+export interface CiRuns { tip?: Run | null; latest?: Run | null; main?: Run | null }
 export type Action = 'empty' | 'create' | 'none' | 'update' | 'foreign';
 export const MARKER: string;
 export const END: string;
@@ -18,6 +18,8 @@ export function neutralise(text: string): string;
 export function groupOf(subject: string): string;
 export function entryOf(commit: Commit): Entry | null;
 export function entriesOf(commits: readonly Commit[]): Entry[];
+export const MAIN_GREEN_GUIDE: string;
+export function mainLine(ci: CiRuns | null): string;
 export function ciLine(headSha: string, ci: CiRuns | null): string;
 export function titleOf(entries: readonly Entry[]): string;
 export function renderBody(input: {

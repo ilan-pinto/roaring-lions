@@ -55,7 +55,9 @@ export interface SpendFlowOptions {
 }
 
 const wireOf = (ask: CoinAsk): CoinAskWire =>
-  ask.kind === 'unit' ? { item: 'unit', unitId: ask.unitId } : { item: 'tier', unitId: ask.unitId, track: ask.track, tier: ask.tier };
+  ask.kind === 'unit'
+    ? { item: 'unit', unitId: ask.unitId }
+    : { item: 'tier', unitId: ask.unitId, track: ask.track, tier: ask.tier, ...(ask.branch !== undefined ? { branch: ask.branch } : {}) };
 
 const defaultOnline = (): boolean => typeof navigator === 'undefined' || navigator.onLine !== false;
 

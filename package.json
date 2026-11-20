@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.134.0",
+  "version": "0.134.1",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "pnpm --filter @lions/app dev",
     "build": "pnpm --filter @lions/app build",
-    "desktop:spike": "node tools/desktop/build-local.mjs",
+    "desktop:package": "node tools/desktop/build-local.mjs",
     "test": "vitest run",
     "test:determinism": "vitest run packages/sim/src/determinism.test.ts packages/sim/src/snapshot-witness.test.ts packages/sim/src/snapshot-witness-runtime.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tools",
@@ -17,7 +17,7 @@
     "content:manifest": "node tools/content_manifest.mjs",
     "locales:en": "node tools/locales_en.mjs",
     "locales:chrome-src": "node tools/locales_chrome_src.mjs",
-    "validate:meshes": "python3 tools/validate_mesh_assets.py && python3 tools/test_lod_twin_gate.py && python3 tools/test_inf_kit_pierce.py && python3 tools/test_inf_kit_standoff.py && python3 tools/test_yahalom_back_plate.py && python3 tools/test_yahalom_gear_standoff.py && python3 tools/test_inf_kit_mesh.py && python3 tools/test_review_build.py",
+    "validate:meshes": "python3 tools/validate_mesh_assets.py && python3 tools/test_lod_twin_gate.py && python3 tools/test_inf_kit_pierce.py && python3 tools/test_inf_kit_standoff.py && python3 tools/test_yahalom_back_plate.py && python3 tools/test_inf_kit_carrier_trim.py && python3 tools/test_yahalom_gear_standoff.py && python3 tools/test_inf_kit_mesh.py && python3 tools/test_review_build.py",
     "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",
     "commercial:cut": "python3 tools/commercial_asset_cut.py",
     "validate:audio": "python3 tools/validate_audio.py && python3 tools/test_gen_audio_args.py && python3 tools/test_validate_audio_voices.py && python3 tools/test_validate_audio_ui.py && python3 tools/test_validate_audio_mix.py && python3 tools/test_validate_audio_ambience.py && python3 tools/test_validate_audio_music.py && python3 tools/test_validate_audio_engines.py && python3 tools/test_prepare_support_audio.py && python3 tools/test_validate_audio_support.py && python3 tools/test_prepare_medic_voice.py",
@@ -39,6 +39,7 @@
     "versus:breach": "pnpm --filter @lions/tools versus:breach",
     "perf:units": "pnpm --filter @lions/tools perf:units",
     "perf:load": "pnpm --filter @lions/tools perf:load",
+    "perf:census": "pnpm --filter @lions/tools perf:census",
     "perf:memory": "pnpm --filter @lions/tools perf:memory",
     "perf:recompute": "pnpm --filter @lions/tools perf:recompute",
     "perf:flowfield": "pnpm --filter @lions/tools perf:flowfield",
