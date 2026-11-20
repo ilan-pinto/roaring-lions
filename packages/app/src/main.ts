@@ -109,7 +109,7 @@ import {
 import { isMapId, loadMap, loadMaps, loadMission } from '@lions/data/content-lazy';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
-import { sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
+import { sandboxWorksBuilders, sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
@@ -285,7 +285,6 @@ import {
   sandboxTunnelRoute,
 } from './sandbox-extras';
 import {
-  SANDBOX_WORKS_KDF,
   bootPicks,
   bootTiers,
   sandboxUnitTypes,
@@ -301,6 +300,8 @@ import {
   deferredBuildables,
   hasUnitMesh,
   meshPlanFor,
+  riggedUnitFiles,
+  civilianFiguresOf,
   meshManifestFor,
   dracoDecoderPath,
 } from './mesh-catalogue';
@@ -1869,6 +1870,8 @@ async function main(): Promise<void> {
         renderer: gpuName,
         settings: settingsDeps,
         inShell: () => ['menu', 'campaign', 'brigade', 'free-play'].includes(router.current()?.name ?? ''),
+        // Null until the route's mount resolves (a deep link, or the leave animation of a click): wait, do not void (GH-1413).
+        routePending: () => router.current() === null,
         frames: {
           raf: (cb) => requestAnimationFrame(cb),
           cancel: (id) => cancelAnimationFrame(id),
@@ -2841,11 +2844,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
   );
   // An economy room's camps (N3 Task 6) are the runtime's structures: the room has no mission.
-  const meshPlan = meshPlanFor(map, meshRoster, [
-    ...(mission?.structures ?? []).map((s) => s.type),
-    ...(versusWorld?.structureTypes ?? []),
-    ...worksIds,
-  ]);
+  // GH-1438 E14: `civilians.figures: "adults"` (D18) leaves the child figure out of the civilians' variants.
+  const civilianFigures = civilianFiguresOf(mission);
+  const meshPlan = meshPlanFor(
+    map,
+    meshRoster,
+    [...(mission?.structures ?? []).map((s) => s.type), ...(versusWorld?.structureTypes ?? []), ...worksIds],
+    civilianFigures
+  );
   // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
   // nothing between here and the renderer's construction may throw, because
   // its teardown is not registered until the context exists.
@@ -3051,7 +3057,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // player orders one (`warmUnitMesh`, per tick below) -- most are never
     // ordered, and each costs 16-48 MiB decoded.
     const job = rigged
-      ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction, { cold })
+      ? three.loadMeshUnit(typeId, riggedUnitFiles(typeId, civilianFigures).map(meshUrl), rigged.faction, { cold })
       : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]), { cold });
     job.then(
       () => {
@@ -4954,7 +4960,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       sim,
       sandboxWorksMission(
         sim.structureTypes,
-        SANDBOX_WORKS_KDF.map(([unit, dx, dy]) => ({ unit, at: [anchors.friendly[0] + dx, anchors.friendly[1] + dy] }))
+        sandboxWorksBuilders(sim, typeOf, anchors)
       ),
       {
         typeIdOf: (id) => typeOf.get(id) ?? 0,
