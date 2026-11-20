@@ -284,10 +284,12 @@ describe('the label', () => {
     for (const k of ['versus.cpu.callsign', 'versus.cpu.failed', 'versus.cpu.lead', 'versus.cpu.note', 'versus.cpu.start'] as const) {
       expect(typeof en[k], k).toBe('string');
     }
-    // It says "basic" in both the button and the seat's name, and describes only what rush does: attack with what it starts with, build nothing.
+    // It says "basic" in both the button and the seat's name, and describes only what the commander does (GH-1390, lead ruling of 20 Nov): it builds where the
+    // room has an economy, defends its ground and holds income zones. It no longer says "builds nothing", which was the bare `rush` seat's description.
     expect(en['versus.cpu.start']).toMatch(/basic/i);
     expect(en['versus.cpu.callsign']).toMatch(/basic/i);
-    expect(en['versus.cpu.note']).toMatch(/builds nothing/);
+    expect(en['versus.cpu.note']).toMatch(/builds units where the room has an economy, defends its ground and holds income zones/);
+    expect(en['versus.cpu.note']).not.toMatch(/builds nothing/);
     expect(en['versus.cpu.note']).not.toMatch(/smart|strong|expert|clever|learns|adapts|hard|challeng/i);
   });
 

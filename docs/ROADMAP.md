@@ -301,7 +301,7 @@ whole or in part, so the page as written undersells them:
 
 | Page item | Where it stands on 19 Nov |
 |---|---|
-| A computer opponent in the versus lobby | Live: "Play a basic computer opponent", mirror pairing only, builds nothing (GH-1388, PR 1466). The three levels are data on dev with no lobby control yet (PR 1549) |
+| A computer opponent in the versus lobby | Live: "Play a basic computer opponent", on the cells the coverage probe read clean (`open-cells.ts`); the commander builds where the room has an economy, defends and holds income zones (GH-1388, PR 1466; GH-1390). The three levels are data on dev with no lobby control yet (PR 1549) |
 | Sarim in free play | On dev, not yet live: a side pick on `/free-play` (PR 1582) |
 | Beit Sahwan II asks something of you | Live: passive play loses (PR 1483) |
 | A second campaign arc of about ten missions | On dev, not yet live: Qasr Liwan and Bir Tarsha, five missions each, "The Long Ground"; GH-1396 is still open |
