@@ -362,6 +362,13 @@ describe('a_coupon_freezes_campaign_writes (§0.39)', () => {
 });
 
 describe('the other server handlers', () => {
+  // GH-1385 F8: a redeem that lands must hand the screen the SERVER's figures (the fake pays 300 credits and no coins).
+  it('a coupon that lands answers the server\'s result, credits and coins', async () => {
+    const r = rig();
+    expect(await r.flow.redeem('CODE')).toEqual({ result: 'ok', credits: 300, coins: 0 });
+    expect(r.server.count('POST coupon')).toHaveLength(1);
+  });
+
   it('a 400 on POST coupon is terminal: the unknown-code feedback, never a retry', async () => {
     const r = rig();
     r.holds.couponStatus = 400;
