@@ -75,6 +75,14 @@ describe('beginClaim: the marker says what is being sent, by digest', () => {
     };
     expect(await beginClaim(refusing, built)).toBe(false);
   });
+
+  it('a storage that accepts the marker without keeping it (no throw, nothing read back) must not send the claim', async () => {
+    const built = buildClaim(guestWithCampaign(), DEV, CTX);
+    const forgetful = memStorage();
+    forgetful.setItem = () => undefined;
+    expect(await beginClaim(forgetful, built)).toBe(false);
+    expect(forgetful.map.has(CLAIMING_KEY)).toBe(false);
+  });
 });
 
 describe('finishClaim: what it writes, and what stops it', () => {

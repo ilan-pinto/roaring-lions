@@ -53,6 +53,12 @@ describe('the send base is the revision the campaign snapshot was built on', () 
     const campaign = make();
     campaign.store.writeLedger({});
     expect(campaign.store.sync.base()).toBe(3);
+    // R17: the pin is taken at QUEUE time. Another tab's ack advances the shared cache's campaign revision; a second
+    // campaign write on this tab must not re-pin the base to it.
+    campaign.cache.confirmed = confirmedState({ campaign: { ledger: {}, brigade: emptyAccount(), tutorialDone: false, revision: 9, digest: 'd9' } });
+    campaign.store.writeLedger({ 'campaign.completed_missions': ['m1'] });
+    expect(campaign.store.outboxSize()).toBe(1);
+    expect(campaign.store.sync.base()).toBe(3);
   });
 
   it('setBase writes the outbox once per change and not again for the same number', () => {
