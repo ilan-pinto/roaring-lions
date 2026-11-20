@@ -556,6 +556,8 @@ void eq3;
 // - III: `bring_four_across` (330 s) and a ceiling of 5. The hold is banked from the first tick (F-1).
 // - IV: `walk_the_forecourt_out` (300 s), `bring_the_shaft_down` (360 s) and a ceiling of 10 at `structure_penalty_mult` 2.
 // - V: `the_deep_routes` (360 s) and a ceiling of 10 at `structure_penalty_mult` 4; the first shipped `trigger`-keyed waves.
+// GH-1438 (the earnability follow-up): the winning plans now also earn three secondaries they never went for, `take_the_coast_road` (II), `take_the_water_point` (III) and, for Bir Tarsha, `take_the_roof` (II): 30/30 at Standard for the first two, and the roof on 29 of 30 Standard seeds (seed 4 misses), 30/30
+// at Easier and at Harder. None carries, so no ladder pin moves.
 const ql1 = run('qasr_liwan_1_recon', QASR_LIWAN_PLANS.qasr_liwan_1_recon, {}, 'victory', 'qasr_liwan_1_recon', 3);
 passiveAcrossSeeds('qasr_liwan_1_recon', 'qasr_liwan_1_recon (no orders)', 'withdrawn');
 const qlLed1 = { ...ql1 };

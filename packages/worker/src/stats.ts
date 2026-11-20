@@ -6,6 +6,7 @@ import { loginPageHtml } from './login-page';
 import { FEEDBACK_HTML, FEEDBACK_PAGE_CSP } from './feedback-page';
 import { MEMBERS_HTML } from './members-page';
 import { fieldHealth } from './field-health';
+import { crashSummary } from './crash-ingest';
 import { handleFeedbackApi } from './feedback-triage';
 import { handleAdminApi } from './admin/api';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
@@ -461,6 +462,13 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
         return json(await loadouts(env.DB, f));
       case '/stats/api/health':
         return json(await fieldHealth(env.DB, f)); // GH-1410
+      case '/stats/api/crashes':
+        // GH-1414. Before migration 0008 is applied there is no table: say so, and the page leaves the panel empty.
+        try {
+          return json(await crashSummary(env, f.since));
+        } catch {
+          return json({ error: 'unavailable' }, 503);
+        }
       default:
         return new Response('Not found', { status: 404, headers: NO_STORE });
     }

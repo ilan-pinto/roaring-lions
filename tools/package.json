@@ -30,6 +30,7 @@
     "enemy-production:probe": "tsx src/backtest/enemy-production-probe.ts",
     "perf:units": "tsx src/perf/three-units.ts",
     "perf:load": "tsx src/perf/load-profile.ts",
+    "perf:census": "tsx src/perf/backend-curve-gate.ts --only=census --gate --gpu=swiftshader --repeat=2",
     "perf:memory": "tsx src/perf/memory.ts",
     "perf:lowend": "tsx src/perf/low-end.ts",
     "perf:bloom-census": "tsx src/perf/bloom-census.ts",
@@ -104,6 +105,7 @@
     "@lions/sim": "workspace:*"
   },
   "devDependencies": {
+    "@electron/fuses": "2.1.3",
     "@electron/packager": "20.3.0",
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",

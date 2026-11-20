@@ -163,8 +163,9 @@ Notes:
   their per-instance cull as 4.3 ms worse (`CLAUDE.md`, ground and terrain). Instancing pays for
   identical meshes; batching pays only where the driver gives real multi-draw. Measure per
   backend.
-- **Skinned meshes do not instance.** That is the infantry draw-call ceiling of about 1,150
-  figures (`CLAUDE.md`, scaling debts), and the reason for §4.9.
+- **Skinned meshes do not instance**, so every figure is its own draw calls, and that is the
+  reason for §4.9. The ~1,150-figure ceiling is one skinned type on a bare renderer; the shipped
+  300-unit frame is already over 16.7 ms (R1, `docs/PERFORMANCE.md`; `CLAUDE.md`, scaling debts).
 
 ### 4.8 Height-based terrain blending
 

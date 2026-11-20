@@ -45,8 +45,8 @@ function callArgs(src: string, name: string): string[][] {
 }
 
 const FILES = sources(join(ROOT, 'packages')).map((f) => ({ file: relative(ROOT, f), src: readFileSync(f, 'utf8') }));
-/** The switch's own module, its readers' modules in data and economy, the resume record, the replay start (`replayStartPicks`)
- *  and the room path's three readers (GH-1384, the net slice). */
+/** The switch's own module, its readers' modules in data and economy, the resume record, the replay start (`replayStartPicks`),
+ *  the room path's three readers (GH-1384, the net slice) and the spend route's one read (the member coin path). */
 const MAY_NAME_THE_SWITCH = new Set([
   'packages/data/src/branches-open.ts',
   'packages/data/src/upgrades.ts',
@@ -61,6 +61,8 @@ const MAY_NAME_THE_SWITCH = new Set([
   'packages/app/src/net/connect.ts',
   'packages/app/src/net/match-world.ts',
   'packages/worker/src/match/room-fields.ts',
+  // GH-1384, the member coin path: the spend route reads `branch` off a body only while the switch is open.
+  'packages/worker/src/account/spend.ts',
 ]);
 /** The most arguments a production call may pass: one fewer than the signature, so `open` is always the default. */
 const MAX_ARGS: Record<string, number> = { applyUpgrades: 3, tierPatch: 2, parseStartInputs: 1, replayStartPicks: 1, roomClaim: 2, seatKitPicksOf: 3 };

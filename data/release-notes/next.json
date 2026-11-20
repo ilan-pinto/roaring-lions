@@ -2,8 +2,11 @@
   "version": "next",
   "units": [],
   "rules": [
+    "The system's increase contrast setting now brightens dim text and the borders of panels.",
     "The debrief and the unit card now say when a loss was caught in a blast, a called strike or a collapse, bled out, or went down with its carrier.",
     "When the debrief lists several nameless crews of one type, it now tallies what killed them."
   ],
-  "fixes": []
+  "fixes": [
+    "Free play on Bir Tarsha and Umm Zeitoun no longer fails to start with field works switched on."
+  ]
 }

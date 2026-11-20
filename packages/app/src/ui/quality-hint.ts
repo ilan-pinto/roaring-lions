@@ -48,6 +48,11 @@ export interface QualityHintDeps {
   settings: SettingsAccess;
   /** False while the player is in a mission or anywhere else a sample means nothing. */
   inShell: () => boolean;
+  /**
+   * True while the shell does not know its route yet (`router.current()` is null: a deep link before its mount resolves, the leave
+   * animation of a click). The probe then waits instead of voiding on `inShell` (GH-1413's follow-up). Absent: never pending.
+   */
+  routePending?: () => boolean;
   frames: Pick<ProbeDeps, 'raf' | 'cancel' | 'now' | 'visible'>;
   /** Persistent store for "answered"; null when storage is blocked (the card then asks again next load). */
   store: StorageLike | null;
@@ -136,7 +141,7 @@ export function watchQualityHint(deps: QualityHintDeps): Disposer {
     if (quality(deps) === SUGGESTED_QUALITY) return;
     card = showCard(deps, win);
   };
-  stopProbe = sampleFrames({ ...deps.frames, steady: deps.inShell }, onResult);
+  stopProbe = sampleFrames({ ...deps.frames, steady: deps.inShell, ...(deps.routePending === undefined ? {} : { pending: deps.routePending }) }, onResult);
   return () => {
     stopProbe?.();
     stopProbe = null;

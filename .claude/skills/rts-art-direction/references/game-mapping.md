@@ -230,7 +230,8 @@ Ordered by visible gain per unit of cost, for this game's camera and tone. Costs
    with a moving-unit capture.
 6. **Volumetric dust and light shafts at dawn and dusk** (medium gain on those presets, about
    1-4 ms, WebGPU compute). Cap haze opacity at combat range so it never hides what the sim shows.
-7. **VAT for infantry** (performance, not look: it lifts the 1,150-figure ceiling). It is already
+7. **VAT for infantry** (performance, not look: fewer draw calls a figure, the count `pnpm perf:census`
+   gates; the shipped 300-unit frame is over 16.7 ms, R1 in `docs/PERFORMANCE.md`). It is already
    L4 in the look-uplift spec, with its gates written.
 8. **Not recommended now:** SSGI (2-6 ms, noisy, and the hemisphere ground bounce already gives
    most of its look outdoors), SSR (little to reflect top-down except on wet maps), and impostors
