@@ -4,7 +4,7 @@
 // Worker is a fake (`sync-kit.ts`, with `spend`, `coupon` and `reset-free` given a body here).
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { units, type UpgradableUnit } from '@lions/data';
-import type { CampaignView, WalletView } from '@lions/economy';
+import type { CampaignView, CoinAskWire, WalletView } from '@lions/economy';
 import { emptyAccount } from '@lions/economy';
 import en from '../i18n/en.json';
 import { setCatalogue, t } from '../i18n/t';
@@ -68,6 +68,8 @@ interface Rig {
   storage: ReturnType<typeof memStorage>;
   holds: { spend: Promise<void> | null; coupon: Promise<void> | null; reset: Promise<void> | null; couponStatus: number | null };
   online: { on: boolean };
+  /** Every body the fake Worker's `spend` was asked, as sent. */
+  asks: CoinAskWire[];
 }
 
 function rig(o: { balance?: number; coins?: number } = {}): Rig {
@@ -79,11 +81,13 @@ function rig(o: { balance?: number; coins?: number } = {}): Rig {
   server.wallet = { ...server.wallet, free: o.coins ?? 5000, entitlements };
   const holds: Rig['holds'] = { spend: null, coupon: null, reset: null, couponStatus: null };
   const online = { on: true };
+  const asks: CoinAskWire[] = [];
   const base = clientFor(server);
   const client: AccountClient = {
     ...base,
     // A coin Buy moves the server's wallet: the tier lands in the entitlements, a unit in `units`.
     spend: async (ask) => {
+      asks.push(ask);
       server.calls.push({ name: 'POST spend', id: ask.item === 'unit' ? ask.unitId : `${ask.unitId}.${ask.track}` });
       if (holds.spend !== null) await holds.spend;
       const ent = clone(server.wallet.entitlements);
@@ -124,7 +128,7 @@ function rig(o: { balance?: number; coins?: number } = {}): Rig {
   const sync = startSync({ store, client, storage, now: sched.now, schedule: sched.schedule, online: () => online.on, onChange: () => flow.notify(), onVictory: (id, a) => flow.onVictory(id, a) });
   syncRef = sync;
   flow.attach(sync);
-  return { server, store, sync, flow, sched, storage, holds, online };
+  return { server, store, sync, flow, sched, storage, holds, online, asks };
 }
 
 const mounted: (() => void)[] = [];
@@ -398,6 +402,21 @@ describe('the other server handlers', () => {
     expect((await r.flow.redeem('c')).result).toBe('failed');
     expect(r.server.calls.filter((c) => c.name.startsWith('POST'))).toEqual([]);
     expect(r.store.pendingSpends.size).toBe(0);
+  });
+});
+
+describe('a coin Buy names its branch on the wire (GH-1384)', () => {
+  it('a branched ask carries `branch`, and every other ask carries no such key', async () => {
+    const r = rig();
+    expect(await r.flow.buy({ kind: 'tier', unitId: UNIT, track: OTHER, tier: 3, branch: 2 })).toBe('ok');
+    expect(await r.flow.buy({ kind: 'tier', unitId: UNIT, track: TRACK, tier: 1 })).toBe('ok');
+    expect(await r.flow.buy({ kind: 'unit', unitId: 'breach_team' })).toBe('ok');
+    expect(r.asks).toEqual([
+      { item: 'tier', unitId: UNIT, track: OTHER, tier: 3, branch: 2 },
+      { item: 'tier', unitId: UNIT, track: TRACK, tier: 1 },
+      { item: 'unit', unitId: 'breach_team' },
+    ]);
+    expect('branch' in (r.asks[1] ?? {})).toBe(false);
   });
 });
 
