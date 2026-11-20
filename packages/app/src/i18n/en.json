@@ -1053,6 +1053,7 @@
   "stores.receipt.none": "—",
 
   "debrief.tag": "Debrief",
+  "debrief.scrollRegion": "After-action report",
   "aar.reason.done": "{text} · {at}",
   "aar.reason.clock": "{clock} on the clock, of about {target}:00",
   "aar.reason.clockBare": "{clock} on the clock",
