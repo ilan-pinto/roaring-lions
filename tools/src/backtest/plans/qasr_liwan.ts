@@ -81,7 +81,7 @@ export const ql1Plan: Plan = (sim, rt, ids, at) => {
 // squads stand off the Cut's two-tile lane, which civilians walk through; the Spike and the 60 mm stay home, because a
 // stray beside `south_quarter` bills 5 each (six of them took Conduct to the 70 floor). The camp buys rifle squads. The LAST starting
 // squad is not part of the force split above: it is the coast road's runner (the secondary `take_the_coast_road`, GH-1438), walks the
-// south edge to the zone, and once the hold is done (or by 100 s) walks home the same way to the Cut's east side (left on the coast road
+// south edge to the zone, and once the hold is done (legs at +0, +24 and +48 s after it completes; there is no earlier fallback) walks home the same way to the Cut's east side (left on the coast road
 // it was lost to the 270 s wave on 10 of 30 seeds). 30 of 30 sweep seeds win (slowest 5.1 min), two stars, Conduct 100.
 export const ql2Plan: Plan = (sim, rt, ids, at) => {
   const apcs = ids('apc_eitan');
