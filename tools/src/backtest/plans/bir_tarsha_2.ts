@@ -1,6 +1,9 @@
 import type { Plan } from '../playtest-run';
 import { M, foesIn } from './bir_tarsha_util';
 
+/** The roof push is skipped from this second on: a run that has not got the field clear by then is a slow one, and an ungated push cost time and units there (Harder seeds 15 and 22: 549 -> 748 s and 94 -> 64 Conduct). 420 keeps 29 of 30 Standard seeds. */
+export const ROOF_PUSH_BY = 420;
+
 /** II: the squads shepherd the cross road's residents west out of the mortar's reach, the camp buys infantry, the Lavi, the sniper and the tube take the missile teams and the mortar crew from the cross road, then the force steps into the gate. */
 export const bt2Plan: Plan = (sim, rt, ids, at) => {
   const squads = ids('inf_squad');
@@ -67,5 +70,28 @@ export const bt2Plan: Plan = (sim, rt, ids, at) => {
           sim.queueCommand({ kind: 'move', ids: alive(ids('sniper_team')), ...M(34.5, 26.5) });
         }
       }
+    });
+  // The roof (the secondary `take_the_roof`, GH-1438). The terminal's garrison, one militia cell at (26.5,36.5), stands inside the roof zone and contests it, and on some seeds (18) it is still alive
+  // when the mission is won, because nothing in this plan shoots it: so the Lavi and the sniper take it (north of y 38, so no round lands in the Badlands), and once it is down two squads stand
+  // in the zone for the 15 s the hold takes and then go back to the plan's own orders (left there one was lost in the second wave).
+  let garrison = -1;
+  at(0, () => {
+    let bd = 1;
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (sim.state.side[i] !== 1 || sim.state.alive[i] !== 1) continue;
+      const d = Math.hypot(Number(sim.state.posX[i]) / 65536 - 26.5, Number(sim.state.posY[i]) / 65536 - 36.5);
+      if (d <= bd) { bd = d; garrison = i; }
+    }
+  });
+  for (let s = 100; s <= ROOF_PUSH_BY; s += 5)
+    at(s, () => {
+      if (rt.objectiveStatus('take_the_roof') === 'complete') return; // held: the squads go back to the plan's own orders
+      // Only when the plan has nothing else to fight: the push takes the Lavi and the sniper off the missile teams and the mortar, and on a Harder seed (15) it cost 200 s and two units.
+      if (foesIn(sim, [0, 0, 48, 38]).some((i) => i !== garrison)) return;
+      if (garrison >= 0 && sim.state.alive[garrison] === 1) {
+        sim.queueCommand({ kind: 'attack', ids: alive([...armour, ...ids('sniper_team')]), target: garrison });
+        return;
+      }
+      sim.queueCommand({ kind: 'move', ids: alive(ids('inf_squad')).slice(0, 2), ...M(26.5, 35.5) });
     });
 };
