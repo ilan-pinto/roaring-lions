@@ -41,12 +41,12 @@ const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const CODE_MAX = 256;
 
 /** The wire view of `roar` as it stands after a write that bumped the revision `bumped` times. */
-function viewOf(w: WalletRow, roar: RoarWallet, bumped: boolean): WalletView {
+export function viewOf(w: WalletRow, roar: RoarWallet, bumped: boolean): WalletView {
   return { free: roar.coins.free, paid: 0, entitlements: roar.entitlements, earn: roar.earn, receipts: roar.receipts, revision: w.revision + (bumped ? 1 : 0) };
 }
 
 /** A campaign body written at `revision`, as the wire shows it. */
-async function viewAt(body: CampaignBody, revision: number): Promise<CampaignView> {
+export async function viewAt(body: CampaignBody, revision: number): Promise<CampaignView> {
   const read: CampaignRead = { revision, body, text: canonicalCampaign(body) };
   return campaignViewOf(read);
 }

@@ -90,7 +90,8 @@ export type CoinWhat =
   | { kind: 'earn'; source: string; missionId?: string }
   | { kind: 'move' }
   | { kind: 'unit'; unitId: string; moved: boolean }
-  | { kind: 'tier'; unitId: string; track: string; tier: number; moved: boolean }
+  /** `refund` (GH-1384, Q4): a Return of a legacy tier 3, journalled as a `tier` row with a positive delta. Absent on a purchase. */
+  | { kind: 'tier'; unitId: string; track: string; tier: number; moved: boolean; refund?: true }
   | { kind: 'coupon' }
   | { kind: 'reset' }
   | { kind: 'team'; note?: string }
