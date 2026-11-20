@@ -83,14 +83,16 @@ describe('a match against the computer seat runs to a result with no network at 
     expect(run.humanOrders).toBe(0);
   }, 300_000);
 
-  it('a faction pairing is armed where the coverage probe read the cell clean, and refused where it is closed (GH-1390)', () => {
-    // Wadi Tarfan, a KDF human racing for the camp against the Sarim commander: open. The same ground in annihilation (the skirmish economy) is closed.
+  it('a faction pairing is armed where the coverage probe read the cell clean, and refused where the table does not list it (GH-1390)', () => {
+    // Wadi Tarfan, a KDF human racing for the camp against the Sarim commander: open. The same ground in annihilation (the skirmish economy) opened on the lead's ruling of 20 Nov.
     const open = offlineMatch({ ...REQ, map: 'wadi_tarfan', matchup: 'kdf', winMode: 'camp' });
     expect(open.config.seats[COMPUTER_SEAT].faction).toBe('sarim');
     expect(open.config.winMode).toBe('camp');
     for (const matchup of ['kdf', 'sarim'] as const) {
-      expect(() => offlineConfig({ ...REQ, map: 'wadi_tarfan', matchup }), matchup).toThrow(/not open/);
-      expect(() => offlineMatch({ ...REQ, matchup }), matchup).toThrow(/not open/);
+      expect(() => offlineConfig({ ...REQ, map: 'wadi_tarfan', matchup }), matchup).not.toThrow();
+      expect(offlineMatch({ ...REQ, matchup }).config.seats[COMPUTER_SEAT].faction, matchup).toBe(matchup === 'kdf' ? 'sarim' : 'kdf');
+      // A cell the table does not list stays refused: a mode no pairing offers there.
+      expect(() => offlineConfig({ ...REQ, map: 'wadi_tarfan', matchup, winMode: 'points' }), matchup).toThrow(/not open/);
     }
     expect(() => offlineConfig(REQ)).not.toThrow();
   });

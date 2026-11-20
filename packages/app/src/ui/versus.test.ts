@@ -1701,20 +1701,26 @@ describe('the computer seat in the lobby', () => {
     r.dispatchEvent(new Event('change'));
   };
 
-  it('GH-1390: an economy pairing keeps the computer seat where the coverage probe read the cell clean, hides it where it is closed, and the mirror brings it back', async () => {
+  it('GH-1390: an economy pairing keeps the computer seat in annihilation too (the lead\'s ruling of 20 Nov opened the six skirmish-economy cells), on the camp race, and the mirror brings it back', async () => {
     const playComputer = vi.fn().mockResolvedValue('OFFLINE');
     const stage = mountPick(deps({ playComputer }));
     const section = stage.querySelector<HTMLElement>('.rl-versus__cpu')!;
     expect(section.hidden).toBe(false);
-    // An economy pairing in annihilation is closed on every ground (the probe read the seat as stopped there); the camp race on Wadi Tarfan is open.
+    // An economy pairing in annihilation was closed on every ground until the lead ruled (20 Nov) that a guard held at home is not a stall; it is open now, and so is the camp race.
     pickSide(stage, 'kdf');
     for (const id of ['tel_marum', 'wadi_tarfan']) {
       pickMap(stage, id);
-      expect(section.hidden, `${id} kdf annihilation`).toBe(true);
-      cpuButton(stage)!.click();
-      await flush();
-      expect(playComputer, `${id} kdf annihilation`).not.toHaveBeenCalled();
+      expect(section.hidden, `${id} kdf annihilation`).toBe(false);
     }
+    // And the button arms it, on a fresh mount (the first click leaves the button busy).
+    const armed = vi.fn().mockResolvedValue('OFFLINE');
+    const other = mountPick(deps({ playComputer: armed }));
+    pickSide(other, 'kdf');
+    pickMap(other, 'tel_marum');
+    cpuButton(other)!.click();
+    await flush();
+    expect(armed, 'tel_marum kdf annihilation').toHaveBeenCalledTimes(1);
+    expect(armed.mock.calls[0]![0], 'tel_marum kdf annihilation').toMatchObject({ map: 'tel_marum', matchup: 'kdf' });
     const camp = stage.querySelector<HTMLInputElement>('.rl-versus__win-options input[value="camp"]')!;
     camp.click();
     camp.dispatchEvent(new Event('change'));

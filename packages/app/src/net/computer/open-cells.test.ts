@@ -35,11 +35,24 @@ describe('where the lobby seats the computer (GH-1390)', () => {
     for (const c of cells) expect(open(c) !== closed(c), `${c.map} ${c.matchup} ${c.winMode}`).toBe(true);
     // And nothing in the table is a cell that does not exist.
     for (const o of OPEN_COMPUTER_CELLS) for (const w of o.winModes) expect(cells.some((c) => c.map === o.map && c.matchup === o.matchup && c.winMode === w), `${o.map} ${o.matchup} ${w}`).toBe(true);
-    expect(cells.filter(open).length).toBe(25);
-    expect(cells.filter(closed).length).toBe(6);
+    // The lead's ruling of 20 Nov: a guard held at home is not a stall, so the six skirmish-economy annihilation cells open. All 31 are open, none closed.
+    expect(cells.filter(open).length).toBe(31);
+    expect(cells.filter(closed).length).toBe(0);
   });
 
-  it('every closed cell has its reason, is refused, and arming it throws', () => {
+  it('the six cells the idle-at-home reading had closed are open, for the KDF and the Sarim human alike', () => {
+    for (const map of ['tel_marum', 'wadi_tarfan', 'wadi_tarfan_l']) for (const matchup of ['kdf', 'sarim'] as const) expect(computerSeatOpen(map, matchup, null), `${map} ${matchup}`).toBe(true);
+  });
+
+  it('with no cell closed, a cell the table does not list is still refused, and arming it throws (a new ground stays closed until the probe has read it)', () => {
+    expect(CLOSED_COMPUTER_CELLS).toEqual([]);
+    expect(computerSeatOpen('nowhere', 'mirror', null)).toBe(false);
+    expect(() => offlineConfig(REQ({ map: 'nowhere', matchup: 'mirror', winMode: null }))).toThrow(/not open/);
+    // A real ground with a mode the table does not list is refused the same way.
+    expect(computerSeatOpen('tel_marum', 'kdf', 'points')).toBe(false);
+  });
+
+  it('every closed cell, if any is ever listed, has its reason, is refused, and arming it throws', () => {
     for (const c of CLOSED_COMPUTER_CELLS) {
       const key = `${c.map}|${c.matchup}|${c.winMode}`;
       expect(c.why.length, key).toBeGreaterThan(10);
