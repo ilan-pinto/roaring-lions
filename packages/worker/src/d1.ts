@@ -41,6 +41,12 @@ export interface Env {
    *  FEEDBACK_CLOSED` (a secret survives deploys; a dashboard var does not).
    *  The other half is the D1 `flags` row, flipped from /stats/feedback. */
   FEEDBACK_CLOSED?: string;
+  /** GH-1414: POST /api/crash, keyed on the connecting IP (5 a minute). */
+  CRASH_LIMIT?: RateLimiter;
+  /** GH-1414 kill switch, the deploy-free half: any non-empty value other than "0"/"false" closes /api/crash, with no
+   *  database read (`npx wrangler secret put CRASH_CLOSED`). The other half is the D1 `flags` row `crash`, which must read
+   *  'open' (no row is closed). */
+  CRASH_CLOSED?: string;
   /** N0: the MatchRoom Durable Object namespace (wrangler.jsonc `durable_objects`). GH-1397: from the lead's cut on,
    *  the relay Worker's (`script_name: roaring-lions-relay`); before it, the game Worker's own. Read only through
    *  `match/routes.ts`'s `roomsOf`. */
