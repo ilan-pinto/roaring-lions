@@ -6507,6 +6507,55 @@ describe('unitLost', () => {
   });
 });
 
+// GH-1380 (the PR 1648 review): a removal is not a loss. `removeFromPlay` clears `alive` exactly as `destroy()` does, but it
+// emits `removed`, never `destroyed`, and the runtime raises `unitLost` for `destroyed` alone. The debrief's tally, the memorial
+// and the loss alert read `unitLost`, so a man the enemy took out of play (a `remove` trigger) must not reach them. The
+// control is the same world's DESTROYED man: he must produce `unitLost`, so neither half passes vacuously.
+// Ids: 0 is taken by the `remove` trigger at 0 s, 1 is killed with `debugKill` before the first tick, 2 holds to the end.
+// Falsified: raising `unitLost` for `removed` as well, and not raising it for `destroyed`.
+describe('a removal is not a loss (GH-1380)', () => {
+  function removalWorld(): World {
+    return makeWorld(
+      baseMission({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3], group: 'taken' },
+          { unit: 'm_squad', count: 1, at: [3, 6] },
+          { unit: 'm_squad', count: 1, at: [3, 9] },
+        ],
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 10 }],
+        triggers: [{ id: 'take_one', on: { kind: 'timer_s', value: 0 }, do: { kind: 'remove', group: 'taken' } }],
+      })
+    );
+  }
+
+  it('a side-0 unit a remove trigger takes is removed with no unitLost; the destroyed one is a unitLost', () => {
+    const w = removalWorld();
+    expect([0, 1, 2].map((id) => w.sim.state.side[id])).toEqual([0, 0, 0]);
+    w.sim.debugKill(1);
+    const { sim, mission } = w.step(4 * TICKS_PER_SECOND);
+    // The removal: a `removed` from the sim and from the runtime, for entity 0 on side 0, and no `destroyed`.
+    expect(sim.flatMap((e) => (e.kind === 'removed' ? [[e.entity, e.side]] : []))).toEqual([[0, 0]]);
+    expect(mission.flatMap((e) => (e.kind === 'removed' ? [[e.entity, e.side]] : []))).toEqual([[0, 0]]);
+    expect(sim.flatMap((e) => (e.kind === 'destroyed' ? [e.entity] : []))).toEqual([1]);
+    expect([w.sim.state.alive[0], w.sim.state.removed[0]]).toEqual([0, 1]);
+    // The one unitLost is the destroyed man's (the control), never the removed one's.
+    expect(mission.flatMap((e) => (e.kind === 'unitLost' ? [[e.entity, e.side, e.unit]] : []))).toEqual([[1, 0, 'm_squad']]);
+  });
+
+  it('the removal is reported once and the loss once, however long the mission runs on', () => {
+    const w = removalWorld();
+    w.sim.debugKill(1);
+    const first = w.step(1 * TICKS_PER_SECOND).mission;
+    const later = w.step(2 * TICKS_PER_SECOND).mission;
+    const count = (evs: MissionEvent[], kind: 'removed' | 'unitLost'): number => evs.filter((e) => e.kind === kind).length;
+    expect([count(first, 'removed'), count(first, 'unitLost')]).toEqual([1, 1]);
+    expect([count(later, 'removed'), count(later, 'unitLost')]).toEqual([0, 0]);
+  });
+  // Not pinned here, on purpose: `isLost` (so `lostByType`, `startingHome` and the ledger's `campaign.mission_results.lost`)
+  // still counts a `remove` trigger's side-0 body as lost, as its doc comment says. That count and the `unitLost` feed
+  // disagree about the same man; which one is right is a design question, not this test's to settle.
+});
+
 // Population cap (GH-183 F3 Task 3): `population(side)` counts every living unit of the
 // side however it got there (D1) plus the player's queued builds (D2); `buildBlockedReason`
 // refuses a build that would pass the cap, after the unlock and camp checks; a cap never
@@ -8247,6 +8296,20 @@ describe('E8: abduct', () => {
     expect(w.sim.state.alive[ESCORT]).toBe(1);
     // ...and nobody counted them as saved.
     expect(out.mission.some((e) => e.kind === 'evacuated')).toBe(false);
+  });
+
+  // GH-1380 (the PR 1648 review): a man taken is not a man lost. The abduction leaves play through `removeFromPlay`, so the
+  // sim says `removed` and never `destroyed`, and the runtime raises no `unitLost` for them. The captives are civilians, whom
+  // `isPlayerLoss` never counts, so the step loop's `destroyed`-only branch is not what this pins: it pins the abduction site
+  // itself, which must take with `removeFromPlay` and push `removed` alone.
+  // Falsified: `debugKill` in place of the abduction's `removeFromPlay`, and a `unitLost` pushed beside its `removed`.
+  it('the taken are removed, not lost: a removed each, no destroyed, no unitLost', () => {
+    const w = abWorld();
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(taken(out.mission).sort()).toEqual(VILLAGERS); // they WERE taken, so the assertions below are not vacuous
+    expect(out.sim.flatMap((e) => (e.kind === 'removed' ? [e.entity] : [])).sort()).toEqual(VILLAGERS);
+    expect(out.sim.some((e) => e.kind === 'destroyed')).toBe(false);
+    expect(out.mission.filter((e) => e.kind === 'unitLost')).toEqual([]);
   });
 
   it('before the trigger nobody is led anywhere: the villagers stand where they were placed', () => {
