@@ -415,7 +415,7 @@
           },
           "counts_rescued": {
             "type": "boolean",
-            "description": "E12 (GH-1438): evacuate_before only. A civilian of this evacuation's people (its `group`, or every civilian when unscoped) whom the player's side rescues while it is active -- admitted to an aid post or evacuated by a carrier as a wounded man -- is counted out like one who walked into the zone: once, in the same tally, with the same `evacuated` event. Absent or false: a rescued civilian counts toward Conduct only, as before. The tally is shared, as an arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one without the flag. A civilian counted at his admission stays counted even if the aid post later falls and he is lost (`woundLost`); both pending a lead ruling."
+            "description": "E12 (GH-1438): evacuate_before only. A civilian of this evacuation's people (its `group`, or every civilian when unscoped) whom the player's side rescues is counted out like one who walked into the zone (once, in the same tally, with the same `evacuated` event) when he leaves the fight alive while it is active: evacuated by a carrier as a wounded man, or discharged from an aid post. Admission to an aid post counts nothing on its own (the lead, 20 Nov 2026): a patient whose post falls is lost (`woundLost`) and never counted, and one discharged after the objective resolved is not a late save. Absent or false: a rescued civilian counts toward Conduct only, as before. The tally is shared, as an arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one without the flag (pending a lead ruling)."
           },
           "side": {
             "enum": [

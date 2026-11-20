@@ -86,7 +86,8 @@ export class CivilianFlight {
     return this.evacuatedSet.has(id);
   }
 
-  /** E12 (GH-1438): count civilian `id` out because the player's side RESCUED him (admitted or evacuated as a wounded),
+  /** E12 (GH-1438): count civilian `id` out because the player's side RESCUED him (out of the fight alive as a wounded:
+   *  evacuated by a carrier or discharged from an aid post, never merely admitted),
    *  into the same latch an arrival goes into, so every evacuation that counts him sees him once. True when he was not
    *  counted before. The caller decides whether a rescue counts (`counts_rescued`); this writes no sim state, because
    *  the rescue path has already taken him off the map. */

@@ -234,13 +234,15 @@ export interface ObjectiveJson {
    *  every civilian, one shared tally. */
   group?: string | readonly string[];
   /** `evacuate_before` only (E12, GH-1438, the civilian drama design §10.2 and G-7): a civilian of this evacuation's
-   *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues -- admitted to an aid post or
-   *  evacuated by a carrier (`woundAdmitted` / `woundEvacuated` with side 0) -- while this objective is active is counted
-   *  out exactly as one who walked into the zone: latched into the same tally, once, with the same `evacuated` event.
-   *  Absent or false: a rescued civilian counts toward nothing but Conduct, as before. The tally is shared, as an
-   *  arrival's is: with two unscoped evacuations, a rescue latched by the one that opts in also counts for the one
-   *  without the flag. And a civilian counted at `woundAdmitted` stays counted even if the aid post later falls and he
-   *  is lost (`woundLost`): nothing takes a man out of the latch. Both pending a lead ruling. */
+   *  people (its `group`, or every civilian when unscoped) whom the PLAYER's side rescues is counted out exactly as one
+   *  who walked into the zone (latched into the same tally, once, with the same `evacuated` event) at the moment he
+   *  leaves the fight ALIVE: his `woundEvacuated` with side 0, either evacuated by a carrier (on an evac point, or an
+   *  air carrier lifting off) or discharged from an aid post (`carrier` -1), while this objective is active. Admission
+   *  to an aid post (`woundAdmitted`) counts nothing on its own (the lead's ruling, 20 Nov 2026, PR 1651 follow-up): a
+   *  patient whose post falls is lost (`woundLost`) and is never counted, and one still under treatment when the
+   *  objective resolves is not counted either. Absent or false: a rescued civilian counts toward nothing but Conduct,
+   *  as before. The tally is shared, as an arrival's is: with two unscoped evacuations, a rescue latched by the one that
+   *  opts in also counts for the one without the flag (pending a lead ruling). */
   counts_rescued?: boolean;
   text?: string;
   target?: string;
@@ -3271,9 +3273,10 @@ export class MissionRuntime {
         const parent = this.woundParentOf.get(e.entity);
         if (parent !== undefined && this.sim.state.alive[parent] === 1) this.rescuedBack.set(parent, (this.rescuedBack.get(parent) ?? 0) + 1);
       }
-      // E12: a civilian the player rescued, for an active evacuation that counts rescues, is counted out like an arrival.
+      // E12: a civilian the player rescued, for an active evacuation that counts rescues, is counted out like an arrival,
+      // and only once he is OUT alive (carrier evacuation or aid-post discharge): never at admission (lead, 20 Nov).
       if (
-        (e.kind === 'woundAdmitted' || e.kind === 'woundEvacuated') &&
+        e.kind === 'woundEvacuated' &&
         e.side === 0 &&
         this.sim.state.side[e.entity] === 2 &&
         this.rescueCounts(e.entity) &&
@@ -5171,8 +5174,9 @@ export class MissionRuntime {
   }
 
   /** E12: whether an ACTIVE `evacuate_before` with `counts_rescued` counts civilian `id` (unscoped: every civilian; scoped:
-   *  its groups). Active only, as `collect` runs only for an active evacuation (E3): a rescue after the clock ran out is
-   *  Conduct, not a late save. Read on a rescue event alone, so the scan over a handful of objectives costs nothing. */
+   *  its groups). Active only, as `collect` runs only for an active evacuation (E3): a rescue that ends after the clock
+   *  ran out (a late evacuation, or a discharge from a post he was admitted to in time) is Conduct, not a late save.
+   *  Read on a `woundEvacuated` alone, so the scan over a handful of objectives costs nothing. */
   private rescueCounts(id: number): boolean {
     for (const o of this.objectives) {
       const d = o.def;
