@@ -47,6 +47,7 @@ import {
   type VehicleMeshEntity,
   type VehicleMeshTemplate,
 } from './mesh-vehicle';
+import { SUPPORT_SURFACES } from './unit-surface';
 import { rotorSpinPhase } from './rotor-spin';
 import { texturedMaterial } from '../world-materials';
 import { FX_RENDER_ORDER_ADDITIVE } from './render-order';
@@ -125,7 +126,8 @@ export class SupportAircraftManager {
   /** Loads both meshes. Either may fail alone: a call then flies what loaded. */
   async load(heliUrl: string, jetUrl: string): Promise<void> {
     const [heli, jet] = await Promise.allSettled([
-      loadVehicleMeshTemplate(heliUrl, SUPPORT_HELI_TYPE, true, undefined, true),
+      // GH-1361 (ruling D7): the helicopter takes the table whose clones carry no sun glint.
+      loadVehicleMeshTemplate(heliUrl, SUPPORT_HELI_TYPE, true, undefined, true, SUPPORT_SURFACES),
       coldGltfLoader().loadAsync(jetUrl),
     ]);
     if (this.disposed) {

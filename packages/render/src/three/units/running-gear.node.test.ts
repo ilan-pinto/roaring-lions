@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { NUMBER_OPS } from '../fog-ops';
 import { RG_TREAD_DEPTH, RG_TREAD_DUTY, parseRunningGear, rgBarOps, rgNormalOps, rgPhaseOps, rgVertexOps, type RunningGearSpec } from './running-gear';
 import { RG_PROGRAM_KEY, runningGearUniformsOf } from './running-gear-material';
+import { GLINT_SEGMENT_HAS_NO_NODE_TERM } from './running-gear.node';
 import { bindRunningGear, runningGearBinding } from './running-gear-binding';
 import type { VehicleMeshEntity } from './mesh-vehicle';
 import { adoptUnits, bindingsOf, compile, laviMaterial, mainOf, runUpdate, taggedGeometry, uniformOf, unitDeps, type UnitDeps } from './unit-twin.test-support';
@@ -202,5 +203,11 @@ describe('G5: the shadow and the AO pre-pass keep the rest pose', () => {
     const built = compile(d, v.meshes[0], normal);
     expect(built.vertex).not.toContain('rlRgRot');
     expect(built.vertex).not.toContain('_rl_wheel');
+  });
+});
+
+describe('GH-1361: the sun glint rides the running-gear clone, with no node term', () => {
+  it('the twin records that the glint segment has no node term (porting it must touch running-gear.node.ts)', () => {
+    expect(GLINT_SEGMENT_HAS_NO_NODE_TERM).toBe(true);
   });
 });

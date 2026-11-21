@@ -151,6 +151,7 @@ import { advanceMeshClipFades, applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
 import { reassertHiddenFigures, stopSquadPlayers } from './squad-rig';
 import { carryTeamMark } from './team-mask';
+import { carrySunGlint, stripSunGlint } from './sun-glint';
 import { pickDeathClips } from './mesh-anim';
 import { legacyOf, recordLegacyBase } from '../twin-identity';
 
@@ -234,6 +235,8 @@ export function beginMeshDeathFade(root: THREE.Object3D, adopt?: AdoptQueue): Me
       // L3 (GH-943): a clone drops `onBeforeCompile`, so a team-marked hull would lose its mark for the 0.4 s of the
       // fade. Carry the hook (a no-op for a material that has none).
       carryTeamMark(fade, original);
+      // GH-1361: and the sun glint, so a weapon does not lose its glint for the 0.4 s of the fade.
+      carrySunGlint(fade, original);
       fade.transparent = true;
       // GH-943 P3 (T1): every entity's fade shares its base's node twin (opacity is per object, T3).
       recordLegacyBase(fade, original);
@@ -844,6 +847,8 @@ export function pushMeshWreck(
   scene: THREE.Scene,
   max: number = MAX_MESH_WRECKS
 ): void {
+  // GH-1361: a settled corpse never glints (it can lie on explored-but-unseen ground, where the fog pass dims 0.4 before bloom).
+  stripSunGlint(wreck.root);
   wrecks.push(wreck);
   while (wrecks.length > max) {
     const old = wrecks.shift();

@@ -23,6 +23,8 @@ describe('HDR_GAINS', () => {
       streakKind: { rifle: 0.45, mg: 0.6, grenade: 0.06 },
       grenadeGlint: 0.4,
       hostileStreakMax: 12,
+      // GH-1361 (lead ruling D5): the sun-glint lobe's gain.
+      sunGlint: 2,
     });
   });
   it('is frozen', () => {

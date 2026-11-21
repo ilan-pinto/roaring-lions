@@ -835,3 +835,23 @@ A cut keeps a wall, so a cut building still reads as a house with people inside 
 - **Not in P5** (the coordinator's ruling Q1): the band-2 partial-collapse sag.
 - The settled-rubble showcase for the gated `rubble` scenario: `RendererOptions.rubbleShowcase` (`&rubble`, sandbox only; see
   `visual-gate.md`).
+
+## Sun glint on unit metal and glass (GH-1361 slice 1)
+
+- **What it is.** One extra, wider lobe on the sun's DIRECT light, on the `glass` and `gunmetal` clones `surfaceMaterialFor` cuts
+  (`units/sun-glint.ts`): `directSpecular += directLight.color * gain * smoothstep(cos 10deg, mix(cos, 1, 0.6), n.h) * step(0, n.l)`. Gain 2
+  (`HDR_GAINS.sunGlint`), all three presets, no palette key (it rides the sun's colour). `directLight.color` already holds the sun's
+  shadow, so a part in a building's shadow cannot glint. Reasoning and rulings: `docs/superpowers/specs/2026-11-16-sun-glint-design.md`.
+- **Geometry.** The camera is orthographic, so the half-vector H is the same everywhere: a glint depends on the surface NORMAL, never on
+  screen position, and it moves as a unit turns. No flat surface can mirror this sun (water, roofs, windows), which is why only
+  tilted and curved parts glint, and why water (W) is a separate stylised term in slice 2.
+- **Clones.** `Material.clone()` drops `onBeforeCompile`, so `carrySunGlint` runs at every site that runs `carryTeamMark` (scar, running
+  gear, death fade). A running-gear clone's key already NAMES glint (it copies the base's), so the carry installs the patch without
+  doubling the key; the hook set is tracked by identity, not by the key. A wounded copy chains its source's hook itself.
+- **The flag.** `setSunGlintPass` is the `glint` layer; `stepSunGlint` runs every frame in `frame()` and writes the shared gain from that
+  flag, so a hide holds across a repaint. It is independent of `unit-surface`.
+- **Not in slice 1.** Water glitter, the `ein_qasab` gated scenario (D3, D9), the WebGPU twin. The segment is in `UNIT_HOOK_SEGMENTS` with
+  no node term (`UNIT_SEGMENTS_WITHOUT_NODE_TERM`), so a node boot draws the clone without it and the census names `rl-unit: rl-sun-glint`.
+  Slice 2 reads `sunGlintGainNow()` for W's gain.
+- **Gate consequences.** The glint is an HDR point on a lined-up barrel, so `vehicle` and `kitted` hold pixels over 1.0 and left
+  `BLOOM_ZERO_SCENARIOS` (hiding bloom there moves 485 / 55 px). `glint` is checked on those two frames.

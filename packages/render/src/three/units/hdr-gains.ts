@@ -21,6 +21,7 @@
  *              no separate role was added.
  *  - fireball  `flipbook-fx.ts`'s `uFireGain`: the fire type's hot phase
  *              (white_hot/fire for its first ~16% of life).
+ *  - sunGlint  `sun-glint.ts`: the extra lobe on the sun's direct light, on unit glass and gunmetal clones (GH-1361).
  *  - beam*     `beam-batch.ts` (E6 chunk C), as a factor on the vertex colour of the
  *              core ribbon, the ember sheath and the lens/target glows.
  *
@@ -60,6 +61,9 @@ export const HDR_GAINS = Object.freeze({
   // about 3.7 in the colour-vision variants; 12 is a runaway guard for a
   // palette edit, not a look.
   hostileStreakMax: 12,
+  // GH-1361 slice 1 (lead ruling D5, 16 Nov 2026): the sun-glint lobe on unit glass and gunmetal (`units/sun-glint.ts`), a gain on the
+  // sun's own (shadowed) colour. 2 puts a lined-up barrel's pre-bloom peak at about 4.3, over the 1.0 threshold: a small bloomed point.
+  sunGlint: 2,
 });
 
 export type HdrZoneRole = 'core' | 'mid' | 'outer';

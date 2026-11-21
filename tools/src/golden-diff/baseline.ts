@@ -126,6 +126,10 @@ export interface LayerCheckSpec {
    *  photographs plus two more: not "is it there" but "is it a different TONE
    *  from the ground beneath it". See `ToneCollapseSpec`. */
   toneCheck?: ToneCollapseSpec;
+  /** GH-1361: layers held HIDDEN while this check is asked (the gate hides them, re-takes the "shown" photograph, toggles `layer`,
+   *  and restores them in reverse). For a check whose question is about one layer alone: the bloom ZERO check holds `glint` hidden,
+   *  because the sun glint is the one deliberate HDR source in the quiet frames. */
+  holdHidden?: readonly string[];
   /** Measured signal, sample size, and what the floor is a fraction OF.
    *  Printed on every run. */
   rationale: string;
@@ -447,6 +451,14 @@ const L3_MARK =
   'SwiftShader driver). Hiding `team-mask` writes the one strength every hooked material shares to 0: the crisp roof recognition ' +
   'panel and the turret band (boxes tested on the object-space position, `units/team-mask.ts`) fall back to the bake. Floors are a ' +
   'third of the smallest run, rounded down. ';
+
+/** GH-1361 slice 1, the `glint` layer check: what it was measured with, written once. */
+const GH1361_GLINT =
+  'GH-1361 slice 1 (the sun-glint lobe on unit glass and gunmetal, `units/sun-glint.ts`), measured 16 Nov 2026 with ' +
+  '`tools/src/perf/relief-read-signal.ts --layers=glint,bloom`: the gate\'s own capture, 3 fresh page loads, BIT-IDENTICAL across all three, ' +
+  'repaint control 0 px / 0.0000 on all three, macOS / M3 Pro, headless Chromium, SwiftShader (ANGLE, Vulkan, SwiftShader driver), ' +
+  '1400x900, quality high. Hiding `glint` writes the shared gain to 0 (a flag `stepSunGlint` consults every frame): the HDR point on a ' +
+  'lined-up barrel and its bloom halo fall away. Floors are a third of the smallest run, rounded down. ';
 
 const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
@@ -1145,6 +1157,25 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'most of the signal in this frame is the vehicles, which is the point of the scenario.',
       },
       {
+        layer: 'bloom',
+        minDiffPixels: 161,
+        minMeanAbsChannelDelta: 0.0266,
+        rationale:
+          GH1361_GLINT +
+          'POSITIVE bloom floor (GH-1361): with the glint ON, hiding bloom moves `vehicle` 485 px / 0.0800 x3 (the glint\'s halo), so a dead ' +
+          'bloom pass cannot hide behind the zero checks, which a bloom that draws nothing passes. Floors are a third of the smallest, rounded ' +
+          'down, from local SwiftShader runs; CI re-measures at the bless. `kitted` (55 px, under the 100 px convention) carries none.',
+      },
+      {
+        layer: 'glint',
+        minDiffPixels: 184,
+        minMeanAbsChannelDelta: 0.0289,
+        rationale:
+          GH1361_GLINT +
+          'The vehicles\' and figures\' gun metal at zoom 1 on `vehicle`: 552 px / 0.0869 x3 (the source of each lit pixel was not traced mesh by mesh). ' +
+          'WATCHED GOING RED: `setSunGlintPass` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
+      },
+      {
         layer: 'unit-surface',
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.0067,
@@ -1305,6 +1336,15 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
           'geometries and moves 0 px / 0.0000, under both floors. That is the erasure defect this ' +
           'check exists for (the kit never reaching the renderer: a seed that does not arrive, a merge ' +
           'that keeps nothing, `kit_*` nodes dropped at export), not a toggle a later restore undoes.',
+      },
+      {
+        layer: 'glint',
+        minDiffPixels: 39,
+        minMeanAbsChannelDelta: 0.0154,
+        rationale:
+          GH1361_GLINT +
+          'The kitted frame\'s gun metal: 117 px / 0.0463 x3. ' +
+          'WATCHED GOING RED: `setSunGlintPass` made a no-op reads 0 px / 0.0000 on this frame, under both floors.',
       },
       {
         layer: 'unit-surface',
@@ -2072,7 +2112,8 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
 
 /**
  * GH-943 P1 (T5): the `bloom` ZERO check. Bloom thresholds a scene-referred LINEAR luminance of 1.0 (`bloom-spec.ts`), and the
- * census holds every quiet frame under 0.9, so hiding the bloom must move NOTHING: exactly 0 px and 0.0000. A frame that moves is
+ * census holds every quiet frame under 0.9 (with the sun glint hidden: the glint is a deliberate HDR point, GH-1361), so hiding the bloom
+ * must move NOTHING: exactly 0 px and 0.0000. A frame that moves is
  * a bloom adding where nothing exceeds 1.0 (a threshold or smoothWidth drift, or a node graph that blends instead of adding 0).
  * Declared on every gated scenario whose frame is quiet by construction (tick 0, nothing fired, or a framing with no effect in
  * it); `aftermath` is NOT among them -- it steps to tick 300 with the sandbox force firing, and its muzzle-flash lights are the
@@ -2084,16 +2125,21 @@ const BASELINES_DECLARED: Readonly<Record<string, BaselineSpec>> = {
 const BLOOM_ZERO_CHECK: LayerCheckSpec = {
   kind: 'zero',
   layer: 'bloom',
+  // GH-1361: the sun glint is an HDR point by design, so the question "does bloom add anything where nothing exceeds 1.0" is asked
+  // with it hidden. Dropping this hold turns `vehicle` red (hiding bloom moves ~485 px with the glint on).
+  holdHidden: ['glint'],
   minMeanAbsChannelDelta: 0,
   minDiffPixels: 0,
   rationale:
-    'ZERO check (no floor): the bloom thresholds linear luminance 1.0 and the quiet-frame census holds every frame under 0.9, so ' +
-    'hiding it must move exactly nothing. Falsified by BLOOM_THRESHOLD = 0.5 in `bloom-spec.ts`: the high-pass then passes the ' +
-    'lit ground and the check goes red on any scenario at zoom >= 0.7.',
+    'ZERO check (no floor), asked with the `glint` layer HELD HIDDEN (`holdHidden`; GH-1361 made the sun glint a deliberate HDR point): the bloom ' +
+    'thresholds linear luminance 1.0 and the quiet-frame census holds every frame under 0.9 without the glint, so hiding it must move exactly nothing. Falsified by BLOOM_THRESHOLD = 0.5 in `bloom-spec.ts`: the high-pass then passes the ' +
+    'lit ground and the check goes red on any scenario at zoom >= 0.7. Dropping the hold turns `vehicle` red (485 px / 0.0800 with the glint ' +
+    'on, measured locally: SwiftShader, 3 bit-identical loads); `vehicle` also carries a positive `bloom` floor, because a dead bloom pass passes every zero check.',
 };
 
 /** The scenarios the zero check is declared on: every gated one except `aftermath` (see `BLOOM_ZERO_CHECK`) and `relief`
- * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved. */
+ * (tick 500: the legacy reading is 167 px / 0.0139, pixels exceed linear 1.0; lead-approved 6 Nov, PR 1061). No threshold moved.
+ */
 const BLOOM_ZERO_SCENARIOS: readonly string[] = ['quiet', 'open-ground', 'vehicle', 'kitted', 'fogged', 'graded'];
 
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = Object.fromEntries(

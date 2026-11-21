@@ -51,6 +51,7 @@
  */
 import * as THREE from 'three';
 import { applyRainRim, setRainRimPass } from './rain-rim';
+import { applySunGlint, isSunGlintMaterial, surfaceGlints } from './sun-glint';
 import { ENV_CLASS_OF_SURFACE, ENV_METAL_CAP, ENV_USERDATA_KEY } from '../environment-classes';
 
 export interface SurfaceParams {
@@ -107,6 +108,16 @@ export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>> & {
  * (and everything that destructures it) is untouched.
  */
 const environmentTables = new WeakSet<object>();
+/**
+ * GH-1361 (lead ruling D7: support aircraft left out): tables whose clones take NO sun glint. `SUPPORT_SURFACES` is the shipped table
+ * under another identity, which is what `support-aircraft.ts` builds its helicopter with. The clone memo keeps its clones apart.
+ */
+const noGlintTables = new WeakSet<object>();
+export const SUPPORT_SURFACES: SurfaceTable = ((): SurfaceTable => {
+  const t = { ...SURFACE_PARAMS } as SurfaceTable;
+  noGlintTables.add(t);
+  return Object.freeze(t);
+})();
 const capped = new WeakMap<SurfaceTable, Map<number, SurfaceTable>>();
 
 /**
@@ -267,8 +278,8 @@ const clones = new WeakMap<THREE.Material, Map<string, THREE.MeshStandardMateria
 
 /** `class/roughness/metalness`: the clone memo's key (the table is part of it).
  *  A rim clone appends `/rim`; an unrimmed one keeps today's key. */
-function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean, env: boolean): string {
-  const base = `${cls}/${p.roughness}/${p.metalness}`;
+function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean, env: boolean, glint = true): string {
+  const base = glint ? `${cls}/${p.roughness}/${p.metalness}` : `${cls}/${p.roughness}/${p.metalness}/noglint`;
   const keyed = rim ? `${base}/rim` : base;
   // An environment clone carries a class tag a plain one does not, so the two never share a memo slot.
   return env ? `${keyed}/env` : keyed;
@@ -300,7 +311,8 @@ export function surfaceMaterialFor(
     clones.set(base, perClass);
   }
   const p = table[cls];
-  const key = cacheKey(cls, p, rim, environmentTables.has(table));
+  const glints = surfaceGlints(cls) && !noGlintTables.has(table);
+  const key = cacheKey(cls, p, rim, environmentTables.has(table), glints || !surfaceGlints(cls));
   const hit = perClass.get(key);
   if (hit) {
     // A second template built from the same loaded original (whose first
@@ -331,6 +343,8 @@ export function surfaceMaterialFor(
     ...(rim ? { rim: true } : {}),
   };
   if (rim) applyRainRim(mat);
+  // GH-1361: the glass and gunmetal classes take the sun-glint lobe (`sun-glint.ts`); every other class is untouched.
+  if (glints) applySunGlint(mat);
   entryOf.set(mat, entry);
   track(entry);
   writeSurface(entry, surfacePassOn);
@@ -351,6 +365,16 @@ export function surfaceMaterialFor(
 export function rainRimCloneCount(): number {
   let n = 0;
   for (const ref of registry) if (ref.deref()?.rim) n++;
+  return n;
+}
+
+/** Number of live surface clones carrying the sun-glint lobe (test seam, and what the `glint` layer reports it reached). */
+export function sunGlintCloneCount(): number {
+  let n = 0;
+  for (const ref of registry) {
+    const e = ref.deref();
+    if (e && isSunGlintMaterial(e.mat)) n++;
+  }
   return n;
 }
 

@@ -113,7 +113,8 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
-import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { rainRimCloneCount, setUnitSurfacePass, sunGlintCloneCount, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { setSunGlintPass, stepSunGlint } from './units/sun-glint';
 import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
@@ -4986,6 +4987,8 @@ export class ThreeRenderer implements Renderer {
     this.updateRain(alpha);
     this.updateSilhouetteOutlineWidth();
     this.writeFxLayerVisibility();
+    // GH-1361: the shared glint gain, written from the `glint` layer's flag every frame (a hide cannot be undone by a repaint).
+    stepSunGlint();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
     // draws -- its return value is used only by the composer-less path.
@@ -5507,6 +5510,11 @@ export class ThreeRenderer implements Renderer {
       // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
       case 'unit-surface':
         return setUnitSurfacePass(visible);
+      // GH-1361: the sun-glint lobe. A flag `stepSunGlint` consults every frame; the write here is so a caller that never repaints
+      // sees it. Returns how many glint clones exist (a layer that reached none is dead).
+      case 'glint':
+        setSunGlintPass(visible);
+        return sunGlintCloneCount();
       // L3 (GH-943): the team mark's shared strength to 0 and back: a uniform write nothing per-frame re-asserts.
       case 'team-mask':
         return setTeamMaskPass(visible);

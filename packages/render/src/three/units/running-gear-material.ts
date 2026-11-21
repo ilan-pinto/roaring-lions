@@ -29,6 +29,7 @@
 import * as THREE from 'three';
 import { RG_MAX_WHEELS, RG_TREAD_DEPTH, RG_TREAD_DUTY, type RunningGearSpec } from './running-gear';
 import { carryTeamMark } from './team-mask';
+import { carrySunGlint } from './sun-glint';
 
 /** The geometry attribute names `GLTFLoader` gives `_RL_WHEEL`/`_RL_TRACK`
  *  (it lower-cases a custom attribute it has no mapping for). */
@@ -156,6 +157,8 @@ export function runningGearMaterial(
   // L3: the clone dropped the team hook its base carried. Re-apply it AFTER this clone's own hook (which
   // it composes with); the program key already names it, since `baseKey` was read from the base.
   carryTeamMark(material, base);
+  // GH-1361: the key above already names the sun glint when `base` carries it; the patch itself is re-applied here.
+  carrySunGlint(material, base);
   return { material, uniforms };
 }
 

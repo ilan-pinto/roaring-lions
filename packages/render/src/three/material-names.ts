@@ -44,13 +44,21 @@ export const P3_MATERIAL_NAMES = {
 export type P3MaterialName = keyof typeof P3_MATERIAL_NAMES;
 export type P3ShaderSlot = (typeof P3_MATERIAL_NAMES)[P3MaterialName];
 
-/** The five unit hooks' program-key segments (team mark, running gear, rain rim, wounded floor, soot). */
+/** GH-1361 slice 1: the sun-glint lobe's segment (`units/sun-glint.ts`). A unit hook with NO node term yet: a node boot draws the
+ *  clone without it and the census names it (`rl-unit: rl-sun-glint`). Slice 4 of the design ports it. Literal here because this
+ *  module is import-free; `sun-glint.test.ts` pins it against `SUN_GLINT_PROGRAM_KEY`. */
+export const SUN_GLINT_SEGMENT = 'rl-sun-glint';
+/** The unit segments that have no node term yet (declared, so a census reads them as unported and a pin does not want them ported). */
+export const UNIT_SEGMENTS_WITHOUT_NODE_TERM: ReadonlySet<string> = new Set([SUN_GLINT_SEGMENT]);
+
+/** The unit hooks' program-key segments (team mark, running gear, rain rim, wounded floor, soot, and the sun glint). */
 export const UNIT_HOOK_SEGMENTS: ReadonlySet<string> = new Set([
   'rl-unit-mark-3',
   'rl-running-gear-1',
   'rl-unit-rain-rim',
   'rl-wounded-floor',
   'rl-soot',
+  SUN_GLINT_SEGMENT,
 ]);
 
 /** GH-1225 slice 3 (L7): the program-key segments of a clone-drawn building's holed (`rl-holes`, GH-1197 P4) and cut (`rl-cut`)

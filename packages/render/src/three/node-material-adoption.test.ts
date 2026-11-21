@@ -16,6 +16,7 @@ import type { MaterialKit } from './backend/backend';
 import { adoptMaterials, createTwinCache, legacyTwinSlot, mirrorTwinVisibility, NULL_P3_SLOTS } from './node-material-adoption';
 import { legacyOf, recordLegacyBase, TWIN_LEGACY_KEY } from './twin-identity';
 import { UNIT_HOOK_SEGMENTS } from './material-names';
+import { SUN_GLINT_PROGRAM_KEY } from './units/sun-glint';
 import { createDecalMaterial } from './decal-pool';
 import { OverlayBatch } from './units/overlays';
 import { createZoneBandMaterial } from './units/zone-band';
@@ -104,9 +105,9 @@ function hooked(segments: readonly string[], ctor: new () => THREE.Material = TH
 }
 
 describe('the unit, outline, banner and backdrop recognisers', () => {
-  it('UNIT_HOOK_SEGMENTS is exactly the five legacy hook constants', () => {
+  it('UNIT_HOOK_SEGMENTS is exactly the five ported legacy hook constants plus the sun glint (GH-1361)', () => {
     expect([...UNIT_HOOK_SEGMENTS].sort()).toEqual(
-      [TEAM_MASK_PROGRAM_KEY, RG_PROGRAM_KEY, RAIN_RIM_PROGRAM_KEY, WOUNDED_FLOOR_PROGRAM_KEY, SOOT_PROGRAM_KEY].sort()
+      [TEAM_MASK_PROGRAM_KEY, RG_PROGRAM_KEY, RAIN_RIM_PROGRAM_KEY, WOUNDED_FLOOR_PROGRAM_KEY, SOOT_PROGRAM_KEY, SUN_GLINT_PROGRAM_KEY].sort()
     );
   });
   it('a hook chain of unit segments is unit; a mixed chain, or no segment, is nothing', () => {
