@@ -40,6 +40,12 @@
  * only when the table asks for it, so a shipped renderer's clones are exactly
  * today's.
  *
+ * The DUSK FIGURE READ (GH-1403, `../dusk-read.ts`) is the same variant in its
+ * other flavour: `DUSK_SURFACE_PARAMS` carries the switch `duskRead`, every
+ * figure (any faction) on it takes a `'dusk'` rim clone, and its memo key is
+ * `/rim-dusk`, never a rain clone's `/rim`. Only an opted-in dusk renderer asks
+ * for that table, so every other renderer's clones are today's.
+ *
  * Known limit: a scar clone (`vehicle-damage`) or a running-gear clone
  * (`running-gear-binding`) is cut with `Material.clone()` from the surface
  * clone and copies the roughness/metalness in force when it was cut; it is
@@ -50,7 +56,7 @@
  * and presentation-only.
  */
 import * as THREE from 'three';
-import { applyRainRim, setRainRimPass } from './rain-rim';
+import { applyRainRim, setRainRimPass, type RimFlavour } from './rain-rim';
 import { ENV_CLASS_OF_SURFACE, ENV_METAL_CAP, ENV_USERDATA_KEY } from '../environment-classes';
 
 export interface SurfaceParams {
@@ -98,6 +104,8 @@ export const SURFACE_PARAMS: Readonly<Record<SurfaceClass, SurfaceParams>> = {
  */
 export type SurfaceTable = Readonly<Record<SurfaceClass, SurfaceParams>> & {
   readonly kdfRim?: true;
+  /** GH-1403: the dusk figure read's switch (`DUSK_SURFACE_PARAMS`); absent on every other table. */
+  readonly duskRead?: true;
 };
 
 /**
@@ -127,13 +135,26 @@ export const WET_SURFACE_PARAMS: SurfaceTable = {
 };
 
 /**
- * Whether a figure of `faction` takes the rain rim from `table`: true for `'kdf'` on
- * a table that asks (the wet one), else false. Vehicles never ask (their loader
- * passes no rim), enemy and civilian figures are not rimmed, and the shipped table
- * has no switch.
+ * GH-1403: the dusk figure read's table. The shipped numbers to the class (the
+ * dusk read moves the albedo, never the specular response), plus the switch.
+ * Built from `SURFACE_PARAMS`, so a class cannot drift from it.
  */
-export function figureRimFor(table: SurfaceTable, faction: string): boolean {
-  return faction === 'kdf' && table.kdfRim === true;
+export const DUSK_SURFACE_PARAMS: SurfaceTable = {
+  ...SURFACE_PARAMS,
+  duskRead: true,
+};
+
+/**
+ * Which rim, if any, a figure of `faction` takes from `table`: `'rain'` for `'kdf'`
+ * on a table that asks (the wet one); `'dusk'` for EVERY faction on the dusk read's
+ * table (GH-1403; the mechanism is even-handed, its effect is not: see `../dusk-read.ts`); else
+ * false. Vehicles never ask (their loader passes no rim), and the shipped table has
+ * no switch.
+ */
+export function figureRimFor(table: SurfaceTable, faction: string): RimFlavour | false {
+  if (table.kdfRim === true) return faction === 'kdf' ? 'rain' : false;
+  if (table.duskRead === true) return 'dusk';
+  return false;
 }
 
 /**
@@ -158,6 +179,7 @@ export function withMetalCap(table: SurfaceTable, cap: number = ENV_METAL_CAP): 
   const made: SurfaceTable = {
     ...(out as Record<SurfaceClass, SurfaceParams>),
     ...(table.kdfRim ? { kdfRim: true as const } : {}),
+    ...(table.duskRead ? { duskRead: true as const } : {}),
   };
   environmentTables.add(made);
   const into = memo ?? new Map<number, SurfaceTable>();
@@ -169,9 +191,11 @@ export function withMetalCap(table: SurfaceTable, cap: number = ENV_METAL_CAP): 
 /** The table a renderer built with `weather` uses: `'rain'` is the wet one,
  *  anything else (absent, `'clear'`) is the shipped one. `environment` (L1,
  *  GH-943, default off) lifts the metal cap; off returns the shipped tables
- *  themselves. */
-export function surfaceTableFor(weather: 'clear' | 'rain' | undefined, environment = false): SurfaceTable {
-  const base = weather === 'rain' ? WET_SURFACE_PARAMS : SURFACE_PARAMS;
+ *  themselves. `duskRead` (GH-1403, default off) is true only for an opted-in
+ *  DUSK renderer (`ThreeRenderer` decides): it picks the dusk read's table, and
+ *  rain wins over it. False returns exactly the table it always returned. */
+export function surfaceTableFor(weather: 'clear' | 'rain' | undefined, environment = false, duskRead = false): SurfaceTable {
+  const base = weather === 'rain' ? WET_SURFACE_PARAMS : duskRead ? DUSK_SURFACE_PARAMS : SURFACE_PARAMS;
   return environment ? withMetalCap(base) : base;
 }
 
@@ -212,8 +236,8 @@ interface SurfaceEntry {
   readonly mat: THREE.MeshStandardMaterial;
   readonly off: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
   readonly on: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
-  /** The clone carries the rain rim hook (`rain-rim.ts`). Absent / false on every other clone. */
-  readonly rim?: boolean;
+  /** The clone carries the rim hook (`rain-rim.ts`), in this flavour. Absent on every other clone. */
+  readonly rim?: RimFlavour;
 }
 
 /**
@@ -266,10 +290,12 @@ function untrack(entry: SurfaceEntry): void {
 const clones = new WeakMap<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
 
 /** `class/roughness/metalness`: the clone memo's key (the table is part of it).
- *  A rim clone appends `/rim`; an unrimmed one keeps today's key. */
-function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean, env: boolean): string {
+ *  A rain rim clone appends `/rim`, a dusk one `/rim-dusk` (GH-1403: the two
+ *  tables share most classes' numbers, so the flavour must be in the key); an
+ *  unrimmed one keeps today's key. */
+function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: RimFlavour | false, env: boolean): string {
   const base = `${cls}/${p.roughness}/${p.metalness}`;
-  const keyed = rim ? `${base}/rim` : base;
+  const keyed = rim === 'rain' ? `${base}/rim` : rim === 'dusk' ? `${base}/rim-dusk` : base;
   // An environment clone carries a class tag a plain one does not, so the two never share a memo slot.
   return env ? `${keyed}/env` : keyed;
 }
@@ -282,15 +308,17 @@ function cacheKey(cls: SurfaceClass, p: SurfaceParams, rim: boolean, env: boolea
  * absent, the shipped `SURFACE_PARAMS`. `rim` is the rain rim's switch
  * (`figureRimFor`): true makes the clone a rim variant (`applyRainRim`: its own
  * program key, a Fresnel emission term), and the memo keeps a rim and an unrimmed
- * clone apart; false (the default) is exactly today's clone.
+ * clone apart; false (the default) is exactly today's clone. `true` is `'rain'`;
+ * `'dusk'` is the dusk figure read's flavour (GH-1403).
  */
 export function surfaceMaterialFor(
   base: THREE.Material,
   role: string,
   fresh?: (m: THREE.Material) => void,
   table: SurfaceTable = SURFACE_PARAMS,
-  rim = false
+  rimSwitch: boolean | RimFlavour = false
 ): THREE.Material {
+  const rim: RimFlavour | false = rimSwitch === true ? 'rain' : rimSwitch;
   const std = base as THREE.MeshStandardMaterial;
   const cls = surfaceClassOf(role);
   if (!cls || !std.isMeshStandardMaterial) return base;
@@ -328,9 +356,9 @@ export function surfaceMaterialFor(
       metalness: p.metalness,
       metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
     },
-    ...(rim ? { rim: true } : {}),
+    ...(rim ? { rim } : {}),
   };
-  if (rim) applyRainRim(mat);
+  if (rim) applyRainRim(mat, rim);
   entryOf.set(mat, entry);
   track(entry);
   writeSurface(entry, surfacePassOn);
@@ -350,7 +378,14 @@ export function surfaceMaterialFor(
 /** Number of live surface clones carrying the rain rim (test seam, and the capture knob's "is there one"). */
 export function rainRimCloneCount(): number {
   let n = 0;
-  for (const ref of registry) if (ref.deref()?.rim) n++;
+  for (const ref of registry) if (ref.deref()?.rim === 'rain') n++;
+  return n;
+}
+
+/** GH-1403: number of live surface clones carrying the dusk figure read (test seam, and `debugDuskRead().built`). */
+export function duskReadCloneCount(): number {
+  let n = 0;
+  for (const ref of registry) if (ref.deref()?.rim === 'dusk') n++;
   return n;
 }
 

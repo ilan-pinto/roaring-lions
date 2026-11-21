@@ -60,7 +60,27 @@ export const HDR_GAINS = Object.freeze({
   // about 3.7 in the colour-vision variants; 12 is a runaway guard for a
   // palette edit, not a look.
   hostileStreakMax: 12,
+  // GH-1403 (the lead's ruling of 20 Nov 2026, option B): the faint TEAM ring (`readability.ts`'s `TEAM_RING`) under every
+  // unselected unit, brighter at dusk. A gain on the ring's own team colour (linear), so friend and foe stay their palette
+  // hues and only get louder; the ring's size, width, alpha and its zoom scaling are untouched. Bounded so a ring never
+  // blooms: `TEAM_RING.coreAlpha` x the brightest team colour in any colour-vision variant x this stays under
+  // `DUSK_RING_COMPOSITE_CEILING` (hdr-gains.test.ts), which leaves room for the dusk ground showing through the ring.
+  duskTeamRing: 1.8,
 });
+
+/** The most a dusk team ring's own contribution (core alpha x colour luminance x gain) may add to a pixel, in linear
+ *  luminance: under the bloom threshold (1.0) by the dusk ground behind it (at most about 40% of day's 0.7 sunlit sand,
+ *  x the 0.45 the ring lets through, about 0.13), with margin. */
+export const DUSK_RING_COMPOSITE_CEILING = 0.8;
+
+/**
+ * GH-1403: the gain the team ring's colour is multiplied by under the light `tod` resolves to. `duskTeamRing` at dusk
+ * (`night` is dusk, D10, resolved by the caller) when `enabled`, and EXACTLY 1 everywhere else, which the renderer reads
+ * as "do not touch the colour": the ring pushes `cachedHexToLinear`'s own tuple, as before this gain existed.
+ */
+export function teamRingGain(tod: 'dawn' | 'day' | 'dusk', enabled = true): number {
+  return enabled && tod === 'dusk' ? HDR_GAINS.duskTeamRing : 1;
+}
 
 export type HdrZoneRole = 'core' | 'mid' | 'outer';
 

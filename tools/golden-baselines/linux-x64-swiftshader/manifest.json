@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "b28bad48a20cd1190103c40398dc6ab5b35a76e0",
-  "blessedAt": "2026-11-12T01:36:11.556Z",
-  "reason": "GH-1223 slice 1 (PR 1228): new gated ragdoll scenario (presentation-only ragdolls, shipped dark). The lead looked at the CI capture on 11 Nov and approved it ('Ragdoll looks awesome'). Ragdolls layer floor 1084 px / 0.0551 set from three CI readings.",
+  "commit": "39f111ef05e9bc63d1a07b19dc5872eca6f06f48",
+  "blessedAt": "2026-11-20T16:12:22.772Z",
+  "reason": "GH-1403 dusk option B (PR 1649): at dusk the team ring's team colour is multiplied by HDR_GAINS.duskTeamRing 1.8, on by default (lead ruling 20 Nov). CI run 44755069101 at 39f111ef0 moved only graded (3645 px / 0.1096), and every layer check passed. quiet, the day reference, read 0 px.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "6cbab85d39bdf7f91454b70a85fe377ddcd1c18eb9ea4ee54ac59bec3d2f089a"
+      "sha256": "7129d9ca8a5fed1cb666cef38632fd05ddd4d127fb975cf47919b44ad77544b7"
     },
     "relief": {
       "tick": 500,

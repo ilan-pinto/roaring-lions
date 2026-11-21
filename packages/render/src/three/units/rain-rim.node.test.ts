@@ -11,12 +11,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { NUMBER_OPS } from '../fog-ops';
-import { applyRainRim, exposureCurve, rimOps, rimUniforms, setRainRead, setRainRimPass, treatedAlbedo } from './rain-rim';
+import { applyRainRim, exposureCurve, rimOps, rimUniforms, setDuskRead, setRainRead, setRainRimPass, treatedAlbedo } from './rain-rim';
 import { compile, laviMaterial, mainOf, runUpdate, taggedGeometry, uniformOf, unitDeps, unitFactory, type UnitDeps } from './unit-twin.test-support';
 
 afterEach(() => {
   setRainRimPass(true);
   setRainRead({ rimGain: 0, rimPower: 3, exposure: 6, contrast: 1.5 });
+  setDuskRead({ rimGain: 0, rimPower: 3, exposure: 2, contrast: 1 });
 });
 
 async function rimTwin(d: UnitDeps): Promise<{ twin: THREE.Material; mesh: THREE.Mesh }> {
@@ -100,5 +101,22 @@ describe('G4: the rim\'s view vector follows the camera type', () => {
     const persp = mainOf(compile(d, mesh, twin, new THREE.PerspectiveCamera()).fragment);
     expect(persp).not.toContain('dot( normalize( normalView ), vec3( 0.0, 0.0, 1.0 ) )');
     expect(persp).toContain('dot( normalize( normalView ), positionViewDirection )');
+  });
+});
+
+describe('GH-1403: a dusk figure read material\'s twin reads the DUSK set, never the rain one', () => {
+  it('its uniforms follow setDuskRead, and a rain write moves none of them', async () => {
+    // Falsification: read `maths.rimUniforms()` (no flavour) in `rimTerms`, and this goes red.
+    const d = await unitDeps();
+    const fig = laviMaterial();
+    applyRainRim(fig, 'dusk');
+    const twin = unitFactory(d)(fig);
+    setDuskRead({ rimGain: 0.3, rimPower: 2.5, exposure: 2.25, contrast: 1.1 });
+    setRainRead({ rimGain: 0.9, rimPower: 4, exposure: 7, contrast: 2 });
+    for (const [name, want] of [['uRimGain', 0.3], ['uRimPower', 2.5], ['uRainExposure', 2.25], ['uRainContrast', 1.1]] as const) {
+      const n = uniformOf(twin, name);
+      runUpdate(n);
+      expect(n.value, name).toBe(want);
+    }
   });
 });

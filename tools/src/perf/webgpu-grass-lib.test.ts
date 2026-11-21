@@ -147,6 +147,7 @@ describe('the instruments name the grass (design 5.3, decision 12)', () => {
   const EXEMPT: Readonly<Record<string, string>> = {
     'webgpu-units-probe-lib.ts': 'the subject table only (data): the probe that boots them, webgpu-units-probe.ts, hides the grass',
     'wounded-read-captures.ts': 'wound reads on one arm (no L-vs-G); it does not boot the node field comparison',
+    'dusk-read-captures.ts': 'GH-1403 dusk read A/B on the legacy renderer (no L-vs-G); it does not boot the node field comparison',
     'webgpu-grass-lib.ts': 'is the lib',
     'webgpu-grass-probe.ts': 'IS the grass column (G on against G off); it names the map for it',
   };

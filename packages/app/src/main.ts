@@ -342,6 +342,8 @@ import { gradeOf, lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
 import { environmentLightOf } from './environment-flag';
+import { duskReadOf } from './dusk-read-flag';
+import { duskTeamRingOf } from './dusk-ring-flag';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -2770,6 +2772,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(fit.value !== undefined ? { buildingFit: fit.value } : {}),
     // Look uplift L1 (GH-943): on by default; `&envlight=0` is the A/B switch. Presentation only.
     ...(environmentLightOf(params) ? {} : { environmentLight: false }),
+    // GH-1403: the dusk figure read, OFF by default and held for the lead; `&duskread` turns it on. Only a dusk renderer acts on it.
+    ...(duskReadOf(params) ? { duskRead: true } : {}),
+    // GH-1403 (the lead's option B): the dusk team ring, ON by default (the renderer acts on it only at dusk); `&duskring=0` is the A/B switch.
+    ...(duskTeamRingOf(params) ? {} : { duskTeamRing: false }),
     ...(gpuChoice.value !== undefined ? { gpu: gpuChoice.value } : {}),
     ...(gradeChoice.grade !== null ? { grade: { json: gradeChoice.grade, strength: gradeChoice.strength } } : {}),
     // Pass C2/C4 (P5): asked live, so the settings panel's motion switch

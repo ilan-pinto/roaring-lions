@@ -113,8 +113,9 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
-import { rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
-import { rainReadNow, rainRimNow, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
+import { duskReadCloneCount, rainRimCloneCount, setUnitSurfacePass, surfaceTableFor, type SurfaceTable } from './units/unit-surface';
+import { teamRingGain } from './units/hdr-gains';
+import { duskReadNow, rainReadNow, rainRimNow, setDuskRead, setRainRead, setRainRimGain, type RainRead } from './units/rain-rim';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { FIRE_SUPPORT, FS_AIR_STRIKE, fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent, type WeaponStats } from '@lions/sim';
@@ -1677,6 +1678,13 @@ export class ThreeRenderer implements Renderer {
    *  to both mesh template loaders; assigned in the constructor, beside
    *  `groundMat`, because a field initialiser runs before the options are seen. */
   private readonly surfaceTable: SurfaceTable;
+  /** GH-1403: this renderer opted into the dusk figure read and is lit at dusk (`dusk-read.ts`). */
+  private readonly duskRead: boolean;
+  /** GH-1403: the gain on the TEAM ring's colour (`hdr-gains.ts`'s `teamRingGain`); 1 leaves the colour untouched. Not
+   *  readonly: `debugSetTeamRingGain` is the capture tool's A/B knob. */
+  private teamRingGain: number;
+  /** The team ring's gained colour, written in place (no allocation in the overlay loop). */
+  private readonly teamRingColor: [number, number, number] = [0, 0, 0];
   /**
    * Look uplift L1 (GH-943): the scene's environment and the registry that hands it to
    * the material classes allowed to see it. Built unless `opts.environmentLight === false`
@@ -3322,7 +3330,13 @@ export class ThreeRenderer implements Renderer {
       this.windDirX = w.dirX;
       this.windDirZ = w.dirZ;
     }
-    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false);
+    // GH-1403: the dusk figure read, only when the app opted in AND the light resolves to dusk (`night` is dusk, D10);
+    // rain wins inside `surfaceTableFor`. Off, this is the table it always was, by identity.
+    this.duskRead = opts.duskRead === true && resolveTimeOfDay(opts.timeOfDay) === 'dusk';
+    // GH-1403 (the lead, 20 Nov: option B): the team ring's dusk gain, ON at dusk unless the app opted out
+    // (`&duskring=0`); exactly 1 on every other light, so the ring's colour path is today's.
+    this.teamRingGain = teamRingGain(resolveTimeOfDay(opts.timeOfDay), opts.duskTeamRing !== false);
+    this.surfaceTable = surfaceTableFor(opts.weather, opts.environmentLight !== false, this.duskRead);
     // L2 (GH-943): `low` builds no grade until the GPU-timer read spec section 3 asks for (`RenderQuality.grade`).
     this.gradeAllowed = (opts.quality ?? QUALITY_PRESETS.high).grade;
     this.viewer = opts.viewerSide ?? 0;
@@ -14388,6 +14402,17 @@ export class ThreeRenderer implements Renderer {
     p.z = z;
     p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type)) * scale;
     p.color = cachedHexToLinear(colorHex);
+    // GH-1403: the team ring at dusk is brighter, never bigger (overlays scale with zoom, and that is faithful). At a
+    // gain of exactly 1 (every light but dusk) this is skipped and the ring pushes the cached tuple as before.
+    if (batch === this.teamRing && this.teamRingGain !== 1) {
+      const c = p.color;
+      const g = this.teamRingGain;
+      const out = this.teamRingColor;
+      out[0] = c[0] * g;
+      out[1] = c[1] * g;
+      out[2] = c[2] * g;
+      p.color = out;
+    }
     const e = ELLIPSE_BY_TYPE[type.id];
     if (e === undefined) {
       p.alongTiles = undefined;
@@ -14877,6 +14902,33 @@ export class ThreeRenderer implements Renderer {
   /** The knobs the KDF figure shaders read now (the EFFECTIVE values: gain 0, exposure and contrast 1 while the `unit-surface` layer is off), and whether a rim material exists. */
   debugRainRead(): RainRead & { built: boolean } {
     return { ...rainReadNow(), built: this.opts.weather === 'rain' && rainRimCloneCount() > 0 };
+  }
+
+  /** GH-1403: the team ring's dusk gain, the capture tool's A/B knob (1 is today's ring). Concrete class only. Throws on
+   *  a non-finite or non-positive gain. Takes effect at the next frame (the ring's colour is rewritten every frame). */
+  debugSetTeamRingGain(gain: number): void {
+    if (!Number.isFinite(gain) || gain <= 0) throw new Error(`team ring gain must be a finite number > 0, got ${String(gain)}`);
+    this.teamRingGain = gain;
+  }
+
+  /** The team ring gain in force now. */
+  debugTeamRingGain(): number {
+    return this.teamRingGain;
+  }
+
+  /**
+   * GH-1403: the dusk figure read's sweep door (`dusk-read.ts`): writes every knob into the dusk flavour's ONE shared
+   * uniform set, so one call moves every figure on screen. Concrete class only, like `debugSetRainRead`;
+   * `tools/src/perf/dusk-read-captures.ts` calls it. A renderer that did not opt in has no dusk material, and the write
+   * reaches nothing (`debugDuskRead().built` says so).
+   */
+  debugSetDuskRead(p: RainRead): void {
+    setDuskRead(p);
+  }
+
+  /** The knobs the dusk figure shaders read now (effective, like `debugRainRead`), and whether a dusk read material exists. */
+  debugDuskRead(): RainRead & { built: boolean } {
+    return { ...duskReadNow(), built: this.duskRead && duskReadCloneCount() > 0 };
   }
 
   /** What the rim shaders read now: the effective `gain` (0 while the `unit-surface` debug layer is off), the
