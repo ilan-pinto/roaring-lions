@@ -3,9 +3,10 @@
  * faction, always at seat 1) and a win mode (`null` is annihilation). A cell is OPEN only if `OPEN_COMPUTER_CELLS` lists it; `CLOSED_COMPUTER_CELLS` lists the ones the probe read as a seat that stopped playing, and a cell in neither is closed.
  *
  * The list is read off the coverage probe (`pnpm commander:probe -- --open-cells`, `docs/net/commander-coverage.md` section 6), not chosen: a cell is closed
- * when, in the probe's games with the commander at seat 1, the seat STOPPED PLAYING in any of them. "Stopped playing" is the idle-unit stall reading: 60 s
- * with no order while an able, idle unit stood by (the literal "no order for 60 s" fires in a firefight, in 85% of games, and cannot tell a seat in a fight
- * from a seat that gave up). The table is data about the probe's last run, so a re-run that changes a verdict changes this list and nothing else.
+ * when, in the probe's games with the commander at seat 1, the seat STOPPED PLAYING in any of them. "Stopped playing" is the away-from-home idle stall: 60 s
+ * with no order while an able, idle unit stood by BEYOND the home radius (`RUSH_HOME_TILES`) of the camp. An idle unit at home is the commander's guard and does not
+ * count (the lead's ruling, 20 Nov 2026); the literal "no order for 60 s" fires in a firefight, in 85% of games, and cannot tell a seat in a fight from a seat that
+ * gave up. The table is data about the probe's last run, so a re-run that changes a verdict changes this list and nothing else.
  */
 import { VERSUS_FAIR_MAPS, matchupAllowed, winModesOffered, type Matchup, type WinMode } from '@lions/net';
 
@@ -28,35 +29,30 @@ export interface OpenComputerCells {
   winModes: readonly (WinMode | null)[];
 }
 
-/** The OPEN cells: the probe's games with the commander at seat 1 all played, ordered, and never stopped. 25 of the 31 cells. */
+/** The OPEN cells: the probe's games with the commander at seat 1 all played, ordered, and never stopped playing. ALL 31 cells (the lead's ruling of 20 Nov: a held guard at home is not a stall). */
 export const OPEN_COMPUTER_CELLS: readonly OpenComputerCells[] = [
   { map: 'beit_sahwan_outskirts', matchup: 'mirror', winModes: [null, 'points'] },
   { map: 'milh_flats_l', matchup: 'mirror', winModes: [null, 'flag', 'points'] },
   { map: 'milh_flats', matchup: 'mirror', winModes: [null, 'camp', 'points'] },
   { map: 'rujm_sawda', matchup: 'mirror', winModes: [null, 'flag', 'points'] },
+  { map: 'tel_marum', matchup: 'kdf', winModes: [null] },
   { map: 'tel_marum', matchup: 'mirror', winModes: [null, 'points'] },
-  { map: 'wadi_tarfan_l', matchup: 'kdf', winModes: ['camp'] },
+  { map: 'tel_marum', matchup: 'sarim', winModes: [null] },
+  { map: 'wadi_tarfan_l', matchup: 'kdf', winModes: [null, 'camp'] },
   { map: 'wadi_tarfan_l', matchup: 'mirror', winModes: [null, 'camp', 'flag', 'points'] },
-  { map: 'wadi_tarfan_l', matchup: 'sarim', winModes: ['camp'] },
-  { map: 'wadi_tarfan', matchup: 'kdf', winModes: ['camp'] },
+  { map: 'wadi_tarfan_l', matchup: 'sarim', winModes: [null, 'camp'] },
+  { map: 'wadi_tarfan', matchup: 'kdf', winModes: [null, 'camp'] },
   { map: 'wadi_tarfan', matchup: 'mirror', winModes: [null, 'camp', 'flag', 'points'] },
-  { map: 'wadi_tarfan', matchup: 'sarim', winModes: ['camp'] },
+  { map: 'wadi_tarfan', matchup: 'sarim', winModes: [null, 'camp'] },
 ];
 
 /**
- * The CLOSED cells, with the probe's reading (games stopped / games played, commander at seat 1, the idle-unit stall). All six are the skirmish-economy
- * pairings in annihilation, and the match there runs to the clock (`time` decided 38 of 48 games on Tel Marum KDF, 46 of 48 on Wadi Tarfan KDF). What stood
- * idle was at home: the probe's away-from-home reading is 0 in every one of these games, so the units may be the commander's own guard and zone holders
- * (slice 1) and not a seat that gave up; the reading cannot tell, so the cells stay closed. Reopening them is that question (HOLD FOR LEAD), not a number here.
+ * The CLOSED cells, with the probe's reading. EMPTY since the lead's ruling of 20 Nov 2026 (GH-1390): the six skirmish-economy annihilation cells were closed on
+ * the idle-unit stall counting a unit held at home, and the lead ruled that a guard at home is not a stall. Re-read on the away-from-home stall, none of the six
+ * had one in 48 games (`docs/net/computer-seat-cells.md`). The mechanism stays: a cell this table does not list as open is closed, so a new ground or mode is
+ * refused until the probe has read it.
  */
-export const CLOSED_COMPUTER_CELLS: readonly ClosedComputerCell[] = [
-  { map: 'tel_marum', matchup: 'kdf', winMode: null, why: '1 of 48 games stopped playing' },
-  { map: 'tel_marum', matchup: 'sarim', winMode: null, why: '1 of 48 games stopped playing' },
-  { map: 'wadi_tarfan_l', matchup: 'kdf', winMode: null, why: '39 of 48 games stopped playing' },
-  { map: 'wadi_tarfan_l', matchup: 'sarim', winMode: null, why: '29 of 48 games stopped playing' },
-  { map: 'wadi_tarfan', matchup: 'kdf', winMode: null, why: '28 of 48 games stopped playing' },
-  { map: 'wadi_tarfan', matchup: 'sarim', winMode: null, why: '36 of 48 games stopped playing' },
-];
+export const CLOSED_COMPUTER_CELLS: readonly ClosedComputerCell[] = [];
 
 /** Every cell a room can play: the fair grounds, the pairings each allows, annihilation and the modes read fair for the ground and pairing. */
 export function allComputerCells(): ComputerCell[] {
