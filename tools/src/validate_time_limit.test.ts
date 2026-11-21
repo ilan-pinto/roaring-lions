@@ -73,7 +73,7 @@ describe('the shipped limits', () => {
     ein_qasab_1_recon: 720, ein_qasab_2_foothold: 840, ein_qasab_3_buildup: 840,
     qasr_liwan_1_recon: 720, qasr_liwan_2_foothold: 840, qasr_liwan_3_buildup: 840,
     qasr_liwan_4_clearance: 840, qasr_liwan_5_subterranean: 840,
-    bir_tarsha_1_recon: 720, bir_tarsha_2_foothold: 840, bir_tarsha_3_clearance: 720, bir_tarsha_4_clearance: 840, bir_tarsha_5_subterranean: 840,
+    bir_tarsha_1_recon: 720, bir_tarsha_2_foothold: 900, bir_tarsha_3_clearance: 720, bir_tarsha_4_clearance: 840, bir_tarsha_5_subterranean: 840,
   };
   const dir = join(ROOT, 'data/missions');
   const shipped = readdirSync(dir).filter((n) => n.endsWith('.json'));
